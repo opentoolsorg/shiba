@@ -85,6 +85,12 @@ export interface CustomAgentConfig {
   avatar?: AgentAvatarChoice;
   /** Optional workspace outputs frozen into each approval. */
   expectedDeliverables?: readonly string[];
+  /**
+   * Workspace knowledge file ids this bot's Library links to. Ids only, never a
+   * copy of the bytes: opening one re-runs the file's own access check, so a
+   * link cannot widen who may read it.
+   */
+  libraryFileIds?: readonly string[];
   harness: string;
   codingModel?: string;
   connectionId?: string;
@@ -114,6 +120,23 @@ export interface CustomAgentVersionRow {
   version: number;
   config: CustomAgentConfig;
   savedAt: number;
+}
+
+/** A bot's Library links to at most this many knowledge files. */
+export const MAX_BOT_LIBRARY_FILES = 8;
+
+/** Knowledge file ids are minted server-side as `file_<hex>`; a link may only name one of those. */
+export const BOT_LIBRARY_FILE_ID = /^file_[A-Za-z0-9]{4,64}$/;
+
+/**
+ * Reads the linked file ids from a stored config, dropping anything that is not
+ * an id. The stored list is a claim about intent, never about access: each id is
+ * resolved through the file route's own permission check before it is shown.
+ */
+export function botLibraryFileIds(config: Pick<CustomAgentConfig, "libraryFileIds"> | undefined): string[] {
+  const raw = config?.libraryFileIds ?? [];
+  const ids = raw.filter((id): id is string => typeof id === "string" && BOT_LIBRARY_FILE_ID.test(id));
+  return [...new Set(ids)].slice(0, MAX_BOT_LIBRARY_FILES);
 }
 
 export function sanitizeCustomAgentSlug(raw: string): string | null {

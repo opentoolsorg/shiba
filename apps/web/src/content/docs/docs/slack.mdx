@@ -35,6 +35,16 @@ Shiba posts progress and the outcome to Slack. A pull request link appears when 
 
 In the legacy bot-token connection, replies in a thread with prior Shiba runs continue with that thread's latest employee and execution target; another mention is not required. New work still requires approval. Short acknowledgments such as “thanks” receive a check-mark reaction without queueing work. Threads Shiba has never worked in and ordinary top-level channel chatter are ignored. Follow-ups during active work still use next-turn buffering.
 
+## Get files back in the thread
+
+With the bot-token connection, a completed approved run attaches its [named deliverables](/docs/artifacts/#named-formats-and-limits) to the original Slack thread. The bot needs `files:write` in addition to its existing message permissions; a Slack admin may need to reinstall the app after granting it. The Slack slash command's private reply and managed coworker handoffs do not publish file copies to a channel.
+
+Try hiring the **Sales report** template, then mention Shiba with `employee:sales-report` and provide dates, currency, and figures or approved read sources. Review and approve the work. When it completes, look for `report.pdf` and `sales.xlsx` in that thread. You can also use [image and video requests](/docs/media-generation/#generate-media-in-slack) without creating a sandbox run.
+
+An attachment is a copy that the people in that conversation can open. Shiba never falls back to a different channel or creates a public download link. Shiba caps attachments at 32 MiB for Slack and Telegram and 20 MiB for Discord. If a file is too large or the upload cannot be confirmed, Shiba tries to post a text notice in that same conversation. It does not resend an upload it cannot confirm, since the platform might already have received it.
+
+Operators can set `SHIBA_CHANNEL_OUTPUT_DELIVERY=0` to turn off file delivery and Slack media requests without turning off ordinary status replies.
+
 <span id="architecture"></span>
 <span id="setup-instructions"></span>
 

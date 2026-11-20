@@ -37,6 +37,7 @@ gateway is stateless (`createMcpHandler` per request), not a DO. Work happens in
    Dashboard  ────────► │  /api/*  authenticated (Cloudflare Access, or  │
                        │  built-in email+password lane at /api/auth/*)  │
    Slack / Discord  ──► │  /api/slack/*, /api/discord/*  signature-verified│
+   Microsoft Teams  ──► │  /api/teams/messages  Bot Connector JWT        │
    Telegram  ─────────► │  /api/telegram/*  header-secret                 │
    Email  ───────────► │  /api/emails, /api/drafts  provider-verified    │
    Cron (5 min)  ────► │  automations trigger sweep                      │
@@ -80,6 +81,11 @@ gateway is stateless (`createMcpHandler` per request), not a DO. Work happens in
 | **Presentation** | `apps/frontend` (dashboard), `apps/web` (docs/marketing) | React dashboard; Astro docs. Both served via the Worker's `ASSETS` binding. |
 | **Deploy** | `alchemy.run.ts` (primary), `wrangler.jsonc` (rollback) | Both declare the same stack; wrangler remains a working rollback path. |
 
+The Teams bot binds a single Azure tenant to one native workspace. The
+Connector JWT gates installation and activity intake; D1 retains the active
+connection generation and the exact reply destination per task. The Worker
+obtains and attaches the Connector token for status, card, and result delivery.
+
 **Three deployment facts that matter:**
 
 1. **Two deploy paths, one stack.** `alchemy.run.ts` and `wrangler.jsonc`
@@ -113,6 +119,8 @@ secrets, and deployment sequence. The [integration package boundaries](docs/inte
 The optional `ComputerSession` class owns a separately approved, offline human desktop; it never attaches to a coding sandbox. Its resource reservation, native audience, scoped one-shot RPC operations and private frames are independent of employee/provider billing. The default stack does not provision its optional namespace/image. [Computer limits and verification](docs/shared-computers.md) distinguish source/fixture checks from an actual image and Cloudflare run.
 
 [Output archives](docs/container-replacement-journal-proposal.md) retain an approved native owner's sanitized, externally acknowledged output in room SQLite, with a separate D1 quota/lease reservation. They do not restore destroyed processes, unacknowledged output or uncommitted files, and do not authorize replacement execution.
+
+The BrowserSession DO serializes agent and dashboard operations for one authenticated Chat thread and stores the Cloudflare Browser Rendering session ID for reconnects. Browser access is separate from both local computers and coding containers. Saved browser logins are purpose-bound ciphertext in D1; only an approved Worker-side sign-in on the exact saved HTTPS origin can decrypt them.
 
 ## 4. Durable Objects — the state map
 
@@ -226,7 +234,8 @@ existing enforcement point:
    the container; automation webhooks are header-only; no secret in a query
    string or an error message.
 5. **Per-surface authentication.** Access-gated APIs, signature-verified Slack
-   and GitHub, header-secret Telegram/Discord/email, bearer-token `/mcp`, and a
+   and GitHub, header-secret Telegram/Discord/email, DMARC-verified email task
+   intake (`channels/email`), bearer-token `/mcp`, and a
    narrow explicit bypass list. A new ingress surface must add its own
    mechanism, never inherit one.
 
@@ -443,7 +452,7 @@ Not bugs — deliberate or inherited, recorded so they are not rediscovered:
 | how a run executes | `agents/opencode-agent.ts` → `harness/index.ts` → `harness/types.ts` |
 | the security boundary | `egress.ts`, `sandbox.ts`, `security.ts` |
 | state and persistence | the nine DO classes in §4 (`*-do.ts` plus the agent classes) |
-| every ingress surface | `slack-routes.ts`, `chat-lane.ts`, `telegram.ts`, `discord.ts`, `email-handler.ts` |
+| every ingress surface | `slack-routes.ts`, `chat-lane.ts`, `telegram.ts`, `discord.ts`, `email-handler.ts`, `email-tasks.ts` |
 | what is planned and why | `PLAN.md` (§17 for parity roadmap, §4 for what was cut and why) |
 
 **Do not enable `SHIBA_SCOPED_DO` for personal desktop pairing yet.** Several LocalDispatch callers still resolve the default owner mailbox (`local-routes.ts`, `computers-routes.ts`, `provider-sign-in.ts`) while scoped personal dispatch resolves the account owner, so flag-on daemon routing needs its own review first.

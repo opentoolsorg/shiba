@@ -78,13 +78,14 @@ export function createTelegramAdapter(input: {
     async post(post) {
       const response = await call("sendMessage", {
         chat_id: chatId(post.placeId),
+        ...(post.threadId ? { message_thread_id: messageId(post.threadId) } : {}),
         ...(post.replyToMessageId
-          ? { reply_parameters: { message_id: messageId(post.replyToMessageId), allow_sending_without_reply: true } }
+          ? { reply_parameters: { message_id: messageId(post.replyToMessageId), allow_sending_without_reply: !post.threadId } }
           : {}),
         text: post.text,
         ...post.native,
       });
-      return { placeId: post.placeId, messageId: asString(resultOf(response).message_id) };
+      return { placeId: post.placeId, messageId: asString(resultOf(response).message_id), ...(post.threadId ? { threadId: post.threadId } : {}) };
     },
     async edit(edit) {
       await call("editMessageText", {
@@ -104,6 +105,7 @@ export function createTelegramAdapter(input: {
     async upload(upload) {
       const form = new FormData();
       form.set("chat_id", String(upload.placeId));
+      if (upload.threadId) form.set("message_thread_id", String(messageId(upload.threadId)));
       if (upload.comment) form.set("caption", upload.comment);
       form.set("document", new Blob([upload.data], { type: upload.contentType }), upload.filename);
       const response = await channelFetch(fetchImpl, "Telegram sendDocument", `${TELEGRAM_API}/bot${input.token}/sendDocument`, {
@@ -112,7 +114,9 @@ export function createTelegramAdapter(input: {
       });
       const json = await readJsonObject(response);
       if (!response.ok || json.ok !== true) throw new Error(`Telegram sendDocument failed (${response.status}).`);
-      return { placeId: upload.placeId, messageId: asString(resultOf(json).message_id) } satisfies ChannelMessageRef;
+      const result = resultOf(json);
+      if (upload.threadId && asString(result.message_thread_id) !== upload.threadId) throw new Error("Telegram returned an unexpected upload topic.");
+      return { placeId: upload.placeId, messageId: asString(result.message_id), ...(upload.threadId ? { threadId: upload.threadId } : {}) } satisfies ChannelMessageRef;
     },
     async download(fileId) {
       const file = resultOf(await call("getFile", { file_id: fileId }));
@@ -155,9 +159,9 @@ export function telegramDisplayName(user: { username?: string; first_name?: stri
   return user?.first_name || String(user?.id ?? "unknown");
 }
 
-function conversationKeyFor(placeId: string): string {
+function conversationKeyFor(placeId: string, topicId?: number): string {
   try {
-    return buildChatThreadName("telegram", placeId);
+    return buildChatThreadName("telegram", topicId === undefined ? placeId : `${placeId}:${topicId}`);
   } catch {
     return "";
   }
@@ -204,7 +208,7 @@ export const telegramTransport: ChannelTransport = {
         kind: "action",
         channel: "telegram",
         deliveryId,
-        conversationKey: conversationKeyFor(placeId),
+        conversationKey: conversationKeyFor(placeId, query.message?.message_thread_id),
         placeId,
         ...(typeof query.message?.message_id === "number" ? { messageId: String(query.message.message_id) } : {}),
         ...(typeof query.message?.text === "string" ? { messageText: query.message.text } : {}),
@@ -222,7 +226,7 @@ export const telegramTransport: ChannelTransport = {
       kind: "message",
       channel: "telegram",
       deliveryId,
-      conversationKey: conversationKeyFor(placeId),
+      conversationKey: conversationKeyFor(placeId, message.message_thread_id),
       placeId,
       messageId: asString(message.message_id),
       ...(typeof message.message_thread_id === "number" ? { threadId: String(message.message_thread_id) } : {}),
@@ -235,7 +239,7 @@ export const telegramTransport: ChannelTransport = {
       raw: message,
     };
   },
-  conversationKey: (event: InboundEvent) => conversationKeyFor(event.placeId),
+  conversationKey: (event: InboundEvent) => event.conversationKey,
 };
 
 export const telegramChannel: ChannelDefinition = {

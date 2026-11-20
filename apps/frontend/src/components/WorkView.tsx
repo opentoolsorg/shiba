@@ -56,6 +56,8 @@ export interface WorkViewProps {
   pendingApprovals?: ChatPendingApproval[];
   onSelectTask?: (id: string, kind: WorkTask["kind"]) => void;
   onNewTask?: () => void;
+  /** Why task creation is unavailable while onNewTask is absent. */
+  newTaskBlockedReason?: string;
   onQuickAddTask?: (task: string) => Promise<boolean>;
   onReviewApproval?: (approvalId: string) => void;
   /** Supplied only after current workspace membership has been verified. */
@@ -464,6 +466,8 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
           if (searchOpen) setFilterQuery("");
         }}
         onNewTask={onNewTask ?? (() => {})}
+        newTaskDisabled={!onNewTask}
+        newTaskDisabledReason={props.newTaskBlockedReason}
         activeView={activeView}
         onViewChange={setView}
         className="border-b border-zinc-200 dark:border-zinc-800"

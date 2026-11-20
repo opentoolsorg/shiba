@@ -5,6 +5,8 @@
  * original human review authorization, lifecycle wakes, findings, and retries.
  */
 import type { UIMessage } from "ai";
+import { createHmac } from "node:crypto";
+import { getAgentByName } from "agents/routing";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { CodingOrchestrator, type OrchestratorState } from "../src/agents/orchestrator.js";
@@ -20,6 +22,9 @@ import { runInputHash } from "@shiba/shared";
 import { deliverableStorageKey, persistRunDeliverables, verifyExpectedDeliverables } from "../src/run-deliverables.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 import { setSandboxHandleResolver } from "../src/sandbox/lifecycle.js";
+import worker from "../src/index.js";
+
+vi.mock("agents/routing", () => ({ getAgentByName: vi.fn(), routeAgentRequest: vi.fn().mockResolvedValue(null) }));
 
 const REPO = "https://github.com/o/r";
 const TOKEN = "ghp_testtoken12345678";
@@ -172,16 +177,24 @@ function reviewerEnvelope(summary: string) {
 let publicationBucket: R2Bucket;
 
 function memoryPublicationBucket(): R2Bucket {
-  const stored = new Map<string, Uint8Array>();
+  const stored = new Map<string, { bytes: Uint8Array; customMetadata?: Record<string, string>; etag: string }>();
+  let version = 0;
   return {
-    put: vi.fn(async (key: string, value: string | Uint8Array) => {
+    put: vi.fn(async (key: string, value: string | Uint8Array, options?: R2PutOptions) => {
+      const condition = options?.onlyIf as R2Conditional | undefined;
+      if (condition?.etagDoesNotMatch === "*" && stored.has(key)) return null;
+      if (condition?.etagMatches && condition.etagMatches !== stored.get(key)?.etag) return null;
       const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value.slice();
-      stored.set(key, bytes);
-      return { key, size: bytes.byteLength };
+      const etag = String(++version);
+      stored.set(key, { bytes, customMetadata: options?.customMetadata, etag });
+      return { key, size: bytes.byteLength, etag };
     }),
     get: vi.fn(async (key: string) => {
-      const bytes = stored.get(key);
-      return bytes ? { size: bytes.byteLength, arrayBuffer: async () => bytes.slice().buffer } : null;
+      const object = stored.get(key);
+      return object ? {
+        size: object.bytes.byteLength, etag: object.etag, customMetadata: object.customMetadata,
+        arrayBuffer: async () => object.bytes.slice().buffer, text: async () => new TextDecoder().decode(object.bytes),
+      } : null;
     }),
   } as unknown as R2Bucket;
 }
@@ -295,6 +308,151 @@ beforeEach(() => {
   mocks.specialist.mockResolvedValue({ agent: "reviewer", status: "completed", summary: "Captured diff reviewed.", report: "The frozen task and captured diff were inspected.", findings: [] });
   publicationBucket = memoryPublicationBucket();
 });
+
+it("runs the operator-provisioned Slack mention and command journeys through the Worker routes", async () => {
+  const signingSecret = "slack-journey-fixture-only";
+  const seen = new Set<string>();
+  const settings: Partial<Env> = {
+    SLACK_SIGNING_SECRET: signingSecret, SLACK_BOT_TOKEN: "fixture-bot", SLACK_APPROVERS: "UAPPROVER",
+    Automations: {
+      idFromName: (name: string) => name,
+      get: () => ({ fetch: async (request: Request) => {
+        if (new URL(request.url).pathname !== "/internal/dedupe") return Response.json({ ok: true });
+        const { key } = await request.json() as { key: string };
+        const exists = seen.has(key);
+        seen.add(key);
+        return Response.json({ seen: exists });
+      } }),
+    } as unknown as Env["Automations"],
+  };
+  const instance = agent(settings);
+  const commandInstance = agent(settings);
+  const posts: Array<{ channel: string; thread_ts: string; text: string; blocks?: Array<{ elements?: Array<{ action_id: string; value: string }> }> }> = [];
+  const edits: Array<{ replace_original?: boolean; text?: string }> = [];
+  const commandCards: Array<(typeof posts)[number]> = [];
+  const privatePosts: Array<{ channel: string; user: string; text: string }> = [];
+  const thread = "1700000000.000001";
+  Object.assign(instance, { name: `slack:T123:C123:${thread}` });
+  vi.mocked(getAgentByName).mockImplementation(async (_namespace, name) => {
+    const target = [instance, commandInstance].find((candidate) => candidate.name === name);
+    expect(target).toBeDefined();
+    return { fetch: (request: Request) => target!.onRequest(request) } as never;
+  });
+  mocks.execute.mockResolvedValue(formatAgentResult({
+    status: "completed", exitCode: 0, stderrTail: "", changedFiles: [], diff: "", files: [], summary: "Fixture analysis completed.",
+  }));
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (url.origin === "https://slack.com" && url.pathname === "/api/conversations.replies") return Response.json({ ok: true, messages: [] });
+    if (url.origin === "https://slack.com" && url.pathname === "/api/chat.postMessage") {
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer fixture-bot");
+      const post = JSON.parse(String(init?.body));
+      posts.push(post);
+      return Response.json({ ok: true, channel: post.channel, ts: "1700000000.000099" });
+    }
+    if (url.href === "https://slack.com/api/auth.test") return Response.json({ ok: true, team_id: "T123", user_id: "UBOT", bot_id: "BBOT" });
+    if (url.href === "https://slack.com/api/chat.postEphemeral") {
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer fixture-bot");
+      privatePosts.push(JSON.parse(String(init?.body)));
+      return Response.json({ ok: true, message_ts: "1700000000.000098" });
+    }
+    if (url.href === "https://hooks.slack.com/actions/fixture") {
+      edits.push(JSON.parse(String(init?.body)));
+      return new Response("ok");
+    }
+    if (url.href === "https://hooks.slack.com/commands/fixture") {
+      commandCards.push(JSON.parse(String(init?.body)));
+      return new Response("ok");
+    }
+    throw new Error(`Unstubbed fixture destination: ${url.origin}${url.pathname}`);
+  }));
+  async function send(path: string, body: string, options: { secret?: string; age?: number } = {}) {
+    const timestamp = Math.floor(Date.now() / 1000) - (options.age ?? 0);
+    const signature = createHmac("sha256", options.secret ?? signingSecret).update(`v0:${timestamp}:${body}`).digest("hex");
+    const pending: Promise<unknown>[] = [];
+    const request = new Request(`https://shiba.test/api/slack/${path}`, {
+      method: "POST", body,
+      headers: {
+        "content-type": path === "events" ? "application/json" : "application/x-www-form-urlencoded",
+        "x-slack-request-timestamp": String(timestamp), "x-slack-signature": `v0=${signature}`,
+      },
+    });
+    const response = await worker.fetch(request, (instance as unknown as { env: Env }).env, {
+      waitUntil: (promise: Promise<unknown>) => pending.push(promise),
+    } as unknown as Parameters<typeof worker.fetch>[2]);
+    await Promise.all(pending);
+    return response;
+  }
+  try {
+    const event = (id: string) => JSON.stringify({
+      type: "event_callback", event_id: id, api_app_id: "A123", team_id: "T123",
+      event: { type: "app_mention", channel: "C123", user: "UREQUESTER", ts: thread, text: "<@UBOT> workspace:fixture Draft a brief." },
+    });
+    expect((await send("events", JSON.stringify({ type: "url_verification", challenge: "fixture" }))).status).toBe(200);
+    const request = event("EfixtureApproval");
+    expect((await send("events", request, { secret: "wrong-fixture-key" })).status).toBe(401);
+    expect((await send("events", request, { age: 600 })).status).toBe(401);
+    expect(posts).toHaveLength(0);
+    expect((await send("events", request)).status).toBe(200);
+    const card = posts.find((post) => post.blocks?.some((block) => block.elements?.some((element) => element.action_id === "approve")));
+    expect(card).toMatchObject({ channel: "C123", thread_ts: thread });
+    const click = (post: NonNullable<typeof card>, actionId: string, userId = "UAPPROVER", ts = thread) => new URLSearchParams({
+      payload: JSON.stringify({
+        type: "block_actions", api_app_id: "A123", team: { id: "T123" }, channel: { id: "C123" }, user: { id: userId },
+        response_url: "https://hooks.slack.com/actions/fixture",
+        message: { ts: "1700000000.000099", thread_ts: ts, blocks: post.blocks },
+        actions: [post.blocks?.flatMap((block) => block.elements ?? []).find((element) => element.action_id === actionId)],
+      }),
+    }).toString();
+    const forged = await send("interact", click(card!, "approve"), { secret: "wrong-fixture-key" });
+    expect(forged.status).toBe(401);
+    expect((await send("interact", click(card!, "approve", "UAPPROVER", "1700000000.000002"))).status).toBe(400);
+    const unauthorized = await send("interact", click(card!, "approve", "UREQUESTER"));
+    expect(await unauthorized.json()).toMatchObject({ text: expect.stringMatching(/unauthorized/i) });
+    expect((await send("events", request)).status).toBe(200);
+    expect(posts.filter((post) => post.blocks)).toHaveLength(1);
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.destroy).not.toHaveBeenCalled();
+
+    expect((await send("interact", click(card!, "approve"))).status).toBe(200);
+    await vi.waitFor(() => {
+      expect(instance.state.runs).toEqual([expect.objectContaining({ status: "completed", approval: expect.objectContaining({ decidedBy: "UAPPROVER" }) })]);
+      expect(posts).toContainEqual(expect.objectContaining({ channel: "C123", thread_ts: thread, text: expect.stringContaining("Fixture analysis completed.") }));
+    });
+    expect((await send("interact", click(card!, "approve"))).status).toBe(200);
+    expect(mocks.execute).toHaveBeenCalledOnce();
+
+    expect((await send("events", event("EfixtureRejection"))).status).toBe(200);
+    const deniedCard = posts.filter((post) => post.blocks).at(-1)!;
+    expect(deniedCard).not.toBe(card);
+    expect((await send("interact", click(deniedCard, "reject"))).status).toBe(200);
+    expect(edits).toContainEqual(expect.objectContaining({ replace_original: true, text: expect.stringMatching(/rejected/i) }));
+    expect(mocks.execute).toHaveBeenCalledOnce();
+
+    const command = new URLSearchParams({
+      command: "/shiba", team_id: "T123", api_app_id: "A123", channel_id: "C123", user_id: "UREQUESTER",
+      text: "workspace:fixture Draft a private brief.", trigger_id: "fixture-command", response_url: "https://hooks.slack.com/commands/fixture",
+    }).toString();
+    expect((await send("command", command, { secret: "wrong-fixture-key" })).status).toBe(401);
+    const commandCardResponse = await send("command", command);
+    expect(commandCardResponse.status).toBe(200);
+    expect(await commandCardResponse.json()).toMatchObject({ response_type: "ephemeral", text: expect.stringMatching(/queueing/i) });
+    expect(commandCards).toEqual([expect.objectContaining({ response_type: "ephemeral", text: expect.stringContaining("completion privately") })]);
+    const duplicate = await send("command", command);
+    expect(await duplicate.json()).toMatchObject({ text: "Already processed." });
+    expect(mocks.execute).toHaveBeenCalledOnce();
+    expect((await send("interact", click(commandCards[0]!, "approve"))).status).toBe(200);
+    await vi.waitFor(() => {
+      expect(commandInstance.state.runs).toEqual([expect.objectContaining({ status: "completed" })]);
+      expect(privatePosts).toContainEqual(expect.objectContaining({
+        channel: "C123", user: "UREQUESTER", text: expect.stringContaining("Fixture analysis completed."),
+      }));
+    });
+    expect(mocks.execute).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+}, 15_000);
 
 
 /** Retained legacy publications carry their original human review authorization. */

@@ -9,12 +9,36 @@ const MAX_TOTAL_BYTES = 65_536;
 const MAX_HTML_BYTES = 524_288;
 const MAX_PDF_BYTES = 10_485_760;
 const MAX_LARGE_BYTES = MAX_HTML_BYTES + MAX_PDF_BYTES;
+const MAX_OFFICE_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_MP4_BYTES = 12 * 1024 * 1024;
+const MAX_OFFICE_MEDIA_TOTAL = 16 * 1024 * 1024;
 const MAX_FILES = 8;
 
 // Mirror packages/shared/src/deliverables.ts without requiring installed packages.
+const magic = (signature, offset = 0) => (bytes) => bytes.subarray(offset, offset + signature.length).equals(signature);
+const ascii = (text, offset = 0) => magic(Buffer.from(text), offset);
+const zip = ascii("PK\x03\x04");
+const jpeg = magic(Buffer.from([0xff, 0xd8, 0xff]));
+const pdf = ascii("%PDF-");
+const png = magic(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+const riff = ascii("RIFF"), webp = ascii("WEBP", 8);
+const gif87 = ascii("GIF87a"), gif89 = ascii("GIF89a");
+const ftyp = ascii("ftyp", 4);
+const officeMediaSignatures = {
+  xlsx: zip, docx: zip, pptx: zip, png, jpg: jpeg, jpeg,
+  webp: (bytes) => riff(bytes) && webp(bytes),
+  gif: (bytes) => gif87(bytes) || gif89(bytes),
+  mp4: (bytes) => {
+    if (bytes.length < 16 || !ftyp(bytes)) return false;
+    const size = bytes.readUInt32BE();
+    return size >= 16 && size <= bytes.length && size % 4 === 0;
+  },
+};
+const allowedExtensions = new Set(["md", "txt", "json", "csv", "html", "pdf", ...Object.keys(officeMediaSignatures)]);
+
 function safePath(value) {
   return typeof value === "string" && value.length > 0 && value.length <= 240
-    && value === value.trim() && /\.(?:md|txt|json|csv|html|pdf)$/i.test(value)
+    && value === value.trim() && allowedExtensions.has(path.extname(value).slice(1).toLowerCase())
     && value.split("/").every((part) => part.length > 0 && part === part.trim()
       && /^[A-Za-z0-9][A-Za-z0-9._ -]*$/.test(part));
 }
@@ -52,7 +76,7 @@ async function checkedLeaf(root, realRoot, relativePath) {
 
 export function validateExpectedDeliverables(requested) {
   if (!Array.isArray(requested) || requested.length > MAX_FILES || requested.some((value) => !safePath(value))) {
-    throw new Error("Expected deliverables must be at most 8 safe relative non-hidden md/txt/json/csv/html/pdf paths.");
+    throw new Error("Expected deliverables must be at most 8 safe relative non-hidden paths with supported file extensions.");
   }
   if (new Set(requested.map((value) => value.toLowerCase())).size !== requested.length) {
     throw new Error("Expected deliverable paths must be unique.");
@@ -60,7 +84,7 @@ export function validateExpectedDeliverables(requested) {
 }
 
 /**
- * Return complete requested UTF-8 bodies or base64 PDFs, or throw; never return a partial
+ * Return complete requested UTF-8 or base64 bodies, or throw; never return a partial
  * successful artifact list. Unspecified deliverables leave legacy collection alone.
  */
 export async function captureExpectedDeliverables(cloneDir, requested) {
@@ -74,10 +98,13 @@ export async function captureExpectedDeliverables(cloneDir, requested) {
   const files = [];
   let totalBytes = 0;
   let largeBytes = 0;
+  let officeMediaBytes = 0;
   for (const relativePath of requested) {
     try {
-      const extension = path.extname(relativePath).toLowerCase();
-      const maxBytes = extension === ".pdf" ? MAX_PDF_BYTES : extension === ".html" ? MAX_HTML_BYTES : MAX_FILE_BYTES;
+      const extension = path.extname(relativePath).slice(1).toLowerCase();
+      const officeMedia = officeMediaSignatures[extension];
+      const maxBytes = extension === "mp4" ? MAX_MP4_BYTES : officeMedia ? MAX_OFFICE_IMAGE_BYTES
+        : extension === "pdf" ? MAX_PDF_BYTES : extension === "html" ? MAX_HTML_BYTES : MAX_FILE_BYTES;
       const leaf = await checkedLeaf(root, realRoot, relativePath);
       if (leaf.stat.size === 0 || leaf.stat.size > maxBytes) throw new Error(`file must contain 1–${maxBytes} bytes`);
       const handle = await fs.open(leaf.absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -98,16 +125,20 @@ export async function captureExpectedDeliverables(cloneDir, requested) {
         const current = await checkedLeaf(root, realRoot, relativePath);
         if (before.size !== length || after.size !== length || before.mtimeMs !== after.mtimeMs
           || current.stat.ino !== before.ino || current.stat.dev !== before.dev) throw new Error("file changed or was truncated during capture");
-        if (extension === ".html" || extension === ".pdf") {
+        if (extension === "html" || extension === "pdf") {
           largeBytes += length;
           if (largeBytes > MAX_LARGE_BYTES) throw new Error(`HTML and PDF deliverables exceed the ${MAX_LARGE_BYTES}-byte total limit`);
+        } else if (officeMedia) {
+          officeMediaBytes += length;
+          if (officeMediaBytes > MAX_OFFICE_MEDIA_TOTAL) throw new Error(`Office and media deliverables exceed the ${MAX_OFFICE_MEDIA_TOTAL}-byte total limit`);
         } else {
           totalBytes += length;
           if (totalBytes > MAX_TOTAL_BYTES) throw new Error("deliverables exceed the 65536-byte total limit");
         }
         const complete = bytes.subarray(0, length);
-        if (extension === ".pdf") {
-          if (!complete.subarray(0, 5).equals(Buffer.from("%PDF-"))) throw new Error("file is not a valid PDF file");
+        const signature = extension === "pdf" ? pdf : officeMedia;
+        if (signature) {
+          if (!signature(complete)) throw new Error(`file is not a valid ${extension.toUpperCase()} file`);
           files.push({ path: relativePath, content: complete.toString("base64"), encoding: "base64" });
           continue;
         }

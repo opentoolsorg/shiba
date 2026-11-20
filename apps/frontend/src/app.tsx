@@ -37,9 +37,11 @@ import { SkillsView } from "./components/SkillsView";
 import { SpacesView } from "./components/SpacesView";
 import { CustomAgentsView, useCustomAgentOptions, type CustomAgentWire } from "./components/CustomAgentsView";
 import { EmployeeToolPolicyView } from "./components/EmployeeToolPolicyView";
-import { AgentDetailsPanel, EmployeeOnboarding, ONBOARDING_DISMISSED_KEY, createEmployeeAgent, employeeExamples } from "./components/AgentExperience";
+import { AgentDetailsPanel, BotThreadlessState, EmployeeOnboarding, ONBOARDING_DISMISSED_KEY, createEmployeeAgent, employeeExamples } from "./components/AgentExperience";
+import type { BotRunsScope } from "./components/bot/BotPanel";
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
 import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
+import { saveBotConfig, saveBotDeliverables, type BotConfigEdit } from "./bot-library";
 import { useProjectContexts } from "./project-contexts";
 import { buildExecutionTargetFields, hasComposerInput, parseArtifactDeliverables, type DashboardExecutionTargetFields } from "./execution-target-input";
 import { appToolsWorkIssue, sendAppToolsWork } from "./app-tools-work";
@@ -93,6 +95,7 @@ import { DiffView } from "./components/DiffView";
 import { ApprovalsView } from "./components/ApprovalsView";
 import { InboxTab } from "./components/InboxTab";
 import { IntegrationsView } from "./components/IntegrationsView";
+import { BrowserPanel } from "./components/BrowserPanel";
 import { MemoryTab } from "./components/MemoryTab";
 import { FilesView } from "./components/knowledge/FilesView";
 import { NotesEditor } from "./components/knowledge/NotesEditor";
@@ -157,8 +160,12 @@ function useRetainedRuns(
   sessionApiAvailable: boolean,
   fullDetail: boolean,
   enabled: boolean,
-): { runs: RetainedRun[]; error: string | null; detailReady: boolean; listSettled: boolean } {
+): { runs: RetainedRun[]; error: string | null; detailReady: boolean; listSettled: boolean; runsSession: string | null } {
   const [runs, setRuns] = useState<RetainedRun[]>([]);
+  // The session whose answer produced the rows on screen. Rows stay visible
+  // while a new scope loads, so anything that builds a URL from a run must read
+  // this rather than the newly selected session.
+  const [runsSession, setRunsSession] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [listSettled, setListSettled] = useState(false);
   // True once a full-payload response has landed while fullDetail was on.
@@ -169,6 +176,7 @@ function useRetainedRuns(
   useEffect(() => {
     if (!enabled) {
       setRuns([]); setError(null); setDetailReady(false);
+      setRunsSession(null);
       setListSettled(true);
       return;
     }
@@ -187,12 +195,16 @@ function useRetainedRuns(
           if (await isSessionNotFoundBody(response)) {
             if (!cancelled) {
               setRuns([]);
+              setRunsSession(sessionId);
               setError(null);
               setDetailReady(fullDetail);
               setListSettled(true);
             }
             return;
           }
+          // Only the scope still on screen may fall back to an unscoped read;
+          // a stale 405 must not pull the default store into a newer selection.
+          if (cancelled) return;
           sessionScoped = false;
           url = runsListUrl(sessionId, false, fullDetail);
           response = await fetch(url);
@@ -201,6 +213,8 @@ function useRetainedRuns(
         const body = (await response.json()) as { runs?: RetainedRun[] };
         if (!cancelled) {
           setRuns(Array.isArray(body.runs) ? body.runs : []);
+          // An unscoped answer is the default session's own store.
+          setRunsSession(sessionScoped ? sessionId : DEFAULT_THREAD_ID);
           setError(null);
           setDetailReady(fullDetail);
           setListSettled(true);
@@ -218,7 +232,7 @@ function useRetainedRuns(
     };
   }, [refreshToken, sessionId, sessionApiAvailable, fullDetail, enabled]);
 
-  return { runs: enabled ? runs : [], error: enabled ? error : null, detailReady: enabled && detailReady, listSettled };
+  return { runs: enabled ? runs : [], error: enabled ? error : null, detailReady: enabled && detailReady, listSettled, runsSession: enabled ? runsSession : null };
 }
 
 
@@ -446,6 +460,16 @@ export function App(): React.JSX.Element {
   const taskRouteChosen = useRef(false);
   const [customAgentId, setCustomAgentId] = useState("");
   const [agentDetailsOpen, setAgentDetailsOpen] = useState(() => typeof window !== "undefined" && window.innerWidth >= 1280);
+  // A bot page can be open without its conversation: the bot has no thread yet,
+  // or its thread did not answer. Both are their own states — the surface shows
+  // the bot and one Start action, and the previous bot's thread chrome, composer
+  // and draft stay off screen.
+  const [botPage, setBotPage] = useState<"chat" | "pending" | "empty" | "unavailable">("chat");
+  /** Why this bot page has no conversation, when the reason is more specific than "no thread". */
+  const [botPageMessage, setBotPageMessage] = useState<string | null>(null);
+  // Every selection takes a ticket; an answer that arrives after a newer
+  // selection threw its ticket away is dropped.
+  const sessionSelectionSeq = useRef(0);
   const [employeeOnboardingDismissed, setEmployeeOnboardingDismissed] = useState(() => {
     try { return localStorage.getItem(ONBOARDING_DISMISSED_KEY) === "true"; } catch { return false; }
   });
@@ -571,6 +595,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const selectedSessionIdRef = useRef<string>(selectedSessionId);
   selectedSessionIdRef.current = selectedSessionId;
   const [sessionRegistryOwner, setSessionRegistryOwner] = useState<string | null>(null);
+  const [sessionRegistryAnswer, setSessionRegistryAnswer] = useState<{ actor: string | null; failed: boolean } | null>(null);
 
   // Uploads belong to one session; drop results that arrive after switching threads.
   const attachmentsGeneration = useRef(0);
@@ -822,7 +847,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       // Query state belongs to the view that set it, so a view change starts
       // clean — except when the browser itself restored the query.
       const kept = traversing || first || !viewChanged ? window.location.search : "";
-      const query = withThreadLink(kept, shared ? null : selectedSessionId);
+      // A bot page with no thread has no conversation to point at, so it keeps no
+      // session selector in the address.
+      const query = withThreadLink(kept, shared || botPage !== "chat" ? null : selectedSessionId);
       const path = query ? `${base}?${query}` : base;
       const push = !traversing && ((viewChanged && !first) || threadUrlMode.current === "push");
       threadUrlMode.current = "replace";
@@ -836,7 +863,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     if (window.location.pathname === base) return;
     if (first) router.history.replace(base + window.location.search + window.location.hash);
     else router.history.push(base);
-  }, [mainView, settingsSection, selectedSessionId, teamWorkspaceId, threadLinkPending, router]);
+  }, [mainView, settingsSection, selectedSessionId, botPage, teamWorkspaceId, threadLinkPending, router]);
 
   useEffect(() => {
     const onPop = () => {
@@ -1013,6 +1040,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const {
     agents: customAgentRecords,
     refresh: refreshCustomAgents,
+    applyAgent: applyCustomAgentRecord,
     loading: customAgentsLoading,
     error: customAgentsError,
   } = useCustomAgentOptions(signedIn && workspaceAuthorityReady && !teamDirectory.error, teamWorkspaceId || undefined, orchestratorName ?? undefined);
@@ -1057,6 +1085,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     localRunAvailable,
     targetMachineId: selectedLocalMachineId,
     computers: localComputers,
+    paired: pairedLocalComputers,
     loading: localComputersLoading,
     error: localComputersError,
     selectMachine: selectLocalMachine,
@@ -1070,6 +1099,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const [launchBlocked, setLaunchBlocked] = useState(false);
   const [toolSetup, setToolSetup] = useState<SetupStatus["toolSetup"] | null>(null);
   const [chatLookupIds, setChatLookupIds] = useState<ChatLookupId[]>([]);
+  useEffect(() => {
+    setChatLookupIds((current) => current.includes("browser") ? current.filter((id) => id !== "browser") : current);
+  }, [orchestratorName, selectedSessionId]);
   const chatLookups = useMemo(() => chatLookupOptions(toolSetup ?? null, chatLookupIds), [toolSetup, chatLookupIds]);
   // The lookup toggles must not change the submit callback's identity after mount:
   // StrictMode render retries restore the composer draft against it.
@@ -1419,9 +1451,14 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const activeWebSession = visibleWebSessions.find((session) => session.id === selectedSessionId);
   const sessionCustomAgentId = threadAgentId(activeWebSession);
   useEffect(() => {
+    // A bot page owns its bot. Pruning a dead thread resets the session to the
+    // default one, and restoring the selected conversation's bot there would put
+    // Shiba's name and Start action on the recovery surface of the bot the reader
+    // actually opened.
+    if (botPage !== "chat") return;
     // Also restore when the registry arrives after mount, not only on sidebar clicks.
     setCustomAgentId(sessionCustomAgentId);
-  }, [selectedSessionId, sessionCustomAgentId]);
+  }, [selectedSessionId, sessionCustomAgentId, botPage]);
   const builtinTaskDefaults = useRef<{ harness: string; codingModel: string; connectionId: string; repoUrl: string; runTarget: "sandbox" | "local" } | null>(null);
   const applyThreadProfile = useCallback((profile: CustomAgentWire) => {
     taskRouteChosen.current = true;
@@ -1500,14 +1537,18 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   useEffect(() => {
     if (!privateDataEnabled) {
       setSessionsLoaded(true);
+      setSessionRegistryAnswer(null);
       return;
     }
+    setSessionsLoaded(false);
     let cancelled = false;
+    let answer: { actor: string | null; failed: boolean } | null = null;
     fetch("/api/sessions", { cache: "no-store", credentials: "same-origin" })
       .then(async (response) => {
         // Older backends have no sessions API: stay on the implicit default
         // session and use unscoped run routes instead of erroring.
         if (response.status === 404 || response.status === 405) {
+          answer = { actor: orchestratorName, failed: false };
           if (!cancelled) setSessionApiAvailable(false);
           return;
         }
@@ -1517,6 +1558,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         const body = (await response.json()) as {
           sessions?: WebThread[];
         };
+        answer = { actor: orchestratorName, failed: false };
         if (!cancelled) {
           setSessionRegistryOwner(orchestratorName);
           setSessionApiAvailable(true);
@@ -1540,12 +1582,14 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         }
       })
       .catch((error: unknown) => {
+        answer = { actor: orchestratorName, failed: true };
         if (!cancelled) setNotice(error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
         if (!cancelled) {
           setSessionsLoaded(true);
           setSessionsSettledFor(orchestratorName);
+          setSessionRegistryAnswer(answer);
           setPendingThreadLink(null);
         }
       });
@@ -1554,7 +1598,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     };
   }, [privateDataEnabled, orchestratorName]);
   // Inspectors need the retained details; other surfaces use the summary projection.
-  const { runs: retainedRuns, error: runsError, detailReady: runsDetailReady, listSettled } =
+  const { runs: fetchedRuns, error: runsError, detailReady: runsDetailReady, listSettled, runsSession } =
     useRetainedRuns(
       refreshToken,
       selectedSessionId,
@@ -1562,6 +1606,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       mainView === "diff" || mainView === "work",
       privateDataEnabled,
     );
+  // Rows outlive the session they were read from, so every consumer reads this
+  // one gated list: while another session's answer is pending, a run from the
+  // previous session is not on screen to be linked, reviewed or measured.
+  const runsStale = runsSession !== null && runsSession !== selectedSessionId;
+  const retainedRuns = runsStale ? [] : fetchedRuns;
   const legacyWorkSettled = listSettled && retainedRuns.some((candidate) => !candidate.draftTaskId && candidate.status === "completed");
   returningWorkRef.current = returningWorkRef.current || legacyWorkSettled;
   // A late runs read closes a guide that opened itself, never one the person
@@ -1746,11 +1795,12 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       if (decidedRef.current.has(approvalId)) return;
       decidedRef.current.add(approvalId);
       setDecisions((current) => ({ ...current, [approvalId]: approved }));
-      const videoGeneration = pendingApprovals.some((item) => item.approvalId === approvalId && item.tool === "generate_video");
+      const tool = pendingApprovals.find((item) => item.approvalId === approvalId)?.tool;
       try {
         await chat.addToolApprovalResponse({ id: approvalId, approved });
         setApprovalAnnouncement(
-          videoGeneration ? `Video generation ${approved ? "approved. Paid provider generation is now permitted." : "rejected. No video will be generated."}` : `Task ${approved ? "approved" : "rejected"}. ${
+          tool === "browser_sign_in" ? (approved ? "Saved sign-in approved for this browser." : "Saved sign-in rejected. No saved credentials will be used.") :
+          tool === "generate_video" ? `Video generation ${approved ? "approved. Paid provider generation is now permitted." : "rejected. No video will be generated."}` : `Task ${approved ? "approved" : "rejected"}. ${
             approved
               ? "Sandbox execution is now permitted."
               : "No sandbox will start for this tool call."
@@ -1894,6 +1944,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const submitTask = useCallback(
     async (event?: React.FormEvent, options?: { forceWork?: boolean; customAgentId?: string }) => {
       if (threadLinkPending) return;
+      // A bot page that is opening, empty or failed has no committed conversation
+      // to send into; the keyboard shortcut reaches here too.
+      if (botPage !== "chat" && !options?.customAgentId) return;
       const selectedCustomAgentId = options?.customAgentId ?? customAgentId;
       if (event) event.preventDefault();
       if (submitInFlight.current || clearInFlight.current || attachmentsUploadingRef.current) return;
@@ -2665,6 +2718,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }, [allRuns, reviewThreadId]);
 
   const threadHasWork = chat.messages.length > 0 || reviewThreadId !== null;
+  const pendingApprovalCount = pendingApprovals.length + visibleStoredApprovals.length;
+  const hasSignInApproval = pendingApprovals.some((approval) => approval.tool === "browser_sign_in");
   // Model-by-purpose config: connections + the coding-purpose suggestion list.
   const modelConfig = useModelConfig(signedIn && workspaceAuthorityReady && !restrictedTeamMember);
   const agentsDirectory = useAgentsDirectory(signedIn && workspaceAuthorityReady && !restrictedTeamMember);
@@ -2800,9 +2855,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const liveSession = sessions.find((session) => session.id === selectedSessionId) ?? sessions[0];
 
   const handleSelectSession = useCallback(
-    async (id: string) => {
-      if (!privateDataEnabled) return;
+    async (id: string, intent: "bot" | "thread" = "thread"): Promise<"ok" | "failed" | "superseded"> => {
+      if (!privateDataEnabled) return "failed";
       const selectionScope = activeSurfaceScopeRef.current;
+      const selectionTicket = ++sessionSelectionSeq.current;
       const session = visibleWebSessions.find((item) => item.id === id);
       if (!session && id !== "default") {
         // A run row is not a chat session: inspect it without disturbing the
@@ -2810,17 +2866,18 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         setSelectedRunId(id);
         setMobileSessionsOpen(false);
         setMainView("analytics");
-        return;
+        return "ok";
       }
       if (session && id !== "default") {
         try {
           const response = await fetch(`/api/sessions/${encodeURIComponent(id)}/resume`, {
             method: "POST",
           });
-          if (activeSurfaceScopeRef.current !== selectionScope) return;
+          if (activeSurfaceScopeRef.current !== selectionScope) return "superseded";
           if (response.status === 404 || response.status === 405) {
             if (response.status === 404 && (await isSessionNotFoundBody(response))) {
-              if (activeSurfaceScopeRef.current !== selectionScope) return;
+              if (activeSurfaceScopeRef.current !== selectionScope) return "superseded";
+              if (selectionTicket !== sessionSelectionSeq.current) return "superseded";
               // Real session-not-found: the API is healthy, this item is stale.
               // Prune it and land on the default session — don't mark the
               // sessions API unavailable or select the dead session.
@@ -2830,30 +2887,46 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               setMobileSessionsOpen(false);
               setSelectedRunId(null);
               setMainView("threads");
-              setNotice("That session no longer exists — it was removed from the list.");
-              return;
+              if (intent === "bot") {
+                // The page keeps the bot it was opened from; only the thread it
+                // pointed at is gone, so the panel explains that and offers Start.
+                setBotPageMessage("That thread was removed from this workspace. Start a new one with this bot.");
+              } else {
+                setNotice("That session no longer exists — it was removed from the list.");
+              }
+              return "failed";
             }
             // Older backends lack the resume route: degrade to local selection
-            // instead of blocking the switch.
-            if (activeSurfaceScopeRef.current !== selectionScope) return;
+            // instead of blocking the switch — but only for the selection still on
+            // screen. A stale 405 must not switch session scoping off, which would
+            // send the next read for the current session to the default store.
+            if (activeSurfaceScopeRef.current !== selectionScope) return "superseded";
+            if (selectionTicket !== sessionSelectionSeq.current) return "superseded";
             setSessionApiAvailable(false);
           } else if (!response.ok) {
             throw new Error(`Could not resume session: ${response.status}`);
           }
         } catch (error) {
-          if (activeSurfaceScopeRef.current !== selectionScope) return;
+          if (activeSurfaceScopeRef.current !== selectionScope) return "superseded";
+          // A stale failure must not narrate over a newer selection.
+          if (selectionTicket !== sessionSelectionSeq.current) return "superseded";
           setNotice(error instanceof Error ? error.message : String(error));
-          return;
+          return "failed";
         }
       }
-      if (activeSurfaceScopeRef.current !== selectionScope) return;
+      if (activeSurfaceScopeRef.current !== selectionScope) return "superseded";
+      // A newer click already owns the surface; this reply is stale.
+      if (selectionTicket !== sessionSelectionSeq.current) return "superseded";
       pushThreadUrl();
       setSelectedSessionId(id);
       writeRememberedSessionId(id);
       setCustomAgentId(threadAgentId(session));
       setMobileSessionsOpen(false);
       setSelectedRunId(null);
+      setBotPage("chat");
+      setBotPageMessage(null);
       setMainView("threads");
+      return "ok";
     },
     [visibleWebSessions, privateDataEnabled, pushThreadUrl],
   );
@@ -2865,17 +2938,31 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   };
 
   const threadCreationPending = useRef(false);
+  // A shared workspace opens its room without a session; a private thread needs
+  // verified access and this actor's answered thread registry before one can be
+  // created. Every creation entry point reads this one reason.
+  const taskCreationBlocker = teamWorkspaceId
+    ? null
+    : !privateDataEnabled
+      ? "Wait for your workspace access to be verified."
+      : sessionRegistryAnswer?.actor !== orchestratorName
+        ? "Loading your threads…"
+        : sessionRegistryAnswer.failed
+          ? "Your threads couldn't load. Reload to try again."
+          : !sessionApiAvailable
+            ? "Session creation is unavailable on this server."
+            : null;
   const handleNewTask = useCallback(async () => {
     if (teamWorkspaceId) {
       setSharedRoomId(undefined); setSharedHandoffId(undefined); setSharedEmployeeId(undefined); setMainView("threads");
       return null;
     }
-    if (threadCreationPending.current || !privateDataEnabled) return null;
-    const creationScope = activeSurfaceScopeRef.current;
-    if (!sessionApiAvailable) {
-      setNotice("Session creation is unavailable. Your existing draft has been kept.");
+    if (threadCreationPending.current) return null;
+    if (taskCreationBlocker) {
+      setNotice(taskCreationBlocker);
       return null;
     }
+    const creationScope = activeSurfaceScopeRef.current;
     threadCreationPending.current = true;
     try {
       const response = await fetch("/api/sessions", {
@@ -2916,14 +3003,15 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     } finally {
       threadCreationPending.current = false;
     }
-  }, [sessionApiAvailable, teamWorkspaceId, privateDataEnabled, pushThreadUrl]);
+  }, [taskCreationBlocker, teamWorkspaceId, pushThreadUrl]);
+  handleNewTaskRef.current = () => { void handleNewTask(); };
 
   const handleStartAgentThread = useCallback(async (profile: CustomAgentWire) => {
     if (teamWorkspaceId) {
       setSharedRoomId(undefined); setSharedHandoffId(undefined); setSharedEmployeeId(profile.id); setMainView("threads");
       return null;
     }
-    if (!privateDataEnabled) throw new Error("Wait for your workspace access to be verified.");
+    if (taskCreationBlocker) throw new Error(taskCreationBlocker);
     const creationScope = activeSurfaceScopeRef.current;
     if (threadCreationPending.current) throw new Error("Another thread is being created. Wait, then try again.");
     threadCreationPending.current = true;
@@ -2937,6 +3025,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setSelectedSessionId(session.id);
       writeRememberedSessionId(session.id);
       setSelectedRunId(null);
+      setBotPage("chat");
+      setBotPageMessage(null);
       setCustomAgentId(profile.id);
       applyThreadProfile(profile);
       setNotice(null);
@@ -2950,7 +3040,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     } finally {
       threadCreationPending.current = false;
     }
-  }, [applyThreadProfile, orchestratorName, refreshCustomAgents, teamWorkspaceId, privateDataEnabled, pushThreadUrl]);
+  }, [applyThreadProfile, orchestratorName, refreshCustomAgents, teamWorkspaceId, taskCreationBlocker, pushThreadUrl]);
 
   const startSidebarAgentThread = async (profile?: CustomAgentWire) => {
     const creationScope = activeSurfaceScopeRef.current;
@@ -2962,6 +3052,40 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setNotice(error instanceof Error ? error.message : "Could not start a thread. Try again from the sidebar.");
     }
   };
+  // One bot, one page: select it, open its panel, and land on its newest thread
+  // when it has one. A click never creates a thread, and a shared room keeps its
+  // own surface instead of borrowing this private panel.
+  const openBotPanel = useCallback((agentId?: string) => {
+    if (teamWorkspaceId) { openView("custom-agents"); return; }
+    const profile = agentId ? customAgentRecordsRef.current.find((item) => item.id === agentId) : undefined;
+    const latest = visibleWebSessions
+      .filter((session) => (profile ? threadAgentId(session) === profile.id : !threadAgentId(session)))
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    // Fence any reply still in flight for the conversation on screen: it must not
+    // land on the bot page that is opening now.
+    sessionSelectionSeq.current += 1;
+    setCustomAgentId(profile?.id ?? "");
+    setAgentDetailsOpen(true);
+    setMainView("threads");
+    if (latest) {
+      // Nothing from the previous bot stays actionable while its session opens:
+      // a failed or slow resume must not leave another bot's composer live here.
+      setBotPage("pending");
+      setBotPageMessage(null);
+      const opening = handleSelectSession(latest.id, "bot");
+      const ticket = sessionSelectionSeq.current;
+      void opening.then((result) => {
+        // A newer selection owns the surface; it decides what shows.
+        if (ticket !== sessionSelectionSeq.current) return;
+        if (result === "failed") setBotPage("unavailable");
+      });
+    } else {
+      // No thread is this bot's own state, not a reason to keep the last bot's
+      // thread selected with its title editor and composer pointed at it.
+      setBotPage("empty");
+      setSelectedRunId(null);
+    }
+  }, [handleSelectSession, openView, teamWorkspaceId, visibleWebSessions]);
   const setupEmployee = async (template: EmployeeTemplate) => {
     const setupScope = activeSurfaceScopeRef.current;
     const profile = await createEmployeeAgent(template, teamWorkspaceId || undefined);
@@ -2979,7 +3103,66 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       refreshCustomAgents();
     }
   };
+  // Read the record at call time, not at render time: two edits in quick
+  // succession must send the version the first save returned.
+  const customAgentRecordsRef = useRef(customAgentRecords);
+  customAgentRecordsRef.current = customAgentRecords;
+  const saveBotLibrary = useCallback(async (employeeId: string, deliverables: string[]) => {
+    const employee = customAgentRecordsRef.current.find((profile) => profile.id === employeeId);
+    if (!employee) throw new Error("This bot is no longer in this workspace. Reload to see the current directory.");
+    applyCustomAgentRecord(await saveBotDeliverables(employee, deliverables, teamWorkspaceId || undefined));
+  }, [applyCustomAgentRecord, teamWorkspaceId]);
+  // One bot-panel edit path: the record is read at call time so a second save
+  // sends the version the first one returned, and a panel that has moved on to
+  // another bot cannot write through stale props.
+  const saveBotConfigEdit = useCallback(async (employeeId: string, edit: BotConfigEdit) => {
+    const employee = customAgentRecordsRef.current.find((profile) => profile.id === employeeId);
+    if (!employee) throw new Error("This bot is no longer in this workspace. Reload to see the current directory.");
+    applyCustomAgentRecord(await saveBotConfig(employee, edit, teamWorkspaceId || undefined));
+  }, [applyCustomAgentRecord, teamWorkspaceId]);
   const activeEmployee = customAgentRecords.find((profile) => profile.id === customAgentId);
+  // Runs this bot started and the files they captured. Shiba's list is the runs
+  // queued without a profile; no bot ever sees another bot's runs.
+  const botRuns = useMemo(() => {
+    const mine = retainedRuns.filter((run) => (customAgentId ? run.customAgentId === customAgentId : !run.customAgentId));
+    return [...mine].sort((a, b) => b.createdAt - a.createdAt);
+  }, [retainedRuns, customAgentId]);
+  const botRunRows = useMemo(() => botRuns.slice(0, 8).map((run) => ({
+    runId: run.runId, status: run.status, task: run.task, createdAt: run.createdAt, updatedAt: run.updatedAt,
+  })), [botRuns]);
+  // Rows stay on screen while the next scope loads, so a run's link must carry
+  // the session its own answer came from — not the one just selected.
+  const runsSourceSession = runsSession ?? selectedSessionId;
+  // Runs are stored per session and the deliverable route reads only the session
+  // it is given, so every captured file carries the conversation that owns it.
+  const botRunOutputs = useMemo(() => botRuns.flatMap((run) => (run.deliverables ?? []).map((file, index) => ({
+    runId: run.runId, runStatus: run.status, runCreatedAt: run.createdAt, path: file.path, index,
+    sessionId: runsSourceSession,
+    ...(file.bytes !== undefined ? { bytes: file.bytes } : {}),
+    ...(file.mediaType !== undefined ? { mediaType: file.mediaType } : {}),
+  }))), [botRuns, runsSourceSession]);
+  // This bot's other threads, which the run list cannot see: the dashboard reads
+  // runs per session, so the panel names that narrower coverage instead of
+  // calling one thread's runs the bot's whole history.
+  const botRunsScope = useMemo<BotRunsScope>(() => {
+    const threads = visibleWebSessions.filter((session) => customAgentId ? threadAgentId(session) === customAgentId : !threadAgentId(session));
+    return {
+      // A retained list from the previous session is not this session's answer.
+      state: runsStale ? "loading" : runsError ? "error" : listSettled ? "ready" : "loading",
+      ...(selectedSessionId !== "default" && activeWebSession && botPage === "chat" ? { threadName: activeWebSession.name || "this thread" } : {}),
+      otherThreadCount: Math.max(0, threads.length - 1),
+    };
+  }, [visibleWebSessions, customAgentId, runsStale, runsError, listSettled, selectedSessionId, activeWebSession, botPage]);
+  const botPendingApprovals = useMemo(
+    () => visibleStoredApprovals.filter((approval) => (customAgentId ? approval.customAgentId === customAgentId : !approval.customAgentId)).length,
+    [visibleStoredApprovals, customAgentId],
+  );
+  const botModelEdit = useMemo(() => (activeEmployee ? {
+    value: activeEmployee.config.codingModel ?? "",
+    options: codingModelSuggestions.map((model) => ({ id: model, label: model })),
+    busy: false,
+    onChange: (value: string) => { void saveBotConfigEdit(activeEmployee.id, { codingModel: value || null }).catch((error: unknown) => setNotice(error instanceof Error ? error.message : "Could not save the model.")); },
+  } : null), [activeEmployee, codingModelSuggestions, saveBotConfigEdit]);
   const employeeName = activeEmployee?.config.name ?? "Shiba";
   const chatAgent = { id: activeEmployee?.id ?? "shiba", name: employeeName, mascotPreset: activeEmployee?.config.mascotPreset, look: activeEmployee?.config.look, avatar: activeEmployee?.config.avatar, role: activeEmployee ? employeeRole(activeEmployee.slug, activeEmployee.config.roleTemplateId) : undefined };
   const mentionableAgents = customAgentRecords.map((record) => ({ id: record.id, name: record.config.name, mascotPreset: record.config.mascotPreset, look: record.config.look, avatar: record.config.avatar, role: employeeRole(record.slug, record.config.roleTemplateId) }));
@@ -3103,8 +3286,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         loading={customAgentsLoading}
         error={customAgentsError}
         onSelectAgent={(id) => { setInitialEmployeeId(id); openView("custom-agents"); }}
+        onOpenAgent={openBotPanel}
         onSelectThread={(id) => { void handleSelectSession(id); openView("threads"); }}
         onNewThread={(agentId) => { void startSidebarAgentThread(customAgentRecords.find((profile) => profile.id === agentId)); }}
+        newThreadDisabledReason={taskCreationBlocker ?? undefined}
         onNewAgent={() => openView("custom-agents")}
       />
     );
@@ -3250,6 +3435,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         customAgentRecords={customAgentRecords}
         agentThreads={visibleWebSessions}
         onNewAgentThread={startSidebarAgentThread}
+        onOpenAgent={openBotPanel}
         connectionLabel={teamWorkspaceId ? "Shared workspace" : connectionState}
         connectionTone={
           identityError || agent.connectionError
@@ -3309,6 +3495,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               customAgentRecords={customAgentRecords}
               agentThreads={visibleWebSessions}
               onNewAgentThread={(profile) => { startSidebarAgentThread(profile); setMobileNavOpen(false); }}
+              onOpenAgent={(agentId) => { openBotPanel(agentId); setMobileNavOpen(false); }}
               onOpenSearch={() => {
                 setMobileNavOpen(false);
                 setCommandMenuOpen(true);
@@ -3574,8 +3761,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     void handleSelectSession(id);
                     setMainView("threads");
                   }}
-                  onNewTask={handleNewTask}
-                  onQuickAddTask={async (taskText) => {
+                  newTaskBlockedReason={taskCreationBlocker ?? undefined}
+                  onNewTask={taskCreationBlocker ? undefined : handleNewTask}
+                  onQuickAddTask={taskCreationBlocker ? undefined : async (taskText) => {
                     const id = await handleNewTask();
                     if (!id) return false;
                     if (!orchestratorName) return false;
@@ -3719,9 +3907,25 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
               {/* CENTER: conversation timeline + composer */}
               <main
-                className="flex min-h-full min-w-0 flex-1 shrink-0 flex-col overflow-hidden bg-[var(--bg)] xl:min-h-0"
+                className="group/thread flex min-h-full min-w-0 flex-1 shrink-0 flex-col overflow-hidden bg-[var(--bg)] xl:min-h-0"
                 aria-busy={busy}
               >
+                {botPage !== "chat" ? (
+                  <BotThreadlessState
+                    name={chatAgent.name}
+                    slug={activeEmployee?.slug}
+                    role={chatAgent.role}
+                    agentId={chatAgent.id}
+                    mascotPreset={chatAgent.mascotPreset}
+                    look={chatAgent.look}
+                    avatar={chatAgent.avatar}
+                    busy={threadLinkPending}
+                    state={botPage}
+                    message={botPageMessage ?? undefined}
+                    onStart={() => void startSidebarAgentThread(activeEmployee)}
+                  />
+                ) : (
+                  <>
                 <AgentChatHeader
                   sideQuestion={sessionCustomAgentId && selectedSessionId !== "default" && !teamWorkspaceId ? { employeeId: sessionCustomAgentId, threadId: selectedSessionId } : undefined}
                   agent={chatAgent}
@@ -3873,7 +4077,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 </div>
 
                 {/* PENDING APPROVALS STRIP */}
-                {pendingApprovals.length + visibleStoredApprovals.length > 0 ||
+                {pendingApprovalCount > 0 ||
                 approvalAnnouncement ? (
                   <div className="bg-[var(--card)] border-b border-[var(--border-1)] px-3 sm:px-5 xl:px-6 py-3 flex items-center justify-between gap-3 shadow-[var(--sh-card)] z-10 shrink-0">
                     <p
@@ -3881,12 +4085,12 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                       role="status"
                       aria-live="polite"
                     >
-                      {pendingApprovals.length + visibleStoredApprovals.length > 0 ? (
+                      {pendingApprovalCount > 0 ? (
                         <span className="flex items-center gap-2 text-[var(--warning-fg)]">
                           <span className="w-2.5 h-2.5 rounded-full bg-[var(--warning-fg)] animate-pulse" />
-                          {pendingApprovals.length + visibleStoredApprovals.length} task
-                          {pendingApprovals.length + visibleStoredApprovals.length === 1 ? "" : "s"}{" "}
-                          waiting for your approval.
+                          {hasSignInApproval && pendingApprovalCount === 1
+                            ? "Saved sign-in waiting for your approval."
+                            : `${pendingApprovalCount} ${hasSignInApproval ? "request" : "task"}${pendingApprovalCount === 1 ? "" : "s"} waiting for your approval.`}
                         </span>
                       ) : (
                         <span className="text-[var(--success-fg)] flex items-center gap-2">
@@ -4011,7 +4215,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
                 {/* TIMELINE (scrollable) — hidden on the empty-state hero */}
                 <div
-                  className={`flex-1 overflow-y-auto overscroll-contain px-3 sm:px-5 xl:px-8 py-5 ${threadHasWork ? "" : "hidden"}`}
+                  className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 sm:px-5 xl:px-8 py-5 ${threadHasWork ? "" : "hidden"}`}
                 >
                   {conversationMode === "chat" ? <RemoteAgentStream stream={realtimeRemoteStream} /> : null}
                   {privateDataEnabled && chatAgentName && conversationMode !== "chat" ? <UiBlockQuestions key={chatAgentName} runId={chatAgentName} sessionId={selectedSessionId} /> : null}
@@ -4056,6 +4260,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     </div>
                   ) : null}
                 </div>
+
+                {privateDataEnabled && !threadLinkPending && conversationMode === "chat" ? (
+                  <BrowserPanel key={orchestratorName} sessionId={selectedSessionId} />
+                ) : null}
 
                 {/* COMPOSER — hero when the session is empty, docked once the run is going */}
                 <div
@@ -4104,7 +4312,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                         ? "flex-1 min-h-0 flex flex-col items-center [justify-content:safe_center] overflow-y-auto gap-5 px-3 sm:px-5 xl:px-8 py-5"
                         : "shrink-0 px-3 sm:px-5 xl:px-8 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
                     }>
-                      {chat.messages.length === 0 ? <AgentChatEmptyState agent={chatAgent} /> : null}
+                      {chat.messages.length === 0 ? (
+                        <div className="contents group-has-[[data-browser-expanded]]/thread:hidden"><AgentChatEmptyState agent={chatAgent} /></div>
+                      ) : null}
                       {privateDataEnabled && chatAgentName && !busy && !chat.error &&
                         (chat.messages.length === 0 || chat.messages.at(-1)?.role === "assistant") ? (
                         <ChatSuggestions agentName={chatAgentName} refreshKey={chat.messages.at(-1)?.id ?? "empty"} busy={busy} hidden={!composerVisible || task.trim() !== ""} onPick={pickSuggestion} />
@@ -4228,8 +4438,42 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   />
                   )}
                 </div>
+                  </>
+                )}
               </main>
-              {agentDetailsOpen ? <AgentDetailsPanel key={customAgentId || "shiba"} agent={activeEmployee} onClose={() => setAgentDetailsOpen(false)} onEdit={() => openView("custom-agents")} /> : null}
+              {agentDetailsOpen ? (
+                <AgentDetailsPanel
+                  key={customAgentId || "shiba"}
+                  agent={activeEmployee}
+                  directoryLoading={customAgentsLoading && Boolean(customAgentId)}
+                  workspaceName={teamWorkspace?.name}
+                  ownerName={orchestratorName ?? undefined}
+                  editing={!teamWorkspaceId && !restrictedTeamMember}
+                  modelEdit={botModelEdit}
+                  runtime={{
+                    harness: activeEmployee?.config.harness ?? harness,
+                    sandboxProvider: activeEmployee?.config.sandboxProvider,
+                    localAvailable: localRunAvailable,
+                    paired: pairedLocalComputers,
+                    loading: localComputersLoading,
+                    error: localComputersError,
+                  }}
+                  runs={botRunRows}
+                  pendingApprovals={botPendingApprovals}
+                  runOutputs={botRunOutputs}
+                  runsScope={botRunsScope}
+                  onOpenRun={(runId) => { setSelectedRunId(runId); setMainView("analytics"); }}
+                  onOpenApprovals={() => setMainView("approvals")}
+                  onManageTools={activeEmployee ? () => { setInitialEmployeeId(activeEmployee.id); openView("employee-tools"); } : undefined}
+                  onConfigSave={activeEmployee ? (edit) => saveBotConfigEdit(activeEmployee.id, edit) : undefined}
+                  onLibrarySave={activeEmployee ? (deliverables) => saveBotLibrary(activeEmployee.id, deliverables) : undefined}
+                  onClose={() => setAgentDetailsOpen(false)}
+                  onEdit={() => {
+                    if (customAgentId) setInitialEmployeeId(customAgentId);
+                    openView("custom-agents");
+                  }}
+                />
+              ) : null}
             </div>
           ) : mainView === "activity" ? (
             // Remount on session switch so the previous session's spine never
@@ -4385,7 +4629,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ) : mainView === "agents" ? (
             <AgentsView />
           ) : mainView === "integrations" ? (
-            <IntegrationsView onNavigate={openView} onAdoptSlackTask={adoptSlackTask} onOpenSlackHandoff={openSlackHandoff} actorId={orchestratorName ?? undefined} workspaceId={teamWorkspaceId || undefined} workspaceName={teamWorkspace?.name} workspaceRole={teamWorkspace?.membership.role} allowPersonalScope={!restrictedTeamMember} onPersonalScope={() => teamDirectory.selectWorkspace("")} onChooseWorkspace={() => openView("team")} />
+            <IntegrationsView onNavigate={openView} onAdoptSlackTask={adoptSlackTask} onOpenSlackHandoff={openSlackHandoff} actorId={orchestratorName ?? undefined} nativeSession={authMode === "better-auth"} workspaceId={teamWorkspaceId || undefined} workspaceName={teamWorkspace?.name} workspaceRole={teamWorkspace?.membership.role} allowPersonalScope={!restrictedTeamMember} onPersonalScope={() => teamDirectory.selectWorkspace("")} onChooseWorkspace={() => openView("team")} />
           ) : mainView === "remote" ? (
             <RemoteAccessView />
           ) : mainView === "settings" ? (
@@ -4494,6 +4738,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               { id: "setup-guide", label: "Open setup guide", run: openFirstRun },
             ]}
             onNewTask={() => { void handleNewTask(); }}
+            newTaskBlockedReason={taskCreationBlocker ?? undefined}
             onNewChannel={() => openView("threads")}
             onOpenBot={(bot, focusComposer) => {
               if (bot.roomId) setSharedRoomId(bot.roomId);

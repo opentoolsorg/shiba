@@ -4,8 +4,8 @@
  * The Bot Connector posts activities to POST /api/teams/messages with a
  * signed bearer JWT (see channels/teams). A message `shiba <repo-url> <task>`
  * (the leading word is optional once the bot is @mentioned or in a personal
- * chat) queues a pending approval on the conversation's orchestrator
- * (`teams:{conversationId}`) and replies with an Adaptive Card. Its
+ * chat) queues a pending approval on a task-scoped orchestrator
+ * and replies with an Adaptive Card in the original conversation. Its
  * Action.Submit data is a pointer: only TEAMS_APPROVERS ids may press it,
  * and the orchestrator honors it only while it is still pending.
  *
@@ -13,10 +13,10 @@
  * acked at once and the work runs behind `ctx.waitUntil`, deduped on its id.
  */
 import { buildDecisionData, parseDecisionData } from "@shiba/shared";
+import { sha256Hex } from "./agent-tokens.js";
 import {
   CARD_TASK_LIMIT,
   chatApprovalText,
-  chatTaskChunks,
   createSeenRing,
   decideChatApproval,
   decisionLine,
@@ -24,7 +24,8 @@ import {
   queueChatRun,
   type ResolveOrchestrator,
 } from "./chat-lane.js";
-import { stripTeamsMentions, teamsAdapterFromEnv, teamsTransport, type TeamsActivity } from "./channels/teams/index.js";
+import { isTeamsServiceUrl, parseTeamsActivity, stripTeamsMentions, teamsAdapterFromEnv, teamsTransport, type TeamsActivity } from "./channels/teams/index.js";
+import { recordTeamsInstallation, reserveTeamsReply, saveTeamsApproval, saveTeamsCard, teamsActivityTenant, teamsApprovalThread, teamsGeneration, teamsReplyAddress, teamsSettings } from "./channels/teams/connection.js";
 import type { ChannelAdapter, ChannelTransport, InboundAction, InboundMessage } from "./ports/channel/index.js";
 import type { Env } from "./env.js";
 import { redactSecrets } from "./security.js";
@@ -35,6 +36,8 @@ export const TEAMS_USAGE = "Usage: @Shiba <github-repo-url> <task>";
 
 const COMMAND = /^\/?shiba(?=\s|$)/i;
 const HELP = /^\/?(?:help|start)$/i;
+const ACTIVITY_ID = /^[A-Za-z0-9@:_;=-][A-Za-z0-9@:_;=.\-]{0,255}$/;
+const ACTIVITY_BODY_LIMIT = 128 * 1024;
 
 const seenActivities = createSeenRing(1000);
 
@@ -60,24 +63,36 @@ function approvalCard(text: string, approvalId: string): Record<string, unknown>
       type: "AdaptiveCard",
       $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
       version: "1.4",
-      body: [{ type: "TextBlock", text, wrap: true }],
+      body: [{ type: "TextBlock", text: text.replace(/([\\`*_~\[\]])/g, "\\$1"), wrap: true }],
       actions: [
-        { type: "Action.Submit", title: "Approve", data: { shiba: buildDecisionData(true, approvalId), card: text } },
-        { type: "Action.Submit", title: "Reject", data: { shiba: buildDecisionData(false, approvalId), card: text } },
+        { type: "Action.Submit", title: "Approve", data: { shiba: buildDecisionData(true, approvalId) } },
+        { type: "Action.Submit", title: "Reject", data: { shiba: buildDecisionData(false, approvalId) } },
       ],
     },
   };
 }
 
-async function handleMessage(message: InboundMessage, env: Env, adapter: ChannelAdapter, deps: TeamsDeps): Promise<void> {
-  const activity = message.raw as TeamsActivity;
-  const botId = activity.recipient?.id;
-  const addressed = message.isDirect || (botId !== undefined && message.mentionedUserIds.includes(botId));
+type ActivityContext = {
+  env: Env;
+  settings: NonNullable<ReturnType<typeof teamsSettings>>;
+  generation: string;
+  deliveryKey: string;
+  adapter: ChannelAdapter;
+  deps: TeamsDeps;
+  activity: TeamsActivity & { id: string; serviceUrl: string; conversation: { id: string } };
+  botId: string;
+  recipientId: string;
+};
+
+async function handleMessage(message: InboundMessage, context: ActivityContext): Promise<void> {
+  const { env, adapter, deps, settings, generation, deliveryKey, activity, botId, recipientId } = context;
+  const addressed = message.isDirect || message.mentionedUserIds.includes(botId);
+  if (!addressed) return;
   let text = stripTeamsMentions(message.text);
   if (COMMAND.test(text)) text = text.replace(COMMAND, "").trim();
-  else if (!addressed) return;
+  const address = teamsReplyAddress(message.placeId, settings.tenantId, botId, recipientId);
   const reply = (body: string, native?: Record<string, unknown>) =>
-    adapter.post({ placeId: message.placeId, replyToMessageId: message.messageId, text: body, ...(native ? { native } : {}) });
+    adapter.post({ placeId: message.placeId, replyToMessageId: message.messageId, text: body, native: { ...address, ...native } });
   if (!text || HELP.test(text)) {
     await reply(`${TEAMS_USAGE}\nNothing runs until someone on the approver list presses Approve.`);
     return;
@@ -93,41 +108,54 @@ async function handleMessage(message: InboundMessage, env: Env, adapter: Channel
     await reply(parsed.error);
     return;
   }
+  if (parsed.task.length > CARD_TASK_LIMIT) {
+    await reply(`Shorten the task to ${CARD_TASK_LIMIT} characters so the approval card can show it in full.`);
+    return;
+  }
+  const threadKey = `teams:task-${deliveryKey}`;
+  if (!await reserveTeamsReply(env, settings, generation, threadKey, activity, botId, recipientId)) return;
   const queued = await queueChatRun(env, {
     platform: "teams",
-    threadKey: message.conversationKey,
+    threadKey,
     repoUrl: parsed.repoUrl,
     task: parsed.task,
     userId: message.authorId,
     harness: env.TEAMS_AGENT_HARNESS ?? env.AGENT_HARNESS,
+    publishPullRequest: false,
   }, deps.resolveOrchestrator);
   if ("error" in queued) {
     await reply(`Failed to queue the task. ${queued.error}`);
     return;
   }
+  await saveTeamsApproval(env, threadKey, queued.approvalId);
+  if (await teamsGeneration(env, settings) !== generation) return;
   const cardText = chatApprovalText({ ...parsed, approvalId: queued.approvalId, route: queued.route });
-  await reply(cardText, { attachments: [approvalCard(cardText, queued.approvalId)] });
-  // A task over the card limit posts in full right after the card so Approve never signs off on hidden text.
-  for (const chunk of chatTaskChunks(parsed.task, CARD_TASK_LIMIT, 3900)) {
-    await adapter.post({ placeId: message.placeId, text: chunk });
-  }
+  const card = await reply("", { attachments: [approvalCard(cardText, queued.approvalId)] });
+  if (ACTIVITY_ID.test(card.messageId)) await saveTeamsCard(env, threadKey, card.messageId);
 }
 
-async function handleAction(action: InboundAction, env: Env, adapter: ChannelAdapter, deps: TeamsDeps): Promise<void> {
-  const say = (text: string) => adapter.post({ placeId: action.placeId, text });
+async function handleAction(action: InboundAction, context: ActivityContext): Promise<void> {
+  const { env, adapter, deps, settings, generation, activity, botId, recipientId } = context;
+  const native = teamsReplyAddress(action.placeId, settings.tenantId, botId, recipientId);
+  const say = (text: string) => adapter.post({ placeId: action.placeId, replyToMessageId: activity.id, text, native });
   const decision = parseDecisionData(action.value);
   if (!decision || !action.conversationKey) {
     await say("This button is not a Shiba approval.");
     return;
   }
   // The JWT authenticates the Connector, not the human. Empty list = nobody.
-  if (!isApprover(action.actorId, parseApproverAllowlist(env.TEAMS_APPROVERS))) {
+  if (typeof activity.from?.aadObjectId !== "string" || !isApprover(activity.from.aadObjectId, parseApproverAllowlist(env.TEAMS_APPROVERS))) {
     await say("You are not on the approver list.");
+    return;
+  }
+  const target = await teamsApprovalThread(env, generation, action.placeId, decision.approvalId);
+  if (!target || await teamsGeneration(env, settings) !== generation) {
+    await say("This approval isn't available in this conversation or connection.");
     return;
   }
   const result = await decideChatApproval(env, {
     platform: "teams",
-    threadKey: action.conversationKey,
+    threadKey: target.thread_key,
     approvalId: decision.approvalId,
     approved: decision.approved,
     decidedBy: `teams:${action.actorId}`,
@@ -138,15 +166,17 @@ async function handleAction(action: InboundAction, env: Env, adapter: ChannelAda
   }
   const { approved, requestedApproved } = result;
   const who = approved === requestedApproved ? action.actorName ?? action.actorId : "an earlier decision";
-  if (!action.messageId) {
+  if (!target.card_activity_id) {
     await say(decisionLine(approved, who));
     return;
   }
   await adapter.edit({
-    ref: { placeId: action.placeId, messageId: action.messageId },
-    text: `${action.messageText ?? "Approval"}\n\n${decisionLine(approved, who)}`,
-  }).catch((error: unknown) => {
+    ref: { placeId: action.placeId, messageId: target.card_activity_id },
+    text: `Approval ${decision.approvalId}\n\n${decisionLine(approved, who)}`,
+    native,
+  }).catch(async (error: unknown) => {
     console.error("Teams approval card update failed", redactSecrets(String(error)));
+    await say(decisionLine(approved, who));
   });
 }
 
@@ -163,12 +193,35 @@ export async function handleTeamsMessages(
   const url = new URL(request.url);
   if (url.pathname !== TEAMS_MESSAGES_PATH || request.method !== "POST") return null;
   const transport = deps.transport ?? teamsTransport;
-  const rawBody = await request.text();
+  let bytes = 0;
+  const limited = request.body?.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      bytes += chunk.byteLength;
+      if (bytes > ACTIVITY_BODY_LIMIT) controller.error(new Error("Teams activity too large."));
+      else controller.enqueue(chunk);
+    },
+  }));
+  const rawBody = await new Response(limited).text().catch(() => null);
+  if (rawBody === null) return Response.json({ error: "Teams activity body could not be read within its size limit." }, { status: 413 });
   const verified = await transport.verify(rawBody, request.headers, env);
   if (!verified.ok) return Response.json({ error: verified.error }, { status: verified.status });
+  const settings = teamsSettings(env);
+  if (!settings) return Response.json({ error: "Teams workspace connection is not configured." }, { status: 503 });
+  const activity = parseTeamsActivity(rawBody);
+  if (!activity || teamsActivityTenant(activity) !== settings.tenantId) return Response.json({ error: "Teams tenant is not connected." }, { status: 403 });
+  if (activity.type === "installationUpdate") {
+    await recordTeamsInstallation(env, settings, activity);
+    return new Response("", { status: 200 });
+  }
   const inbound = transport.parse(rawBody);
-  if (!inbound?.deliveryId) return new Response("", { status: 200 });
-  const key = inbound.deliveryId;
+  const botId = activity.recipient?.id;
+  const recipientId = activity.from?.id;
+  if (!inbound?.conversationKey || !ACTIVITY_ID.test(inbound.placeId) || typeof inbound.deliveryId !== "string" || !ACTIVITY_ID.test(inbound.deliveryId) ||
+    !isTeamsServiceUrl(activity.serviceUrl) || typeof botId !== "string" || typeof recipientId !== "string" ||
+    !ACTIVITY_ID.test(botId) || !ACTIVITY_ID.test(recipientId) || botId === recipientId) return new Response("", { status: 200 });
+  const generation = await teamsGeneration(env, settings);
+  if (!generation) return new Response("", { status: 200 });
+  const key = await sha256Hex(JSON.stringify([settings.tenantId, settings.appId.toLowerCase(), inbound.placeId, inbound.deliveryId]));
   if (seenActivities.has(key)) return new Response("", { status: 200 });
   if (deps.dedupe) {
     try {
@@ -181,12 +234,15 @@ export async function handleTeamsMessages(
     }
   }
   seenActivities.add(key);
-  const serviceUrl = (inbound.raw as TeamsActivity).serviceUrl;
-  const adapter = deps.adapter ?? teamsAdapterFromEnv(env, serviceUrl ? { serviceUrl } : {});
+  const adapter = deps.adapter ?? teamsAdapterFromEnv(env, { serviceUrl: activity.serviceUrl });
   if (!adapter) return new Response("", { status: 200 });
+  const context = {
+    env, settings, generation, deliveryKey: key, adapter, deps, botId, recipientId,
+    activity: { ...activity, id: inbound.deliveryId, serviceUrl: activity.serviceUrl, conversation: { id: inbound.placeId } },
+  };
   const work = (inbound.kind === "action"
-    ? handleAction(inbound, env, adapter, deps)
-    : handleMessage(inbound, env, adapter, deps)
+    ? handleAction(inbound, context)
+    : handleMessage(inbound, context)
   ).catch((error: unknown) => {
     console.error("Teams activity failed", redactSecrets(String(error)));
   });

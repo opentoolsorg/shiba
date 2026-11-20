@@ -33,6 +33,7 @@ const workspaceApi = [
   /^\/api\/team-model-sessions(?:\/|$)/,
   /^\/api\/shared-computers(?:\/|$)/,
   /^\/api\/slack\/installations(?:\/|$)/,
+  /^\/api\/teams\/connection$/,
   /^\/api\/slack\/coworker(?:\/|$)/,
   /^\/api\/founder-skills(?:\/|$)/,
   /^\/api\/founder-stripe-reads(?:\/|$)/,
@@ -43,6 +44,7 @@ const workspaceApi = [
   /^\/api\/founder-reconciliation-slack(?:\/|$)/,
   /^\/api\/founder-stripe-slack(?:\/|$)/,
   /^\/api\/workspace-integrations(?:\/|$)/,
+  /^\/api\/browser-logins(?:\/|$)/,
   /^\/api\/(?:custom-agents|employee-bundles|skills)(?:\/|$)/,
   /^\/api\/employee-tools(?:\/|$)/,
   /^\/api\/v1\/extensions\/skills(?:\/|$)/,
@@ -79,9 +81,9 @@ export async function enforceTeamMemberApiPolicy(request: Request, env: Env): Pr
     (request.method === "DELETE" && /^\/api\/personal-execution\/computers\/[A-Za-z0-9_-]{1,128}$/.test(path))) return null;
   if (workspaceApi.some((rule) => rule.test(path))) {
     const url = new URL(request.url), selectors = url.searchParams.getAll("workspaceId");
-    const queryAllowed = request.method === "GET" && (
+    const queryAllowed = /^\/api\/browser-logins(?:\/|$)/.test(path) || (request.method === "GET" && (
       (/^\/api\/collaboration\/rooms\/room_[a-f0-9]{24}\/realtime$/.test(path) && request.headers.get("Upgrade")?.toLowerCase() === "websocket") ||
-      /^\/api\/collaboration\/rooms\/room_[a-f0-9]{24}\/handoffs\/[A-Za-z0-9_-]{1,100}\/artifacts\/[0-7]$/.test(path));
+      /^\/api\/collaboration\/rooms\/room_[a-f0-9]{24}\/handoffs\/[A-Za-z0-9_-]{1,100}\/artifacts\/[0-7]$/.test(path)));
     const header = request.headers.get("X-Shiba-Workspace"), query = selectors[0];
     if (selectors.length > 1 || (query !== undefined && !queryAllowed) ||
       (header !== null && query !== undefined && header !== query)) return deny("team_workspace_required", "Use one consistent workspace selector for this route.");

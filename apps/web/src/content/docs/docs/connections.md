@@ -49,6 +49,7 @@ A chat connection is a way to request work; it is separate from giving an employ
 - [Linear](/docs/linear-agent-session/)
 - [Telegram](/docs/telegram/)
 - [Discord](/docs/discord/)
+- [Microsoft Teams setup](/docs/teams-setup/)
 
 For codebase work, see [GitHub](/docs/github/). To use a paired machine, see [Your computers](/docs/remote-access/).
 

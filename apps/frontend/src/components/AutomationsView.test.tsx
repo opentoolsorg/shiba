@@ -22,6 +22,18 @@ describe("AutomationsView", () => {
     expect(screen.getAllByRole("button", { name: "Use recipe" })).toHaveLength(6);
   });
 
+  it("lets the header toolbar wrap below the breadcrumb on narrow screens", async () => {
+    respond();
+    render(<AutomationsView />);
+    const header = screen.getByRole("banner");
+    const toolbar = screen.getByRole("button", { name: "New automation" }).closest("div") as HTMLElement;
+    expect(header.className).toContain("flex-wrap");
+    expect(header.className).not.toMatch(/(^|\s)h-12(\s|$)/);
+    expect(toolbar.className).toContain("flex-wrap");
+    expect(toolbar.className).not.toContain("shrink-0");
+    await screen.findByText("No automations yet. Start with a recipe.");
+  });
+
   it("searches and collapses status groups without hiding manual run actions", async () => {
     respond([
       { id: "manual-audit", repoUrl: "https://github.com/acme/app", prompt: "Audit", enabled: true, triggers: [{ kind: "manual" }] },

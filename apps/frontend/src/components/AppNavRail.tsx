@@ -58,6 +58,8 @@ export interface AppNavRailProps {
   customAgentRecords?: CustomAgentWire[];
   agentThreads?: WebThread[];
   onNewAgentThread?: (agent?: CustomAgentWire) => void;
+  /** Opens one bot's page and panel; falls back to the sheet's own navigation. */
+  onOpenAgent?: (agentId?: string) => void;
   workspaceSwitcher?: React.ReactNode;
   workspaces?: TeamWorkspaceSummary[];
   selectedWorkspaceId?: string;
@@ -139,6 +141,7 @@ export function AppNavRail({
   customAgentRecords = [],
   agentThreads = [],
   onNewAgentThread,
+  onOpenAgent,
 }: AppNavRailProps): JSX.Element {
   const [accountOpen, setAccountOpen] = useState(false);
   const [threadQuery, setThreadQuery] = useState("");
@@ -351,6 +354,7 @@ export function AppNavRail({
               onClose?.();
             }}
             onManage={() => go("custom-agents")}
+            onOpenAgent={onOpenAgent ? (agent) => { onOpenAgent(agent?.id); onClose?.(); } : undefined}
           />
         ) : null}
         {sheet ? (

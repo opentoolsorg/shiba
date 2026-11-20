@@ -88,7 +88,7 @@ describe("Outputs routes", () => {
     const body = await (await handleKnowledgeOutputs(request("/media-options"), env))!.json() as { imageModels: unknown[]; imageAspectRatios: string[]; video: unknown };
     expect(body.imageModels).toHaveLength(4);
     expect(body.imageAspectRatios).toEqual(Object.keys(imageDimensions));
-    expect(body.video).toEqual({ enabled: false, modes: [], aspectRatios: [] });
+    expect(body.video).toEqual({ enabled: false, reason: "Video generation is disabled. Set SHIBA_VIDEO_GENERATION=1.", modes: [], aspectRatios: [] });
   });
 });
 

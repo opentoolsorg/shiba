@@ -1,0 +1,31 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.19/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.19",
+  "version": "1.0.0",
+  "id": "__TEAMS_APP_ID__",
+  "developer": {
+    "name": "Shiba",
+    "websiteUrl": "https://tryshiba.dev/",
+    "privacyUrl": "https://tryshiba.dev/privacy/",
+    "termsOfUseUrl": "https://tryshiba.dev/terms/"
+  },
+  "name": {
+    "short": "Shiba",
+    "full": "Shiba for Microsoft Teams"
+  },
+  "description": {
+    "short": "Request and approve Shiba repository tasks in Teams.",
+    "full": "Ask Shiba to work on a GitHub repository from Microsoft Teams. Review the repository and task in an approval card before an authorized approver starts the run."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#0000A8",
+  "bots": [
+    {
+      "botId": "__TEAMS_APP_ID__",
+      "scopes": ["personal", "team", "groupChat"]
+    }
+  ]
+}
