@@ -276,11 +276,12 @@ export class Sandbox extends DurableObject<Env> {
           await options?.onOutput?.("stderr", chunk);
         }),
       ]);
-      const out = await proc.output();
+      // stdout/stderr are already consumed above, so output() would throw;
+      // exitCode resolves independently of the streams.
       return {
         stdout,
         stderr,
-        exitCode: out.exitCode,
+        exitCode: await proc.exitCode,
       };
     } finally {
       if (timer) clearTimeout(timer);
