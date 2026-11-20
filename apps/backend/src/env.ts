@@ -326,6 +326,8 @@ export interface Env {
   SLACK_APPROVERS?: string;
   /** Optional. Worker-only bot token for verified Slack replies, cards and opt-in session status. */
   SLACK_BOT_TOKEN?: string;
+  /** Set to "0" to disable automatically attaching outputs to source chat threads. */
+  SHIBA_CHANNEL_OUTPUT_DELIVERY?: string;
   /** Managed installations are opt-in; credentials stay in encrypted Worker storage. */
   SLACK_INSTALLATIONS_ENABLED?: string;
   /** Explicit operator opt-in for separately consented private coworker notices. */
@@ -366,6 +368,12 @@ export interface Env {
   TELEGRAM_APPROVERS?: string;
   /** Optional. JSON map `{chatId: "https://github.com/owner/repo"}` for commands without a URL. */
   TELEGRAM_CHAT_REPOS?: string;
+  /** Optional. Exact sender addresses allowed to email task requests; unset = off. */
+  EMAIL_TASK_SENDERS?: string;
+  /** Optional. JSON map of registered mailbox addresses to saved employee IDs or slugs. */
+  EMAIL_TASK_EMPLOYEES?: string;
+  /** Optional. JSON map `{mailbox: "https://github.com/owner/repo"}` for emailed tasks without a URL. */
+  EMAIL_TASK_REPOS?: string;
   /** Optional. Teams bot (Entra app registration) id; with TEAMS_APP_PASSWORD enables POST /api/teams/messages. */
   TEAMS_APP_ID?: string;
   /** Optional. Teams bot client secret; used only for the Bot Framework client-credentials token. */
@@ -618,6 +626,7 @@ export interface Env {
   EMAIL_QUEUE?: Queue;
   JOBS_QUEUE?: Queue;
   SLACK_IMPORT_WORKFLOW?: Workflow;
+  SLACK_MEDIA_WORKFLOW?: Workflow<import("./slack-media-output.js").SlackMediaWorkflowInput>;
   AUTOMATION_RUN_WORKFLOW?: Workflow;
   /** General file storage (WS07); distinct from run-scoped ARTIFACTS. */
   FILES?: R2Bucket;

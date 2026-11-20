@@ -113,7 +113,7 @@ function defaultResolver(env: Env): ResolveOrchestrator {
 export async function queueChatRun(
   env: Env,
   input: {
-    platform: ChatPlatform;
+    platform: ChatPlatform | "email";
     threadKey: string;
     repoUrl: string;
     task: string;
@@ -301,5 +301,5 @@ export function postToChatThread(env: Env, threadName: string, text: string): Pr
   const adapter = createChannelAdapter(env, ids.platform);
   if (!adapter) return null;
   const limit = ids.platform === "discord" ? 2000 : 4000;
-  return adapter.post({ placeId: ids.conversationId, text: text.slice(0, limit) }).then(() => undefined);
+  return adapter.post({ placeId: ids.conversationId, ...(ids.topicId ? { threadId: ids.topicId } : {}), text: text.slice(0, limit) }).then(() => undefined);
 }

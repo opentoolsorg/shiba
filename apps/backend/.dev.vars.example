@@ -108,6 +108,12 @@
 # Optional harness override, falls back to AGENT_HARNESS.
 # TELEGRAM_AGENT_HARNESS=
 
+# Email task intake. Empty EMAIL_TASK_SENDERS means email never queues work.
+# EMAIL_TASK_SENDERS=alice@example.com,bob@example.com
+# EMAIL_TASK_EMPLOYEES={"dev@your-company.example":"engineering"}
+# JSON map {mailbox: "https://github.com/owner/repo"} for emailed tasks without a URL.
+# EMAIL_TASK_REPOS=
+
 # --- Discord -----------------------------------------------------------------
 
 # DISCORD_APPROVERS empty means nobody can approve.

@@ -1,0 +1,12 @@
+{
+  "id": "sales-report",
+  "name": "Sales report",
+  "description": "Turn supplied sales figures or connected read sources into a PDF brief and an editable Excel workbook.",
+  "categories": ["sales", "ops"],
+  "appearance": "📊",
+  "skills": [],
+  "plugins": [],
+  "expectedDeliverables": ["report.pdf", "sales.xlsx"],
+  "chat_lanes": ["slack"],
+  "version": "1.0.0"
+}

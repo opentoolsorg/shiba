@@ -3,6 +3,7 @@
  */
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import type { Env } from "../env.js";
+import { generateSlackMedia, postSlackMediaResult, type SlackMediaResult, type SlackMediaWorkflowInput } from "../slack-media-output.js";
 import {
   getSlackImportJob,
   mockSlackHistoryPager,
@@ -69,5 +70,13 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
       if (id) await patchAutomationWorkflowRun(this.env, id, { status: "terminal" });
       return { ok: true as const };
     });
+  }
+}
+
+export class SlackMediaWorkflow extends WorkflowEntrypoint<Env, SlackMediaWorkflowInput> {
+  async run(event: WorkflowEvent<SlackMediaWorkflowInput>, step: WorkflowStep): Promise<void> {
+    const result = await step.do("generate media", { retries: { limit: 0, delay: "1 second" }, timeout: "12 minutes" },
+      () => generateSlackMedia(this.env, event.payload)).catch((): SlackMediaResult => ({ ok: false }));
+    await step.do("post media in source thread", () => postSlackMediaResult(this.env, event.payload, result));
   }
 }

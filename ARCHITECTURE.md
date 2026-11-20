@@ -234,7 +234,8 @@ existing enforcement point:
    the container; automation webhooks are header-only; no secret in a query
    string or an error message.
 5. **Per-surface authentication.** Access-gated APIs, signature-verified Slack
-   and GitHub, header-secret Telegram/Discord/email, bearer-token `/mcp`, and a
+   and GitHub, header-secret Telegram/Discord/email, DMARC-verified email task
+   intake (`channels/email`), bearer-token `/mcp`, and a
    narrow explicit bypass list. A new ingress surface must add its own
    mechanism, never inherit one.
 
@@ -451,7 +452,7 @@ Not bugs — deliberate or inherited, recorded so they are not rediscovered:
 | how a run executes | `agents/opencode-agent.ts` → `harness/index.ts` → `harness/types.ts` |
 | the security boundary | `egress.ts`, `sandbox.ts`, `security.ts` |
 | state and persistence | the nine DO classes in §4 (`*-do.ts` plus the agent classes) |
-| every ingress surface | `slack-routes.ts`, `chat-lane.ts`, `telegram.ts`, `discord.ts`, `email-handler.ts` |
+| every ingress surface | `slack-routes.ts`, `chat-lane.ts`, `telegram.ts`, `discord.ts`, `email-handler.ts`, `email-tasks.ts` |
 | what is planned and why | `PLAN.md` (§17 for parity roadmap, §4 for what was cut and why) |
 
 **Do not enable `SHIBA_SCOPED_DO` for personal desktop pairing yet.** Several LocalDispatch callers still resolve the default owner mailbox (`local-routes.ts`, `computers-routes.ts`, `provider-sign-in.ts`) while scoped personal dispatch resolves the account owner, so flag-on daemon routing needs its own review first.

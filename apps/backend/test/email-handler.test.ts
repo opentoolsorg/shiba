@@ -1,6 +1,9 @@
 import { DatabaseSync } from "node:sqlite";
 import { fakeSqlStorage } from "./fixtures/do-sql-storage.js";
 import { describe, expect, it, vi } from "vitest";
+
+const emailTaskIntake = vi.hoisted(() => vi.fn(async () => ({ status: "queued", approvalId: "a1" })));
+vi.mock("../src/email-tasks.js", () => ({ handleEmailTaskRequest: emailTaskIntake }));
 import {
   handleInboundEmail,
   inboundEmailStats,
@@ -503,5 +506,64 @@ describe("handleInboundEmail", () => {
     const [email] = await listEmails(env);
     expect(email?.subject).toBe("still stored");
     expect(email?.body_text).toContain(PARSE_FAILED_FLAG);
+  });
+});
+
+describe("handleInboundEmail task intake", () => {
+  const intakeVars = {
+    EMAIL_TASK_SENDERS: "alice@example.com",
+    EMAIL_TASK_EMPLOYEES: JSON.stringify({ [REGISTERED]: "engineering" }),
+  };
+  const mail = (id: string) => rfc822(
+    { From: "Alice <alice@example.com>", To: REGISTERED, Subject: "Fix the build", "Message-ID": id },
+    "https://github.com/owner/repo is red",
+  );
+  const authHeaders = { "Authentication-Results": "mx.cloudflare.net; spf=pass; dkim=pass; dmarc=pass" };
+
+  it("hands the first stored copy to the email task lane, never a redelivery", async () => {
+    emailTaskIntake.mockClear();
+    const env = makeEnv();
+    Object.assign(env, intakeVars);
+    await registerMailbox(env);
+    await handleInboundEmail(makeMessage(mail("<task1@example.com>"), { from: "alice@example.com", headers: authHeaders }).message, env);
+    await handleInboundEmail(makeMessage(mail("<task1@example.com>"), { from: "alice@example.com", headers: authHeaders }).message, env);
+    expect(await listEmails(env)).toHaveLength(1);
+    expect(emailTaskIntake).toHaveBeenCalledTimes(1);
+    const [, input] = emailTaskIntake.mock.calls[0] as unknown as [Env, { rawBody: string; headers: Headers }];
+    expect(JSON.parse(input.rawBody)).toMatchObject({
+      v: 1,
+      messageId: "<task1@example.com>",
+      from: "alice@example.com",
+      fromName: "Alice",
+      to: REGISTERED,
+      subject: "Fix the build",
+      autoSubmitted: false,
+    });
+    expect(input.headers.get("authentication-results")).toContain("dmarc=pass");
+  });
+
+  it("leaves intake off when EMAIL_TASK_SENDERS is unset, and a failing lane never fails delivery", async () => {
+    emailTaskIntake.mockClear();
+    const env = makeEnv();
+    await registerMailbox(env);
+    await handleInboundEmail(makeMessage(mail("<task2@example.com>")).message, env);
+    expect(emailTaskIntake).not.toHaveBeenCalled();
+
+    Object.assign(env, intakeVars);
+    emailTaskIntake.mockRejectedValueOnce(new Error("orchestrator down"));
+    const { message, rejectReason } = makeMessage(mail("<task3@example.com>"), { from: "alice@example.com" });
+    await handleInboundEmail(message, env);
+    expect(rejectReason()).toBeUndefined();
+    expect(emailTaskIntake).toHaveBeenCalledTimes(1);
+    expect(await listEmails(env)).toHaveLength(2);
+  });
+
+  it("stores but does not queue mail with a different SMTP sender", async () => {
+    emailTaskIntake.mockClear();
+    const env = Object.assign(makeEnv(), intakeVars);
+    await registerMailbox(env);
+    await handleInboundEmail(makeMessage(mail("<task4@example.com>"), { from: "other@example.com", headers: authHeaders }).message, env);
+    expect(await listEmails(env)).toHaveLength(1);
+    expect(emailTaskIntake).not.toHaveBeenCalled();
   });
 });

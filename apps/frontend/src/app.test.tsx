@@ -430,6 +430,17 @@ describe("app Work and Threads routing", () => {
     expect(window.location.search).toBe("");
   });
 
+  it("opens the Outputs video handoff as an unsent Chat draft", async () => {
+    window.history.replaceState(null, "", `/threads/?${new URLSearchParams({ prompt: "Create a 9:16 video of " })}`);
+    render(<App />);
+    await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Create a 9:16 video of "));
+    expect(window.location.search).toBe("");
+    expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
+    await act(async () => {});
+    const posts = vi.mocked(fetch).mock.calls.filter(([, options]) => options?.method === "POST").map(([url]) => String(url));
+    expect(posts.filter((url) => /\/api\/(runs|sessions|approvals|outputs)|chat-suggestions|video|image/.test(url))).toEqual([]);
+  });
+
   it("opens the task inbox at root and after popstate", async () => {
     window.history.replaceState(null, "", "/");
     render(<App />);
@@ -1838,6 +1849,22 @@ describe("bot thread links", () => {
     expect(readDraft(composerDraftScope("test-operator", RESEARCH_THREAD))).toBe("Unsent research notes\n\nhttps://example.com/docs");
     expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
     expect(vi.mocked(fetch).mock.calls.some(([url, options]) => options?.method === "POST" && /^\/api\/(?:runs|sessions|approvals)/.test(String(url)))).toBe(false);
+  });
+
+  it("lands the Outputs video handoff in the remembered thread without asking for suggestions", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    localStorage.setItem("shiba:selected-session", RESEARCH_THREAD);
+    window.history.replaceState(null, "", `/threads/?${new URLSearchParams({ prompt: "Create a 9:16 video of " })}`);
+    mocks.chat.messages = [];
+    mocks.chat.sendMessage.mockClear();
+    stubThreads();
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+    await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Create a 9:16 video of "));
+    await act(async () => {});
+    expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
+    const posts = vi.mocked(fetch).mock.calls.filter(([, options]) => options?.method === "POST").map(([url]) => String(url));
+    expect(posts.filter((url) => /\/api\/(runs|sessions|approvals|outputs)|chat-suggestions|video|image/.test(url))).toEqual([]);
   });
 
   it("replaces a dead thread link instead of leaving it in history", async () => {

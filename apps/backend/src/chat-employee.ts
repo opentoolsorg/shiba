@@ -215,6 +215,7 @@ export async function notifyEmployeeToolApprovalInChat(
     if (!tg) return;
     await telegramApi(tg, "sendMessage", {
       chat_id: chatIds.conversationId,
+      ...(chatIds.topicId ? { message_thread_id: Number(chatIds.topicId) } : {}),
       text:
         `Employee action approval\nBot: ${label}\nTool: ${record.action}\n` +
         `${preview.slice(0, 800)}\nApprove: ${buildEmployeeDecisionData(true, record.approvalId)}\n` +
