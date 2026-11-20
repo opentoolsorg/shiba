@@ -563,6 +563,10 @@ export const handlers = {
       dedupe: (updateId) => seenDelivery(env, `telegram-update:${updateId}`),
     });
   },
+  async discordInstallationResponse(context: RequestContext): Promise<Response | null> {
+    const { request, env } = context;
+    return (await import("../discord-installations.js")).handleDiscordInstallations(request, env);
+  },
   async discordResponse(context: RequestContext): Promise<Response | null> {
     const { request, env, execution: ctx } = context;
     const chatCtx = ctx

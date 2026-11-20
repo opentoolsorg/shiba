@@ -96,6 +96,8 @@ export interface Env {
   GOOGLE_ANTIGRAVITY_CLIENT_SECRET?: string;
   /** Private launch/contributor registrations. */
   Waitlist: DurableObjectNamespace;
+  /** Singleton holding the Discord bot's Gateway connection for mentions. */
+  DISCORD_GATEWAY?: DurableObjectNamespace;
   /**
    * Vectorize index holding the 768-dim bge-base embedding for every banked
    * fact, keyed by fact id (megaplan T8). Index name `shiba-memory`; the
@@ -394,6 +396,12 @@ export interface Env {
   DISCORD_BOT_TOKEN?: string;
   /** Optional. Comma-separated Discord user ids allowed to approve; unset = nobody. */
   DISCORD_APPROVERS?: string;
+  /** Optional. Discord application (client) id; with DISCORD_CLIENT_SECRET enables the dashboard install flow and limits Shiba to installed servers. */
+  DISCORD_CLIENT_ID?: string;
+  /** Optional. Discord OAuth2 client secret; used only by the Worker for the install code exchange. */
+  DISCORD_CLIENT_SECRET?: string;
+  /** Optional. OAuth2 redirect URI registered in the Discord portal; default is this origin's /api/discord/installations/callback. */
+  DISCORD_OAUTH_REDIRECT_URI?: string;
   /**
    * Optional. Comma-separated dashboard user ids (Access emails) allowed to
    * resolve approvals that are NOT scoped to a caller's own web session —

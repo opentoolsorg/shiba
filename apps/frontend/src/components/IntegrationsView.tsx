@@ -27,6 +27,7 @@ import { ExtensionMcpServersView } from "./ExtensionMcpServersView";
 import { WorkspaceConnectorsPanel } from "./WorkspaceConnectorsPanel";
 import { MainCard, type Scope } from "./ui/ContextPanel";
 import { SlackInstallationsPanel } from "./SlackInstallationsPanel";
+import { DiscordConnectionPanel, DiscordStatusChip, discordBindingInput, useDiscordConnection } from "./DiscordConnectionPanel";
 import { SlackCoworkerPanel } from "./SlackCoworkerPanel";
 import { TeamsConnectionPanel } from "./TeamsConnectionPanel";
 import { FounderStripeReads } from "./FounderStripeReads";
@@ -256,6 +257,11 @@ function PersonalIntegrationsView({
 }: IntegrationsViewProps): JSX.Element {
   const setup = useSetupStatus();
   const mailboxes = useMailboxes();
+  const discord = useDiscordConnection();
+  const discordBinding = useMemo(
+    () => discordBindingInput({ status: discord.status, loadError: discord.loadError }),
+    [discord.status, discord.loadError],
+  );
   const savedSkills = useSavedSkills();
   const [showCapabilityCatalog, setShowCapabilityCatalog] = useState(false);
   const [showSetupDetails, setShowSetupDetails] = useState(false);
@@ -465,6 +471,7 @@ function PersonalIntegrationsView({
       externalMcpReadyServerCount,
       externalMcpCatalogConnections,
       externalMcpLoading,
+      discord: discordBinding,
     }),
     [
       loading,
@@ -477,6 +484,7 @@ function PersonalIntegrationsView({
       externalMcpReadyServerCount,
       externalMcpCatalogConnections,
       externalMcpLoading,
+      discordBinding,
     ],
   );
 
@@ -831,16 +839,13 @@ function PersonalIntegrationsView({
             {rowVisible("Discord") ? (
             <IntegrationRow
               name="Discord"
-              status={<ToneChip tone="neutral" label="Available via deployment" />}
+              status={<DiscordStatusChip connection={discord} />}
               action={{
                 label: "Open Discord portal ↗",
                 href: "https://discord.com/developers/applications",
               }}
             >
-              <p>Run commands and progress posts in Discord.</p>
-              <p className="mt-0.5 text-[11px]">
-                Set up by your deployment operator — the dashboard can&apos;t verify it.
-              </p>
+              <DiscordConnectionPanel connection={discord} />
             </IntegrationRow>
             ) : null}
           </IntegrationGroup>

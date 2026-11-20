@@ -100,3 +100,4 @@ export * from "./workspace-events.js";
 export * from "./run-thread.js";
 export * from "./thread-messages.js";
 export * from "./governance.js";
+export * from "./discord-installations.js";
