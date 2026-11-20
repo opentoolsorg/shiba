@@ -7,7 +7,7 @@ A thread is the home for a task and its follow-ups. Start one from the dashboard
 
 ## Choose the kind of work
 
-Use **Work** mode when you want the employee to use task tools. **Chat** mode is for conversation without task tools.
+Use **Work** mode when you want the employee to use task tools. **Chat** mode is for conversation without task tools. In Chat you can switch on **Web** or **Knowledge** lookups for one message, or pick one thing to **Create** (an image, a video, a report, or a web page); see [Images, videos, reports, pages, and Outputs](/docs/media-generation/).
 
 The work target determines what the task can do:
 
