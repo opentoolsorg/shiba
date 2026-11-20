@@ -153,6 +153,7 @@ export interface PendingApproval extends OnboardingRunFields {
   envSealed?: string;
   /** T72: the human opted in to the repo's `.shiba/setup.json` initialize. */
   runSetup?: boolean;
+  computer?: boolean;
   /** Resolved profile version frozen with the approved effective instructions and route. */
   customAgentVersion?: number;
   /** Profile version that supplied the selected employee app-tool policy, if enabled. */
@@ -240,6 +241,7 @@ export interface CreateApprovalInput extends OnboardingRunFields {
   envDigest?: string;
   envSealed?: string;
   runSetup?: boolean;
+  computer?: boolean;
   /** Resolved profile version frozen with the approved effective instructions and route. */
   customAgentVersion?: number;
   /** Profile version that supplied the selected employee app-tool policy, if enabled. */
@@ -302,6 +304,7 @@ export function createPendingApproval(
       ...(input.envDigest !== undefined ? { envDigest: input.envDigest } : {}),
       ...(input.envSealed !== undefined ? { envSealed: input.envSealed } : {}),
       ...(input.runSetup === true ? { runSetup: true } : {}),
+      ...(input.computer === true ? { computer: true } : {}),
       ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
       ...(input.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: input.employeeToolPolicyVersion } : {}),
       ...(input.collaborationHandoffId !== undefined ? { collaborationHandoffId: input.collaborationHandoffId } : {}),
@@ -471,6 +474,7 @@ export interface RunInputFields extends OnboardingRunFields {
   envDigest?: string;
   /** T72: running the repo's own setup script is part of what the human approves. */
   runSetup?: boolean;
+  computer?: boolean;
   /** Resolved profile version frozen with the approved effective instructions and route. */
   customAgentVersion?: number;
   /** Profile version that supplied the selected employee app-tool policy, if enabled. */
@@ -600,6 +604,7 @@ export function runInputHash(input: RunInputFields): string {
     ...(input.envNames !== undefined ? { envNames: input.envNames } : {}),
     ...(input.envDigest !== undefined ? { envDigest: input.envDigest } : {}),
     ...(input.runSetup === true ? { runSetup: true } : {}),
+    ...(input.computer === true ? { computer: true } : {}),
     ...(input.customAgentVersion !== undefined ? { customAgentVersion: input.customAgentVersion } : {}),
     ...(input.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: input.employeeToolPolicyVersion } : {}),
     ...(input.collaborationHandoffId !== undefined ? { collaborationHandoffId: input.collaborationHandoffId } : {}),

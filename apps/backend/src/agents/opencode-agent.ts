@@ -73,6 +73,8 @@ import { createRunJournalPublisher } from "../run-journal-publisher.js";
 import type { PreparedRuntimeExecution } from "../runtime-recovery.js";
 import { prepareRunOutputArchive } from "../run-output-archive-admission.js";
 import { isQuietRoutine } from "../routine-outcome.js";
+import { DASHBOARD_ORG_ID } from "../org-request-auth.js";
+import { saveRunComputerScreenshot } from "../run-computer-output.js";
 
 export async function pinSandboxEgress(
   env: Env,
@@ -169,6 +171,7 @@ export function createSandboxOps(
         journal: opts?.journal,
         onJournalFrame: opts?.onJournalFrame,
         requiredJournalJobId: opts?.requiredJournalJobId,
+        ...(opts?.activeOnly ? { activeOnly: true } : {}),
       });
       if (!opts?.signal) return execPromise;
       if (opts.signal.aborted) {
@@ -371,6 +374,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
           // deployment default is only the fallback for pre-harness inputs.
           slackProgress = createSlackProgress(this.env, input.slackThread);
           let result: CodingTaskResult;
+          let computerScreenshot: string | undefined;
           if (verifyStandinEnabled(this.env)) {
             result = await runVerifyStandInTask(input, emit);
           } else {
@@ -489,6 +493,9 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
               ...(runEnv !== undefined && this.envScrub !== null ? { env: runEnv, scrub: this.envScrub } : {}),
               ...(runInput.attachments?.length
                 ? { openAttachment: (attachment) => openRunAttachment(this.env, runInput.attachmentOwner ?? "", attachment) }
+                : {}),
+              ...(runInput.computer === true && input.initiatorUserId && input.runRoom?.ownerId === input.initiatorUserId
+                ? { exportComputerScreenshot: async (screenshotBase64) => { computerScreenshot = screenshotBase64; } }
                 : {}),
               // T44: an oversize diff lands in R2 instead of being truncated
               // away — the settle receipt carries this key.
@@ -619,6 +626,15 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
           if (recoveryStore) {
             if (safeResult.status === "completed") await recoveryStore.complete(input, finalText);
             else await recoveryStore.failed(input);
+          }
+          if (safeResult.status === "completed" && computerScreenshot && !signal?.aborted &&
+              input.initiatorUserId && input.runRoom?.ownerId === input.initiatorUserId) {
+            await saveRunComputerScreenshot(this.env, {
+              screenshotBase64: computerScreenshot,
+              userId: input.initiatorUserId,
+              workspaceId: input.orgId ?? DASHBOARD_ORG_ID,
+              runId: input.runRoom.runId,
+            }).catch(() => undefined);
           }
           write(finalText);
           (this.ctx as DurableObjectState | undefined)?.waitUntil?.(

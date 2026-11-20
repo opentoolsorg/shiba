@@ -1,5 +1,36 @@
 import { describe, expect, it, vi } from "vitest";
-import { extractCompletedDiff, formatToolOutput, readPromptParam, runsListUrl } from "./ui-helpers";
+import type { UIMessage } from "ai";
+import { extractCompletedDiff, extractPendingApprovals, formatToolOutput, readPromptParam, runsListUrl } from "./ui-helpers";
+
+describe("extractPendingApprovals", () => {
+  const work: UIMessage = { id: "work", role: "user", metadata: { shibaTask: { computer: true } }, parts: [] };
+  const delegate: UIMessage = {
+    id: "delegate",
+    role: "assistant",
+    parts: [{
+      type: "tool-delegate_coding_task",
+      state: "approval-requested",
+      toolCallId: "tool-call",
+      approval: { id: "stream-approval" },
+      input: { task: "Verify the example" },
+    }],
+  };
+
+  it("discloses the preceding composer opt-in before the frozen approval arrives", () => {
+    expect(extractPendingApprovals([work, delegate])).toEqual([
+      expect.objectContaining({ approvalId: "stream-approval", computer: true, input: { task: "Verify the example" } }),
+    ]);
+    expect(extractPendingApprovals([delegate, work])[0]?.computer).toBeUndefined();
+    expect(extractPendingApprovals([work, { id: "new", role: "user", parts: [] }, delegate])[0]?.computer).toBeUndefined();
+  });
+
+  it("uses the exact frozen approval's choice instead of the composer once fetched", () => {
+    const unrelated = { approvalId: "different-call", computer: false };
+    expect(extractPendingApprovals([work, delegate], [unrelated])[0]?.computer).toBe(true);
+    expect(extractPendingApprovals([work, delegate], [{ approvalId: "tool-call", computer: false }])[0]?.computer).toBe(false);
+    expect(extractPendingApprovals([delegate], [{ approvalId: "tool-call", payload: { computer: true } }])[0]?.computer).toBe(true);
+  });
+});
 
 describe("extractCompletedDiff", () => {
   const marker = "SHIBA_AI_COWORKER_CODING_RESULT_JSON";

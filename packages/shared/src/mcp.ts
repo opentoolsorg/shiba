@@ -38,6 +38,7 @@ export const testCommandSchema = z.array(z.string().min(1)).max(8);
 export const queueRunInputSchema = z.object({
   repoUrl: z.string().describe("HTTPS GitHub repository URL, e.g. https://github.com/owner/repo."),
   task: z.string().describe("The coding task to perform in the repository."),
+  computer: z.boolean().optional().describe("Request a temporary desktop in the approved Cloudflare sandbox."),
   baseBranch: z.string().optional().describe("Base branch to clone. Defaults to main."),
   publishPullRequest: z
     .boolean()

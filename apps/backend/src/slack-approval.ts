@@ -110,6 +110,7 @@ export interface ApprovalCardInput extends ApprovalPointer {
   canvasUrl?: string;
   liveCanvas?: boolean;
   publishPullRequest?: boolean;
+  computer?: boolean;
   /** PendingApproval kind — "email_send" / "email_delete" get email copy. */
   kind?: ApprovalKind;
   /** Saved employee profile label for run cards. */
@@ -192,6 +193,7 @@ export function approvalCardText(input: ApprovalCardInput): string {
     : `Approval requested\nTarget Workspace: ${escapeMrkdwn(input.workspaceLabel ?? input.repoUrl)}\nTask Summary: ${escapeMrkdwn(clipTask(input.task))}` +
         (input.employeeLabel ? `\nBot: ${escapeMrkdwn(input.employeeLabel)}` : "") +
         (input.harness ? `\nAgent: ${escapeMrkdwn(input.harness)}` : "") +
+        (input.computer ? "\nUses a cloud computer." : "") +
         testCommand +
         (input.kind === "pr_publish" ? "\nExternal Action: Push this frozen snapshot and publish its pull request." : input.publishPullRequest ? "\nPublication requested. A separate approval is required after the changes are ready." : "") +
         (safeCanvasUrl(input.canvasUrl) ? `\n${input.liveCanvas ? "Live Web Canvas" : "Open Shiba"}: ${escapeMrkdwn(input.canvasUrl)}` : "");
@@ -220,6 +222,7 @@ export function buildApprovalBlocks(input: ApprovalCardInput): unknown[] {
     : `*Approval requested*\n*Target Workspace:* ${escapeMrkdwn(input.workspaceLabel ?? input.repoUrl)}\n*Task Summary:* ${escapeMrkdwn(clipTask(input.task))}` +
         (input.employeeLabel ? `\n*Bot:* ${escapeMrkdwn(input.employeeLabel)}` : "") +
         (input.harness ? `\n*Agent:* ${escapeMrkdwn(input.harness)}` : "") +
+        (input.computer ? "\nUses a cloud computer." : "") +
         testCommand +
         (input.kind === "pr_publish" ? "\n*External Action:* Push this frozen snapshot and publish its pull request." : input.publishPullRequest ? "\nPublication requested. A separate approval is required after the changes are ready." : "") +
         (safeCanvasUrl(input.canvasUrl) ? `\n<${escapeMrkdwn(input.canvasUrl)}|${input.liveCanvas ? "Live Web Canvas" : "Open Shiba"}>` : "");

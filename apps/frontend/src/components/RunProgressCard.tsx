@@ -4,6 +4,7 @@ import type { RunProgressRecord } from "../types";
 import { statusChipClass, statusLabel } from "../ui-helpers";
 import { RunDeliverables } from "./RunDeliverables";
 import { RunLivePanel } from "./RunLivePanel";
+import { RunComputerPanel } from "./RunComputerPanel";
 
 /** Latest retained run for the active task thread — honest status, not a spinner that never ends. */
 export function RunProgressCard({
@@ -58,6 +59,7 @@ export function RunProgressCard({
       </div>
       <p className="text-xs text-[var(--muted-foreground-2)] line-clamp-2">{run.task}</p>
       {run.customAgentVersion !== undefined ? <p className="text-xs text-[var(--muted-foreground-2)]" data-testid="run-agent-version">Bot profile v{run.customAgentVersion}</p> : null}
+      {run.computer === true ? <RunComputerPanel runId={run.runId} sessionId={sessionId} status={run.status} /> : null}
       {inFlight ? (
         <p className="text-xs text-[var(--fg)] flex items-center gap-2">
           <LoaderCircle className="w-3.5 h-3.5 animate-spin text-[var(--primary)]" aria-hidden="true" />

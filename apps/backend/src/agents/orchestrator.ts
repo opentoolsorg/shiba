@@ -113,6 +113,7 @@ import { ORCHESTRATOR_PRINCIPAL, ORCHESTRATOR_SCOPES } from "../codemode-princip
 import { createLazyRunCodeTool, warmRunCodeTool } from "../run-code-lazy.js";
 import { chatCreateTool, chatOptInTools, isAppToolsOnlyTurn, isChatOnlyTurn, toolsForConversationMode, type ChatCreateTool } from "../conversation-mode.js";
 import { createChatAgentMediaTools } from "../tools/chat-agent-tools.js";
+import { createChatScreenTools } from "../tools/chat-screen-tools.js";
 import { createAskUiAgentTools } from "../tools/ask-ui.js";
 import { renderUiBlockToSlack } from "../slack-ui-blocks.js";
 import { uiBlockRunId } from "../ui-block-scope.js";
@@ -177,7 +178,7 @@ import {
   recordApprovalExecution,
   resolvePendingApproval,
 } from "../pending-approvals.js";
-import { makeReceipt } from "../receipts.js";
+import { appendReceipt, makeReceipt } from "../receipts.js";
 import { logStructured } from "../log.js";
 import { dependentRuns, serializeRun, terminalStatusFor } from "./orchestrator-projections.js";
 import { orchestratorStateSql } from "./orchestrator-state-sql.js";
@@ -263,9 +264,11 @@ import { resolveSandboxSelection, type SandboxSelectionContext } from "../sandbo
 import {
   type ScreenAction,
   ScreenActionError,
+  SCREEN_INTAKE_PREFIX,
+  readScreenRequest,
   screenActionArgv,
   runScreenAction,
-  ScopedExecRefusal,
+  setScreenControl,
 } from "../screen-control.js";
 import { InputError, makeSandboxId, parseGitHubRepoUrl, redactSecrets } from "../security.js";
 import { DEFAULT_ORCHESTRATOR_MODEL, distillSession } from "../session-distill.js";
@@ -394,6 +397,7 @@ export const delegateInputSchema = z.object({
     .boolean()
     .optional()
     .describe("After the PR opens, run a read-only review and post findings. Covered by this approval."),
+  computer: z.boolean().optional().describe("Request an ephemeral cloud desktop as part of this run approval."),
   harness: z
     .enum(HARNESS_IDS)
     .optional()
@@ -497,6 +501,7 @@ const composerPinSchema = z.object({
   baseBranch: z.string().min(1).optional().catch(undefined),
   publishPullRequest: z.boolean().optional().catch(undefined),
   reviewAfterPublish: z.boolean().optional().catch(undefined),
+  computer: z.boolean().optional().catch(undefined),
   harness: z.enum(HARNESS_IDS).optional().catch(undefined),
   codingModel: z.string().min(1).optional().catch(undefined),
   connectionId: z.string().min(1).optional().catch(undefined),
@@ -604,6 +609,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   private warmedRunCode: import("ai").Tool | null | undefined;
   private specialistTurn: { turnId: string; budget: SpecialistTurnBudget } | undefined;
   private publicationReviewInFlight?: Map<string, Promise<void>>;
+  private screenOperations?: Set<string>;
   override runAgentTool<Input = unknown>(
     cls: ChatCapableAgentClass,
     options: RunAgentToolOptions<Input> & { detached: true | DetachedAgentToolConfig },
@@ -1269,7 +1275,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       "name a model, and a connectionId (conn_*) when they pick a model connection; otherwise leave",
       "them unset.",
       "The tool requires human approval before anything runs: summarize exactly",
-      "what will happen (repository, branch, task, whether a pull request is requested).",
+      "what will happen (repository, branch, task, whether a cloud computer or pull request is requested).",
       "After the run finishes, report the summary, changed files, and diff to the user.",
       "If the run fails, report the failure honestly with the exit code and error.",
       "For mailbox/memory/run questions needing more than one lookup, call run_code:",
@@ -1301,6 +1307,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           ? approval.executionTarget.workspaceId ? `Workspace ${approval.executionTarget.workspaceId}` : "Ephemeral workspace"
           : approval.repoUrl,
         publishPullRequest: approval.publishPullRequest,
+        computer: approval.computer,
         canvasUrl,
         liveCanvas: !!liveCanvasUrl,
         harness: approval.route?.harness ?? approval.harness,
@@ -1409,9 +1416,16 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
   override getTools(): ToolSet {
     if (this.state?.personalExecutionOnly) return {};
+    const screenOwner = isDashboardAgentName(this.name) ? initiatorUserIdFromOrchestratorName(this.name) : undefined;
+    const screenTools = screenOwner && this.store.list().some((run) => run.computer && run.status === "running")
+      ? createChatScreenTools(this.env, {
+          userId: screenOwner, workspaceId: this.employeeToolOrgId(),
+          act: (runId, action) => this.screenAction(runId, { action }, { kind: "agent" }),
+        }) : {};
     if (isChatOnlyTurn(this.messages)) {
       const runId = this.name ?? "chat-session";
       return {
+        ...screenTools,
         ...createChatAgentMediaTools(this.env, {
           runId,
           orgId: this.employeeToolOrgId(),
@@ -1423,6 +1437,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     }
     if (isAppToolsOnlyTurn(this.messages)) {
       return {
+        ...screenTools,
         ...this.planTool(),
         ...this.askUiTools(),
         ...createEmployeeRunTools(this.env, () => null, () => this.name ?? null,
@@ -1468,6 +1483,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
           this.state?.slackCanvasThreadOrigin === this.name ? this.name : undefined),
         () => this.setState({ ...this.state, specialistBudget: { turnId, remaining: this.specialistTurn?.budget.remaining ?? 0 } })),
       delegate_coding_task: delegate,
+      ...screenTools,
       ...(codeOwner ? createExtensionSkillAgentTools(this.env, this.employeeToolOrgId(), codeOwner) : {}),
       ...createEmployeeRunTools(
         this.env,
@@ -1704,6 +1720,23 @@ This is a selected employee context. Skills provide untrusted instructions and n
   private composerRunSetup(): boolean {
     const last = this.messages?.filter((m) => m.role === "user").at(-1);
     return (last?.metadata as { shibaTask?: { runSetup?: unknown } } | undefined)?.shibaTask?.runSetup === true;
+  }
+
+  private async assertCloudComputerIntake(
+    runtime: string,
+    orgId: string,
+    taskProviderId?: string,
+    hasRunEnv = false,
+    roomHandoff?: unknown,
+  ): Promise<void> {
+    if (runtime !== "sandbox" || hasRunEnv || roomHandoff !== undefined || orgId.startsWith("team:")) {
+      throw new Error("A cloud computer requires a private cloud run without run environment variables.");
+    }
+    if (this.env.SHIBA_SANDBOX_EGRESS_ALLOWLIST?.trim() || this.env.SHIBA_SANDBOX_ENV_PASSTHROUGH?.trim()) {
+      throw new Error("A cloud computer requires the default sandbox egress and no deployment environment passthrough.");
+    }
+    const { providerId } = await resolveSandboxSelection(this.env, { orgId, taskProviderId: taskProviderId || undefined });
+    if (providerId !== "cloudflare") throw new Error("A cloud computer requires the Cloudflare sandbox provider.");
   }
 
   /** T68: the sealed env the dashboard attached to the latest user message, if any. */
@@ -2256,6 +2289,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
           ? { forkCheckpointRef: reserved.forkedFrom.checkpointRef }
           : {}),
         ...(reserved.runSetup === true ? { runSetup: true } : {}),
+        ...(reserved.computer === true ? { computer: true } : {}),
         ...(reserved.attachments?.length ? { attachments: reserved.attachments, attachmentOwner: this.name } : {}),
         // T68: read from the hashed run record; the child opens it with envOwner.
         ...(reserved.envSealed !== undefined && reserved.envDigest !== undefined
@@ -2446,6 +2480,11 @@ This is a selected employee context. Skills provide untrusted instructions and n
             });
             // Just before dispatch: the connection may have been disabled or
             // deleted since approval. Fail honestly — never substitute.
+            if (reserved.computer) yield* tryRunPromise(() => this.assertCloudComputerIntake(
+              reserved.runtime ?? "", reserved.orgId ?? "self-hosted", reserved.sandboxProvider,
+              reserved.envSealed !== undefined,
+              reserved.collaborationHandoffId,
+            ));
             const routeProblem = reserved.personalExecution
               ? (yield* tryRunPromise(() => revalidatePersonalExecutionSnapshot(this.env, reserved.personalExecution!))) ? null : "Personal execution grant changed."
               : revalidateCodingRoute(yield* tryRunPromise(() => readModelConfig(this.env)), route);
@@ -2772,79 +2811,122 @@ This is a selected employee context. Skills provide untrusted instructions and n
     return runWorkerEffect(program);
   }
 
-  /**
-   * `POST /api/runs/<id>/screen` (PLAN-V2-NEXT): one computer-use action
-   * inside the run's live sandbox — click/type/scroll/key/shot. Only a
-   * `running` run has a screen to drive; the action's xdotool argv go
-   * through scopedExec's verb allowlist and land on the run's exec
-   * signal trail plus a `run.progress` spine event, so every screen op
-   * is as inspectable as any other sandbox exec.
-   */
   private async screenAction(
     runId: string,
     input: Record<string, unknown>,
-    agentPrincipal: string | null,
+    actor: { kind: "human"; id: string } | { kind: "agent"; principal?: string },
   ): Promise<Response> {
     const run = this.store.get(runId);
-    if (run === null || (agentPrincipal !== null && run.queuedBy !== agentPrincipal)) {
+    if (!run || run.orgId?.startsWith("team:") || run.collaborationHandoffId
+        || (actor.kind === "agent" && actor.principal !== undefined && run.queuedBy !== actor.principal)) {
       return Response.json({ error: "Run not found." }, { status: 404 });
     }
+    if (run.computer !== true || run.runtime !== "sandbox" || run.sandboxProvider !== "cloudflare"
+        || run.approval?.inputHash !== runInputHash(run)) {
+      return Response.json({ error: "This run does not have an approved cloud computer." }, { status: 409 });
+    }
     if (run.status !== "running") {
-      return Response.json(
-        { error: `Run ${runId} is ${run.status} — only a running run has a live screen.` },
-        { status: 409 },
-      );
+      return Response.json({ error: "Only a running run has a live screen." }, { status: 409 });
     }
-    const action = input.action as ScreenAction | undefined;
-    if (typeof action !== "object" || action === null || Array.isArray(action)) {
-      return Response.json({ error: "action must be a JSON object." }, { status: 400 });
+    const operation = input.control === "take" || input.control === "release" ? input.control : undefined;
+    let action: ScreenAction | undefined;
+    if (input.control !== undefined) {
+      if (!operation || input.action !== undefined)
+        return Response.json({ error: "Choose one control operation or screen action." }, { status: 400 });
+      if (actor.kind !== "human") return Response.json({ error: "Human session required." }, { status: 403 });
+    } else {
+      if (!input.action || typeof input.action !== "object" || Array.isArray(input.action))
+        return Response.json({ error: "action must be a JSON object." }, { status: 400 });
+      action = input.action as ScreenAction;
+      try { screenActionArgv(action); }
+      catch (error) {
+        return Response.json({ error: error instanceof ScreenActionError ? error.message : "Invalid screen action." }, { status: 400 });
+      }
     }
-    // Validate before touching the sandbox — a malformed action is a 400,
-    // never an exec attempt.
-    let argvPreview: string[][];
-    try {
-      argvPreview = screenActionArgv(action);
-    } catch (error) {
-      return Response.json(
-        { error: error instanceof ScreenActionError ? error.message : "Invalid screen action." },
-        { status: 400 },
-      );
-    }
-    const signals: RunSignal[] = [];
-    const summary = `screen_${action.type} (${argvPreview.length} command${argvPreview.length === 1 ? "" : "s"})`;
-    try {
-      const ops = await acquireSandboxOps(this.env, run.sandboxId, undefined, undefined, sandboxSelectionForRun(run));
-      const result = await runScreenAction(ops, action, signals);
-      // Persist the exec trail + spine note in one commit — the row
-      // shows what the screen did even when the caller disconnects.
+    const operations = this.screenOperations ??= new Set();
+    if (operations.has(runId)) return Response.json({ error: "The computer is busy. Try again." }, { status: 429 });
+    operations.add(runId);
+    const leaseId = `${runId}:${run.generation}`;
+    const leaseKey = "run-computer-control:v1";
+    type Lease = { actorId: string; expiresAt: number; confirmed: boolean };
+    let lease: Lease | undefined;
+    const control = () => !lease || lease.expiresAt <= Date.now() ? "agent"
+      : actor.kind === "human" && actor.id === lease.actorId && lease.confirmed ? "you" : "other";
+    const paused = () => Response.json({ ok: false, paused: true, error: "Screen tools are paused while a person controls the computer." }, { status: 409 });
+    const unavailable = () => Response.json({ ok: false, error: "The approved cloud computer is not available.", code: "computer_unavailable" }, { status: 503 });
+    const current = () => {
       const latest = this.store.get(runId);
-      if (latest !== null) {
+      return latest?.status === "running" && latest.generation === run.generation && latest.sandboxId === run.sandboxId ? latest : null;
+    };
+    try {
+      const storage = this.ctx.storage.kv;
+      const saveLease = (value?: Lease) => {
+        const now = Date.now();
+        const active = Object.fromEntries(Object.entries(storage.get<Record<string, Lease>>(leaseKey) ?? {})
+          .filter(([id, entry]) => id !== leaseId && entry.expiresAt > now));
+        if (value) active[leaseId] = value;
+        storage.put(leaseKey, active);
+      };
+      lease = storage.get<Record<string, Lease>>(leaseKey)?.[leaseId];
+      if (lease && lease.expiresAt <= Date.now()) lease = undefined;
+      if (actor.kind === "agent" && lease) return paused();
+      if (actor.kind === "human") {
+        if (operation && lease && lease.actorId !== actor.id)
+          return Response.json({ error: "Someone else has control.", control: "other" }, { status: 409 });
+        if (!operation && action?.type !== "shot" && control() !== "you")
+          return Response.json({ error: "Take control before sending input.", control: control() }, { status: 409 });
+        if (operation === "release" && !lease) return Response.json({ ok: true, control: "agent" });
+      }
+      const ops = await acquireSandboxOps(this.env, run.sandboxId, undefined, undefined, sandboxSelectionForRun(run));
+      if (!current()) return unavailable();
+      if (actor.kind === "human" && (operation === "take" ||
+          (action?.type === "shot" && control() === "you" && lease!.expiresAt - Date.now() < 30_000))) {
+        const expiresAt = Date.now() + 60_000;
+        const newClaim = !lease?.confirmed;
+        lease = { actorId: actor.id, expiresAt, confirmed: false };
+        saveLease(lease);
+        const ready = await setScreenControl(ops, "take", expiresAt);
+        const latest = current();
+        if (newClaim && latest) this.store.replace(runId, { ...latest, receipts: appendReceipt(latest.receipts,
+          makeReceipt("computer", ready ? `Control taken by ${actor.id}.` : `Control requested by ${actor.id}; outcome unconfirmed.`)) });
+        if (!ready || !latest) return unavailable();
+        lease = { ...lease, confirmed: true };
+        saveLease(lease);
+      } else if (actor.kind === "human" && operation === "release") {
+        if (!await setScreenControl(ops, "release", 0)) return unavailable();
+        const latest = current();
+        if (!latest) return unavailable();
+        saveLease();
+        lease = undefined;
+        this.store.replace(runId, { ...latest, receipts: appendReceipt(latest.receipts, makeReceipt("computer", `Control handed back by ${actor.id}.`)) });
+      }
+      if (operation) return Response.json({ ok: true, control: control() });
+      if (!action) return unavailable();
+      const liveFrame = actor.kind === "human" && action.type === "shot";
+      const signals: RunSignal[] = [];
+      const result = await runScreenAction(ops, action, liveFrame ? "view" : actor.kind, liveFrame ? undefined : signals);
+      const latest = current();
+      if (!latest) return unavailable();
+      if (!liveFrame) {
         this.emitSpine({
           kind: "run.progress",
           commandId: `screen:${crypto.randomUUID()}`,
           runId,
           at: Date.now(),
-          payload: { summary },
+          payload: { summary: `screen_${action.type}` },
         });
         this.store.replace(runId, {
           ...latest,
-          signals: [...(latest.signals ?? []), ...signals],
+          signals: [...(latest.signals ?? []), ...signals].slice(-256),
         });
       }
-      if (!result.ok) {
-        return Response.json({ ok: false, error: result.stderr ?? "screen action failed." }, { status: 502 });
-      }
-      return Response.json(result.screenshotBase64 !== undefined
-        ? { ok: true, screenshotBase64: result.screenshotBase64 }
-        : { ok: true });
-    } catch (error) {
-      if (error instanceof ScopedExecRefusal || error instanceof ScreenActionError) {
-        return Response.json({ error: error.message }, { status: 400 });
-      }
-      return Response.json(
-        { error: error instanceof Error ? error.message.slice(0, 500) : "Screen action failed." },
-        { status: 502 },
-      );
+      if (result.paused) return paused();
+      if (!result.ok) return unavailable();
+      return Response.json({ ...result, control: control() });
+    } catch {
+      return unavailable();
+    } finally {
+      operations.delete(runId);
     }
   }
 
@@ -2872,6 +2954,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
     reasoningEffort?: unknown;
     environment?: unknown;
     runSetup?: unknown;
+    computer?: unknown;
     attachments?: unknown;
     authAccount?: unknown;
     runtime?: unknown;
@@ -2899,6 +2982,10 @@ This is a selected employee context. Skills provide untrusted instructions and n
   nativeArchiveOwner?: { accountId: string; userId: string }): Promise<Response> {
     if (input.outputArchive !== undefined && input.outputArchive !== null)
       return Response.json({ error: "Output archive limits are server-authored. Use null to opt out." }, { status: 400 });
+    if (input.computer !== undefined && typeof input.computer !== "boolean")
+      return Response.json({ error: "computer must be a boolean." }, { status: 400 });
+    if (input.computer && (input.kind !== undefined && input.kind !== "run"))
+      return Response.json({ error: "Only run approvals support a cloud computer." }, { status: 400 });
     if (input.collaborationHandoffId !== undefined && [input.draftTaskId, input.draftTaskVersion,
       input.onboardingSourceSnapshot, input.projectContextId].some((value) => value !== undefined))
       return Response.json({ error: "Room execution accepts only its explicitly selected shared context, never private onboarding or project context." }, { status: 403 });
@@ -3276,6 +3363,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
     }
     const runtimeForPreflight = runtimeRawEarly === "local"
       ? ("local" as const)
+      : input.computer ? ("sandbox" as const)
       : executionTarget?.kind === "artifact-workspace"
         ? freezeRuntimeForApproval(this.env, { runtime: runtimeRawEarly, executionTarget })
         : undefined;
@@ -3400,6 +3488,9 @@ This is a selected employee context. Skills provide untrusted instructions and n
     let runEnv: FrozenRunEnv | undefined;
     try {
       runEnv = await this.intakeRunEnv(input.environment, effectiveRuntime);
+      if (input.computer) {
+        await this.assertCloudComputerIntake(effectiveRuntime, intakeOrgId, taskSandboxProvider, runEnv !== undefined, input.collaborationHandoffId);
+      }
     } catch (error) {
       return Response.json(
         { error: error instanceof Error ? error.message : "Invalid environment variables." },
@@ -3487,10 +3578,11 @@ This is a selected employee context. Skills provide untrusted instructions and n
           ...(typeof input.queuedBy === "string" && input.queuedBy.trim()
             ? { queuedBy: input.queuedBy.trim().slice(0, 200) }
             : {}),
-          ...(taskSandboxProvider ? { sandboxProvider: taskSandboxProvider } : archiveAccountId ? { sandboxProvider: "cloudflare" } : {}),
+          ...(archiveAccountId || input.computer ? { sandboxProvider: "cloudflare" } : taskSandboxProvider ? { sandboxProvider: taskSandboxProvider } : {}),
           ...(customAgentId ? { customAgentId } : {}),
           ...(runEnv ?? {}),
           ...(runSetup ? { runSetup: true } : {}),
+          ...(input.computer ? { computer: true } : {}),
           ...(attachments !== undefined ? { attachments } : {}),
           ...(customAgentVersion !== undefined ? { customAgentVersion } : {}),
           ...(employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion } : {}),
@@ -3684,6 +3776,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
             ? { envNames: parent.envNames ?? [], envDigest: parent.envDigest, envSealed: parent.envSealed }
             : {}),
           ...(parent.runSetup === true ? { runSetup: true } : {}),
+          ...(parent.computer === true ? { computer: true, sandboxProvider: "cloudflare" } : {}),
           ...(parent.expectedDeliverables !== undefined ? { expectedDeliverables: parent.expectedDeliverables } : {}),
           ...(parent.attachments?.length ? { attachments: parent.attachments } : {}),
           forkedFrom,
@@ -4326,11 +4419,13 @@ This is a selected employee context. Skills provide untrusted instructions and n
       throw new Error(`Harness "${route.harness}" does not run on the local runtime.`);
     }
     const runSetup = this.composerRunSetup();
-    const deploymentRuntime = input.executionTarget?.kind === "artifact-workspace" ? input.runtime ?? "sandbox" : resolveRuntimeName(this.env.RUNTIME);
+    const deploymentRuntime = input.computer || input.executionTarget?.kind === "artifact-workspace"
+      ? input.runtime ?? "sandbox" : resolveRuntimeName(this.env.RUNTIME);
     if (deploymentRuntime === "computer") throw new Error(COMPUTER_PREVIEW_MESSAGE);
     const chatFrozenRuntime =
       deploymentRuntime === "local" && isDashboardAgentName(this.name) ? ("local" as const) : ("sandbox" as const);
     const runEnv = await this.intakeRunEnv(this.composerEnv(), chatFrozenRuntime);
+    if (input.computer) await this.assertCloudComputerIntake(chatFrozenRuntime, intakeOrgId, sandboxProvider, runEnv !== undefined);
     if (runSetup && chatFrozenRuntime === "local") {
       throw new Error("Repo setup isn't supported on the local runtime yet.");
     }
@@ -4352,10 +4447,11 @@ This is a selected employee context. Skills provide untrusted instructions and n
         publishPullRequest: input.publishPullRequest,
         ...(input.reviewAfterPublish !== undefined ? { reviewAfterPublish: input.reviewAfterPublish } : {}),
         route,
-        ...(sandboxProvider ? { sandboxProvider } : {}),
+        ...(input.computer ? { sandboxProvider: "cloudflare" } : sandboxProvider ? { sandboxProvider } : {}),
         ...(customAgentId ? { customAgentId } : {}),
         ...(runEnv ?? {}),
         ...(runSetup ? { runSetup: true } : {}),
+        ...(input.computer ? { computer: true } : {}),
         ...(customAgentVersion !== undefined ? { customAgentVersion } : {}),
         ...(employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion } : {}),
         ...(attachments !== undefined ? { attachments } : {}),
@@ -4434,6 +4530,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
         ? { envNames: record.envNames ?? [], envDigest: record.envDigest, envSealed: record.envSealed }
         : {}),
       ...(record.runSetup === true ? { runSetup: true } : {}),
+      ...(record.computer === true ? { computer: true } : {}),
       ...(record.customAgentVersion !== undefined ? { customAgentVersion: record.customAgentVersion } : {}),
       ...(record.employeeToolPolicyVersion !== undefined ? { employeeToolPolicyVersion: record.employeeToolPolicyVersion } : {}),
       ...(record.attachments?.length ? { attachments: record.attachments } : {}),
@@ -4473,6 +4570,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
         ...denIdWireFields(resolveDenId(record)),
         ...(record.envDigest !== undefined ? { envNames: record.envNames ?? [], envDigest: record.envDigest } : {}),
         ...(record.runSetup === true ? { runSetup: true } : {}),
+        ...(record.computer === true ? { computer: true } : {}),
         ...(record.attachments?.length ? { attachments: record.attachments } : {}),
       }),
     });
@@ -7579,22 +7677,20 @@ This is a selected employee context. Skills provide untrusted instructions and n
       if (request.method !== "POST") {
         return Response.json({ error: "Method not allowed." }, { status: 405 });
       }
-      let screenBody: unknown;
-      try {
-        screenBody = await request.json();
-      } catch {
-        return Response.json({ error: "Request body is not valid JSON." }, { status: 400 });
-      }
-      if (typeof screenBody !== "object" || screenBody === null || Array.isArray(screenBody)) {
-        return Response.json({ error: "Request body must be a JSON object." }, { status: 400 });
-      }
+      const screenIntake = request.headers.get(LOCAL_INTAKE_HEADER);
+      const human = screenIntake?.startsWith(SCREEN_INTAKE_PREFIX) ? screenIntake.slice(SCREEN_INTAKE_PREFIX.length) : null;
+      const actor = agentPrincipal ? { kind: "agent" as const, principal: agentPrincipal }
+        : human ? { kind: "human" as const, id: human } : null;
+      if (!actor) return Response.json({ error: "Screen authority is required." }, { status: 403 });
+      const screenBody = await readScreenRequest(request);
+      if (!screenBody) return Response.json({ error: "Expected a bounded JSON request." }, { status: 400 });
       let screenRunId: string;
       try {
         screenRunId = decodeURIComponent(screenMatch[1]!);
       } catch {
         return Response.json({ error: "Invalid run ID." }, { status: 400 });
       }
-      return this.screenAction(screenRunId, screenBody as Record<string, unknown>, agentPrincipal);
+      return this.screenAction(screenRunId, screenBody, actor);
     }
     const archiveMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/archive$/);
     if (archiveMatch) {

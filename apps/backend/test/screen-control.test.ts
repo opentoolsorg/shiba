@@ -5,12 +5,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CodingOrchestrator } from "../src/agents/orchestrator.js";
 import type { OrchestratorState } from "../src/agents/orchestrator.js";
-import type { RunSignal } from "@shiba/shared";
+import { LOCAL_INTAKE_HEADER, runInputHash, type RunSignal } from "@shiba/shared";
 import {
   runScreenAction,
   ScreenActionError,
   screenActionArgv,
-  ScopedExecRefusal,
 } from "../src/screen-control.js";
 import type { ExecResult, SandboxOps } from "../src/runtime.js";
 import { createRun } from "../src/runs.js";
@@ -19,6 +18,9 @@ import {
   setSandboxOpsFactory,
 } from "../src/sandbox/lifecycle.js";
 import { sendWorkerRequest, productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
+import { tokenizeCommand } from "../src/exec-allowlist.js";
+import { AGENT_MEDIA_TOOL_DEFAULTS } from "../src/employee-tool-policy.js";
+import { createChatScreenTools } from "../src/tools/chat-screen-tools.js";
 
 const mocks = vi.hoisted(() => ({
   destroy: vi.fn(),
@@ -48,6 +50,7 @@ vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
 setSandboxHandleResolver(() => ({ destroy: mocks.destroy }));
 
 const AGENT_PRINCIPAL_HEADER = "X-Agent-Principal";
+const PNG_FIXTURE = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jT1sAAAAASUVORK5CYII=";
 
 function fakeOps(exec: SandboxOps["exec"]): SandboxOps {
   return {
@@ -65,10 +68,14 @@ const okExec = vi.fn(async (_cmd: string): Promise<ExecResult> => ({
 }));
 
 function agent() {
+  const storage = new Map<string, unknown>();
   return Object.assign(Object.create(CodingOrchestrator.prototype) as CodingOrchestrator, {
     env: { ...productionEnvStubs(), Sandbox: {} },
     name: "dashboard:test",
-    ctx: { waitUntil: (promise: Promise<unknown>) => void promise.catch(() => undefined) },
+    ctx: { storage: { kv: {
+      get: (key: string) => structuredClone(storage.get(key)),
+      put: (key: string, value: unknown) => storage.set(key, structuredClone(value)),
+    } }, waitUntil: (promise: Promise<unknown>) => void promise.catch(() => undefined) },
     state: { runs: [] } as OrchestratorState,
     setState(this: CodingOrchestrator, next: OrchestratorState) {
       setStateLikeProduction(this, next);
@@ -85,11 +92,15 @@ function seedRun(instance: CodingOrchestrator, status: "running" | "completed") 
       task: "t",
       baseBranch: "main",
       publishPullRequest: false,
+      computer: true,
+      runtime: "sandbox",
+      sandboxProvider: "cloudflare",
     }),
     status,
   };
-  instance.state.runs = [run];
-  return run;
+  const approved = { ...run, approval: { approvalId: "approval-1", decidedBy: "tester", decidedAt: 1, inputHash: runInputHash(run) } };
+  instance.state.runs = [approved];
+  return approved;
 }
 
 const screenPost = (
@@ -101,9 +112,15 @@ const screenPost = (
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(principal ? { [AGENT_PRINCIPAL_HEADER]: principal } : {}),
+      ...(principal ? { [AGENT_PRINCIPAL_HEADER]: principal } : { [LOCAL_INTAKE_HEADER]: "screen:user-alpha" }),
     },
     body: JSON.stringify({ action }),
+  });
+
+const controlPost = (operation: "take" | "release", actorId = "user-alpha") =>
+  new Request("https://internal/api/runs/run-1/screen", {
+    method: "POST", headers: { [LOCAL_INTAKE_HEADER]: `screen:${actorId}` },
+    body: JSON.stringify({ control: operation }),
   });
 
 beforeEach(() => {
@@ -168,33 +185,30 @@ describe("screenActionArgv", () => {
 });
 
 describe("runScreenAction", () => {
-  it("drives argv in order and collects exec.invoked/exec.settled signals", async () => {
+  it("drives validated argv in one active-only operation and records the exec", async () => {
     const signals: RunSignal[] = [];
     const result = await runScreenAction(
       fakeOps(okExec),
       { type: "click", x: 3, y: 4 },
+      "agent",
       signals,
     );
     expect(result).toEqual({ ok: true });
-    // shellJoin single-quotes every token — the sandbox shell joins them.
-    expect(okExec).toHaveBeenCalledTimes(2);
-    expect(okExec.mock.calls[0]![0]).toBe("'xdotool' 'mousemove' '3' '4'");
-    expect(okExec.mock.calls[1]![0]).toBe("'xdotool' 'click' '1'");
-    expect(signals.map((s) => s.kind)).toEqual([
-      "exec.invoked",
-      "exec.settled",
-      "exec.invoked",
-      "exec.settled",
-    ]);
+    expect(okExec).toHaveBeenCalledTimes(1);
+    expect(okExec).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ activeOnly: true }));
+    const argv = tokenizeCommand(okExec.mock.calls[0]![0])!;
+    expect(argv.slice(0, 3)).toEqual(["shiba-run-computer", "action", "agent"]);
+    expect(JSON.parse(argv[3]!)).toEqual([["xdotool", "mousemove", "3", "4"], ["xdotool", "click", "1"]]);
+    expect(signals.map((s) => s.kind)).toEqual(["exec.invoked", "exec.settled"]);
   });
 
   it("returns the base64 payload on shot", async () => {
     const shotExec = vi.fn(async (cmd: string): Promise<ExecResult> =>
       cmd.includes("base64")
-        ? { stdout: "aGVsbG8=", stderr: "", exitCode: 0 }
+        ? { stdout: PNG_FIXTURE, stderr: "", exitCode: 0 }
         : { stdout: "", stderr: "", exitCode: 0 });
-    const result = await runScreenAction(fakeOps(shotExec), { type: "shot" }, []);
-    expect(result).toEqual({ ok: true, screenshotBase64: "aGVsbG8=" });
+    const result = await runScreenAction(fakeOps(shotExec), { type: "shot" }, "agent");
+    expect(result).toEqual({ ok: true, screenshotBase64: PNG_FIXTURE });
   });
 
   it("stops at the first nonzero exit", async () => {
@@ -206,10 +220,10 @@ describe("runScreenAction", () => {
     const result = await runScreenAction(
       fakeOps(failExec),
       { type: "click", x: 1, y: 1 },
-      [],
+      "agent",
     );
     expect(result.ok).toBe(false);
-    expect(result.stderr).toBe("no display");
+    expect(result).toEqual({ ok: false });
     expect(failExec).toHaveBeenCalledTimes(1);
   });
 });
@@ -217,7 +231,7 @@ describe("runScreenAction", () => {
 describe("POST /api/runs/<id>/screen", () => {
   it("404s unknown runs and hides other principals' runs", async () => {
     const instance = agent();
-    expect((await instance.onRequest(screenPost("run-nope", { type: "click", x: 0, y: 0 }))).status).toBe(404);
+    expect((await sendWorkerRequest(instance, screenPost("run-nope", { type: "click", x: 0, y: 0 }))).status).toBe(404);
     const run = seedRun(instance, "running");
     instance.state.runs = [{ ...run, queuedBy: "agent-alpha" }];
     expect(
@@ -225,10 +239,25 @@ describe("POST /api/runs/<id>/screen", () => {
     ).toBe(404);
   });
 
+  it("requires Worker-vouched authority and refuses runs without intact approval", async () => {
+    const instance = agent();
+    const run = seedRun(instance, "running");
+    expect((await instance.onRequest(screenPost("run-1", { type: "shot" }))).status).toBe(401);
+    const unauthenticated = new Request("https://internal/api/runs/run-1/screen", {
+      method: "POST", body: JSON.stringify({ action: { type: "shot" } }),
+    });
+    expect((await instance.onRequest(unauthenticated)).status).toBe(403);
+    for (const mismatched of [{ ...run, computer: false }, { ...run, approval: undefined }, { ...run, task: "changed" }]) {
+      instance.state.runs = [mismatched];
+      expect((await sendWorkerRequest(instance, screenPost("run-1", { type: "shot" }))).status).toBe(409);
+    }
+    expect(okExec).not.toHaveBeenCalled();
+  });
+
   it("409s when the run is not running — no screen to drive", async () => {
     const instance = agent();
     seedRun(instance, "completed");
-    const res = await instance.onRequest(screenPost("run-1", { type: "click", x: 0, y: 0 }));
+    const res = await sendWorkerRequest(instance, screenPost("run-1", { type: "click", x: 0, y: 0 }));
     expect(res.status).toBe(409);
     expect(okExec).not.toHaveBeenCalled();
   });
@@ -236,25 +265,27 @@ describe("POST /api/runs/<id>/screen", () => {
   it("400s a malformed action without touching the sandbox", async () => {
     const instance = agent();
     seedRun(instance, "running");
-    const res = await instance.onRequest(screenPost("run-1", { type: "key", keys: "$(x)" }));
+    const res = await sendWorkerRequest(instance, screenPost("run-1", { type: "key", keys: "$(x)" }));
     expect(res.status).toBe(400);
     expect(okExec).not.toHaveBeenCalled();
   });
 
   it("drives the action, records signals on the run, emits run.progress", async () => {
     const instance = agent();
-    seedRun(instance, "running");
-    const res = await instance.onRequest(
-      screenPost("run-1", { type: "type", text: "hello" }),
+    const run = seedRun(instance, "running");
+    instance.state.runs = [{ ...run, queuedBy: "agent-alpha" }];
+    const res = await sendWorkerRequest(instance,
+      screenPost("run-1", { type: "type", text: "private input" }, "agent-alpha"),
     );
     expect(res.status).toBe(200);
     expect(((await res.json()) as { ok: boolean }).ok).toBe(true);
     expect(okExec).toHaveBeenCalledTimes(1);
-    expect(okExec.mock.calls[0]![0]).toContain("'xdotool' 'type'");
-    expect(okExec.mock.calls[0]![0]).toContain("'hello'");
+    expect(okExec.mock.calls[0]![0]).toContain('"xdotool","type"');
+    expect(okExec.mock.calls[0]![0]).toContain("private input");
 
-    const run = instance.state.runs.find((r) => r.runId === "run-1");
-    expect(run?.signals?.map((s) => s.kind)).toEqual(["exec.invoked", "exec.settled"]);
+    const latest = instance.state.runs.find((r) => r.runId === "run-1");
+    expect(latest?.signals?.map((s) => s.kind)).toEqual(["exec.invoked", "exec.settled"]);
+    expect(JSON.stringify(latest?.signals)).not.toContain("private input");
     const progress = (instance.state.events ?? []).find(
       (e) => e.kind === "run.progress" && e.runId === "run-1",
     );
@@ -265,13 +296,46 @@ describe("POST /api/runs/<id>/screen", () => {
   it("returns the screenshot payload for shot", async () => {
     okExec.mockImplementation(async (cmd: string): Promise<ExecResult> =>
       cmd.includes("base64")
-        ? { stdout: "iVBORw0K", stderr: "", exitCode: 0 }
+        ? { stdout: PNG_FIXTURE, stderr: "", exitCode: 0 }
         : { stdout: "", stderr: "", exitCode: 0 });
     const instance = agent();
     seedRun(instance, "running");
-    const res = await instance.onRequest(screenPost("run-1", { type: "shot" }));
+    const res = await sendWorkerRequest(instance, screenPost("run-1", { type: "shot" }));
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { screenshotBase64: string }).screenshotBase64).toBe("iVBORw0K");
+    expect(await res.json()).toEqual({ ok: true, control: "agent", screenshotBase64: PNG_FIXTURE });
+    expect(instance.state.runs[0]?.signals ?? []).toEqual([]);
+  });
+
+  it("hands one authenticated person control, pauses the agent, and records take and release", async () => {
+    const instance = agent();
+    const run = seedRun(instance, "running");
+    instance.state.runs = [{ ...run, queuedBy: "agent-alpha" }];
+    const input = { type: "key", keys: "Return" };
+    expect((await sendWorkerRequest(instance, screenPost("run-1", input))).status).toBe(409);
+    expect(okExec).not.toHaveBeenCalled();
+    expect(await (await sendWorkerRequest(instance, controlPost("take"))).json()).toEqual({ ok: true, control: "you" });
+    expect((await sendWorkerRequest(instance, controlPost("take", "user-beta"))).status).toBe(409);
+    expect(await (await sendWorkerRequest(instance, screenPost("run-1", { type: "shot" }, "agent-alpha"))).json())
+      .toMatchObject({ ok: false, paused: true });
+    expect(okExec).toHaveBeenCalledTimes(1);
+    expect((await sendWorkerRequest(instance, screenPost("run-1", input))).status).toBe(200);
+    expect((await sendWorkerRequest(instance, controlPost("release"))).status).toBe(200);
+    expect((await sendWorkerRequest(instance, screenPost("run-1", input, "agent-alpha"))).status).toBe(200);
+    expect(instance.state.runs[0]?.receipts?.filter(({ kind }) => kind === "computer").map(({ message }) => message)).toEqual([
+      "Control taken by user-alpha.", "Control handed back by user-alpha.",
+    ]);
+  });
+
+  it("does not return a frame after a run ends during capture", async () => {
+    const instance = agent();
+    const run = seedRun(instance, "running");
+    okExec.mockImplementationOnce(async () => {
+      instance.state.runs = [{ ...run, status: "completed" }];
+      return { stdout: PNG_FIXTURE, stderr: "", exitCode: 0 };
+    });
+    const res = await sendWorkerRequest(instance, screenPost("run-1", { type: "shot" }));
+    expect(res.status).toBe(503);
+    expect(await res.json()).not.toHaveProperty("screenshotBase64");
   });
 
   it("405s non-POST", async () => {
@@ -281,6 +345,18 @@ describe("POST /api/runs/<id>/screen", () => {
       new Request("https://internal/api/runs/run-1/screen", { method: "GET" }),
     );
     expect(res.status).toBe(405);
+  });
+});
+
+describe("chat screen tool policy", () => {
+  it("requires confirmation to click, type or send keys, and treats screenshots as reads", () => {
+    const tools = createChatScreenTools({} as never, { userId: "u", workspaceId: "w", act: vi.fn() });
+    for (const name of ["screen_click", "screen_type", "screen_key"]) {
+      expect(tools[name]?.needsApproval).toBe(true);
+      expect(AGENT_MEDIA_TOOL_DEFAULTS[name]?.risk).toBe("approval_required");
+    }
+    expect(tools.screen_shot?.needsApproval).toBeUndefined();
+    expect(AGENT_MEDIA_TOOL_DEFAULTS.screen_shot?.risk).toBe("read");
   });
 });
 

@@ -230,6 +230,7 @@ export function frozenTaskInputFromApproval(approval: PendingApproval): FrozenTa
     ...(approval.envNames !== undefined ? { envNames: approval.envNames } : {}),
     ...(approval.envDigest !== undefined ? { envDigest: approval.envDigest } : {}),
     ...(approval.runSetup === true ? { runSetup: true } : {}),
+    ...(approval.computer === true ? { computer: true } : {}),
     ...(approval.customAgentVersion !== undefined ? { customAgentVersion: approval.customAgentVersion } : {}),
     ...(approval.employeeToolPolicyVersion !== undefined
       ? { employeeToolPolicyVersion: approval.employeeToolPolicyVersion }

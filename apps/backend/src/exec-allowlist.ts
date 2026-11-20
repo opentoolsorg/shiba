@@ -45,6 +45,7 @@ export interface ScopedExecOptions {
   journal?: JournalExecutionOptions;
   onJournalFrame?: (frame: JournalFrame) => Promise<void>;
   requiredJournalJobId?: string;
+  activeOnly?: boolean;
 }
 
 /** Default output cap for scoped (non-harness) commands. */
@@ -129,6 +130,7 @@ export async function scopedExec(ops: SandboxOps, command: string, opts: ScopedE
       journal: opts.journal,
       onJournalFrame: opts.onJournalFrame,
       requiredJournalJobId: opts.requiredJournalJobId,
+      ...(opts.activeOnly ? { activeOnly: true } : {}),
     });
     const truncated =
       result.stdout.length > cap || result.stderr.length > cap;

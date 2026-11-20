@@ -5,7 +5,7 @@
  */
 import { type JSX } from "react";
 import { describeRoute } from "@shiba/shared";
-import { formatTimeAgo, statusChipClass } from "../ui-helpers";
+import { formatTimeAgo, statusChipClass, storedApprovalUsesCloudComputer } from "../ui-helpers";
 import type { StoredApproval } from "../types";
 import { RunOutputArchivePolicy } from "./RunOutputArchivePolicy";
 
@@ -80,6 +80,7 @@ export function StoredApprovalCard({
         ? { reviewAfterPublish: approval.reviewAfterPublish }
         : {}),
       ...(approval.runSetup !== undefined ? { runSetup: approval.runSetup } : {}),
+      ...(approval.computer === true ? { computer: true } : {}),
       ...(approval.testCommand?.length ? { testCommand: approval.testCommand } : {}),
       ...(approval.expectedDeliverables !== undefined ? { expectedDeliverables: approval.expectedDeliverables } : {}),
       ...(approval.outputArchive !== undefined ? { outputArchive: approval.outputArchive } : {}),
@@ -107,6 +108,9 @@ export function StoredApprovalCard({
       {approval.routine ? <p className="mb-2 text-xs font-medium">Routine: {approval.routine.name}</p> : null}
       <p className="text-sm text-[var(--fg)] font-medium break-words mb-2">{approval.task}</p>
       <p className="text-xs text-[var(--muted-foreground-2)] break-all mb-2">Repository: {approval.repoUrl}{approval.baseBranch ? ` · Branch: ${approval.baseBranch}` : ""}</p>
+      {storedApprovalUsesCloudComputer(approval) ? (
+        <p className="mb-2 text-xs font-medium text-[var(--fg)]">Uses a cloud computer</p>
+      ) : null}
       {approval.publishPullRequest ? <p className="text-xs text-[var(--fg)] mb-2">A pull request is requested. Publishing requires a separate approval after the changes are ready.</p> : null}
       {approval.outputArchive && <RunOutputArchivePolicy policy={approval.outputArchive} />}
       {approval.kind === "pr_publish" ? <p className="text-xs text-[var(--fg)] mb-2">Approve pushing this frozen snapshot and publishing its pull request.</p> : null}
@@ -227,4 +231,3 @@ export function DecidedApprovalRow({ approval }: { approval: StoredApproval }): 
     </div>
   );
 }
-

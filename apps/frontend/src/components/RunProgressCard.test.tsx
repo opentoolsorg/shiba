@@ -42,6 +42,14 @@ describe("RunProgressCard", () => {
     expect(screen.getByText(/Sandbox run in progress/i)).toBeTruthy();
   });
 
+  it("only renders a Computer panel for records that opted in", () => {
+    const { rerender } = render(<RunProgressCard run={baseRun({ status: "completed" })} />);
+    expect(screen.queryByRole("region", { name: "Computer" })).toBeNull();
+    rerender(<RunProgressCard run={baseRun({ status: "completed", computer: true })} />);
+    expect(screen.getByRole("region", { name: "Computer" })).toBeTruthy();
+    expect(screen.getByText("This cloud computer is closed.")).toBeTruthy();
+  });
+
   it("offers cancellation only while the real run is in flight", () => {
     const onCancel = vi.fn();
     const { rerender } = render(

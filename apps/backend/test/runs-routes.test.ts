@@ -31,6 +31,23 @@ import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 const env = { CodingOrchestrator: {} } as unknown as Env;
 
 describe("handleRuns voucher hygiene", () => {
+  it("vouches the current human for screen requests and rejects cross-site or bearer inputs", async () => {
+    forwarded.requests.length = 0;
+    const post = (headers: Record<string, string>, body = JSON.stringify({ action: { type: "shot" } })) =>
+      handleRuns(new Request("https://shiba.test/api/runs/run-1/screen", {
+        method: "POST", headers: { "content-type": "application/json", ...headers }, body,
+      }), env);
+    expect((await post({ origin: "https://other.test" }))?.status).toBe(403);
+    expect((await post({ authorization: "Bearer invalid" }))?.status).toBe(403);
+    expect((await post({}, "x".repeat(25_001)))?.status).toBe(400);
+    expect(forwarded.requests).toHaveLength(0);
+    const response = await post({ origin: "https://shiba.test", [LOCAL_INTAKE_HEADER]: "screen:other", [AGENT_PRINCIPAL_HEADER]: "other" });
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get("cache-control")).toBe("no-store");
+    expect(forwarded.requests[0]?.headers.get(LOCAL_INTAKE_HEADER)).toBe("screen:devin");
+    expect(forwarded.requests[0]?.headers.get(AGENT_PRINCIPAL_HEADER)).toBeNull();
+    expect(await forwarded.requests[0]?.json()).toEqual({ action: { type: "shot" } });
+  });
   it.each([undefined, "00000000-0000-4000-8000-000000000001"])("stores attachments under the authenticated session %s without forwarding the upload", async (session) => {
     forwarded.requests.length = 0;
     const put = vi.fn();

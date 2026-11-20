@@ -1,25 +1,14 @@
-/**
- * PLAN-V2-NEXT — computer-use surface, worker/DO side.
- *
- * The sandbox image owns the actual desktop (X server + xdotool/scrot
- * packages land as an image follow-up); this module owns the honest edge:
- * a typed `ScreenAction` becomes strict xdotool argv, exec goes through
- * `scopedExec` with a verb-prefixed allowlist, and every attempt lands on
- * the run's exec signal trail like every other sandbox command.
- *
- * Injection posture: argv entries are built, never interpolated — a
- * `type` text containing `; rm -rf /` arrives in the sandbox as ONE argv
- * element. Everything model-controlled (coords, buttons, key names,
- * repeat counts) is validated into a number/enum before it becomes argv.
- */
 import type { RunSignal } from "@shiba/shared";
-import { scopedExec, ScopedExecRefusal } from "./exec-allowlist.js";
-import { shellJoin } from "./security.js";
-import type { ExecResult, SandboxOps } from "./runtime.js";
+import { scopedExec } from "./exec-allowlist.js";
+import { redactSecrets, shellJoin } from "./security.js";
+import type { SandboxOps } from "./runtime.js";
 
-export const SCREEN_DISPLAY_ENV = ":0";
-const SCREEN_TIMEOUT_MS = 15_000;
-const MAX_COORD = 100_000;
+export const SCREEN_INTAKE_PREFIX = "screen:";
+export const SCREEN_FRAME_BASE64_LIMIT = 500_000;
+const SCREEN_TIMEOUT_MS = 8_000;
+const SCREEN_WIDTH = 1280;
+const SCREEN_HEIGHT = 800;
+const MAX_SCROLL_DELTA = 100_000;
 const MAX_TYPE_CHARS = 4_000;
 const MAX_SCROLL_TICKS = 100;
 const MAX_KEYS = 16;
@@ -36,15 +25,7 @@ export type ScreenAction =
   | { type: "key"; keys: string }
   | { type: "shot" };
 
-/** The scoped allowlist is verb-prefixed — construction below emits only these verbs. */
-export const SCREEN_EXEC_ALLOWLIST: readonly (readonly string[])[] = [
-  ["xdotool", "mousemove"],
-  ["xdotool", "click"],
-  ["xdotool", "type"],
-  ["xdotool", "key"],
-  ["scrot", "-o"],
-  ["base64", "-w0"],
-];
+const SCREEN_EXEC_ALLOWLIST = [["shiba-run-computer", "action"], ["shiba-run-computer", "control"]] as const;
 
 /** Input failed validation before it could become argv. */
 export class ScreenActionError extends Error {
@@ -54,9 +35,9 @@ export class ScreenActionError extends Error {
   }
 }
 
-const coord = (value: unknown, name: string): number => {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > MAX_COORD) {
-    throw new ScreenActionError(`${name} must be an integer in [0, ${MAX_COORD}].`);
+const coord = (value: unknown, name: string, max: number): number => {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > max) {
+    throw new ScreenActionError(`${name} must be an integer in [0, ${max}].`);
   }
   return value;
 };
@@ -81,26 +62,24 @@ const KEY_SINGLE =
 function assertKeyChord(chord: string): void {
   const tokens = chord.split("+");
   if (tokens.length === 0 || tokens.some((token) => token === "")) {
-    throw new ScreenActionError(`invalid key name: ${chord.slice(0, 40)}`);
+    throw new ScreenActionError("Invalid key chord.");
   }
   for (const token of tokens) {
     const lower = token.toLowerCase();
     if (XDOTOOL_CHAIN_COMMANDS.has(lower)) {
-      throw new ScreenActionError(`invalid key name: ${token.slice(0, 40)}`);
+      throw new ScreenActionError("Invalid key name.");
     }
     if (!(KEY_MODIFIER.test(token) || KEY_SINGLE.test(token))) {
-      throw new ScreenActionError(`invalid key name: ${token.slice(0, 40)}`);
+      throw new ScreenActionError("Invalid key name.");
     }
   }
 }
 
 const buttonId = (button: ButtonName | 1 | 2 | 3 | undefined): number => {
   if (button === undefined) return 1;
-  if (typeof button === "number") {
-    if (button === 1 || button === 2 || button === 3) return button;
-    throw new ScreenActionError("button must be 1 (left), 2 (middle), or 3 (right).");
-  }
-  return BUTTON_IDS[button];
+  if (button === 1 || button === 2 || button === 3) return button;
+  if (button === "left" || button === "middle" || button === "right") return BUTTON_IDS[button];
+  throw new ScreenActionError("button must be left, middle, or right.");
 };
 
 /**
@@ -110,8 +89,8 @@ const buttonId = (button: ButtonName | 1 | 2 | 3 | undefined): number => {
 export function screenActionArgv(action: ScreenAction): string[][] {
   switch (action.type) {
     case "click": {
-      const x = coord(action.x, "x");
-      const y = coord(action.y, "y");
+      const x = coord(action.x, "x", SCREEN_WIDTH - 1);
+      const y = coord(action.y, "y", SCREEN_HEIGHT - 1);
       const b = buttonId(action.button);
       return [
         ["xdotool", "mousemove", String(x), String(y)],
@@ -125,12 +104,18 @@ export function screenActionArgv(action: ScreenAction): string[][] {
       if (action.text.length > MAX_TYPE_CHARS) {
         throw new ScreenActionError(`text is capped at ${MAX_TYPE_CHARS} characters.`);
       }
+      if (action.text.includes("\0") || redactSecrets(action.text) !== action.text) {
+        throw new ScreenActionError("Screen text must not contain credentials or control bytes.");
+      }
       // End-of-options keeps leading-dash text literal for xdotool's parser.
       return [["xdotool", "type", "--delay", "15", "--", action.text]];
     }
     case "scroll": {
-      const dx = coord(Math.abs(action.dx), "|dx|");
-      const dy = coord(Math.abs(action.dy), "|dy|");
+      if (typeof action.dx !== "number" || typeof action.dy !== "number") {
+        throw new ScreenActionError("Scroll deltas must be integers.");
+      }
+      const dx = coord(Math.abs(action.dx), "|dx|", MAX_SCROLL_DELTA);
+      const dy = coord(Math.abs(action.dy), "|dy|", MAX_SCROLL_DELTA);
       if (action.dx === 0 && action.dy === 0) {
         throw new ScreenActionError("a scroll needs a nonzero dx or dy.");
       }
@@ -170,41 +155,67 @@ export function screenActionArgv(action: ScreenAction): string[][] {
 
 export interface ScreenActionResult {
   ok: boolean;
-  /** Present for "shot" actions. */
   screenshotBase64?: string;
-  /** Last exec's stderr tail — why a nonzero exit happened. */
-  stderr?: string;
+  paused?: true;
 }
 
-/**
- * Drive one screen action inside a run's sandbox. Every command goes
- * through scopedExec (verb allowlist + exec.invoked/exec.settled signal
- * receipts); the caller persists the collector onto the run row.
- */
+export function decodeScreenPng(base64: string): Uint8Array<ArrayBuffer> | null {
+  if (!base64.startsWith("iVBORw0KGgo") || base64.length > SCREEN_FRAME_BASE64_LIMIT) return null;
+  try {
+    const bytes = Uint8Array.from(atob(base64), (byte) => byte.charCodeAt(0));
+    const end = [0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130];
+    return bytes.length >= 45 && end.every((value, index) => bytes[bytes.length - end.length + index] === value)
+      ? bytes : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function runScreenAction(
   ops: SandboxOps,
   action: ScreenAction,
-  signals: RunSignal[],
+  actor: "agent" | "human" | "view",
+  signals?: RunSignal[],
 ): Promise<ScreenActionResult> {
-  const argvList = screenActionArgv(action);
-  let last: ExecResult | undefined;
-  for (const argv of argvList) {
-    last = await scopedExec(ops, shellJoin(argv), {
-      env: { DISPLAY: SCREEN_DISPLAY_ENV },
-      timeoutMs: SCREEN_TIMEOUT_MS,
-      allowlist: SCREEN_EXEC_ALLOWLIST,
-      signals,
-      // scrot+base64 can emit ~2MB of base64 — shots get the big cap.
-      ...(action.type === "shot" ? { maxOutputChars: 4_000_000 } : {}),
-    });
-    if (last.exitCode !== 0) {
-      return { ok: false, ...(last.stderr ? { stderr: last.stderr.slice(0, 2000) } : {}) };
-    }
-  }
+  const result = await scopedExec(
+    ops, shellJoin(["shiba-run-computer", "action", actor, JSON.stringify(screenActionArgv(action))]),
+    { timeoutMs: SCREEN_TIMEOUT_MS, allowlist: SCREEN_EXEC_ALLOWLIST, signals, activeOnly: true,
+      receiptLabel: `screen_${action.type}`, maxOutputChars: SCREEN_FRAME_BASE64_LIMIT },
+  );
+  if (result.exitCode !== 0) return { ok: false, ...(result.exitCode === 75 ? { paused: true } : {}) };
   if (action.type === "shot") {
-    return { ok: true, screenshotBase64: (last?.stdout ?? "").trim() };
+    const screenshotBase64 = result.stdout.trim();
+    return decodeScreenPng(screenshotBase64) ? { ok: true, screenshotBase64 } : { ok: false };
   }
   return { ok: true };
 }
 
-export { ScopedExecRefusal };
+export async function setScreenControl(ops: SandboxOps, operation: "take" | "release", expiresAt: number): Promise<boolean> {
+  const result = await scopedExec(ops, shellJoin(["shiba-run-computer", "control", operation, String(expiresAt)]), {
+    timeoutMs: SCREEN_TIMEOUT_MS, allowlist: SCREEN_EXEC_ALLOWLIST, activeOnly: true,
+  });
+  return result.exitCode === 0;
+}
+
+export async function readScreenRequest(request: Request): Promise<Record<string, unknown> | null> {
+  if (!request.body) return null;
+  const reader = request.body.getReader();
+  const bytes = new Uint8Array(25_000);
+  let used = 0;
+  try {
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      if (used + part.value.byteLength > bytes.length) return null;
+      bytes.set(part.value, used);
+      used += part.value.byteLength;
+    }
+    const body: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, used)));
+    return body !== null && typeof body === "object" && !Array.isArray(body)
+      ? body as Record<string, unknown> : null;
+  } catch {
+    return null;
+  } finally {
+    void reader.cancel().catch(() => undefined);
+  }
+}

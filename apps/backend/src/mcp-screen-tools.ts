@@ -42,6 +42,7 @@ async function orchestratorScreen(
   await signInternalRequest(request, env);
   const res = await stub.fetch(request);
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (res.status === 409 && body.paused === true) return body;
   if (!res.ok) {
     throw new Error(typeof body.error === "string" ? body.error : `orchestrator returned ${res.status}`);
   }
@@ -49,7 +50,7 @@ async function orchestratorScreen(
 }
 
 const SCREEN_TOOL_NOTE =
-  "Acts on a run that is currently `running` — there is no screen until the sandbox is up.";
+  "Acts only on a running run with an approved cloud computer. Pauses while a person has control.";
 
 export function registerScreenTools(registry: ToolRegistry, env: Env): void {
   registry.registerTool(
@@ -144,6 +145,7 @@ export function registerScreenTools(registry: ToolRegistry, env: Env): void {
         ctx.principal,
       );
       const data = typeof body.screenshotBase64 === "string" ? body.screenshotBase64 : "";
+      if (body.paused === true) return jsonResult(body);
       if (data === "") {
         return jsonResult({ ok: false, error: "No screenshot returned." });
       }

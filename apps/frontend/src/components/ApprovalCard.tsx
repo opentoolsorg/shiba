@@ -78,6 +78,8 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
         </p>
       ) : null}
 
+      {(approval.computer ?? input?.computer === true) ? <p className="text-xs font-medium text-[var(--fg)]">Uses a cloud computer</p> : null}
+
       {conflict ? (
         <div className="border border-[var(--warning)] bg-[var(--warning-subtle)] p-3 text-sm" role="status">
           <p>{conflict.actorId} is already working on `{conflict.branch}` in {conflict.repo} (task {conflict.runId}).</p>

@@ -7,6 +7,7 @@ import { FLUX_MODEL, imageDimensions, imageModels } from "../src/tools/image-mod
 import { handleKnowledgeOutputs } from "../src/knowledge/knowledge-outputs-routes.js";
 import { generateVideo, GoogleVideoBackend, videoInputSchema, videoModes } from "../src/tools/video-gen.js";
 import { insertFileRecord } from "../src/files/files-store.js";
+import { readRunComputerScreenshot, saveRunComputerScreenshot } from "../src/run-computer-output.js";
 
 vi.mock("../src/request-auth.js", async (original) => ({ ...await original<typeof import("../src/request-auth.js")>(), resolveRequestIdentity: async (request: Request) => ({ authorized: request.headers.has("x-test-user"), userId: request.headers.get("x-test-user") }) }));
 vi.mock("../src/org-request-auth.js", () => ({ resolveOrgForApiRequest: async () => ({ orgId: "team:ws", workspace: { workspaceId: "ws" } }) }));
@@ -67,6 +68,28 @@ describe("image catalog and storage", () => {
 });
 
 describe("Outputs routes", () => {
+  it("lists cloud computer screenshots only to their owner and checks run provenance when loading for chat", async () => {
+    const { env } = fixture();
+    const screenshotBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jT1sAAAAASUVORK5CYII=";
+    const objects = new Map<string, { data: Uint8Array; customMetadata?: Record<string, string> }>();
+    env.FILES = {
+      async put(key: string, data: Uint8Array, options: { customMetadata?: Record<string, string> }) {
+        objects.set(key, { data, customMetadata: options.customMetadata });
+      },
+      async get(key: string) {
+        const stored = objects.get(key);
+        return stored ? { size: stored.data.length, customMetadata: stored.customMetadata, arrayBuffer: async () => stored.data.slice().buffer } : null;
+      },
+    } as unknown as R2Bucket;
+    const saved = await saveRunComputerScreenshot(env, { ...context, screenshotBase64 });
+    const list = await (await handleKnowledgeOutputs(request("?type=image"), env))!.json() as { items: Array<{ id: string }> };
+    expect(list.items).toEqual([expect.objectContaining({ id: saved.artifactId, downloadPath: saved.downloadPath, mime: "image/png" })]);
+    expect(await (await handleKnowledgeOutputs(request("", undefined, "bob"), env))!.json()).toEqual({ items: [] });
+    expect(await readRunComputerScreenshot(env, { ...context, artifactId: saved.artifactId })).toBe(screenshotBase64);
+    for (const changed of [{ userId: "bob" }, { runId: "another-run" }, { workspaceId: "another-workspace" }]) {
+      expect(await readRunComputerScreenshot(env, { ...context, ...changed, artifactId: saved.artifactId })).toBeNull();
+    }
+  });
   it("requires identity and rejects invalid filters and invalid image requests", async () => {
     const { env } = fixture();
     expect((await handleKnowledgeOutputs(request("", undefined, ""), env))?.status).toBe(401);

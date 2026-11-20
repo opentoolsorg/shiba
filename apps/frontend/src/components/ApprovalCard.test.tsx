@@ -24,6 +24,17 @@ describe("ApprovalCard", () => {
     rerender(<ApprovalCard approval={signIn} decided decision onDecideApproval={decide} />);
     expect(screen.getByRole("status").textContent).toBe("Approved — saved sign-in permitted");
   });
+  it("identifies the cloud computer from the inline approval input, not ordinary runs", () => {
+    const { rerender } = render(<ApprovalCard approval={{ ...approval, input: { ...approval.input, computer: true } }} decided={false} onDecideApproval={vi.fn()} />);
+    expect(screen.getByText("Uses a cloud computer")).toBeTruthy();
+    rerender(<ApprovalCard approval={{ ...approval, computer: true }} decided={false} onDecideApproval={vi.fn()} />);
+    expect(screen.getByText("Uses a cloud computer")).toBeTruthy();
+    rerender(<ApprovalCard approval={{ ...approval, computer: false, input: { ...approval.input, computer: true } }} decided={false} onDecideApproval={vi.fn()} />);
+    expect(screen.queryByText("Uses a cloud computer")).toBeNull();
+    rerender(<ApprovalCard approval={approval} decided={false} onDecideApproval={vi.fn()} />);
+    expect(screen.queryByText("Uses a cloud computer")).toBeNull();
+  });
+
   it("explains the paid provider action and preserves its frozen inputs", () => {
     const videoApproval = { ...approval, tool: "generate_video", input: { prompt: "A bird in flight", duration: 8 } };
     const { rerender } = render(<ApprovalCard approval={videoApproval} decided={false} onDecideApproval={vi.fn()} />);

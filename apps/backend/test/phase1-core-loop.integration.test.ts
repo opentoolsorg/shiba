@@ -572,6 +572,40 @@ describe("Phase 1 core loop (integration)", () => {
     vi.unstubAllGlobals();
   });
 
+  it("freezes the optional cloud desktop and dispatches nothing until the run is approved", async () => {
+    const instance = agent({ AI_GATEWAY_TOKEN: undefined, SHIBA_VERIFY_STANDIN: "1" });
+    wireFakeHarness();
+    const queue = (computer: unknown, runtime?: string) => instance.onRequest(new Request("https://internal/api/runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoUrl: REPO, task: "Inspect the desktop", commandId: "cloud-computer-1", computer, runtime }),
+    }));
+    expect((await queue("true")).status).toBe(400);
+    const queued = await queue(true);
+    expect(queued.status).toBe(200);
+    const { approvalId } = await queued.json() as { approvalId: string };
+    const replay = await queue(false);
+    expect(await replay.json()).toMatchObject({ approvalId });
+    expect(instance.state.pendingApprovals?.find((row) => row.approvalId === approvalId)).toMatchObject({
+      computer: true, runtime: "sandbox", sandboxProvider: "cloudflare", status: "pending",
+    });
+    expect(instance.state.runs).toEqual([]);
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.destroy).not.toHaveBeenCalled();
+
+    const approved = await instance.onRequest(new Request("https://internal/api/approvals", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadKey: "default", approvalId, approved: true, decidedBy: "tester", computer: false }),
+    }));
+    expect(approved.status).toBe(200);
+    await vi.waitFor(() => expect(mocks.execute).toHaveBeenCalledTimes(1));
+    const input = parseAgentToolInput([{ role: "user", text: mocks.execute.mock.calls[0]![0] as string }]);
+    expect(input).toMatchObject({ computer: true, runtime: "sandbox", sandboxProvider: "cloudflare" });
+    const run = instance.state.runs.find((entry) => entry.runId === `agent-tool:${approvalId}`)!;
+    expect(run.approval?.inputHash).toBe(runInputHash(run));
+    expect(run.approval?.inputHash).not.toBe(runInputHash({ ...run, computer: undefined }));
+  });
+
   it("retains an unknown review outcome after lost delivery and refuses restart, wake and explicit retries", async () => {
     const github = createMockGitHubFetch();
     github.setPostReviewResponseLost(true);

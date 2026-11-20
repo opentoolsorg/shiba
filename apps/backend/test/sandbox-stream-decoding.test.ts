@@ -5,6 +5,18 @@ import type { Env } from "../src/env.js";
 vi.mock("@cloudflare/sandbox", () => ({ Files: class {} }));
 
 describe("sandbox output decoding", () => {
+  it("refuses attach-only screen commands without starting an inactive container", async () => {
+    const container = { running: false, start: vi.fn(), exec: vi.fn() };
+    const ctx = {
+      container, blockConcurrencyWhile: (run: () => Promise<unknown>) => run(),
+      storage: { kv: { get: () => undefined }, setAlarm: vi.fn(async () => undefined) },
+    };
+    const sandbox = new Sandbox(ctx as unknown as ConstructorParameters<typeof Sandbox>[0], {} as Env);
+    await expect(sandbox.exec("screen command", { activeOnly: true })).rejects.toThrow("no longer running");
+    expect(container.start).not.toHaveBeenCalled();
+    expect(container.exec).not.toHaveBeenCalled();
+  });
+
   it("decodes concurrent UTF-8 streams independently and flushes trailing bytes", async () => {
     const stream = (chunks: number[][]) => new ReadableStream<Uint8Array>({
       start(controller) {
