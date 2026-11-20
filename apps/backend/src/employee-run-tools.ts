@@ -11,6 +11,7 @@ import { getCustomAgentById } from "./custom-agents-store.js";
 import { registerAllMcpTools } from "./mcp-tool-registration.js";
 import { createToolRegistry } from "./mcp-gateway.js";
 import { capabilityId, selectEmployeeCapabilities } from "./employee-tool-policy.js";
+import { effectiveEmployeeToolLevel, listEmployeeToolLevels, type EmployeeToolLevel } from "./employee-tool-levels.js";
 import {
   resolveCurrentEmployeeToolMembership,
   resolveEmployeeToolPolicy,
@@ -51,6 +52,7 @@ export function isEmployeeAppToolName(name: string): boolean {
 const inputSchema = z.object({
   tool: z.string().max(64).refine((name) => ACTION_NAMES.some((action) => action === name) || isEmployeeExternalMcpScope(`mcp:shiba:${name}`)),
   args: z.record(z.string(), z.unknown()),
+  readRequestId: z.string().regex(/^[A-Za-z0-9_-]{1,96}$/).optional(),
 });
 
 export async function employeeRunToolPolicyMode(
@@ -75,6 +77,8 @@ export interface EmployeeRunToolContext {
   principal: TokenRecord;
   allowed: string[];
   resources: Record<string, string[]>;
+  /** Ask/Auto/Off per native action; Off actions are already removed from allowed. */
+  levels?: Record<string, EmployeeToolLevel>;
   externalActions?: Awaited<ReturnType<typeof employeeExternalMcpCatalog>>["actions"];
 }
 
@@ -153,8 +157,11 @@ export async function resolveEmployeeRunToolContext(
     const roleResources = new Set(all.filter((grant) => grant.subjectType === "role" && grant.subjectId === membership.role).map((grant) => grant.resourceId));
     resources[id] = [...workspace].filter((resource) => actor.has(resource) && roleResources.has(resource)).sort();
   }
-  const allowed = selection.allowedCapabilityIds.filter((id) => (resources[id]?.length ?? 0) > 0);
-  const context: EmployeeRunToolContext = { employeeId, employeeVersion: employee.version, actorId: membership.actorId, role: membership.role, principal, allowed, resources };
+  const storedLevels = await listEmployeeToolLevels(env, { orgId, employeeId });
+  const levels: Record<string, EmployeeToolLevel> = Object.fromEntries(ACTION_NAMES.map((name) => [capabilityId(name),
+    effectiveEmployeeToolLevel(name, EMPLOYEE_TOOL_ACTIONS[name].risk, storedLevels.find((item) => item.capabilityId === capabilityId(name))?.level)]));
+  const allowed = selection.allowedCapabilityIds.filter((id) => (resources[id]?.length ?? 0) > 0 && levels[id] !== "off");
+  const context: EmployeeRunToolContext = { employeeId, employeeVersion: employee.version, actorId: membership.actorId, role: membership.role, principal, allowed, resources, levels };
   if (appExecutionContextId) {
     const external = await employeeExternalMcpCatalog(env, { orgId, employeeId, employeeVersion: employee.version,
       actorId: membership.actorId, executionContextId: appExecutionContextId });
@@ -193,7 +200,7 @@ export function createEmployeeRunTools(
     const actorId = resolveActorId();
     return employeeId && actorId ? resolveEmployeeRunToolContext(env, employeeId, resolveOrgId(), actorId) : null;
   };
-  const callTool = async (toolName: string, args: Record<string, unknown>, options: { toolCallId: string; abortSignal?: AbortSignal }) => {
+  const callTool: EmployeeToolCaller = async (toolName, args, options, readRequestId) => {
     options?.abortSignal?.throwIfAborted();
     const executionContextId = resolveExecutionContextId();
     const context = executionContextId ? await currentContext() : null;
@@ -203,6 +210,7 @@ export function createEmployeeRunTools(
     // Freeze and validate the latest human goal before any provider call.
     const trustedBinding = await binding(context, executionContextId);
     if (isEmployeeExternalMcpScope(capabilityId(toolName))) {
+      if (readRequestId !== undefined) throw new Error("readRequestId is only supported by built-in reads.");
       const result = await callEmployeeExternalMcp(env, trustedBinding, toolName, args, options.toolCallId, options.abortSignal);
       if (draftStore && !result.isError && result._meta?.[EMPLOYEE_MCP_READ_META]) {
         const receipt = await recordEmployeeExternalRead(env, draftStore, trustedBinding, options.toolCallId, result, options.abortSignal);
@@ -220,12 +228,13 @@ export function createEmployeeRunTools(
       }
       options?.abortSignal?.throwIfAborted();
     };
-    const response = await dispatchEmployeeToolForPrincipal(env, context.employeeId, context.principal, toolName, args, executionContextId, beforeDispatch, options?.abortSignal);
+    const response = await dispatchEmployeeToolForPrincipal(env, context.employeeId, context.principal, toolName, args, executionContextId, beforeDispatch, options?.abortSignal, readRequestId);
     const body = await response.json().catch(() => ({})) as Record<string, unknown>;
     if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : `Employee tool call failed (${response.status}).`);
-    if (draftStore && toolName === "gmail_read") {
-      const result = body.result as { isError?: boolean } | undefined;
+    if (draftStore && toolName === "gmail_read" && response.status !== 202) {
+      const result = body.result as { isError?: boolean; _meta?: { "com.shiba/invocation"?: { replayed?: boolean } } } | undefined;
       if (!result || result.isError) throw new Error("Source read did not succeed.");
+      if (result._meta?.["com.shiba/invocation"]?.replayed) return body;
       const receipt = await recordEmployeeRead(env, draftStore, trustedBinding, options.toolCallId, args.messageIds as string[], result, options.abortSignal);
       return { ...body, sourceReadId: receipt.id };
     }
@@ -275,14 +284,14 @@ export function createEmployeeRunTools(
     employee_tool_call: tool({
       description: "Call one supported Shiba app tool listed by employee_tool_catalog. The Worker rechecks employee version, grants, resource and exact-payload approval for every call.",
       inputSchema,
-      execute: async ({ tool: toolName, args }, options) => callTool(toolName, args, options),
+      execute: async ({ tool: toolName, args, readRequestId }, options) => callTool(toolName, args, options, readRequestId),
     }),
     ...createLazyCatalogTools(env, currentContext, callTool),
   };
 }
 
 
-type EmployeeToolCaller = (toolName: string, args: Record<string, unknown>, options: { toolCallId: string; abortSignal?: AbortSignal }) => Promise<unknown>;
+type EmployeeToolCaller = (toolName: string, args: Record<string, unknown>, options: CallOptions, readRequestId?: string) => Promise<unknown>;
 type CallOptions = { toolCallId: string; abortSignal?: AbortSignal };
 
 const INTEGRATION_TRANSPORT = new Set<string>(["integrations.search_actions", "integrations.execute"]);
@@ -318,7 +327,7 @@ export function employeeToolCatalogSources(
       const action = EMPLOYEE_TOOL_ACTIONS[name];
       return {
         name, source: "builtin", summary: entry?.description ?? name,
-        effect: action.risk === "external_write" ? "approval_required" : "read",
+        effect: action.risk === "external_write" || context.levels?.[capabilityId(name)] === "ask" ? "approval_required" : "read",
         resourceArgument: action.resourceArgument, resources: context.resources[capabilityId(name)] ?? [],
         ...(entry?.inputSchema ? { inputSchema: entry.inputSchema as Record<string, unknown> } : {}),
       };
@@ -329,7 +338,8 @@ export function employeeToolCatalogSources(
     resourceArgument: action.resourceArgument, resources: action.resources, inputSchema: action.inputSchema,
   }));
   const searchToolkits = context.resources[capabilityId("integrations.search_actions")] ?? [];
-  const executeToolkits = new Set(context.resources[capabilityId("integrations.execute")] ?? []);
+  const executeId = capabilityId("integrations.execute");
+  const executeToolkits = new Set(context.allowed.includes(executeId) ? context.resources[executeId] ?? [] : []);
   const canSearchApps = context.allowed.includes(capabilityId("integrations.search_actions"));
   const appEntry = (action: IntegrationAction): ToolCatalogEntry => ({
     name: action.id, source: "openconnector", summary: action.description ?? action.name,
@@ -385,6 +395,7 @@ export function employeeToolCatalogSources(
 const lazyCallInput = z.object({
   name: z.string().min(1).max(300),
   args: z.record(z.string(), z.unknown()),
+  readRequestId: z.string().regex(/^[A-Za-z0-9_-]{1,96}$/).optional(),
 }).strict();
 
 function createLazyCatalogTools(
@@ -415,15 +426,15 @@ function createLazyCatalogTools(
       },
     }),
     tool_call: tool({
-      description: "Call one tool by its tool_search name with args matching its schema. Writes return approval_required until a human approves the exact payload.",
+      description: "Call one tool by its tool_search name with args matching its schema. A call can pause for exact-payload approval. For built-in reads, give each new request a distinct readRequestId and reuse that ID when retrying the same call.",
       inputSchema: lazyCallInput,
-      execute: async ({ name, args }, options) => {
+      execute: async ({ name, args, readRequestId }, options) => {
         const current = await catalogFor(options);
         const source = current?.catalog.sourceFor(name);
         if (!source) throw new Error("Employee tool is unavailable under the current policy.");
-        if (source.id !== "openconnector") return callTool(name, args, options);
+        if (source.id !== "openconnector") return callTool(name, args, options, readRequestId);
         const toolkitSlug = name.slice(0, name.indexOf("."));
-        return callTool("integrations.execute", { toolkitSlug, toolSlug: name, arguments: args }, options);
+        return callTool("integrations.execute", { toolkitSlug, toolSlug: name, arguments: args }, options, readRequestId);
       },
     }),
   } satisfies ToolSet;

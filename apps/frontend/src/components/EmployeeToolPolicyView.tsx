@@ -10,8 +10,12 @@ type Role = "owner" | "admin" | "operator" | "member" | "viewer";
 interface Employee { id: string; slug: string; version: number; config: { name: string } }
 interface Grant { subjectType: string; subjectId: string; capabilityId: string; resourceId: string; lifecycle: string }
 interface ExternalCapability { capabilityId: string; tool: string; label: string; schemaVersion: string; resourceArguments: string[]; effect: "read" | "approval_required" }
-interface Policy { employeeVersion: number; toolScopes: string[]; grants: Grant[]; externalCapabilities?: ExternalCapability[]; externalResourceArguments?: Record<string, string> }
-interface Approval { approvalId: string; employeeId: string; employeeVersion: number; actorId: string; executionContextId?: string; employeeContext?: { employeeId: string; employeeVersion: number; executionContextId: string; resourceIds: string[] }; action: string; resourceId?: string; payload: Record<string, unknown>; status: string; createdAt: number; expiresAt: number }
+type Level = "ask" | "auto" | "off";
+interface ToolLevel { capabilityId: string; tool: Capability; level: Level; allowedLevels: Level[]; defaultLevel: Level; recentApprovals: number; suggestStanding: boolean }
+interface Policy { employeeVersion: number; toolScopes: string[]; grants: Grant[]; externalCapabilities?: ExternalCapability[]; externalResourceArguments?: Record<string, string>; levels?: ToolLevel[] }
+interface Approval { approvalId: string; employeeId: string; employeeVersion: number; actorId: string; executionContextId?: string; employeeContext?: { employeeId: string; employeeVersion: number; executionContextId: string; resourceIds: string[] }; action: string; resourceId?: string; payload: Record<string, unknown>; status: string; createdAt: number; expiresAt: number; decidedBy?: string; decidedAt?: number; levelAtDecision?: Level; levelAtExecution?: Level }
+const LEVEL_LABELS: Record<Level, string> = { ask: "Ask", auto: "Auto", off: "Off" };
+const LEVEL_HINTS: Record<Level, string> = { ask: "Every call waits for a person to approve the exact payload.", auto: "Runs without a per-call card. Approvals behind the tool itself still apply.", off: "Never runs and is hidden from the employee." };
 interface GmailCandidate { messageId: string; threadId: string; from: string; subject: string; date: string }
 interface EmployeeActor extends AgentPrincipal { source?: "web-session" }
 
@@ -55,6 +59,8 @@ export function EmployeeToolPolicyView({ initialEmployeeId }: { initialEmployeeI
   const [gmailSearching, setGmailSearching] = useState(false);
   const setupStatus = useSetupStatus().state;
   const [approvals, setApprovals] = useState<Approval[]>([]);
+  const [history, setHistory] = useState<Approval[]>([]);
+  const [historyError, setHistoryError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +71,14 @@ export function EmployeeToolPolicyView({ initialEmployeeId }: { initialEmployeeI
   const refreshApprovals = useCallback(async () => {
     const body = await readJson<{ approvals?: Approval[] }>(await fetch("/api/employee-tools/approvals", { credentials: "same-origin" }));
     setApprovals(Array.isArray(body.approvals) ? body.approvals : []);
+    try {
+      const past = await readJson<{ approvals?: Approval[] }>(await fetch("/api/employee-tools/approvals?view=history", { credentials: "same-origin" }));
+      setHistory(Array.isArray(past.approvals) ? past.approvals : []);
+      setHistoryError(false);
+    } catch {
+      setHistory([]);
+      setHistoryError(true);
+    }
   }, []);
 
   const refreshPolicy = useCallback(async (id: string, preferredActor?: string) => {
@@ -207,16 +221,38 @@ export function EmployeeToolPolicyView({ initialEmployeeId }: { initialEmployeeI
     return { ...current, gmail_read: next.join("\n") };
   });
 
-  const decide = async (approval: Approval, approved: boolean) => {
+  const changeLevel = async (capability: Capability, level: Level) => {
+    if (!employeeId || busy) return;
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      const body = await readJson<{ levels?: ToolLevel[] }>(await fetch(`/api/employee-tools/${encodeURIComponent(employeeId)}/levels`, {
+        method: "PUT", credentials: "same-origin", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ capabilityId: `mcp:shiba:${capability}`, level }),
+      }));
+      setPolicy((current) => current ? { ...current, levels: body.levels ?? current.levels } : current);
+      setNotice(`${CAPABILITIES.find((item) => item.id === capability)?.label ?? capability} is now ${LEVEL_LABELS[level]}.`);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setBusy(false); }
+  };
+
+  const decide = async (approval: Approval, approved: boolean, alwaysApprove = false) => {
     setBusy(true); setError(null); setNotice(null);
     try {
       const endpoint = approval.employeeContext ? `/api/v1/mcp/servers/${encodeURIComponent(approval.employeeId)}/approvals/${encodeURIComponent(approval.approvalId)}`
         : `/api/employee-tools/approvals/${encodeURIComponent(approval.approvalId)}`;
       const result = await readJson<{ dispatch?: { status: string; errorCode?: string } }>(await fetch(endpoint, {
         method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" },
-        body: JSON.stringify(approval.employeeContext ? { approved } : { employeeId: approval.employeeId, approved }),
+        body: JSON.stringify(approval.employeeContext ? { approved } : { employeeId: approval.employeeId, approved, ...(alwaysApprove ? { alwaysApprove } : {}) }),
       }));
       await refreshApprovals();
+      if (!approval.employeeContext && employeeId === approval.employeeId) {
+        const current = await readJson<Policy>(await fetch(`/api/employee-tools/${encodeURIComponent(employeeId)}/policy`, { credentials: "same-origin" }));
+        setPolicy((previous) => previous ? { ...previous, levels: current.levels } : previous);
+      }
+      if (alwaysApprove) {
+        setNotice(`Approved. ${approval.action} now runs on Auto for this employee.`);
+        return;
+      }
       if (approval.employeeContext && approved) {
         if (result.dispatch?.status !== "succeeded") throw new Error(`MCP action ${result.dispatch?.status ?? "not dispatched"}${result.dispatch?.errorCode ? `: ${result.dispatch.errorCode}` : ""}. Inspect its receipt before retrying.`);
         setNotice("Exact MCP payload approved and dispatched. Its durable receipt records success.");
@@ -239,7 +275,7 @@ export function EmployeeToolPolicyView({ initialEmployeeId }: { initialEmployeeI
         <div><h3 className="text-sm font-semibold text-[var(--fg)]">Configure grants</h3><p className="mt-1 text-xs text-[var(--muted-foreground-2)]">Saving replaces this employee’s current grant set. Clear selections and save to revoke access.</p></div>
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="space-y-1 text-[10px] font-mono uppercase tracking-wider text-[var(--muted-foreground-2)]">Employee
-            <select className={FIELD} value={employeeId} onChange={(event) => void chooseEmployee(event.target.value)}>{activeEmployees.map((employee) => <option key={employee.id} value={employee.id}>{employee.config.name || employee.slug}</option>)}</select>
+            <select className={FIELD} value={employeeId} disabled={busy} onChange={(event) => void chooseEmployee(event.target.value)}>{activeEmployees.map((employee) => <option key={employee.id} value={employee.id}>{employee.config.name || employee.slug}</option>)}</select>
           </label>
           <label className="space-y-1 text-[10px] font-mono uppercase tracking-wider text-[var(--muted-foreground-2)]">Actor identity
             <select className={FIELD} value={actorId} onChange={(event) => void chooseActor(event.target.value)}>{principals.map((principal) => <option key={principal.principal} value={principal.principal}>{principal.principal}{principal.source === "web-session" ? " · current web identity" : principal.live ? " · active MCP" : " · inactive"}</option>)}</select>
@@ -252,6 +288,27 @@ export function EmployeeToolPolicyView({ initialEmployeeId }: { initialEmployeeI
           <label className="flex items-start gap-2 text-xs text-[var(--fg)]"><input type="checkbox" checked={selected.includes(capability.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, capability.id] : current.filter((value) => value !== capability.id))} />
             <span><span className="font-semibold">{capability.label}</span><span className="ml-2 font-mono text-[10px] text-[var(--muted-foreground-2)]">{capability.scope}</span><span className="mt-1 block text-[var(--muted-foreground-2)]">{capability.description}</span></span>
           </label>
+          {(() => {
+            const level = policy?.levels?.find((item) => item.tool === capability.id);
+            if (!level) return null;
+            return <div className="mt-3 space-y-2">
+              <div role="radiogroup" aria-label={`Approval level for ${capability.label}`} className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--muted-foreground-2)]">Approval</span>
+                {(["ask", "auto", "off"] as Level[]).map((value) => {
+                  const allowed = level.allowedLevels.includes(value);
+                  return <button key={value} type="button" role="radio" aria-checked={level.level === value} disabled={busy || !allowed}
+                    title={allowed ? LEVEL_HINTS[value] : "Coding run requests and external writes always need a per-call approval."}
+                    className={`${BUTTON} min-w-14 py-1 ${level.level === value ? "border-[var(--primary)] text-[var(--primary)]" : ""}`}
+                    onClick={() => void changeLevel(capability.id, value)}>{LEVEL_LABELS[value]}</button>;
+                })}
+                <span className="text-[10px] text-[var(--muted-foreground-2)]">{LEVEL_HINTS[level.level]}{level.level === level.defaultLevel ? " (default)" : ""}</span>
+              </div>
+              {level.suggestStanding ? <div className="flex flex-wrap items-center gap-2 border-l-2 border-[var(--primary)] pl-3 text-xs text-[var(--fg)]">
+                <span>You approved this {level.recentApprovals} times in the last 14 days. Make it a standing approval?</span>
+                <button type="button" className={`${BUTTON} py-1`} disabled={busy} onClick={() => void changeLevel(capability.id, "auto")}>Switch to Auto</button>
+              </div> : null}
+            </div>;
+          })()}
           {selected.includes(capability.id) ? capability.id.startsWith("integrations.") ? <div className="mt-3 space-y-2 text-xs text-[var(--muted-foreground-2)]">
             <p>Select a connected app from your authenticated account. The server freezes its connection ID and provider policy into this employee version; discovery is separate from execution permission.</p>
             {appConnectionsError ? <p role="status">{appConnectionsError}</p> : null}
@@ -289,13 +346,30 @@ export function EmployeeToolPolicyView({ initialEmployeeId }: { initialEmployeeI
       {setupStatus.kind === "data" ? <ToolSetupList tools={setupStatus.data.toolSetup} /> : null}
 
       <section className="space-y-3">
-        <div><h3 className="text-sm font-semibold text-[var(--fg)]">Pending exact-payload approvals</h3><p className="mt-1 text-xs text-[var(--muted-foreground-2)]">A request appears after an employee MCP agent invokes an approved write action. Approval authorizes only the recorded payload, resource and connection generation.</p></div>
+        <div><h3 className="text-sm font-semibold text-[var(--fg)]">Pending exact-payload approvals</h3><p className="mt-1 text-xs text-[var(--muted-foreground-2)]">A request appears when an employee calls a tool that needs approval. Approval authorizes only the recorded payload, resource and connection generation.</p></div>
         {!approvals.length ? <div className="border border-dashed border-[var(--border-1)] p-5 text-center text-xs text-[var(--muted-foreground-2)]">No pending employee tool approvals.</div> : approvals.map((approval) => <article key={approval.approvalId} className="border border-[var(--border-1)] bg-[var(--card)] p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-xs font-semibold text-[var(--fg)]">{approval.action} · {approval.actorId}</div><span className="text-[10px] font-mono text-[var(--muted-foreground-2)]">Expires {new Date(approval.expiresAt).toLocaleString()}</span></div>
           <div className="text-[10px] font-mono text-[var(--muted-foreground-2)]">Employee {approval.employeeContext?.employeeId ?? approval.employeeId} v{approval.employeeContext?.employeeVersion ?? approval.employeeVersion} · resource {approval.employeeContext?.resourceIds.join(", ") ?? approval.resourceId ?? "—"}{approval.employeeContext?.executionContextId || approval.executionContextId ? ` · context ${approval.employeeContext?.executionContextId ?? approval.executionContextId}` : ""}</div>
           <pre className="max-h-48 overflow-auto border border-[var(--border-1)] bg-[var(--panel)] p-3 text-[10px] text-[var(--fg)]">{JSON.stringify(approval.payload, null, 2)}</pre>
-          <div className="flex gap-2"><button type="button" className={BUTTON} disabled={busy} onClick={() => void decide(approval, true)}>Approve exact payload</button><button type="button" className={BUTTON} disabled={busy} onClick={() => void decide(approval, false)}>Deny</button></div>
+          <div className="flex flex-wrap gap-2"><button type="button" className={BUTTON} disabled={busy} onClick={() => void decide(approval, true)}>Approve exact payload</button>{!approval.employeeContext && employeeId === approval.employeeId && policy?.levels?.some((level) => level.tool === approval.action && level.level === "ask" && level.allowedLevels.includes("auto")) ? <button type="button" className={BUTTON} disabled={busy} onClick={() => void decide(approval, true, true)}>Approve and always allow</button> : null}<button type="button" className={BUTTON} disabled={busy} onClick={() => void decide(approval, false)}>Deny</button></div>
         </article>)}
+      </section>
+
+      <section className="space-y-3">
+        <div><h3 className="text-sm font-semibold text-[var(--fg)]">Approval history</h3><p className="mt-1 text-xs text-[var(--muted-foreground-2)]">Recent decisions you’re authorized to view, with the approval level at decision and dispatch.</p></div>
+        {historyError ? <StatusNotice tone="err">Approval history could not be loaded.</StatusNotice> : !history.length ? <div className="border border-dashed border-[var(--border-1)] p-5 text-center text-xs text-[var(--muted-foreground-2)]">No decided employee tool approvals yet.</div> : <div className="overflow-x-auto border border-[var(--border-1)] bg-[var(--card)]">
+          <table className="w-full min-w-[640px] text-left text-xs">
+            <thead className="text-[10px] font-mono uppercase tracking-wider text-[var(--muted-foreground-2)]"><tr><th className="p-2">Decided</th><th className="p-2">Action</th><th className="p-2">Outcome</th><th className="p-2">Decided by</th><th className="p-2">Level at decision → execution</th><th className="p-2">Payload</th></tr></thead>
+            <tbody>{history.map((item) => <tr key={item.approvalId} className="border-t border-[var(--border-1)] align-top text-[var(--fg)]">
+              <td className="p-2 font-mono text-[10px] tabular-nums">{item.decidedAt ? new Date(item.decidedAt).toLocaleString() : "—"}</td>
+              <td className="p-2">{item.action}<span className="block font-mono text-[10px] text-[var(--muted-foreground-2)]">{item.actorId}</span></td>
+              <td className="p-2">{item.status}</td>
+              <td className="p-2 font-mono text-[10px]">{item.decidedBy ?? "—"}</td>
+              <td className="p-2">{item.levelAtDecision ? LEVEL_LABELS[item.levelAtDecision] : "—"} → {item.levelAtExecution ? LEVEL_LABELS[item.levelAtExecution] : "—"}</td>
+              <td className="p-2"><details><summary className="cursor-pointer text-[var(--muted-foreground-2)]">View</summary><pre className="mt-1 max-w-xs overflow-auto text-[10px]">{JSON.stringify(item.payload, null, 2)}</pre></details></td>
+            </tr>)}</tbody>
+          </table>
+        </div>}
       </section>
       <p className="border-l-2 border-[var(--warning-fg)] pl-3 text-xs text-[var(--muted-foreground-2)]">Limits: native employee tools cover registered provider action discovery and approved execution, Gmail selected-message reads, run status, queue run and send email. App grants select owned provider connections; Gmail grants select exact messages. Reviewed HTTPS MCP tools additionally support exact values in one required string resource argument. Unsupported schemas and transports fail closed. These grants do not constrain shell/CLI tools in a coding harness; they add no token or MCP credential to the sandbox. External MCP clients still authenticate with their own bearer token.</p>
     </div>
