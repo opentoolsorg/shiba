@@ -6,8 +6,9 @@ import { uploadFile } from "../../files-upload-client";
 import type { AppNavView } from "../AppNavRail";
 import { LoadErrorState } from "../LoadErrorState";
 import { MainCard } from "../ui/ContextPanel";
+import { FileAppPreview } from "./FileAppPreview";
 
-export function FilesView({ onNavigate }: { onNavigate?: (view: AppNavView) => void } = {}): JSX.Element {
+export function FilesView({ onNavigate, appPreviewOwner }: { onNavigate?: (view: AppNavView) => void; appPreviewOwner?: string } = {}): JSX.Element {
   const [scope, setScope] = useState<KnowledgeScope>("personal");
   const [files, setFiles] = useState<KnowledgeFile[]>([]);
   const [query, setQuery] = useState("");
@@ -205,13 +206,18 @@ export function FilesView({ onNavigate }: { onNavigate?: (view: AppNavView) => v
             </li>)}
           </ul> : null}
           <ul className="divide-y divide-[var(--border-1)] text-sm">
-            {files.map((file) => (
-              <li key={file.id} className="flex items-center justify-between gap-3 py-2">
-                <span className="truncate font-medium">{file.name}</span>
+            {files.map((file) => {
+              const canPreview = appPreviewOwner && scope === "personal" && file.scope === "personal" &&
+                file.createdBy?.trim().toLowerCase() === appPreviewOwner &&
+                file.workspaceId === "self-hosted" && file.archivedAt === null && file.mime === "application/json" &&
+                /^file_[a-f0-9]{24}$/.test(file.id) && file.name.endsWith(".app-preview.json");
+              return <li key={file.id} className={canPreview ? "flex flex-wrap items-center gap-x-3 gap-y-2 py-2" : "flex items-center justify-between gap-3 py-2"}>
+                <span className={canPreview ? "min-w-0 flex-1 font-medium [overflow-wrap:anywhere]" : "truncate font-medium"}>{file.name}</span>
                 <span className="shrink-0 text-xs text-[var(--muted-foreground-2)]">{file.size.toLocaleString()} bytes</span>
                 <span className="shrink-0 rounded bg-[var(--panel)] px-2 py-0.5 text-xs text-[var(--muted-foreground-2)]">{file.ingestion.state}</span>
-              </li>
-            ))}
+                {canPreview && <div className="basis-full sm:basis-auto"><FileAppPreview key={appPreviewOwner} fileId={file.id} fileName={file.name} /></div>}
+              </li>;
+            })}
           </ul>
         </section>
       </MainCard>
