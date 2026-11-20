@@ -259,7 +259,9 @@ export function createTeamsTransport(options: ChannelAdapterOptions = {}): Chann
       if (claims.iss !== TEAMS_ISSUER || audience !== appId) return DENIED;
       if (typeof claims.exp !== "number" || !Number.isFinite(claims.exp) || claims.exp + CLOCK_SKEW_S < nowS) return DENIED;
       if (claims.nbf !== undefined && (typeof claims.nbf !== "number" || !Number.isFinite(claims.nbf) || claims.nbf - CLOCK_SKEW_S > nowS)) return DENIED;
-      if (claims.serviceUrl !== activity.serviceUrl) return DENIED;
+      const { serviceurl, serviceUrl } = claims;
+      if ((serviceurl ?? serviceUrl) !== activity.serviceUrl ||
+        (serviceurl !== undefined && serviceUrl !== undefined && serviceurl !== serviceUrl)) return DENIED;
       let jwk: Jwk | undefined;
       try {
         jwk = (await loadKeys(now, false)).find((k) => k.kid === header.kid);

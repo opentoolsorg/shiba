@@ -156,7 +156,7 @@ it("fixture: verifies Teams install, approval, execution, exact conversation res
     async function jwt(aud = APP_ID) {
       const now = Math.floor(Date.now() / 1000);
       const unsigned = `${b64(JSON.stringify({ alg: "RS256", kid: "teams-worker-fixture" }))}.${b64(JSON.stringify({
-        iss: "https://api.botframework.com", aud, exp: now + 300, nbf: now - 10, serviceUrl: SERVICE,
+        iss: "https://api.botframework.com", aud, exp: now + 300, nbf: now - 10, serviceurl: SERVICE,
       }))}`;
       return `${unsigned}.${b64(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", keys.privateKey, new TextEncoder().encode(unsigned)))}`;
     }

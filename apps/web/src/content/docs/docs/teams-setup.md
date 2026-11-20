@@ -60,6 +60,6 @@ Shiba posts an Adaptive Card in the originating conversation with **Approve** an
 
 ## Disable or remove the app
 
-To stop processing Teams tasks, select **Disable Teams in Shiba** in the connection panel. This does not uninstall the app. Existing approval cards cannot be used after disablement and do not become valid when you re-enable the connection. A run approved before disablement may continue, but stale in-flight results from that connection won’t post back to Teams.
+To stop processing Teams tasks, select **Disable Teams in Shiba** in the connection panel. This does not uninstall the app. Existing approval cards cannot be used after disablement and do not become valid when you re-enable the connection. A run approved before disablement may continue. Shiba suppresses replies from the old connection, but a reply already being sent can still arrive.
 
 To remove the app from a chat or team, uninstall it in Teams as a separate action. Shiba records signed installation and removal events independently of whether the connection is enabled. Use **Refresh Teams status** to see the last observed installation state.
