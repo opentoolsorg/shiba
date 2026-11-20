@@ -143,14 +143,5 @@ export function createChatAgentMediaTools(env: Env, ctx: ChatAgentToolsContext):
         execute: async (input) => saveGeneratedDocument(env, "page", input, { runId, userId, workspaceId: orgId.replace(/^team:/, "") }),
       }),
     } : {}),
-    browser_close: tool({
-      description: "Close the browser session for this chat run.",
-      inputSchema: z.object({}).strict(),
-      execute: async () => {
-        await closeBrowserSession(runId);
-        ctx.onClose?.();
-        return { closed: true };
-      },
-    }),
   };
 }

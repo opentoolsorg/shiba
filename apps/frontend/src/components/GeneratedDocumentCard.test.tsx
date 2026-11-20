@@ -109,4 +109,3 @@ describe("generated image messages", () => {
     expect(screen.getByText("Your image could not be created or saved. Please try again.")).toBeTruthy();
   });
 });
-
