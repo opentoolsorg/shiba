@@ -547,7 +547,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "TEAMS_APPROVERS",
       "TEAMS_CHANNEL_REPOS",
       "TEAMS_APP_TENANT_ID",
-      "TEAMS_SERVICE_URL",
+      "TEAMS_WORKSPACE_ID",
       "TEAMS_AGENT_HARNESS",
       "GMAIL_CLIENT_ID",
       "BETTER_AUTH_VERIFICATION_FROM",

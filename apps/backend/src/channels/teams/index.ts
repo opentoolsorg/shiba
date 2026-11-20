@@ -29,9 +29,11 @@ import { asString, channelFetch, readFile, readJsonObject } from "../http.js";
 export const TEAMS_DEFAULT_SERVICE_URL = "https://smba.trafficmanager.net/teams/";
 export const TEAMS_OPENID_CONFIG = "https://login.botframework.com/v1/.well-known/openidconfiguration";
 const TEAMS_ISSUER = "https://api.botframework.com";
+const TEAMS_JWKS_URI = "https://login.botframework.com/v1/.well-known/keys";
 const TEAMS_SCOPE = "https://api.botframework.com/.default";
 const CLOCK_SKEW_S = 300;
 const KEYS_TTL_MS = 24 * 60 * 60 * 1000;
+const KEYS_REFRESH_COOLDOWN_MS = 60_000;
 
 const CAPABILITIES: ReadonlySet<ChannelCapability> = new Set<ChannelCapability>(["post", "edit", "download"]);
 
@@ -40,6 +42,7 @@ export interface TeamsActivity {
   id?: string;
   timestamp?: string;
   serviceUrl?: string;
+  action?: string;
   channelId?: string;
   from?: { id?: string; name?: string; aadObjectId?: string };
   conversation?: { id?: string; name?: string; conversationType?: string; tenantId?: string };
@@ -51,7 +54,12 @@ export interface TeamsActivity {
   channelData?: { tenant?: { id?: string }; team?: { id?: string } };
 }
 
+export function isTeamsServiceUrl(serviceUrl: unknown): serviceUrl is string {
+  return typeof serviceUrl === "string" && /^https:\/\/smba\.trafficmanager\.net(?:\/[a-z0-9-]{1,64}){1,3}\/?$/.test(serviceUrl);
+}
+
 function serviceBase(serviceUrl: string): string {
+  if (!isTeamsServiceUrl(serviceUrl)) throw new Error("Invalid Teams Connector service URL.");
   return serviceUrl.endsWith("/") ? serviceUrl : `${serviceUrl}/`;
 }
 
@@ -65,41 +73,51 @@ export function teamsMentions(text: string): string[] {
   return dedupeIds([...text.matchAll(/<at>([^<]+)<\/at>/gi)].map((m) => (m[1] ?? "").trim()).filter(Boolean));
 }
 
-export function createTeamsAdapter(input: {
+type TeamsCredentials = {
   appId: string;
   appPassword: string;
   tenantId?: string;
+};
+
+export async function requestTeamsToken(input: TeamsCredentials, fetchImpl: typeof fetch = fetch) {
+  const tenant = input.tenantId?.trim() || "botframework.com";
+  if (tenant !== "botframework.com" && !/^[a-f0-9-]{36}$/i.test(tenant)) throw new Error("Invalid Teams tenant ID.");
+  const response = await channelFetch(fetchImpl, "Teams token", `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`, {
+    method: "POST",
+    redirect: "manual",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: input.appId,
+      client_secret: input.appPassword,
+      scope: TEAMS_SCOPE,
+    }).toString(),
+  });
+  if (!response.ok) throw new Error(`Teams token request failed (${response.status}).`);
+  const json = await readJsonObject(response);
+  const token = typeof json.access_token === "string" ? json.access_token : "";
+  if (!token) throw new Error("Teams token response had no access_token.");
+  const expiresIn = Number(json.expires_in);
+  return { token, expiresAt: Date.now() + (Number.isFinite(expiresIn) ? Math.max(0, expiresIn) : 0) * 1000 };
+}
+
+export function createTeamsAdapter(input: TeamsCredentials & {
   serviceUrl?: string;
   fetch?: typeof fetch;
 }): ChannelAdapter {
   const fetchImpl = input.fetch ?? fetch;
   const base = serviceBase(input.serviceUrl ?? TEAMS_DEFAULT_SERVICE_URL);
-  const serviceHost = new URL(base).hostname;
+  const serviceOrigin = new URL(base).origin;
   let cached: { token: string; expiresAt: number } | null = null;
   const token = async (): Promise<string> => {
     if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
-    const tenant = encodeURIComponent(input.tenantId?.trim() || "botframework.com");
-    const response = await channelFetch(fetchImpl, "Teams token", `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "client_credentials",
-        client_id: input.appId,
-        client_secret: input.appPassword,
-        scope: TEAMS_SCOPE,
-      }).toString(),
-    });
-    if (!response.ok) throw new Error(`Teams token request failed (${response.status}).`);
-    const json = await readJsonObject(response);
-    const accessToken = asString(json.access_token);
-    if (!accessToken) throw new Error("Teams token response had no access_token.");
-    const expiresIn = typeof json.expires_in === "number" ? json.expires_in : 3600;
-    cached = { token: accessToken, expiresAt: Date.now() + expiresIn * 1000 };
-    return accessToken;
+    cached = await requestTeamsToken(input, fetchImpl);
+    return cached.token;
   };
   const request = async (label: string, method: string, path: string, body: unknown): Promise<Record<string, unknown>> => {
     const response = await channelFetch(fetchImpl, `Teams ${label}`, `${base}${path}`, {
       method,
+      redirect: "manual",
       headers: { Authorization: `Bearer ${await token()}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
@@ -119,6 +137,7 @@ export function createTeamsAdapter(input: {
         {
           ...post.native,
           type: "message",
+          textFormat: "plain",
           text: post.text,
           ...(replyTo ? { replyToId: replyTo } : {}),
         },
@@ -130,6 +149,7 @@ export function createTeamsAdapter(input: {
         attachments: [],
         ...edit.native,
         type: "message",
+        textFormat: "plain",
         id: edit.ref.messageId,
         text: edit.text,
       });
@@ -144,8 +164,8 @@ export function createTeamsAdapter(input: {
       const target = new URL(url);
       if (target.protocol !== "https:") throw new Error("Teams download only fetches https URLs.");
       // The bot token only goes to the Connector host that issued the attachment.
-      const headers: Record<string, string> = target.hostname === serviceHost ? { Authorization: `Bearer ${await token()}` } : {};
-      return readFile(await channelFetch(fetchImpl, "Teams download", url, { method: "GET", headers }), "Teams download");
+      const headers: Record<string, string> = target.origin === serviceOrigin ? { Authorization: `Bearer ${await token()}` } : {};
+      return readFile(await channelFetch(fetchImpl, "Teams download", url, { method: "GET", headers, redirect: "manual" }), "Teams download");
     },
     history() {
       return Promise.reject(new ChannelUnsupportedError("teams", "history"));
@@ -163,7 +183,7 @@ export function createTeamsAdapter(input: {
   };
 }
 
-interface Jwk { kid?: string; kty?: string; n?: string; e?: string; endorsements?: string[] }
+interface Jwk { kid?: string; kty?: string; n?: string; e?: string; use?: string; endorsements?: string[] }
 
 function base64UrlBytes(value: string): Uint8Array<ArrayBuffer> {
   const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
@@ -202,15 +222,20 @@ function conversationKeyFor(placeId: string): string {
 const DENIED: ChannelVerification = { ok: false, status: 401, error: "Invalid Teams bearer token." };
 
 export function createTeamsTransport(options: ChannelAdapterOptions = {}): ChannelTransport {
-  const fetchImpl = options.fetch ?? fetch;
   let keys: { jwks: Jwk[]; fetchedAt: number } | null = null;
   const loadKeys = async (now: number, force: boolean): Promise<Jwk[]> => {
     if (keys && !force && now - keys.fetchedAt < KEYS_TTL_MS) return keys.jwks;
-    const config = await readJsonObject(await channelFetch(fetchImpl, "Teams OpenID config", TEAMS_OPENID_CONFIG, { method: "GET" }));
+    const fetchImpl = options.fetch ?? fetch;
+    const configResponse = await channelFetch(fetchImpl, "Teams OpenID config", TEAMS_OPENID_CONFIG, { method: "GET", redirect: "manual" });
+    if (!configResponse.ok) throw new Error("Teams OpenID metadata unavailable.");
+    const config = await readJsonObject(configResponse);
     const jwksUri = asString(config.jwks_uri);
-    if (!jwksUri.startsWith("https://")) throw new Error("Teams OpenID config has no jwks_uri.");
-    const set = await readJsonObject(await channelFetch(fetchImpl, "Teams signing keys", jwksUri, { method: "GET" }));
-    const jwks = Array.isArray(set.keys) ? set.keys as Jwk[] : [];
+    if (jwksUri !== TEAMS_JWKS_URI) throw new Error("Unexpected Teams OpenID signing keys URI.");
+    const keysResponse = await channelFetch(fetchImpl, "Teams signing keys", jwksUri, { method: "GET", redirect: "manual" });
+    if (!keysResponse.ok) throw new Error("Teams signing keys unavailable.");
+    const set = await readJsonObject(keysResponse);
+    if (!Array.isArray(set.keys) || set.keys.length === 0) throw new Error("Teams signing keys unavailable.");
+    const jwks = set.keys.filter((key): key is Jwk => typeof key === "object" && key !== null);
     keys = { jwks, fetchedAt: now };
     return jwks;
   };
@@ -221,22 +246,31 @@ export function createTeamsTransport(options: ChannelAdapterOptions = {}): Chann
       if (!appId || !env.TEAMS_APP_PASSWORD?.trim()) {
         return { ok: false, status: 503, error: "Teams is not configured: set TEAMS_APP_ID and TEAMS_APP_PASSWORD." };
       }
-      const bearer = /^Bearer ([\w-]+)\.([\w-]+)\.([\w-]+)$/.exec(headers.get("Authorization") ?? "");
+      const bearer = /^Bearer ([\w-]+)\.([\w-]+)\.([\w-]+)$/i.exec(headers.get("Authorization") ?? "");
       if (!bearer) return DENIED;
       const [, h, p, s] = bearer as unknown as [string, string, string, string];
       const header = decodeJson(h);
       const claims = decodeJson(p);
       const activity = parseTeamsActivity(rawBody);
-      if (!header || !claims || !activity || header.alg !== "RS256" || typeof header.kid !== "string") return DENIED;
+      if (!header || !claims || !activity || header.alg !== "RS256" || typeof header.kid !== "string" ||
+        activity.channelId !== "msteams" || !isTeamsServiceUrl(activity.serviceUrl)) return DENIED;
+      const nowS = Math.floor(now / 1000);
+      const audience = Array.isArray(claims.aud) && claims.aud.length === 1 ? claims.aud[0] : claims.aud;
+      if (claims.iss !== TEAMS_ISSUER || audience !== appId) return DENIED;
+      if (typeof claims.exp !== "number" || !Number.isFinite(claims.exp) || claims.exp + CLOCK_SKEW_S < nowS) return DENIED;
+      if (claims.nbf !== undefined && (typeof claims.nbf !== "number" || !Number.isFinite(claims.nbf) || claims.nbf - CLOCK_SKEW_S > nowS)) return DENIED;
+      if (claims.serviceUrl !== activity.serviceUrl) return DENIED;
       let jwk: Jwk | undefined;
       try {
-        jwk = (await loadKeys(now, false)).find((k) => k.kid === header.kid) ??
-          (await loadKeys(now, true)).find((k) => k.kid === header.kid);
+        jwk = (await loadKeys(now, false)).find((k) => k.kid === header.kid);
+        if (!jwk && keys && now - keys.fetchedAt >= KEYS_REFRESH_COOLDOWN_MS) {
+          jwk = (await loadKeys(now, true)).find((k) => k.kid === header.kid);
+        }
       } catch {
         return DENIED;
       }
-      if (jwk?.kty !== "RSA" || !jwk.n || !jwk.e) return DENIED;
-      if (Array.isArray(jwk.endorsements) && !jwk.endorsements.includes(activity.channelId ?? "")) return DENIED;
+      if (jwk?.kty !== "RSA" || !jwk.n || !jwk.e || (jwk.use !== undefined && jwk.use !== "sig")) return DENIED;
+      if (!Array.isArray(jwk.endorsements) || !jwk.endorsements.includes("msteams")) return DENIED;
       let valid = false;
       try {
         const key = await crypto.subtle.importKey(
@@ -251,18 +285,12 @@ export function createTeamsTransport(options: ChannelAdapterOptions = {}): Chann
         return DENIED;
       }
       if (!valid) return DENIED;
-      const nowS = Math.floor(now / 1000);
-      const audience = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-      if (claims.iss !== TEAMS_ISSUER || !audience.includes(appId)) return DENIED;
-      if (typeof claims.exp !== "number" || claims.exp + CLOCK_SKEW_S < nowS) return DENIED;
-      if (typeof claims.nbf === "number" && claims.nbf - CLOCK_SKEW_S > nowS) return DENIED;
-      if (typeof claims.serviceUrl !== "string" || claims.serviceUrl !== activity.serviceUrl) return DENIED;
       return { ok: true };
     },
     parse(rawBody) {
       const activity = parseTeamsActivity(rawBody);
       if (activity?.type !== "message") return null;
-      const placeId = activity.conversation?.id ?? "";
+      const placeId = typeof activity.conversation?.id === "string" ? activity.conversation.id : "";
       const workspaceId = activity.conversation?.tenantId ?? activity.channelData?.tenant?.id;
       const actorId = activity.from?.aadObjectId ?? activity.from?.id ?? "";
       const base = {
@@ -279,7 +307,6 @@ export function createTeamsTransport(options: ChannelAdapterOptions = {}): Chann
           ...base,
           kind: "action",
           ...(activity.replyToId ? { messageId: activity.replyToId } : {}),
-          ...(typeof (value as { card?: unknown }).card === "string" ? { messageText: (value as { card: string }).card } : {}),
           actorId,
           ...(activity.from?.name ? { actorName: activity.from.name } : {}),
           actionId: value.shiba,
@@ -287,8 +314,8 @@ export function createTeamsTransport(options: ChannelAdapterOptions = {}): Chann
         };
       }
       if (typeof activity.text !== "string") return null;
-      const mentioned = dedupeIds((activity.entities ?? [])
-        .map((e) => (e.type === "mention" ? e.mentioned?.id : undefined))
+      const mentioned = dedupeIds((Array.isArray(activity.entities) ? activity.entities : [])
+        .map((e) => (e?.type === "mention" ? e.mentioned?.id : undefined))
         .filter((id): id is string => typeof id === "string"));
       return {
         ...base,
@@ -314,7 +341,7 @@ export function teamsAdapterFromEnv(env: Env, options: ChannelAdapterOptions & {
   const appPassword = env.TEAMS_APP_PASSWORD?.trim();
   if (!appId || !appPassword) return null;
   const tenantId = env.TEAMS_APP_TENANT_ID?.trim();
-  const serviceUrl = options.serviceUrl ?? env.TEAMS_SERVICE_URL?.trim();
+  const serviceUrl = options.serviceUrl;
   return createTeamsAdapter({
     appId,
     appPassword,

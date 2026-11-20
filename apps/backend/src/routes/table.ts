@@ -42,6 +42,7 @@ export const ROUTES: readonly RouteEntry[] = [
   route("observabilityResponse", "authenticated", "*", "^/api/observability$", "session", handlers.observabilityResponse),
   route("outputArchiveResponse", "authenticated", "*", "^/api/run-output-archives(?:/|$)", "session", handlers.outputArchiveResponse),
   route("slackInstallationResponse", "authenticated", "*", "^/api/slack/installations(?:/|$)", "session", handlers.slackInstallationResponse),
+  route("teamsConnectionResponse", "authenticated", "*", "^/api/teams/connection$", "session", handlers.teamsConnectionResponse, "Native owner of the configured workspace; writes require the same origin."),
   route("slackCoworkerResponse", "authenticated", "*", "^/api/slack/coworker(?:/|$)", "session", handlers.slackCoworkerResponse),
   route("sharedComputerResponse", "authenticated", "*", "^/api/shared-computers(?:/|$)", "session", handlers.sharedComputerResponse),
   route("workspaceIntegrationResponse", "authenticated", "*", "^/api/workspace-integrations(?:/|$)", "session", handlers.workspaceIntegrationResponse),

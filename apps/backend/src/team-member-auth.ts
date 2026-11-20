@@ -33,6 +33,7 @@ const workspaceApi = [
   /^\/api\/team-model-sessions(?:\/|$)/,
   /^\/api\/shared-computers(?:\/|$)/,
   /^\/api\/slack\/installations(?:\/|$)/,
+  /^\/api\/teams\/connection$/,
   /^\/api\/slack\/coworker(?:\/|$)/,
   /^\/api\/founder-skills(?:\/|$)/,
   /^\/api\/founder-stripe-reads(?:\/|$)/,

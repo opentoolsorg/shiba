@@ -37,6 +37,7 @@ gateway is stateless (`createMcpHandler` per request), not a DO. Work happens in
    Dashboard  ────────► │  /api/*  authenticated (Cloudflare Access, or  │
                        │  built-in email+password lane at /api/auth/*)  │
    Slack / Discord  ──► │  /api/slack/*, /api/discord/*  signature-verified│
+   Microsoft Teams  ──► │  /api/teams/messages  Bot Connector JWT        │
    Telegram  ─────────► │  /api/telegram/*  header-secret                 │
    Email  ───────────► │  /api/emails, /api/drafts  provider-verified    │
    Cron (5 min)  ────► │  automations trigger sweep                      │
@@ -79,6 +80,11 @@ gateway is stateless (`createMcpHandler` per request), not a DO. Work happens in
 | **State** | DO classes, D1 stores, private R2 objects | DOs coordinate agent/runtime state. D1 owns native membership, versioned policy, source bindings and action receipts. R2 holds private artifacts. |
 | **Presentation** | `apps/frontend` (dashboard), `apps/web` (docs/marketing) | React dashboard; Astro docs. Both served via the Worker's `ASSETS` binding. |
 | **Deploy** | `alchemy.run.ts` (primary), `wrangler.jsonc` (rollback) | Both declare the same stack; wrangler remains a working rollback path. |
+
+The Teams bot binds a single Azure tenant to one native workspace. The
+Connector JWT gates installation and activity intake; D1 retains the active
+connection generation and the exact reply destination per task. The Worker
+obtains and attaches the Connector token for status, card, and result delivery.
 
 **Three deployment facts that matter:**
 

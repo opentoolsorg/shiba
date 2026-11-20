@@ -24,6 +24,7 @@ Phase boundaries preserve precedence: `capability` runs before identity verifica
 | observabilityResponse | authenticated | `*` | `^/api/observability$` | session |  |
 | outputArchiveResponse | authenticated | `*` | `^/api/run-output-archives(?:/\|$)` | session |  |
 | slackInstallationResponse | authenticated | `*` | `^/api/slack/installations(?:/\|$)` | session |  |
+| teamsConnectionResponse | authenticated | `*` | `^/api/teams/connection$` | session | Native owner of the configured workspace; writes require the same origin. |
 | slackCoworkerResponse | authenticated | `*` | `^/api/slack/coworker(?:/\|$)` | session |  |
 | sharedComputerResponse | authenticated | `*` | `^/api/shared-computers(?:/\|$)` | session |  |
 | workspaceIntegrationResponse | authenticated | `*` | `^/api/workspace-integrations(?:/\|$)` | session |  |

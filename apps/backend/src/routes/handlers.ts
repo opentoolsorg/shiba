@@ -69,6 +69,7 @@ import { ORCHESTRATOR_NAME, handleSlackCommand } from "../slack-routes.js";
 import { handleDiscordInteractions } from "../discord.js";
 import { handleTelegramWebhook } from "../telegram.js";
 import { handleTeamsMessages } from "../teams.js";
+import { handleTeamsConnection } from "../teams-connection-routes.js";
 import { handleTrigger } from "../trigger.js";
 import { handleSandboxRoutes } from "../sandbox-routes.js";
 import { resolveOrgForApiRequest } from "../org-request-auth.js";
@@ -573,6 +574,9 @@ export const handlers = {
     return handleTeamsMessages(request, env, chatCtx, {
       dedupe: (activityId) => seenDelivery(env, `teams-activity:${activityId}`),
     });
+  },
+  async teamsConnectionResponse({ request, env }: RequestContext): Promise<Response> {
+    return handleTeamsConnection(request, env);
   },
   async managedSlackResponse(context: RequestContext): Promise<Response | null> {
     const { request, env } = context;
