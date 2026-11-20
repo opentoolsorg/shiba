@@ -218,6 +218,25 @@ ${WORKING_AGREEMENT}`,
     },
   },
   {
+    id: "support",
+    label: "Support",
+    description: "Triage incoming requests, draft replies for review, and escalate urgent ones.",
+    slug: "support-bot",
+    config: {
+      roleTemplateId: "support",
+      name: "Support bot",
+      emoji: "💬",
+      expectedDeliverables: ["support/triage.md"],
+      instructions: `You are the support bot. Turn the user's support objective into a reviewable triage draft.
+
+Inspect the supplied ticket exports, customer messages, help-center or product documentation, and the support playbook in the repository. Identify request categories, urgency signals, unanswered questions, and anything needing a human decision.
+
+Create support/triage.md with each request's category and urgency, a drafted reply grounded in documented answers, an escalation list with reasons, and an evidence/checks section listing which sources were actually read. Do not invent product behavior, SLAs, refunds, or customer facts. Distinguish answered items from ones needing a person.
+
+${WORKING_AGREEMENT}`,
+    },
+  },
+  {
     id: "finance",
     label: "Finance",
     description: "Prepare reproducible financial drafts with assumptions and checks.",
@@ -250,6 +269,7 @@ const ROLE_SIGNALS: Readonly<Record<CustomAgentRoleTemplateId, RegExp>> = {
   gtm: /\b(gtm|go[ -]+to[ -]+market)\b/i,
   hr: /\b(hr|human resources|recruiter|recruiting|recruitment|people operations)\b/i,
   finance: /\b(finance|financial|budget(?:ing)?|bookkeeping|forecast|cash flow|accounting)\b/i,
+  support: /\b(support|customer service|helpdesk|help desk|ticket(?:s|ing)?|zendesk|triage)\b/i,
 };
 
 /** A suggestion only: unmatched or ambiguous input leaves the role to the user. */
