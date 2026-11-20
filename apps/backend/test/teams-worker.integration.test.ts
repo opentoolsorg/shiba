@@ -201,7 +201,8 @@ it("fixture: verifies Teams install, approval, execution, exact conversation res
     denyToken = false;
     expect(await (await dashboard("connect")).json()).toEqual({ status: "connected", installed: false });
 
-    const installation = activity("install-1", { type: "installationUpdate", action: "add", timestamp: new Date().toISOString() });
+    const installAt = Date.now();
+    const installation = activity("install-1", { type: "installationUpdate", action: "add", timestamp: new Date(installAt).toISOString() });
     expect((await deliver(installation, "")).status).toBe(401);
     expect((await deliver(installation, await jwt(OTHER_TENANT))).status).toBe(401);
     expect((await deliver({ ...installation, conversation: { ...conversation, tenantId: OTHER_TENANT } })).status).toBe(403);
@@ -256,7 +257,7 @@ it("fixture: verifies Teams install, approval, execution, exact conversation res
       path: reconnected.path, body: expect.objectContaining({ text: expect.stringContaining(VERIFY_TEXT) }),
     })));
     expect(mocks.execute).toHaveBeenCalledTimes(2);
-    await deliver({ ...installation, id: "install-2", action: "remove", timestamp: new Date(Date.parse(String(installation.timestamp)) + 1000).toISOString() });
+    await deliver({ ...installation, id: "install-2", action: "remove", timestamp: new Date(installAt + 1000).toISOString() });
     expect(await (await dashboard()).json()).toEqual({ status: "connected", installed: false });
     await deliver(installation);
     expect(await (await dashboard()).json()).toEqual({ status: "connected", installed: false });
