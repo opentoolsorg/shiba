@@ -59,9 +59,9 @@ function readRoleDraft(scope?: string): typeof EMPTY_FORM {
   if (!scope) return EMPTY_FORM;
   try {
     const draft = JSON.parse(localStorage.getItem(`shiba-role-draft-v1:${scope}`) ?? "null");
-    if (draft && Object.keys(EMPTY_FORM).every((key) => key === "roleTemplateId" || key === "mascotPreset" || key.startsWith("look") || typeof draft[key] === "string")) {
+    if (draft && Object.keys(EMPTY_FORM).every((key) => key === "roleTemplateId" || key === "mascotPreset" || key.startsWith("look") || draft[key] === undefined || typeof draft[key] === "string")) {
       return {
-        ...Object.fromEntries(Object.keys(EMPTY_FORM).map((key) => [key, draft[key]])),
+        ...Object.fromEntries(Object.keys(EMPTY_FORM).map((key) => [key, typeof draft[key] === "string" ? draft[key] : ""])),
         mascotPreset: CUSTOM_AGENT_MASCOT_PRESETS.includes(draft.mascotPreset) ? draft.mascotPreset : "",
         lookShape: (AGENT_MASCOT_SHAPES as readonly string[]).includes(draft.lookShape) ? draft.lookShape : "",
         lookColor: normalizeMascotColor(draft.lookColor) ?? "",
@@ -426,13 +426,25 @@ function ScopedCustomAgentsView({
       if (!form[key].trim()) delete config[key];
     }
     if (!look) delete config.look;
-    delete config.department;
     if (EMPLOYEE_TEMPLATES.some((template) => template.id === form.roleTemplateId)) {
-      config.department = departmentForRoleTemplate(form.roleTemplateId as CustomAgentRoleTemplateId);
+      // An explicit department survives edits that leave the role alone; a role
+      // change (or a missing value) re-derives it from the template.
+      const roleChanged = (editingConfig?.roleTemplateId ?? "") !== form.roleTemplateId;
+      if (roleChanged || !editingConfig?.department) {
+        config.department = departmentForRoleTemplate(form.roleTemplateId as CustomAgentRoleTemplateId);
+      } else {
+        config.department = editingConfig.department;
+      }
     }
-    if (form.reportsToAgentId && (agents ?? []).some((agent) => agent.id === form.reportsToAgentId && agent.id !== editingId)) {
-      config.reportsTo = { kind: "agent", agentId: form.reportsToAgentId };
-    } else {
+    if (form.reportsToAgentId) {
+      // A selection the directory still lists becomes the manager; a saved value
+      // the visibility filter hides stays as loaded.
+      if ((agents ?? []).some((agent) => agent.id === form.reportsToAgentId && agent.id !== editingId)) {
+        config.reportsTo = { kind: "agent", agentId: form.reportsToAgentId };
+      }
+    } else if (editingConfig?.reportsTo?.kind === "agent" && (agents ?? []).some((agent) => agent.id === (editingConfig.reportsTo as { agentId: string }).agentId)) {
+      // Empty select with a visible saved manager means the user cleared it;
+      // a user-kind manager or one outside the directory is preserved.
       delete config.reportsTo;
     }
     const channelIdentities = {
