@@ -55,6 +55,11 @@ test("setup page renders when no URL is configured", async () => {
     // First launch asks hosted or self-hosted; the URL field only applies to the latter.
     await expect(win.locator("#hosted").isChecked()).resolves.toBe(true);
     await expect(win.locator("input#url").isVisible()).resolves.toBe(false);
+    const nativeWindow = await app.browserWindow(win);
+    await expect.poll(() => nativeWindow.evaluate((window) => window.isVisible()), {
+      message: "The native setup window must be shown before capturing it",
+      timeout: 10_000,
+    }).toBe(true);
     const artifacts = path.resolve(import.meta.dirname, "../../../.verify/desktop-shell");
     mkdirSync(artifacts, { recursive: true });
     await win.screenshot({ path: path.join(artifacts, "setup-choice.png") });
