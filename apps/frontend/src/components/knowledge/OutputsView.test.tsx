@@ -8,7 +8,6 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const image = { id: "image-1", kind: "output", title: "Generated image.jpg", mime: "image/jpeg", downloadPath: "/api/files/image-1/download", createdAt: 1730000000000, media: { kind: "image", mode: "text-to-image", label: "Lucid Origin", aspectRatio: "16:9", prompt: "A coastal town at sunrise" } };
 const report = { id: `file_${"a".repeat(24)}`, kind: "output", documentKind: "report", mime: "text/markdown", title: "Field notes.md", downloadPath: "/not-a-file", createdAt: 1730000000000 };
 const page = { ...report, id: `file_${"b".repeat(24)}`, documentKind: "page", mime: "text/html", title: "Field guide.html" };
-function api(items: unknown[] = [image], fail = false) {
 const videoOff = { enabled: false, reason: "Connect a Google API key in Settings → Providers to generate videos.", modes: [], aspectRatios: [] };
 const videoOn = { enabled: true, reason: null, modes: ["text-to-video"], aspectRatios: ["16:9", "9:16", "1:1"] };
 function api(items: unknown[] = [image], fail = false, video: unknown = videoOff) {
