@@ -231,7 +231,7 @@ runChannelContractSuite("teams", async () => {
     sign: async () => {
       const now = Math.floor(Date.now() / 1000);
       const token = await signTeamsJwt(
-        { iss: "https://api.botframework.com", aud: "app-1", exp: now + 600, nbf: now - 10, serviceUrl: TEAMS_SERVICE },
+        { iss: "https://api.botframework.com", aud: "app-1", exp: now + 600, nbf: now - 10, serviceurl: TEAMS_SERVICE },
         keys,
       );
       return new Headers({ Authorization: `Bearer ${token}` });
@@ -282,6 +282,9 @@ describe("teams transport", () => {
     const check = async (claims: Record<string, unknown>, raw = body()) =>
       transport.verify(raw, new Headers({ Authorization: `Bearer ${await signTeamsJwt(claims, keys)}` }), env);
     expect(await check(good)).toEqual({ ok: true });
+    const { serviceUrl, ...rest } = good;
+    expect(await check({ ...rest, serviceurl: serviceUrl })).toEqual({ ok: true });
+    expect(await check({ ...good, serviceurl: "https://evil.example/" })).toMatchObject({ ok: false, status: 401 });
     expect(await check({ ...good, aud: "other" })).toMatchObject({ ok: false, status: 401 });
     expect(await check({ ...good, iss: "https://evil.example" })).toMatchObject({ ok: false, status: 401 });
     expect(await check({ ...good, serviceUrl: "https://evil.example/" })).toMatchObject({ ok: false, status: 401 });
@@ -314,8 +317,8 @@ describe("teams transport", () => {
 });
 
 describe("channel registry", () => {
-  it("registers slack, discord, telegram and teams and resolves conversation keys to their channel", () => {
-    expect(listChannels().map((c) => c.id).sort()).toEqual(["discord", "slack", "teams", "telegram"]);
+  it("registers slack, discord, telegram, teams and email and resolves conversation keys to their channel", () => {
+    expect(listChannels().map((c) => c.id).sort()).toEqual(["discord", "email", "slack", "teams", "telegram"]);
     expect(channelForConversationKey(`teams:${TEAMS_CONVERSATION}`)).toBe(teamsChannel);
     expect(getChannel("slack")).toBe(slackChannel);
     expect(channelForConversationKey("slack:T1:C1:1.2")).toBe(slackChannel);

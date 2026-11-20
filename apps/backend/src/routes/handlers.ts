@@ -69,6 +69,7 @@ import { ORCHESTRATOR_NAME, handleSlackCommand } from "../slack-routes.js";
 import { handleDiscordInteractions } from "../discord.js";
 import { handleTelegramWebhook } from "../telegram.js";
 import { handleTeamsMessages } from "../teams.js";
+import { handleTeamsConnection } from "../teams-connection-routes.js";
 import { handleTrigger } from "../trigger.js";
 import { handleSandboxRoutes } from "../sandbox-routes.js";
 import { resolveOrgForApiRequest } from "../org-request-auth.js";
@@ -172,6 +173,10 @@ export const handlers = {
   async workspaceIntegrationResponse(context: RequestContext): Promise<Response | null> {
     const { request, env } = context;
     return handleWorkspaceIntegrations(request, env);
+  },
+  async browserResponse({ env, request, url }: RequestContext): Promise<Response> {
+    const { handleBrowserLogins, handleBrowserSession } = await import("../tools/browser-routes.js");
+    return url.pathname === "/api/sessions/browser" ? handleBrowserSession(request, env) : handleBrowserLogins(request, env);
   },
   async personalExecutionResponse(context: RequestContext): Promise<Response | null> {
     const { request, env } = context;
@@ -574,9 +579,12 @@ export const handlers = {
       dedupe: (activityId) => seenDelivery(env, `teams-activity:${activityId}`),
     });
   },
+  async teamsConnectionResponse({ request, env }: RequestContext): Promise<Response> {
+    return handleTeamsConnection(request, env);
+  },
   async managedSlackResponse(context: RequestContext): Promise<Response | null> {
-    const { request, env } = context;
-    return handleMultiInstallationSlackCallback(request, env);
+    const { request, env, execution } = context;
+    return handleMultiInstallationSlackCallback(request, env, execution);
   },
   async slackEventsResponse(context: RequestContext): Promise<Response | null> {
     const { request, env, execution: ctx } = context;

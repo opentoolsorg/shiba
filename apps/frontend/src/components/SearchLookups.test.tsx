@@ -19,6 +19,7 @@ describe("chat lookup options", () => {
     expect(options).toMatchObject([
       { id: "web_search", on: true, available: true },
       { id: "knowledge_search", on: false, available: false, unavailableReason: "Not configured on this deployment (AGENT_AUDIT; AI; MEMORY_VECTORS)." },
+      { id: "browser", on: false, available: true },
     ]);
     expect(selectedChatLookups(options)).toEqual(["web_search"]);
     expect(selectedChatLookups(chatLookupOptions(null, ["knowledge_search"]))).toEqual(["knowledge_search"]);
@@ -31,7 +32,7 @@ describe("ChatMessageComposer lookups", () => {
   it("toggles a lookup for the next message and reports it in the mode label", () => {
     const onToggleLookup = vi.fn();
     const view = render(<ChatMessageComposer {...props} streaming={false} lookups={chatLookupOptions(setup, [])} onToggleLookup={onToggleLookup} />);
-    const group = screen.getByRole("group", { name: "Lookups for this message" });
+    const group = screen.getByRole("group", { name: "Tools for this message" });
     const web = within(group).getByRole("button", { name: "Web" });
     expect(web.getAttribute("aria-pressed")).toBe("false");
     expect(screen.getByText("CHAT MODE")).toBeTruthy();
@@ -40,6 +41,23 @@ describe("ChatMessageComposer lookups", () => {
     view.rerender(<ChatMessageComposer {...props} streaming={false} lookups={chatLookupOptions(setup, ["web_search"])} onToggleLookup={onToggleLookup} />);
     expect(within(group).getByRole("button", { name: "Web" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByText("CHAT MODE · WEB LOOKUP")).toBeTruthy();
+  });
+
+  it("opts in to the Browser turn marker explicitly and explains saved sign-in approval", () => {
+    const onToggleLookup = vi.fn();
+    const lookups = chatLookupOptions(setup, []);
+    const view = render(<ChatMessageComposer {...props} streaming={false} lookups={lookups} onToggleLookup={onToggleLookup} />);
+    const button = screen.getByRole("button", { name: "Browser" });
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    expect(button.title).toContain("requires your approval");
+    expect(selectedChatLookups(lookups)).toEqual([]);
+    fireEvent.click(button);
+    expect(onToggleLookup).toHaveBeenCalledWith("browser");
+    const optedIn = chatLookupOptions(setup, ["browser"]);
+    view.rerender(<ChatMessageComposer {...props} streaming={false} lookups={optedIn} onToggleLookup={onToggleLookup} />);
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    expect(selectedChatLookups(optedIn)).toEqual(["browser"]);
+    expect(screen.getByText("CHAT MODE · BROWSER")).toBeTruthy();
   });
 
   it("disables an unconfigured lookup with the reason, and every lookup while streaming", () => {
@@ -63,7 +81,7 @@ describe("ChatMessageComposer lookups", () => {
 
   it("renders no lookup controls without a toggle handler", () => {
     render(<ChatMessageComposer {...props} streaming={false} lookups={chatLookupOptions(setup, [])} />);
-    expect(screen.queryByRole("group", { name: "Lookups for this message" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Tools for this message" })).toBeNull();
   });
 });
 

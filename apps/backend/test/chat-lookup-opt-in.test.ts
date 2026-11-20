@@ -51,6 +51,14 @@ describe("chat lookup opt-in", () => {
     expect(prompt).toContain("Do not use any other tool");
   });
 
+  it("opts into browser tools as a group without turning on sandbox or media tools", async () => {
+    const tools = { browser_open: {}, browser_read: {}, browser_sign_in: {}, generate_image: {}, delegate_coding_task: {} };
+    const instance = host(chat({ shibaChatTools: ["browser"] }));
+    expect((await instance.beforeTurn({ tools, system: "base" } as never)).activeTools)
+      .toEqual(["browser_open", "browser_read", "browser_sign_in"]);
+    expect(instance.getSystemPrompt()).toContain("Never delegate to a sandbox in Chat mode");
+  });
+
   it("offers knowledge_search to signed-in chat users only, scoped to their workspace", async () => {
     expect(createChatAgentMediaTools({} as Env, { runId: "r" })).not.toHaveProperty("knowledge_search");
     const tools = createChatAgentMediaTools({} as Env, { runId: "r", userId: "ada@example.test", orgId: "team:ws_1" });

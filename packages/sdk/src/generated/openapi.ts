@@ -699,7 +699,7 @@ export type components = {
             delivery?: "queue" | "steer" | "interrupt";
             clientKey?: string;
         };
-        /** @description Optional approval-frozen workspace output paths, in delivery order. Paths are unique ignoring case; relative, non-hidden ASCII segments only (letters/digits, dot, underscore, hyphen, internal spaces), no empty/dot/parent/absolute segments or leading/trailing spaces. Only md/txt/json/csv. Requested complete UTF-8 nonempty files are capped at 16384 bytes each and 65536 bytes total; JSON must parse. Collection checks do not assess semantic quality. */
+        /** @description Optional approval-frozen output paths, in delivery order. Paths are unique ignoring case, relative and non-hidden. Formats: MD, TXT, JSON, CSV (16 KiB each, 64 KiB combined); HTML (512 KiB) and PDF (10 MiB), with a 10.5 MiB combined budget; XLSX, DOCX, PPTX, PNG, JPG/JPEG, WebP, GIF (5 MiB each) and MP4 (12 MiB), with a 16 MiB combined budget. Binary formats must match their file signature. Collection checks do not assess semantic quality. */
         ExpectedDeliverables: string[];
         /** @description Metadata for a captured requested workspace file. Bodies and private storage keys are never returned in ordinary thread/run reads. Downloads use the authenticated dashboard run endpoint, not a public v1 endpoint. */
         RunDeliverable: {

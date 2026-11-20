@@ -135,6 +135,14 @@ describe("employee lazy tool catalog", () => {
     await expect(call({ name: "github.create_issue", args: {} })).rejects.toThrow("unavailable");
   });
 
+  it("does not advertise connector actions when execution is Off even if its resource grants remain", async () => {
+    const context = employeeContext();
+    context.allowed = context.allowed.filter((id) => id !== "mcp:shiba:integrations.execute");
+    const { search, describe: describeTools } = lazyTools(context);
+    expect(await search({ queries: ["github create issue"] })).toMatchObject({ matches: [] });
+    expect(await describeTools({ names: ["github.create_issue"] })).toEqual({ tools: [], unavailable: ["github.create_issue"] });
+  });
+
   it("measures prompt tokens on a fixed connected-app thread", async () => {
     const { tools, search, call, legacyCatalog, legacyCall } = lazyTools();
     const definition = (name: keyof typeof tools) => JSON.stringify({ name, description: tools[name]!.description,

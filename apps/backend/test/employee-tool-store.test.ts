@@ -45,11 +45,11 @@ describe("persistent employee tool grants and exact approvals", () => {
       }
       expect(() => f.insert("duplicate-before-migration")).toThrow(/UNIQUE constraint failed/);
       applyAllMigrations(f.sqlite);
-      expect(f.sqlite.prepare("SELECT approval_id,payload_json,execution_context_id,employee_context_json,decision_owner_account_id,consumed_at,consumed_invocation_id FROM employee_tool_approvals").get())
+      expect(f.sqlite.prepare("SELECT approval_id,payload_json,execution_context_id,employee_context_json,decision_owner_account_id,consumed_at,consumed_invocation_id,read_request_id FROM employee_tool_approvals").get())
         .toEqual({ approval_id: "original", payload_json: "{}", execution_context_id: hasContext ? "context-a" : null,
           employee_context_json: hasContext ? '{"employeeId":"employee-a"}' : null,
           decision_owner_account_id: hasContext ? "decision-owner" : null,
-          consumed_at: hasContext ? 10 : null, consumed_invocation_id: hasContext ? "invocation-a" : null });
+          consumed_at: hasContext ? 10 : null, consumed_invocation_id: hasContext ? "invocation-a" : null, read_request_id: "" });
       // Reusing the identical payload in the same execution context stays fenced.
       expect(() => f.sqlite.prepare(`INSERT INTO employee_tool_approvals (
         employee_context_json,decision_owner_account_id,approval_id,org_id,employee_id,employee_version,actor_id,
@@ -60,7 +60,7 @@ describe("persistent employee tool grants and exact approvals", () => {
           capability_id,action,resource_id,account_id,argument_digest,payload_json,policy_version,status,created_at,expires_at,decided_by,decided_at
         FROM employee_tool_approvals`).run()).toThrow(/UNIQUE constraint failed/);
       expect(f.sqlite.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'employee_tool_approval_active_payload%'").all())
-        .toEqual([{ name: "employee_tool_approval_active_payload_v2" }]);
+        .toEqual([{ name: "employee_tool_approval_active_payload_v3" }]);
     } finally { f.sqlite.close(); }
   });
 

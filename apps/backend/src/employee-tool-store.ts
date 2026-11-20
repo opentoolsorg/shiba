@@ -105,6 +105,9 @@ export interface EmployeeApprovalRecord {
   decidedAt?: number;
   /** Canonical connection owner vouched by the authenticated human decision route. */
   decisionOwnerAccountId?: string;
+  /** The employee's Ask/Auto/Off level for this tool when a person decided, and when the approved call ran. */
+  levelAtDecision?: string;
+  levelAtExecution?: string;
 }
 
 function hasControlCharacters(value: string): boolean {
@@ -323,6 +326,8 @@ function approvalFromRow(row: Record<string, unknown>): EmployeeApprovalRecord |
     ...(typeof row.decided_by === "string" ? { decidedBy: row.decided_by } : {}),
     ...(typeof row.decided_at === "number" ? { decidedAt: row.decided_at } : {}),
     ...(typeof row.decision_owner_account_id === "string" ? { decisionOwnerAccountId: row.decision_owner_account_id } : {}),
+    ...(typeof row.level_at_decision === "string" ? { levelAtDecision: row.level_at_decision } : {}),
+    ...(typeof row.level_at_execution === "string" ? { levelAtExecution: row.level_at_execution } : {}),
   };
 }
 
@@ -330,24 +335,24 @@ const APPROVAL_SELECT = `SELECT * FROM employee_tool_approvals`;
 
 export async function requestEmployeeActionApproval(
   env: AuditEnv,
-  input: Omit<EmployeeApprovalRecord, "approvalId" | "status" | "createdAt" | "decidedBy" | "decidedAt"> & { now?: number },
+  input: Omit<EmployeeApprovalRecord, "approvalId" | "status" | "createdAt" | "decidedBy" | "decidedAt"> & { now?: number; readRequestId?: string },
 ): Promise<EmployeeApprovalRecord> {
   const now = input.now ?? Date.now();
   const approvalId = `eap-${randomHex(16)}`;
   await env.AGENT_AUDIT.prepare(`INSERT OR IGNORE INTO employee_tool_approvals
     (approval_id, org_id, employee_id, employee_version, actor_id, execution_context_id, connection_id, connection_generation,
      capability_kind, capability_id, action, resource_id, account_id, argument_digest, payload_json,
-     policy_version, status, created_at, expires_at, employee_context_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`)
+     policy_version, status, created_at, expires_at, employee_context_json, read_request_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`)
     .bind(approvalId, input.orgId, input.employeeId, input.employeeVersion, input.actorId, input.executionContextId ?? null, input.connectionId,
       input.connectionGeneration, input.capability.kind, input.capability.id, input.action, input.resourceId ?? null,
       input.accountId ?? null, input.argumentDigest, JSON.stringify(input.payload), input.policyVersion, now, input.expiresAt,
-      input.employeeContext ? JSON.stringify(input.employeeContext) : null).run();
+      input.employeeContext ? JSON.stringify(input.employeeContext) : null, input.readRequestId ?? "").run();
   const row = await env.AGENT_AUDIT.prepare(`${APPROVAL_SELECT}
     WHERE org_id = ? AND employee_id = ? AND employee_version = ? AND actor_id = ? AND execution_context_id IS ? AND capability_id = ? AND action = ?
-      AND argument_digest = ? AND resource_id IS ? AND connection_generation = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`)
+      AND argument_digest = ? AND resource_id IS ? AND connection_generation = ? AND read_request_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`)
     .bind(input.orgId, input.employeeId, input.employeeVersion, input.actorId, input.executionContextId ?? null, input.capability.id,
-      input.action, input.argumentDigest, input.resourceId ?? null, input.connectionGeneration).first<Record<string, unknown>>();
+      input.action, input.argumentDigest, input.resourceId ?? null, input.connectionGeneration, input.readRequestId ?? "").first<Record<string, unknown>>();
   const result = row && approvalFromRow(row);
   if (!result) throw new Error("Could not persist employee action approval.");
   return result;
@@ -387,15 +392,15 @@ export async function findEmployeeActionApproval(
   input: {
     orgId: string; employeeId: string; employeeVersion: number; actorId: string;
     capabilityId: string; action: string; argumentDigest: string; resourceId: string;
-    connectionGeneration: number; executionContextId?: string; now?: number;
+    connectionGeneration: number; executionContextId?: string; now?: number; readRequestId?: string;
   },
 ): Promise<EmployeeApprovalRecord | null> {
   const row = await env.AGENT_AUDIT.prepare(`${APPROVAL_SELECT}
     WHERE org_id = ? AND employee_id = ? AND employee_version = ? AND actor_id = ? AND IFNULL(execution_context_id, '') = ? AND capability_id = ?
-      AND action = ? AND argument_digest = ? AND resource_id = ? AND connection_generation = ?
+      AND action = ? AND argument_digest = ? AND resource_id = ? AND connection_generation = ? AND read_request_id = ?
     ORDER BY created_at DESC LIMIT 1`)
     .bind(input.orgId, input.employeeId, input.employeeVersion, input.actorId, input.executionContextId ?? "", input.capabilityId,
-      input.action, input.argumentDigest, input.resourceId, input.connectionGeneration).first<Record<string, unknown>>();
+      input.action, input.argumentDigest, input.resourceId, input.connectionGeneration, input.readRequestId ?? "").first<Record<string, unknown>>();
   if (!row) return null;
   const approval = approvalFromRow(row);
   if (!approval) return null;
@@ -419,10 +424,13 @@ export async function findEmployeeActionApproval(
 
 export async function listEmployeeActionApprovals(
   env: AuditEnv,
-  input: { orgId: string; status?: EmployeeApprovalRecord["status"]; limit?: number },
+  input: { orgId: string; status?: EmployeeApprovalRecord["status"]; decided?: boolean; limit?: number },
 ): Promise<EmployeeApprovalRecord[]> {
   const limit = Math.max(1, Math.min(50, input.limit ?? 20));
-  const rows = input.status
+  const rows = input.decided
+    ? await env.AGENT_AUDIT.prepare(`${APPROVAL_SELECT} WHERE org_id = ? AND decided_at IS NOT NULL ORDER BY decided_at DESC LIMIT ?`)
+      .bind(input.orgId, limit).all<Record<string, unknown>>()
+    : input.status
     ? await env.AGENT_AUDIT.prepare(`${APPROVAL_SELECT} WHERE org_id = ? AND status = ? ORDER BY created_at DESC LIMIT ?`)
       .bind(input.orgId, input.status, limit).all<Record<string, unknown>>()
     : await env.AGENT_AUDIT.prepare(`${APPROVAL_SELECT} WHERE org_id = ? ORDER BY created_at DESC LIMIT ?`)
@@ -432,12 +440,28 @@ export async function listEmployeeActionApprovals(
 
 export async function decideEmployeeActionApproval(
   env: AuditEnv,
-  input: { orgId: string; employeeId: string; approvalId: string; approved: boolean; decidedBy: string; now?: number; requirePendingTransition?: boolean; decisionOwnerAccountId?: string },
+  input: { orgId: string; employeeId: string; approvalId: string; approved: boolean; decidedBy: string; now?: number; requirePendingTransition?: boolean; decisionOwnerAccountId?: string; standingCapabilityId?: string },
 ): Promise<EmployeeApprovalRecord | null> {
   const now = input.now ?? Date.now();
-  const updated = await env.AGENT_AUDIT.prepare(`UPDATE employee_tool_approvals SET status = ?, decided_by = ?, decided_at = ?, decision_owner_account_id = ?
-    WHERE org_id = ? AND employee_id = ? AND approval_id = ? AND status = 'pending' AND expires_at > ?`)
-    .bind(input.approved ? "approved" : "denied", input.decidedBy, now, input.decisionOwnerAccountId ?? null, input.orgId, input.employeeId, input.approvalId, now).run();
+  const currentLevel = `(SELECT level FROM employee_tool_levels AS levels
+    WHERE levels.org_id = employee_tool_approvals.org_id AND levels.employee_id = employee_tool_approvals.employee_id
+      AND levels.capability_id = employee_tool_approvals.capability_id)`;
+  const decision = env.AGENT_AUDIT.prepare(`UPDATE employee_tool_approvals
+    SET status = ?, decided_by = ?, decided_at = ?, decision_owner_account_id = ?,
+      level_at_decision = CASE WHEN capability_kind = 'mcp' AND employee_context_json IS NULL THEN COALESCE(${currentLevel}, 'ask') END
+    WHERE org_id = ? AND employee_id = ? AND approval_id = ? AND status = 'pending' AND expires_at > ?
+      AND (capability_kind != 'mcp' OR employee_context_json IS NOT NULL OR COALESCE(${currentLevel}, 'ask') != 'off')
+      AND (? IS NULL OR (capability_id = ? AND ${currentLevel} = 'ask'))`)
+    .bind(input.approved ? "approved" : "denied", input.decidedBy, now, input.decisionOwnerAccountId ?? null,
+      input.orgId, input.employeeId, input.approvalId, now, input.standingCapabilityId ?? null, input.standingCapabilityId ?? null);
+  const updated = input.approved && input.standingCapabilityId
+    ? (await env.AGENT_AUDIT.batch([
+      decision,
+      env.AGENT_AUDIT.prepare(`UPDATE employee_tool_levels SET level = 'auto', set_by = ?, updated_at = ?
+        WHERE org_id = ? AND employee_id = ? AND capability_id = ? AND changes() = 1`)
+        .bind(input.decidedBy, now, input.orgId, input.employeeId, input.standingCapabilityId),
+    ]))[0]!
+    : await decision.run();
   if (input.requirePendingTransition && updated.meta.changes !== 1) return null;
   return getEmployeeActionApproval(env, { orgId: input.orgId, employeeId: input.employeeId, approvalId: input.approvalId, now });
 }

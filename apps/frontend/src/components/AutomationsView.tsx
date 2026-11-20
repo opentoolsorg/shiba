@@ -366,7 +366,7 @@ export function AutomationsView({
   return (
     <MainCard className={className}>
       {/* 48px Header */}
-      <header className="flex h-12 min-h-[48px] shrink-0 items-center justify-between border-b border-[#e4e4e7] px-4 select-none dark:border-zinc-800">
+      <header className="flex min-h-[48px] shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-[#e4e4e7] px-4 py-0.5 select-none dark:border-zinc-800">
         <div className="flex items-center gap-2.5 min-w-0">
           {onToggleSidebar ? (
             <button
@@ -404,8 +404,8 @@ export function AutomationsView({
           </nav>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <label className="relative flex items-center">
+        <div className="ml-auto flex flex-wrap items-center justify-between gap-2 max-sm:w-full sm:justify-end">
+          <label className="relative flex w-full items-center sm:w-48">
             <Search className="absolute left-2.5 size-3.5 text-[#71717a] dark:text-zinc-400 pointer-events-none" />
             <input
               type="text"
@@ -413,7 +413,7 @@ export function AutomationsView({
               placeholder="Search automations…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="h-8 w-36 sm:w-48 rounded-lg border border-[#e4e4e7] bg-white pl-8 pr-2.5 text-xs text-[#0a0a0a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 min-h-11"
+              className="h-8 w-full rounded-lg border border-[#e4e4e7] bg-white pl-8 pr-2.5 text-xs text-[#0a0a0a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 min-h-11"
             />
           </label>
 
