@@ -5,7 +5,7 @@ import { resolveWorkspaceNativeMember, type WorkspaceNativeMember } from "./work
 import { rejectCrossOriginMutation, rejectNonJsonMutation } from "./dashboard-mutation.js";
 import { SlackInstallationError } from "./slack-installations-crypto.js";
 import { decideSlackInstallation, listSlackInstallations, slackOAuthConfiguration, type SlackInstallationEnv } from "./slack-installations-store.js";
-import { completeSlackInstallation, findSlackOAuthState, refreshSlackInstallation, startSlackInstallation, type SlackOAuthDeps } from "./slack-installations-oauth.js";
+import { cancelSlackInstallation, completeSlackInstallation, findSlackOAuthState, refreshSlackInstallation, startSlackInstallation, type SlackOAuthDeps } from "./slack-installations-oauth.js";
 
 const prefix = "/api/slack/installations";
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "cache-control": "no-store", "referrer-policy": "no-referrer" } });
@@ -31,16 +31,19 @@ export async function handleSlackInstallations(request: Request, env: SlackInsta
   try {
     if (url.pathname === prefix + "/callback") {
       const config = slackOAuthConfiguration(env);
+      const cancelled = url.searchParams.get("error") === "access_denied";
+      const resultKey = cancelled ? "error" : "code";
       if (request.method !== "GET" || url.origin + url.pathname !== config.redirectUri || request.headers.has("authorization") ||
-        url.searchParams.getAll("state").length !== 1 || url.searchParams.getAll("code").length !== 1 || [...url.searchParams.keys()].some((key) => !["state", "code"].includes(key))) throw new SlackInstallationError("slack_oauth_callback_invalid", 400);
+        url.searchParams.getAll("state").length !== 1 || url.searchParams.getAll(resultKey).length !== 1 || [...url.searchParams.keys()].some((key) => key !== "state" && key !== resultKey)) throw new SlackInstallationError("slack_oauth_callback_invalid", 400);
       const pending = await findSlackOAuthState(env, url.searchParams.get("state") ?? "");
       if (!pending) throw new SlackInstallationError("slack_oauth_state_unavailable", 403);
       const headers = new Headers(request.headers); headers.set("X-Shiba-Workspace", pending.workspace_id);
       const scoped = new Request(request, { headers }), member = await nativeOwner(scoped, env);
       const verify = async () => { if (JSON.stringify(await nativeOwner(scoped, env)) !== JSON.stringify(member)) throw new SlackInstallationError("slack_oauth_original_owner_required", 403); };
-      await completeSlackInstallation(env, member, pending, url.searchParams.get("code") ?? "", verify, deps);
+      if (cancelled) await cancelSlackInstallation(env, member, pending, verify);
+      else await completeSlackInstallation(env, member, pending, url.searchParams.get("code") ?? "", verify, deps);
       // Drop the protocol's query-only proof before the dashboard loads any assets.
-      return new Response(null, { status: 303, headers: { Location: new URL("/app/?slackInstall=pending-review", config.redirectUri).href, "cache-control": "no-store", "referrer-policy": "no-referrer" } });
+      return new Response(null, { status: 303, headers: { Location: new URL(`/integrations/?slackInstall=${cancelled ? "cancelled" : "pending-review"}#slack-installations`, config.redirectUri).href, "cache-control": "no-store", "referrer-policy": "no-referrer" } });
     }
     if (!request.headers.has("X-Shiba-Workspace") || url.searchParams.has("workspaceId")) throw new SlackInstallationError("workspace_selector_required", 400);
     if (request.method !== "GET") { const denied = rejectCrossOriginMutation(request) ?? rejectNonJsonMutation(request); if (denied) return denied; }

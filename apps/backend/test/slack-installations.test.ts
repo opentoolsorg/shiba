@@ -114,7 +114,7 @@ describe("native bot-workspace Slack installation",()=>{
     const f=await fixture(),authorize=await f.begin();
     expect(authorize.origin+authorize.pathname).toBe("https://slack.com/oauth/v2/authorize");expect(authorize.searchParams.get("code_challenge_method")).toBe("S256");expect(authorize.searchParams.has("user_scope")).toBe(false);
     const saved=f.sqlite.prepare("SELECT * FROM slack_installation_oauth").get()!;expect(JSON.stringify(saved)).not.toContain(authorize.searchParams.get("state")!);
-    const done=await f.callback(authorize);expect(done?.status).toBe(303);expect(done?.headers.get("location")).toBe("https://shiba.test/app/?slackInstall=pending-review");expect(done?.headers.get("referrer-policy")).toBe("no-referrer");
+    const done=await f.callback(authorize);expect(done?.status).toBe(303);expect(done?.headers.get("location")).toBe("https://shiba.test/integrations/?slackInstall=pending-review#slack-installations");expect(done?.headers.get("referrer-policy")).toBe("no-referrer");
     const [_url,init]=f.exchange.mock.calls[0]!,body=new URLSearchParams(String(init?.body));
     expect(body.has("client_secret")).toBe(false);expect(body.get("code_verifier")).toHaveLength(86);expect(init?.redirect).toBe("manual");
     const challenge=Buffer.from(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(body.get("code_verifier")!))).toString("base64url");expect(challenge).toBe(authorize.searchParams.get("code_challenge"));
@@ -137,6 +137,39 @@ describe("native bot-workspace Slack installation",()=>{
     expect((await f.callback(authorize))?.status).toBe(303);expect((await f.callback(authorize))?.status).toBe(403);expect(f.exchange).toHaveBeenCalledTimes(1);
     const expired=await f.begin();f.sqlite.prepare("UPDATE slack_installation_oauth SET expires_at=1 WHERE state='pending'").run();expect((await f.callback(expired))?.status).toBe(403);
     expired.searchParams.set("state","x".repeat(43));expect((await f.callback(expired))?.status).toBe(403);expect(f.exchange).toHaveBeenCalledTimes(1);
+  });
+  it("clears a declined authorization only for the initiating owner and lets them reconnect explicitly", async () => {
+    const f = await fixture(), active = await f.activate(), reconnect = await f.begin();
+    const state = reconnect.searchParams.get("state")!;
+    const cancelled = (suffix = "") => handleSlackInstallations(new Request(
+      `https://shiba.test/api/slack/installations/callback?state=${state}&error=access_denied${suffix}`,
+    ), f.env, f.deps);
+
+    expect((await cancelled("&code=unexpected"))?.status).toBe(400);
+    identity.email = OTHER;
+    expect((await cancelled())?.status).toBe(403);
+    identity.email = OWNER;
+    const response = await cancelled();
+    expect(response?.status).toBe(303);
+    expect(response?.headers.get("location")).toBe("https://shiba.test/integrations/?slackInstall=cancelled#slack-installations");
+    expect(response?.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(f.sqlite.prepare("SELECT verifier_cipher FROM slack_installation_oauth WHERE state='cancelled'").get()).toEqual({ verifier_cipher: "" });
+    expect((await f.callback(reconnect))?.status).toBe(403);
+    expect((await cancelled())?.status).toBe(403);
+    expect(f.exchange).toHaveBeenCalledOnce();
+    expect(await activeSlackInstallationForTeam(f.env, "A123", "T123")).toMatchObject({
+      id: active.id, version: active.version, generation: active.generation, tokenRevision: active.tokenRevision,
+    });
+
+    const revoked = (await f.call(`/${active.id}/revoke`, f.decision(active))).value.installations[0]!;
+    expect(revoked).toMatchObject({ state: "revoked", generation: active.generation + 1 });
+    await expect(readSlackInstallationCredential(f.env, active)).rejects.toThrow();
+    const pending = await f.install();
+    expect(pending).toMatchObject({ id: active.id, state: "pending", generation: revoked.generation + 1 });
+    expect(await activeSlackInstallationForTeam(f.env, "A123", "T123")).toBeNull();
+    const reviewed = await f.call(`/${pending.id}/activate`, f.decision(pending));
+    expect(reviewed.value.installations[0]).toMatchObject({ state: "active", generation: pending.generation });
+    expect(reviewed.value.executionAvailable).toBe(false);
   });
   it.each(["enterprise","user-token","app","team","scope"])("rejects unreviewed %s token responses",async(which)=>{
     const f=await fixture(),authorize=await f.begin();
