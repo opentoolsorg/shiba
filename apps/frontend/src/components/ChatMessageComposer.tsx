@@ -3,6 +3,9 @@ import { ArrowUp, AtSign, BookOpen, Globe2, LoaderCircle, Mic, Monitor, Plus, Sq
 import type { ChatLookupId, ChatLookupOption } from "../chat-lookups";
 import { useVoiceInput } from "../hooks/useVoiceInput";
 
+const CREATE_CHOICES = ["image", "video", "report", "page"] as const;
+export type ChatCreateChoice = typeof CREATE_CHOICES[number];
+
 export function ChatMessageComposer({
   value,
   onChange,
@@ -21,6 +24,8 @@ export function ChatMessageComposer({
   onPrepareWork,
   lookups = [],
   onToggleLookup,
+  createChoice,
+  onCreateChange,
   children,
 }: {
   value: string;
@@ -42,6 +47,8 @@ export function ChatMessageComposer({
   /** Tools the next Chat message may use; off unless the person turns them on. */
   lookups?: readonly ChatLookupOption[];
   onToggleLookup?: (id: ChatLookupId) => void;
+  createChoice?: ChatCreateChoice;
+  onCreateChange?: (choice?: ChatCreateChoice) => void;
   children?: ReactNode;
 }): JSX.Element {
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -63,10 +70,11 @@ export function ChatMessageComposer({
     <div className="w-full max-w-3xl mx-auto flex flex-col">
       <form
         ref={formRef}
+        id="chat-message-composer"
         data-testid="chat-composer"
         aria-label="Chat composer"
         onSubmit={onSubmit}
-        className="w-full rounded-2xl border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-composer)] flex flex-col p-3 sm:p-4 gap-2.5 relative group focus-within:border-[var(--ring)] transition-colors"
+        className="w-full [container-type:inline-size] rounded-2xl border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-composer)] flex flex-col p-3 sm:p-4 gap-2.5 relative group focus-within:border-[var(--ring)] transition-colors"
       >
         <label htmlFor="chat-message" className="sr-only">Message {agentName}</label>
         <textarea
@@ -82,13 +90,13 @@ export function ChatMessageComposer({
           className="w-full resize-none bg-transparent px-2 py-1 text-sm text-[var(--fg)] placeholder:text-[var(--muted-foreground-3)] focus:outline-none disabled:opacity-60 min-h-[72px]"
           disabled={streaming}
         />
-        <div className="flex items-center justify-between gap-3 pt-1">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 pt-1 [@container(min-width:42rem)]:flex">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <button
               type="button"
               aria-label="Add to message"
               onClick={onAttach}
-              className="inline-flex items-center justify-center size-9 rounded-full border border-[var(--border-1)] hover:bg-[var(--secondary)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+              className="inline-flex items-center justify-center size-11 rounded-full border border-[var(--border-1)] hover:bg-[var(--secondary)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             >
               <Plus aria-hidden="true" className="size-4" />
             </button>
@@ -97,7 +105,7 @@ export function ChatMessageComposer({
               aria-label={voice.recording ? "Stop voice input" : "Voice input"}
               disabled={busy || streaming || voice.busy}
               onClick={voice.toggle}
-              className="inline-flex items-center justify-center size-9 rounded-full border border-[var(--border-1)] hover:bg-[var(--secondary)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] disabled:opacity-50"
+              className="inline-flex items-center justify-center size-11 rounded-full border border-[var(--border-1)] hover:bg-[var(--secondary)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] disabled:opacity-50"
             >
               <Mic aria-hidden="true" className={`size-4 ${voice.recording ? "text-[var(--destructive)]" : ""}`} />
             </button>
@@ -107,10 +115,12 @@ export function ChatMessageComposer({
               aria-haspopup={onMention ? "menu" : undefined}
               aria-expanded={onMention ? Boolean(mentionOpen) : undefined}
               onClick={onMention}
-              className="inline-flex items-center justify-center size-9 rounded-full border border-[var(--border-1)] hover:bg-[var(--secondary)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+              className="inline-flex items-center justify-center size-11 rounded-full border border-[var(--border-1)] hover:bg-[var(--secondary)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
             >
               <AtSign aria-hidden="true" className="size-4" />
             </button>
+          </div>
+          <div className="col-span-2 row-start-2 flex flex-wrap items-center gap-1.5">
             {onToggleLookup && lookups.length ? (
               <div role="group" aria-label="Tools for this message" className="flex min-w-0 flex-wrap items-center gap-1.5">
                 {lookups.map((lookup) => {
@@ -141,24 +151,37 @@ export function ChatMessageComposer({
                 })}
               </div>
             ) : null}
-            <span className="text-[10px] font-mono text-[var(--muted-foreground-3)] ml-1">
-              {streaming ? (
-                <span role="status" aria-live="polite" className="inline-flex items-center gap-1.5">
-                  <LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
-                  SHIBA IS RESPONDING
-                </span>
-              ) : lookups.some((lookup) => lookup.on)
-                ? `CHAT MODE · ${lookups.filter((lookup) => lookup.on).map((lookup) => lookup.id === "browser" ? "BROWSER" : `${lookup.label.toUpperCase()} LOOKUP`).join(" + ")}`
-                : "CHAT MODE"}
-            </span>
+            {onCreateChange ? (
+              <select
+                aria-label="Create for this message"
+                title="Choose one output for this message only. Choose None to clear."
+                value={createChoice ?? ""}
+                onChange={(event) => onCreateChange(CREATE_CHOICES.find((choice) => choice === event.target.value))}
+                disabled={busy || streaming}
+                className="min-h-11 max-w-full rounded-full border border-[var(--border-1)] bg-[var(--card)] px-2 text-xs font-medium text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] disabled:opacity-50"
+              >
+                <option value="">Create: None</option>
+                {CREATE_CHOICES.map((choice) => <option key={choice} value={choice}>{choice.charAt(0).toUpperCase() + choice.slice(1)}</option>)}
+              </select>
+            ) : null}
           </div>
-          <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          <span className="sr-only min-w-0 text-[10px] font-mono text-[var(--muted-foreground-3)] [@container(min-width:42rem)]:not-sr-only">
+            {streaming ? (
+              <span role="status" aria-live="polite" className="inline-flex items-center gap-1.5">
+                <LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
+                SHIBA IS RESPONDING
+              </span>
+            ) : lookups.some((lookup) => lookup.on)
+              ? `CHAT MODE · ${lookups.filter((lookup) => lookup.on).map((lookup) => lookup.id === "browser" ? "BROWSER" : `${lookup.label.toUpperCase()} LOOKUP`).join(" + ")}`
+              : "CHAT MODE"}
+          </span>
+          <div className="col-start-2 row-start-1 ml-auto flex items-center gap-2">
             {failed ? (
               <button
                 type="button"
                 onClick={onRetry}
                 disabled={busy || streaming}
-                className="inline-flex min-h-9 items-center border border-[var(--border-1)] px-3 text-xs font-medium text-[var(--muted-foreground-1)] hover:text-[var(--fg)] rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-h-11 items-center border border-[var(--border-1)] px-3 text-xs font-medium text-[var(--muted-foreground-1)] hover:text-[var(--fg)] rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                 aria-label="Retry response"
               >
                 Retry response
@@ -168,7 +191,7 @@ export function ChatMessageComposer({
               <button
                 type="button"
                 onClick={onStop}
-                className="inline-flex min-h-9 items-center gap-1.5 border border-[var(--border-1)] px-3 text-xs font-medium text-[var(--muted-foreground-1)] hover:text-[var(--destructive)] hover:border-[var(--destructive)] rounded-full transition-colors"
+                className="inline-flex min-h-11 items-center gap-1.5 border border-[var(--border-1)] px-3 text-xs font-medium text-[var(--muted-foreground-1)] hover:text-[var(--destructive)] hover:border-[var(--destructive)] rounded-full transition-colors"
                 aria-label="Stop response"
               >
                 <Square className="size-3" aria-hidden="true" />
@@ -178,7 +201,7 @@ export function ChatMessageComposer({
             <button
               type="submit"
               disabled={busy || streaming || value.trim() === ""}
-              className="inline-flex items-center justify-center size-10 rounded-full bg-[var(--primary)] text-[var(--primary-text)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 transition-all shadow-[var(--sh-plate)] active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+              className="inline-flex items-center justify-center size-11 rounded-full bg-[var(--primary)] text-[var(--primary-text)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 transition-all shadow-[var(--sh-plate)] active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
               aria-label="Send message"
             >
               <ArrowUp className="size-4" strokeWidth={2.5} aria-hidden="true" />

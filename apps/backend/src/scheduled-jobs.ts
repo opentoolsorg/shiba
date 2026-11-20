@@ -47,6 +47,7 @@ const jobRunners = {
       await reportError(env, "scheduled", result.reason);
     }));
   },
+  "discord.gateway": async (env: Env) => (await import("./discord-gateway-do.js")).ensureDiscordGateway(env),
   "audit.prune": async (env: Env, scheduledAt: number) => {
     if (env.AGENT_AUDIT === undefined) return;
     const cutoff = scheduledAt - AUDIT_RETENTION_MS;

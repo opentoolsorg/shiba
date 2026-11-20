@@ -88,6 +88,23 @@ describe("ProvidersView sign-in", () => {
     expect((screen.getByRole("button", { name: "Finish sign-in" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it("tells its owner when a connection change landed so readiness is re-read", async () => {
+    const onProviderStateChanged = vi.fn();
+    const disconnected = { ...card({ signInKind: "claude-setup-token", phase: "waiting", userCode: null, verificationUri: null, message: null }), id: "claude", label: "Claude Code", harness: "claude-acp" } satisfies AcpProviderCard;
+    const connected = { ...disconnected, connection: { ...disconnected.connection, phase: "connected", authMode: "setup-token" } };
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/providers/claude/verify") {
+        expect(init?.method).toBe("POST");
+        return { ok: true, json: async () => ({ org: "self-hosted", defaultProviderId: null, providers: [connected] }) };
+      }
+      return { ok: true, json: async () => (url === "/api/providers" ? { org: "self-hosted", defaultProviderId: null, providers: [disconnected] } : { connections: [], connectionOrder: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] }) };
+    }));
+    render(<ProvidersView onProviderStateChanged={onProviderStateChanged} />);
+    fireEvent.change(await screen.findByTestId("provider-setup-token-claude"), { target: { value: "test-setup-token" } });
+    fireEvent.click(screen.getByRole("button", { name: "Finish sign-in" }));
+    await waitFor(() => expect(onProviderStateChanged).toHaveBeenCalled());
+  });
+
   it("shows a Default badge for an automatically selected provider", async () => {
     const provider = { ...card({ phase: "connected", userCode: null, verificationUri: null }), isDefault: true };
     vi.stubGlobal("fetch", vi.fn(async (url: string) => ({ ok: true, json: async () => url === "/api/providers" ? { org: "self-hosted", defaultProviderId: "codex", providers: [provider] } : { connections: [], connectionOrder: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] } })));

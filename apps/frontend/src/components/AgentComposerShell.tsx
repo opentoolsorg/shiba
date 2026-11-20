@@ -1,12 +1,14 @@
-import { type ComponentProps, type JSX, type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import { type ComponentProps, type FormEvent, type JSX, type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import type { AgentAvatarChoice, AgentMascotLook, CustomAgentMascotPreset } from "@shiba/shared";
 import type { EmployeeRole } from "../employee-templates";
 import { AgentAvatar } from "./AgentAvatar";
-import { ChatMessageComposer } from "./ChatMessageComposer";
+import { ChatMessageComposer, type ChatCreateChoice } from "./ChatMessageComposer";
 
 export type MentionableAgent = { id: string; name: string; role?: EmployeeRole; mascotPreset?: CustomAgentMascotPreset; look?: AgentMascotLook; avatar?: AgentAvatarChoice };
 
-type ComposerProps = Omit<ComponentProps<typeof ChatMessageComposer>, "agentName" | "onMention" | "mentionOpen" | "textareaRef" | "children" | "placeholder">;
+type ComposerProps = Omit<ComponentProps<typeof ChatMessageComposer>, "agentName" | "onMention" | "mentionOpen" | "textareaRef" | "children" | "placeholder" | "createChoice" | "onCreateChange" | "onSubmit"> & {
+  onSubmit: (event: FormEvent<HTMLFormElement>, create?: ChatCreateChoice) => void | Promise<boolean | void>;
+};
 
 export function AgentComposerShell({ agentName, agents, ...composer }: ComposerProps & { agentName: string; agents: readonly MentionableAgent[] }): JSX.Element {
   const [mentionAt, setMentionAt] = useState<number | null>(null);
@@ -14,6 +16,12 @@ export function AgentComposerShell({ agentName, agents, ...composer }: ComposerP
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuId = useId();
   const { value, onChange } = composer;
+  const [creation, setCreation] = useState<{ choice: ChatCreateChoice; draft: string } | null>(null);
+  if (creation && creation.draft !== value && !(composer.busy && !value)) setCreation(null);
+  const editDraft = (text: string) => {
+    if (creation) setCreation(text.trim() && creation.draft === value ? { ...creation, draft: text } : null);
+    onChange(text);
+  };
 
   useEffect(() => {
     if (mentionAt === null) return;
@@ -41,7 +49,7 @@ export function AgentComposerShell({ agentName, agents, ...composer }: ComposerP
       return;
     }
     const at = textareaRef.current?.selectionStart ?? value.length;
-    onChange(`${value.slice(0, at)}@${value.slice(at)}`);
+    editDraft(`${value.slice(0, at)}@${value.slice(at)}`);
     setMentionAt(at);
   };
 
@@ -54,7 +62,7 @@ export function AgentComposerShell({ agentName, agents, ...composer }: ComposerP
     if (mentionAt === null) return;
     const token = `@${agent.name} `;
     // Replaces the "@" openMention inserted; the menu closes on any outside pointer, so it is still there.
-    onChange(`${value.slice(0, mentionAt)}${token}${value.slice(mentionAt + 1)}`);
+    editDraft(`${value.slice(0, mentionAt)}${token}${value.slice(mentionAt + 1)}`);
     placeCaret(mentionAt + token.length);
     setMentionAt(null);
   };
@@ -75,6 +83,14 @@ export function AgentComposerShell({ agentName, agents, ...composer }: ComposerP
   return (
     <ChatMessageComposer
       {...composer}
+      onChange={editDraft}
+      createChoice={creation?.choice}
+      onCreateChange={(choice) => setCreation(choice ? { choice, draft: value } : null)}
+      onSubmit={async (event) => {
+        event.preventDefault();
+        if (composer.busy || composer.streaming || !value.trim()) return;
+        if (await composer.onSubmit(event, creation?.choice)) setCreation(null);
+      }}
       agentName={agentName}
       textareaRef={textareaRef}
       onMention={openMention}

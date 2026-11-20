@@ -6,6 +6,7 @@ import { InputError } from "../security.js";
 import { assertKnowledgeRead, KnowledgeAccessError } from "../knowledge/knowledge-access.js";
 import { enqueueIngestion } from "../knowledge/knowledge-ingestion.js";
 import { filesBucket } from "../knowledge/knowledge-ingestion.js";
+import { GENERATED_DOCUMENT_PREFIX } from "../tools/document-gen.js";
 import {
   createFolder, FilesStoreError, getFile, listFiles, listFolders, retryFileIngestion,
 } from "./files-store.js";
@@ -16,6 +17,14 @@ import {
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: {
   "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
 } });
+
+/** Types a browser could render as an active document on the dashboard origin; they always download in a sandbox. */
+const ACTIVE_MARKUP_MIME = /^(text\/html|application\/xhtml\+xml|image\/svg\+xml|text\/xml|application\/xml|text\/markdown)$/i;
+
+function attachmentDisposition(name: string): string {
+  const ascii = name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "") || "download";
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name).replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)}`;
+}
 
 function workspaceFromRequest(request: Request, env: Env): Promise<{ workspaceId: string; userId: string } | Response> {
   return (async () => {
@@ -116,7 +125,7 @@ export async function handleFiles(request: Request, env: Env): Promise<Response 
     return json({ error: "Method not allowed." }, 405);
   }
 
-  const fileMatch = /^\/api\/files\/([^/]+)(\/(download|retry-ingest))?$/.exec(url.pathname);
+  const fileMatch = /^\/api\/files\/([^/]+)(\/(download|preview|retry-ingest))?$/.exec(url.pathname);
   if (!fileMatch) return json({ error: "Not found." }, 404);
   const fileId = fileMatch[1]!;
   const suffix = fileMatch[2];
@@ -159,10 +168,39 @@ export async function handleFiles(request: Request, env: Env): Promise<Response 
     if (!bucket) return json({ error: "File storage unavailable." }, 503);
     const object = await bucket.get(stored.r2_key);
     if (!object) return json({ error: "File bytes missing." }, 404);
+    if (!ACTIVE_MARKUP_MIME.test(file.mime)) {
+      return new Response(object.body, {
+        headers: {
+          "Content-Type": file.mime,
+          "Content-Disposition": `inline; filename="${file.name.replace(/"/g, "")}"`,
+          "Cache-Control": "private, no-store",
+        },
+      });
+    }
     return new Response(object.body, {
       headers: {
-        "Content-Type": file.mime,
-        "Content-Disposition": `inline; filename="${file.name.replace(/"/g, "")}"`,
+        "Content-Type": `${file.mime}; charset=utf-8`,
+        "Content-Disposition": attachmentDisposition(file.name),
+        "Content-Security-Policy": "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+        "Cache-Control": "private, no-store",
+      },
+    });
+  }
+
+  if (suffix === "/preview" && request.method === "GET") {
+    const stored = await env.AGENT_AUDIT.prepare(`SELECT r2_key FROM files WHERE id=?`).bind(fileId).first<{ r2_key: string }>();
+    if (!stored?.r2_key.startsWith(GENERATED_DOCUMENT_PREFIX) || file.mime !== "text/html") return json({ error: "Only generated pages can be previewed." }, 404);
+    const object = await filesBucket(env).get(stored.r2_key);
+    if (!object) return json({ error: "File bytes missing." }, 404);
+    return new Response(object.body, {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Disposition": "inline",
+        "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
         "Cache-Control": "private, no-store",
       },
     });

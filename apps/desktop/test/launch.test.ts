@@ -23,11 +23,23 @@ describe("resolveConfiguredOrigin", () => {
     })).toBe("");
   });
 
-  it("uses the hosted product when nothing is saved", () => {
+  it("asks which deployment to use on a packaged first launch", () => {
     expect(
       resolveConfiguredOrigin({
         packaged: true,
         envUrl: "http://127.0.0.1:9",
+        forceSetup: false,
+        savedUrl: undefined,
+        parse,
+      }),
+    ).toBe("");
+  });
+
+  it("uses the hosted product when an unpackaged dev run saves nothing", () => {
+    expect(
+      resolveConfiguredOrigin({
+        packaged: false,
+        envUrl: undefined,
         forceSetup: false,
         savedUrl: undefined,
         parse,

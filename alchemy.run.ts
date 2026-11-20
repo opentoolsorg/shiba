@@ -59,6 +59,7 @@ import type { Waitlist } from "./apps/backend/src/waitlist-do.js";
 import type { Spaces } from "./apps/backend/src/spaces-do.js";
 import type { ConversationRoom } from "./apps/backend/src/conversation-room-do.js";
 import type { WorkspaceEvents } from "./apps/backend/src/platform/workspace-events-do.js";
+import type { DiscordGateway } from "./apps/backend/src/discord-gateway-do.js";
 import type { ModelConfig } from "./apps/backend/src/model-config-do.js";
 
 // alchemy loads .env into its own config store, not process.env — which
@@ -122,6 +123,7 @@ export const ACCESS_BYPASS_PATHS = [
   // shared-secret token (sentry-webhook-routes.ts) and cannot complete an
   // Access login — same machine-caller class as the GitHub webhook.
   "/api/sentry/webhook",
+  "/api/billing/stripe/webhook",
   "/mcp",
   "/mcp/*",
   "/api/local/*",
@@ -188,6 +190,8 @@ export const Worker = Cloudflare.Worker("Worker", {
     VAULT_WRITE_V2: "0",
     SHIBA_PERSONAL_LOCAL_EXECUTION: "0",
     SHIBA_TEAM_MODEL_SESSIONS: "0",
+    SHIBA_HOSTED_PROVIDER_KILL_SWITCH: "0",
+    SHIBA_CREDITS_GATE_USER_FUNDED_RUNS: "1",
     SHIBA_ERROR_REPORTING: "none",
     SHIBA_ANALYTICS: "none",
     SHIBA_OPEN_TELEMETRY: "0",
@@ -291,6 +295,9 @@ export const Worker = Cloudflare.Worker("Worker", {
     WorkspaceEvents: Cloudflare.DurableObject<WorkspaceEvents>("WorkspaceEvents", {
       className: "WorkspaceEvents",
     }),
+    DISCORD_GATEWAY: Cloudflare.DurableObject<DiscordGateway>("DiscordGateway", {
+      className: "DiscordGateway",
+    }),
     BrowserSession: Cloudflare.DurableObject("BrowserSession", {
       className: "BrowserSession",
     }),
@@ -389,6 +396,10 @@ export const Worker = Cloudflare.Worker("Worker", {
       "WEB_SEARCH_API_KEY",
       "SLACK_INSTALLATION_KEYRING",
       "FOUNDER_STRIPE_CREDENTIAL_KEY",
+      // Workspace credit top-ups (Stripe Checkout + Portal). Both unset = billing off.
+      "STRIPE_SECRET_KEY",
+      "STRIPE_WEBHOOK_SECRET",
+      "STRIPE_PORTAL_CONFIGURATION_ID",
       "FOUNDER_META_CREDENTIAL_KEY",
       "FOUNDER_HUBSPOT_CREDENTIAL_KEY",
       "SLACK_APPROVERS",
@@ -442,6 +453,10 @@ export const Worker = Cloudflare.Worker("Worker", {
       // Telegram + Discord webhook lanes.
       "TELEGRAM_BOT_TOKEN",
       "TELEGRAM_WEBHOOK_SECRET",
+      "DISCORD_BOT_TOKEN",
+      "DISCORD_CLIENT_SECRET",
+      "DISCORD_CLIENT_ID",
+      "DISCORD_OAUTH_REDIRECT_URI",
       "DISCORD_PUBLIC_KEY",
       "TEAMS_APP_ID",
       "TEAMS_APP_PASSWORD",
@@ -505,6 +520,8 @@ export const Worker = Cloudflare.Worker("Worker", {
       "SHIBA_LOCAL_RUNTIME",
       "SHIBA_PERSONAL_LOCAL_EXECUTION",
       "SHIBA_TEAM_MODEL_SESSIONS",
+      "SHIBA_HOSTED_PROVIDER_KILL_SWITCH",
+      "SHIBA_CREDITS_GATE_USER_FUNDED_RUNS",
       "SHIBA_SHARED_COMPUTER",
       "SHIBA_SHARED_COMPUTER_IMAGE",
       "FOUNDER_AUTOMATIC_READS_ENABLED",

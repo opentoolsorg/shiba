@@ -23,6 +23,16 @@ import { CURATED_MCP_VENDORS } from "@shiba/shared";
 
 const LIST_PAGE_SIZE = 8;
 
+type ReadinessFilter = "all" | "supported" | "ready" | "configured" | "reference";
+
+function matchesReadiness(row: DisplayRow, readiness: ReadinessFilter): boolean {
+  if (readiness === "all") return true;
+  if (readiness === "ready") return Boolean(row.providerItem?.connectable) && !row.connected;
+  if (readiness === "configured") return row.connected;
+  if (readiness === "supported") return (row.providerItem !== undefined && row.providerItem.source !== "static") || row.connected || row.entry?.status === "live";
+  return !row.providerItem;
+}
+
 const DOMAIN_LABELS: Record<IntegrationDomain, string> = {
   marketing: "Marketing",
   sales: "Sales",
@@ -60,6 +70,7 @@ function safeLogoUrl(value: string | null | undefined): string | null {
 
 type DisplayRow = {
   key: string;
+  testId?: string;
   name: string;
   description: string;
   connected: boolean;
@@ -80,6 +91,7 @@ function nativeRows(
     const connected = phase === "configured";
     return {
       key: `native:${entry.id}`,
+      testId: `integration-catalog-row-${entry.id}`,
       name: entry.name,
       description: entry.summary,
       connected,
@@ -117,6 +129,7 @@ function mergeProviderRows(
     }
     byKey.set(`provider:${item.providerKey}`, {
       key: `provider:${item.providerKey}`,
+      testId: `integration-catalog-row-provider-${item.providerKey}`,
       name: item.name,
       description: item.description,
       connected,
@@ -125,6 +138,24 @@ function mergeProviderRows(
       docsUrl: item.docsUrl,
       entry: catalogEntry,
     });
+  }
+
+  // A bundled reference row covers several apps at once. Once the provider lists
+  // every one of those apps, the per-app rows replace a provider-only bundle;
+  // a bundle that also names a native binding keeps its own row. A bundle only
+  // claims configured when every app it covers is connected, judged from account
+  // state rather than from which apps the current search happened to return.
+  for (const [key, row] of byKey) {
+    const entry = row.entry;
+    const services = entry?.openConnectorServiceIds;
+    if (row.providerItem || !entry || !services || services.length < 2) continue;
+    if (!entry.nativeBinding && services.every((serviceId) => byKey.has(`provider:${serviceId}`))) {
+      byKey.delete(key);
+      continue;
+    }
+    if (row.phase === "configured" && !services.every((serviceId) => serviceId === entry.nativeBinding || connectedKeys.has(serviceId))) {
+      byKey.set(key, { ...row, connected: false, phase: "partial" });
+    }
   }
 
   return [...byKey.values()];
@@ -174,7 +205,7 @@ function IntegrationSection({
             return (
               <div
                 key={row.key}
-                data-testid={entry ? `integration-catalog-row-${entry.id}` : undefined}
+                data-testid={row.testId}
                 className="flex min-w-0 flex-col justify-between gap-4 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] p-4 shadow-[var(--sh-card)]"
               >
                 <div className="flex min-w-0 flex-1 gap-3">
@@ -261,7 +292,7 @@ function ScopedIntegrationCatalogDirectory({
   actorId, onRequestConnect, connectingKey: externalConnectingKey, connectionError, connectionNotice, connectionRevision = 0, isCurrent,
 }: DirectoryProps & { isCurrent: () => boolean }): JSX.Element {
   const [search, setSearch] = useState("");
-  const [readiness, setReadiness] = useState<"all" | "ready" | "configured" | "reference">("all");
+  const [readiness, setReadiness] = useState<ReadinessFilter>("all");
   const searchValue = useRef(search); searchValue.current = search;
   const readinessValue = useRef(readiness); readinessValue.current = readiness;
   const previousQuery = useRef("\0all");
@@ -293,7 +324,7 @@ function ScopedIntegrationCatalogDirectory({
       const params = new URLSearchParams();
       params.set("limit", "20");
       if (searchValue.current.trim()) params.set("query", searchValue.current.trim());
-      if (readinessValue.current === "ready") params.set("readiness", "ready");
+      if (readinessValue.current === "ready" || readinessValue.current === "supported") params.set("readiness", "ready");
       if (!opts.reset && opts.cursor) params.set("cursor", opts.cursor);
       const catalogRes = await fetch(`/api/integrations/provider/catalog?${params.toString()}`, {
         credentials: "same-origin",
@@ -345,17 +376,17 @@ function ScopedIntegrationCatalogDirectory({
     return () => { alive.current = false; refreshEpoch.current++; catalogEpoch.current++; controller.current.abort(); window.removeEventListener("focus", focus); };
   }, [refreshProvider, connectionRevision]);
   // Search the sibling catalog, not just the first loaded page. Stale query responses stay fenced.
+  const catalogRequestKey = `${search}\0${readiness === "ready" || readiness === "supported" ? "ready" : "all"}`;
   useEffect(() => {
-    const query = `${search}\0${readiness === "ready" ? "ready" : "all"}`;
-    if (previousQuery.current === query) return;
-    previousQuery.current = query;
+    if (previousQuery.current === catalogRequestKey) return;
+    previousQuery.current = catalogRequestKey;
     catalogEpoch.current++;
     setProviderItems([]); setCatalogCursor(null); setCatalogHasMore(false);
     if (actorId === null) return;
     setCatalogLoading(true);
     const timer = window.setTimeout(() => { void loadProviderCatalogPage({ reset: true }); }, 250);
     return () => window.clearTimeout(timer);
-  }, [search, readiness, actorId, loadProviderCatalogPage]);
+  }, [catalogRequestKey, actorId, loadProviderCatalogPage]);
   const oauth = useIntegrationOAuth({ actorId, onVerified: () => { if (active()) { void refreshProvider(); setVerifiedRevision((value) => value + 1); onOAuthComplete?.(); } } });
   const connectingKey = externalConnectingKey ?? oauth.connectingKey;
 
@@ -363,7 +394,7 @@ function ScopedIntegrationCatalogDirectory({
     const native = nativeRows(INTEGRATION_CATALOG, bindingInputs);
     const query = search.trim().toLowerCase();
     return mergeProviderRows(native, providerItems, connectedKeys).filter((row) =>
-      (readiness === "all" || (readiness === "ready" ? row.providerItem?.connectable && !row.connected : readiness === "configured" ? row.connected : !row.providerItem)) &&
+      matchesReadiness(row, readiness) &&
       (!query || [row.name, row.description, row.entry?.id, row.providerItem?.providerKey].some((value) => value?.toLowerCase().includes(query))) &&
       (domain === "all" || (row.providerItem?.domain ?? row.entry?.domain) === domain) &&
       (!recommendedOnly || (row.providerItem?.priority ?? row.entry?.priority) === "P0") &&
@@ -427,6 +458,7 @@ function ScopedIntegrationCatalogDirectory({
           <label className="flex min-w-0 flex-col gap-1 text-xs text-[var(--muted-foreground-2)]">Setup status
             <select aria-label="Filter integration setup" value={readiness} onChange={(event) => setReadiness(event.target.value as typeof readiness)} className="min-h-11 border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs text-[var(--fg)]">
               <option value="all">All integrations</option>
+              <option value="supported">Supported in this deployment</option>
               <option value="ready">Ready to connect</option>
               <option value="configured">Configured or linked</option>
               <option value="reference">Reference only</option>
