@@ -14,6 +14,7 @@ Phase boundaries preserve precedence: `capability` runs before identity verifica
 | artifactDownload | ingress | `*` | `^/api/artifacts/download$` | signature | Signed archive capability; public landing only, verified download token. |
 | betterAuthResponse | ingress | `*` | `^/api/auth/` | public | Sign-in protocol; package excludes subscription routes and verifies protected verbs. |
 | callback | ingress | `*` | `^/api/slack/installations/callback$` | public | OAuth callback validates pending state and original owner. |
+| discordInstallCallback | ingress | `GET` | `^/api/discord/installations/callback$` | public | OAuth callback validates single-use state and the original dashboard user. |
 | dev-oauth-post | ingress | `POST` | `^/api/dev/oauth-loopback$` | signature | Loopback host and shared header secret required. |
 | dev-oauth-session | ingress | `*` | `^/api/dev/oauth-loopback$` | session | GET requires session and pending OAuth state; other methods return 405. |
 | shell | ingress | `GET` | `^(?:/(?:docs\|blog\|why-shiba\|privacy\|terms\|waitlist\|welcome)(?:/\|$)\|/(?:slack-canvas\|signin\|login\|\|work\|dashboard\|tasks\|threads\|activity\|analytics\|diff\|approvals\|swarm\|collaboration\|team\|agents\|inbox\|memory\|files\|notes\|projects\|outputs\|automations\|providers\|employee-tools\|integrations\|skills\|spaces\|custom-agents\|remote\|settings)/?$\|/auth/(?:forgot\|reset)/?$\|/spaces/[^/]+/?$\|/share/[cf]/[^/]+/?$)` | public | Read-only marketing redirect or dashboard shell; no private API data. |
@@ -24,6 +25,7 @@ Phase boundaries preserve precedence: `capability` runs before identity verifica
 | observabilityResponse | authenticated | `*` | `^/api/observability$` | session |  |
 | outputArchiveResponse | authenticated | `*` | `^/api/run-output-archives(?:/\|$)` | session |  |
 | slackInstallationResponse | authenticated | `*` | `^/api/slack/installations(?:/\|$)` | session |  |
+| discordInstallationResponse | authenticated | `*` | `^/api/discord/installations(?:/\|$)` | session |  |
 | slackCoworkerResponse | authenticated | `*` | `^/api/slack/coworker(?:/\|$)` | session |  |
 | sharedComputerResponse | authenticated | `*` | `^/api/shared-computers(?:/\|$)` | session |  |
 | workspaceIntegrationResponse | authenticated | `*` | `^/api/workspace-integrations(?:/\|$)` | session |  |
