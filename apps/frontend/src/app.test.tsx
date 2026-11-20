@@ -430,6 +430,17 @@ describe("app Work and Threads routing", () => {
     expect(window.location.search).toBe("");
   });
 
+  it("opens the Outputs video handoff as an unsent Chat draft", async () => {
+    window.history.replaceState(null, "", `/threads/?${new URLSearchParams({ prompt: "Create a 9:16 video of " })}`);
+    render(<App />);
+    await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Create a 9:16 video of "));
+    expect(window.location.search).toBe("");
+    expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
+    await act(async () => {});
+    const posts = vi.mocked(fetch).mock.calls.filter(([, options]) => options?.method === "POST").map(([url]) => String(url));
+    expect(posts.filter((url) => /\/api\/(runs|sessions|approvals|outputs)|chat-suggestions|video|image/.test(url))).toEqual([]);
+  });
+
   it("opens the task inbox at root and after popstate", async () => {
     window.history.replaceState(null, "", "/");
     render(<App />);
@@ -1316,13 +1327,135 @@ describe("first-run setup reminders", () => {
     expect(screen.queryByRole("dialog", { name: "Your first task is waiting" })).toBeNull();
   });
 
-  it("hides reminders while the first task screen auto-opens", async () => {
+  it("hides reminders while the guided first-result flow auto-opens", async () => {
     window.history.replaceState(null, "", "/threads/");
     installProgress({ dismissedAt: null });
     render(<App />);
-    await screen.findByRole("region", { name: "First task setup" });
+    const journey = await screen.findByRole("region", { name: "Guided onboarding" });
+    expect(journey.textContent).toContain("Step 2 of 6");
+    // A signed-in account already owns its personal workspace, so the flow opens
+    // on the first unfinished stage rather than re-asking for it.
+    expect(journey.textContent).toContain("Step 2 of 6");
+    expect(journey.querySelector('[aria-current="step"]')?.textContent).toContain("Connect a provider");
     expect(screen.queryByRole("region", { name: "Setup reminder" })).toBeNull();
     expect(screen.queryByRole("dialog", { name: "Your first task is waiting" })).toBeNull();
+  });
+
+  it("re-reads provider readiness when the window returns, so a connection made in the session shows", async () => {
+    window.history.replaceState(null, "", "/threads/");
+    installProgress({ dismissedAt: null });
+    const originalFetch = fetch;
+    let connected = false;
+    let providerReads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/providers") {
+        providerReads += 1;
+        return Response.json({
+          providers: [{ id: "codex", label: "Codex plan", connection: { phase: connected ? "connected" : "disconnected" } }],
+        });
+      }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    const journey = await screen.findByRole("region", { name: "Guided onboarding" });
+    await waitFor(() => expect(journey.textContent).toContain("No provider is ready yet"));
+    const readsBefore = providerReads;
+    connected = true;
+    act(() => { window.dispatchEvent(new Event("focus")); });
+    await waitFor(() => expect(providerReads).toBeGreaterThan(readsBefore));
+    await waitFor(() =>
+      expect(within(screen.getByRole("region", { name: "Guided onboarding" })).getByRole("button", { name: /^Connect a provider — Provider ready/ })).toBeTruthy(),
+    );
+  });
+
+  it("keeps a returning account with completed work out of setup once the runs read lands", async () => {
+    window.history.replaceState(null, "", "/threads/");
+    installProgress({ dismissedAt: null });
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url).startsWith("/api/runs")) {
+        return Response.json({
+          runs: [{ runId: "old-run", task: "Ship the old brief", status: "completed", repoUrl: "", sandboxId: "s", baseBranch: "main", publishPullRequest: false, generation: 1, createdAt: 1, updatedAt: 2 }],
+        });
+      }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Guided onboarding" })).toBeNull());
+  });
+
+  it("offers only the approval issued for the saved draft, and opens the Work review for it", async () => {
+    window.history.replaceState(null, "", "/threads/");
+    const draftTask = {
+      ...EMPTY_ONBOARDING_DRAFT,
+      goal: "Draft the launch brief",
+      audience: "The team",
+      acceptance: "A one-page brief",
+      preparedAt: 2,
+      employeeId: "employee_1",
+      employeeVersion: 1,
+    };
+    installProgress({ dismissedAt: null, draftTaskId: "draft_1", draftTask });
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/approvals") {
+        return Response.json({
+          approvals: [
+            { approvalId: "approval_linked", draftTaskId: "draft_1", task: "Draft the launch brief", repoUrl: "", threadKey: "personal" },
+            // Same words as the draft, no server-issued draft association: it is
+            // still someone else's decision and must not be offered here.
+            { approvalId: "approval_lookalike", task: "Draft the launch brief", repoUrl: "", threadKey: "personal" },
+          ],
+          decided: [],
+        });
+      }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    const journey = await screen.findByRole("region", { name: "Guided onboarding" });
+    fireEvent.click(within(journey).getByRole("button", { name: /^Approve the run —/ }));
+    await screen.findByRole("button", { name: "Review and approve this run" });
+    // One linked approval, one text lookalike: only the linked one is offered.
+    expect(screen.getAllByText("Draft the launch brief")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Approve and start" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Review and approve this run" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/work/"));
+    // The decision surface is the existing Work approval card, and focus lands on it.
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Guided onboarding" })).toBeNull());
+    expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url) === "/api/approvals" && init?.method === "POST")).toBe(false);
+  });
+
+  it("offers no action when the only pending approval merely shares the draft's text", async () => {
+    window.history.replaceState(null, "", "/threads/");
+    const draftTask = {
+      ...EMPTY_ONBOARDING_DRAFT,
+      goal: "Draft the launch brief",
+      audience: "The team",
+      acceptance: "A one-page brief",
+      preparedAt: 2,
+      employeeId: "employee_1",
+      employeeVersion: 1,
+    };
+    installProgress({ dismissedAt: null, draftTaskId: "draft_1", draftTask });
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/approvals") {
+        return Response.json({
+          approvals: [
+            { approvalId: "approval_lookalike", task: "Draft the launch brief", repoUrl: "", threadKey: "personal" },
+          ],
+          decided: [],
+        });
+      }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    const journey = await screen.findByRole("region", { name: "Guided onboarding" });
+    fireEvent.click(within(journey).getByRole("button", { name: /^Approve the run —/ }));
+    await screen.findByText(/One other approval is waiting/);
+    expect(screen.queryByRole("button", { name: "Review and approve this run" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Approve and start" })).toBeNull();
+    expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url) === "/api/approvals" && init?.method === "POST")).toBe(false);
   });
 
   it("saves the missing goal step before resuming first-task setup", async () => {
@@ -1838,6 +1971,22 @@ describe("bot thread links", () => {
     expect(readDraft(composerDraftScope("test-operator", RESEARCH_THREAD))).toBe("Unsent research notes\n\nhttps://example.com/docs");
     expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
     expect(vi.mocked(fetch).mock.calls.some(([url, options]) => options?.method === "POST" && /^\/api\/(?:runs|sessions|approvals)/.test(String(url)))).toBe(false);
+  });
+
+  it("lands the Outputs video handoff in the remembered thread without asking for suggestions", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    localStorage.setItem("shiba:selected-session", RESEARCH_THREAD);
+    window.history.replaceState(null, "", `/threads/?${new URLSearchParams({ prompt: "Create a 9:16 video of " })}`);
+    mocks.chat.messages = [];
+    mocks.chat.sendMessage.mockClear();
+    stubThreads();
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+    await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Create a 9:16 video of "));
+    await act(async () => {});
+    expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
+    const posts = vi.mocked(fetch).mock.calls.filter(([, options]) => options?.method === "POST").map(([url]) => String(url));
+    expect(posts.filter((url) => /\/api\/(runs|sessions|approvals|outputs)|chat-suggestions|video|image/.test(url))).toEqual([]);
   });
 
   it("replaces a dead thread link instead of leaving it in history", async () => {

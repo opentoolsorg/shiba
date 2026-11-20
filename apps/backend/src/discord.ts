@@ -6,9 +6,11 @@
  * accepts a bad signature, so verification runs before any parsing
  * (https://discord.com/developers/docs/interactions/overview#setting-up-an-endpoint).
  *
- * `/shiba task:<task> repo:<url>` defers inside Discord's 3s window, queues a
- * pending approval on the channel's orchestrator (`discord:{channelId}`), and
- * edits the deferred reply into a card with Approve/Reject buttons. A button
+ * `/shiba task:<task> repo:<url>` and the "Run with Shiba" message command
+ * defer inside Discord's 3s window, queue a pending approval on the channel's
+ * orchestrator (`discord:{channelId}`), and edit the deferred reply into a
+ * card with Approve/Reject buttons. With the install flow configured, only
+ * servers with an active installation are answered. A button
  * custom_id is a pointer: only DISCORD_APPROVERS may press it, and the
  * orchestrator honors it only while the approval is still pending.
  */
@@ -34,6 +36,7 @@ import {
   resolveChatEmployeeOrgId,
 } from "./chat-employee.js";
 import type { Env } from "./env.js";
+import { checkDiscordGuildAccess, DISCORD_COMMAND_NAME, DISCORD_MESSAGE_COMMAND_NAME } from "./discord-installations.js";
 import { tryAnswerUiBlockFallback } from "./ui-block-fallback.js";
 import { redactSecrets } from "./security.js";
 import { isApprover, parseApproverAllowlist, type ExecutionContextLike } from "./slack-approval.js";
@@ -41,7 +44,8 @@ import { isApprover, parseApproverAllowlist, type ExecutionContextLike } from ".
 export { DISCORD_REPLAY_WINDOW_SECONDS, verifyDiscordRequest } from "./channels/discord/index.js";
 
 export const DISCORD_INTERACTIONS_PATH = "/api/discord/interactions";
-export const DISCORD_COMMAND = "shiba";
+export const DISCORD_COMMAND = DISCORD_COMMAND_NAME;
+export const DISCORD_MESSAGE_COMMAND = DISCORD_MESSAGE_COMMAND_NAME;
 export const DISCORD_USAGE = "Usage: /shiba task:<task> repo:<github-repo-url>";
 const { PING, APPLICATION_COMMAND, MESSAGE_COMPONENT } = DISCORD_INTERACTION;
 const EPHEMERAL = 64;
@@ -52,7 +56,103 @@ interface DiscordInteraction {
   application_id?: string;
   token?: string;
   channel_id?: string;
-  data?: { name?: string };
+  guild_id?: string;
+  data?: {
+    name?: string;
+    type?: number;
+    target_id?: string;
+    resolved?: { messages?: Record<string, { content?: string }> };
+  };
+}
+
+const MESSAGE_COMMAND_TYPE = 3;
+type QueueBody = Parameters<typeof queueChatRun>[1];
+
+/** Remove user, role and channel mention tokens so they never become task text. */
+export function stripDiscordMentions(text: string): string {
+  return text.replace(/<(?:@[!&]?|#)\d{1,24}>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Turn a Discord request (slash command, message command or bot mention)
+ * into the frozen run input an approver will see. The repo comes from the
+ * text, the explicit option, or DISCORD_CHANNEL_REPOS.
+ */
+export async function prepareDiscordTask(
+  env: Env,
+  input: { threadKey: string; userId: string; text: string; repo?: string },
+): Promise<{ queueBody: QueueBody } | { error: string }> {
+  const channelId = input.threadKey.slice("discord:".length);
+  const parsed = parseChatTaskRequest({
+    text: `${input.repo ?? ""} ${input.text}`,
+    conversationId: channelId,
+    repoMap: env.DISCORD_CHANNEL_REPOS,
+    mapName: "DISCORD_CHANNEL_REPOS",
+    usage: DISCORD_USAGE,
+  });
+  const employeeResolution = await resolveChatEmployeeFromText(env, input.text);
+  if (employeeResolution.kind === "error") return { error: employeeResolution.error };
+  if (employeeResolution.kind === "ok") {
+    const extras = await chatEmployeeQueueExtras(
+      env,
+      employeeResolution.agent,
+      employeeResolution.orgId,
+      employeeResolution.taskText,
+      "error" in parsed ? null : parsed.repoUrl,
+    );
+    if (!extras.ok) {
+      return { error: extras.error || ("error" in parsed ? parsed.error : "No repository: include a repo URL or map this channel.") };
+    }
+    return {
+      queueBody: {
+        platform: "discord",
+        threadKey: input.threadKey,
+        repoUrl: extras.extras.repoUrl ?? "",
+        task: extras.task,
+        userId: input.userId,
+        harness: extras.extras.harness ?? env.DISCORD_AGENT_HARNESS ?? env.AGENT_HARNESS,
+        orgId: extras.extras.orgId,
+        customAgentId: extras.extras.customAgentId,
+        customAgentVersion: extras.extras.customAgentVersion,
+        ...(extras.extras.employeeToolPolicyVersion !== undefined
+          ? { employeeToolPolicyVersion: extras.extras.employeeToolPolicyVersion }
+          : {}),
+        ...(extras.extras.executionTarget ? { executionTarget: extras.extras.executionTarget } : {}),
+        publishPullRequest: extras.extras.publishPullRequest,
+        employeeLabel: extras.extras.employeeLabel,
+      },
+    };
+  }
+  if ("error" in parsed) return { error: parsed.error };
+  return {
+    queueBody: {
+      platform: "discord",
+      threadKey: input.threadKey,
+      repoUrl: parsed.repoUrl,
+      task: parsed.task,
+      userId: input.userId,
+      harness: env.DISCORD_AGENT_HARNESS ?? env.AGENT_HARNESS,
+    },
+  };
+}
+
+/** The approval card body and its Approve/Reject buttons. */
+export function discordApprovalCard(queueBody: QueueBody, queued: { approvalId: string; route?: string }) {
+  return {
+    content: chatApprovalText({
+      repoUrl: queueBody.repoUrl,
+      task: queueBody.task,
+      approvalId: queued.approvalId,
+      route: queued.route,
+      employeeLabel: queueBody.employeeLabel,
+    }),
+    components: decisionButtons(queued.approvalId),
+    allowed_mentions: NO_MENTIONS,
+  };
+}
+
+export function discordTaskFollowUps(task: string): string[] {
+  return chatTaskChunks(task, CARD_TASK_LIMIT, 1900);
 }
 
 export interface DiscordDeps {
@@ -105,6 +205,10 @@ export async function handleDiscordInteractions(
   if (interaction.type === PING) {
     return Response.json({ type: 1 });
   }
+  const access = await checkDiscordGuildAccess(env, interaction.guild_id);
+  if (!access.ok) {
+    return ephemeral(access.message);
+  }
   const inbound = discordTransport.parse(rawBody);
   // Discord retries interactions inside the signature window; dedupe on the
   // server-assigned interaction id so a replayed signed payload cannot queue
@@ -146,73 +250,33 @@ export async function handleDiscordInteractions(
   };
 
   if (interaction.type === APPLICATION_COMMAND) {
-    if (interaction.data?.name !== DISCORD_COMMAND) {
+    const isMessageCommand = interaction.data?.type === MESSAGE_COMMAND_TYPE;
+    if (interaction.data?.name !== (isMessageCommand ? DISCORD_MESSAGE_COMMAND : DISCORD_COMMAND)) {
       return ephemeral("Unknown command.");
     }
     const options = inbound?.kind === "message" ? inbound.command?.options ?? {} : {};
     const option = (name: string) => options[name] ?? "";
-    const channelId = threadKey.slice("discord:".length);
-    if (await tryAnswerUiBlockFallback(env, threadKey, userId, option("task"))) return ephemeral("Answer recorded.");
-    const parsed = parseChatTaskRequest({
-      text: `${option("repo")} ${option("task")}`,
-      conversationId: channelId,
-      repoMap: env.DISCORD_CHANNEL_REPOS,
-      mapName: "DISCORD_CHANNEL_REPOS",
-      usage: DISCORD_USAGE,
+    let text: string;
+    if (isMessageCommand) {
+      const target = interaction.data?.target_id ?? "";
+      text = stripDiscordMentions(interaction.data?.resolved?.messages?.[target]?.content ?? "");
+      if (!text) return ephemeral("That message has no text Shiba can use as a task.");
+    } else {
+      text = option("task");
+      if (await tryAnswerUiBlockFallback(env, threadKey, userId, text)) return ephemeral("Answer recorded.");
+    }
+    const prepared = await prepareDiscordTask(env, {
+      threadKey,
+      userId,
+      text,
+      ...(isMessageCommand ? {} : { repo: option("repo") }),
     });
-    const taskOption = option("task");
-    const employeeResolution = await resolveChatEmployeeFromText(env, taskOption);
-    if (employeeResolution.kind === "error") {
-      return ephemeral(employeeResolution.error);
+    if ("error" in prepared) {
+      return ephemeral(prepared.error);
     }
-    let queueBody: Parameters<typeof queueChatRun>[1] | null = null;
-    if (employeeResolution.kind === "ok") {
-      const repoFromCommand = "error" in parsed ? null : parsed.repoUrl;
-      const extras = await chatEmployeeQueueExtras(
-        env,
-        employeeResolution.agent,
-        employeeResolution.orgId,
-        employeeResolution.taskText,
-        repoFromCommand,
-      );
-      if (!extras.ok) {
-        const repoError = "error" in parsed ? parsed.error : "No repository: include a repo URL or map this channel.";
-        return ephemeral(extras.error || repoError);
-      }
-      queueBody = {
-        platform: "discord",
-        threadKey,
-        repoUrl: extras.extras.repoUrl ?? "",
-        task: extras.task,
-        userId,
-        harness: extras.extras.harness ?? env.DISCORD_AGENT_HARNESS ?? env.AGENT_HARNESS,
-        orgId: extras.extras.orgId,
-        customAgentId: extras.extras.customAgentId,
-        customAgentVersion: extras.extras.customAgentVersion,
-        ...(extras.extras.employeeToolPolicyVersion !== undefined
-          ? { employeeToolPolicyVersion: extras.extras.employeeToolPolicyVersion }
-          : {}),
-        ...(extras.extras.executionTarget ? { executionTarget: extras.extras.executionTarget } : {}),
-        publishPullRequest: extras.extras.publishPullRequest,
-        employeeLabel: extras.extras.employeeLabel,
-      };
-    }
-    if ("error" in parsed && !queueBody) {
-      return ephemeral(parsed.error);
-    }
-    if (!queueBody) {
-      if ("error" in parsed) return ephemeral(parsed.error);
-      queueBody = {
-        platform: "discord",
-        threadKey,
-        repoUrl: parsed.repoUrl,
-        task: parsed.task,
-        userId,
-        harness: env.DISCORD_AGENT_HARNESS ?? env.AGENT_HARNESS,
-      };
-    }
+    const queueBody = prepared.queueBody;
     await schedule(async () => {
-      const queued = await queueChatRun(env, queueBody!, deps.resolveOrchestrator);
+      const queued = await queueChatRun(env, queueBody, deps.resolveOrchestrator);
       if ("error" in queued) {
         await send("PATCH", `${webhook}/messages/@original`, {
           content: `Failed to queue the task. ${queued.error}`,
@@ -220,18 +284,8 @@ export async function handleDiscordInteractions(
         });
         return;
       }
-      await send("PATCH", `${webhook}/messages/@original`, {
-        content: chatApprovalText({
-          repoUrl: queueBody!.repoUrl,
-          task: queueBody!.task,
-          approvalId: queued.approvalId,
-          route: queued.route,
-          employeeLabel: queueBody!.employeeLabel,
-        }),
-        components: decisionButtons(queued.approvalId),
-        allowed_mentions: NO_MENTIONS,
-      });
-      for (const chunk of chatTaskChunks(queueBody!.task, CARD_TASK_LIMIT, 1900)) {
+      await send("PATCH", `${webhook}/messages/@original`, discordApprovalCard(queueBody, queued));
+      for (const chunk of discordTaskFollowUps(queueBody.task)) {
         await send("POST", webhook, { content: chunk, allowed_mentions: NO_MENTIONS });
       }
     });

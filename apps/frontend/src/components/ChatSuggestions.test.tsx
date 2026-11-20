@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { useState, type JSX } from "react";
+import { StrictMode, useState, type JSX } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ChatSuggestions, chatSuggestionsUrl, focusComposerDraft } from "./ChatSuggestions";
@@ -72,6 +72,41 @@ describe("ChatSuggestions", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.queryByLabelText("Suggested prompts")).toBeNull();
     expect(container.querySelector("[data-testid='chat-composer'] textarea")).not.toBeNull();
+  });
+
+  it("does not ask while a draft hides the suggestions, then asks once the composer is cleared", async () => {
+    const fetchMock = respond({ suggestions: ["Explain this"] });
+    vi.stubGlobal("fetch", fetchMock);
+    const { rerender } = render(<ChatSuggestions agentName="user" refreshKey="empty" hidden onPick={() => {}} />);
+    rerender(<ChatSuggestions agentName="other" refreshKey="empty" hidden onPick={() => {}} />);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchMock).not.toHaveBeenCalled();
+    rerender(<ChatSuggestions agentName="other" refreshKey="empty" onPick={() => {}} />);
+    await screen.findByRole("button", { name: "Explain this" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps one request for a reply when a draft is typed and cleared while it is pending", async () => {
+    let answer: (response: Response) => void = () => {};
+    const fetchMock = vi.fn(() => new Promise<Response>((resolve) => { answer = resolve; }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { rerender } = render(<ChatSuggestions agentName="user" refreshKey="a1" onPick={() => {}} />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    rerender(<ChatSuggestions agentName="user" refreshKey="a1" hidden onPick={() => {}} />);
+    rerender(<ChatSuggestions agentName="user" refreshKey="a1" onPick={() => {}} />);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    answer({ ok: true, json: async () => ({ suggestions: ["Explain this"] }) } as Response);
+    await screen.findByRole("button", { name: "Explain this" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends one request for a reply under StrictMode's mount replay and still renders the suggestions", async () => {
+    const fetchMock = respond({ suggestions: ["Explain this"] });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<StrictMode><ChatSuggestions agentName="user" refreshKey="a1" onPick={() => {}} /></StrictMode>);
+    await screen.findByRole("button", { name: "Explain this" });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("waits out a live stream or recovery before asking, then asks once", async () => {

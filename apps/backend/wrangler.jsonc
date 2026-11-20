@@ -34,6 +34,8 @@
     { "pattern": "app.tryshiba.dev", "custom_domain": true },
   ],
   "vars": {
+    // Optional email task intake: set EMAIL_TASK_SENDERS and EMAIL_TASK_EMPLOYEES
+    // as Worker vars. EMAIL_TASK_REPOS can set a default repository per mailbox.
     // Outbound telemetry requires explicit opt-in and operator-supplied destinations.
     "SHIBA_ERROR_REPORTING": "none",
     "SHIBA_ANALYTICS": "none",
@@ -51,6 +53,10 @@
     "VAULT_WRITE_V2": "0",
     "SHIBA_PERSONAL_LOCAL_EXECUTION": "0",
     "SHIBA_TEAM_MODEL_SESSIONS": "0",
+    // Emergency stop for deployment-funded inference (AI Gateway, Workers AI team turns). "1" = stopped.
+    "SHIBA_HOSTED_PROVIDER_KILL_SWITCH": "0",
+    // 1 = every lane stops at zero credits; 0 = plan subscriptions and paired computers are exempt.
+    "SHIBA_CREDITS_GATE_USER_FUNDED_RUNS": "1",
     // Optional features remain unavailable without separately reviewed bindings and setup.
     "SHIBA_SHARED_COMPUTER": "0",
     "SHIBA_SHARED_COMPUTER_IMAGE": "",
@@ -207,6 +213,7 @@
       { "name": "Spaces", "class_name": "Spaces" },
       { "name": "ConversationRoom", "class_name": "ConversationRoom" },
       { "name": "WorkspaceEvents", "class_name": "WorkspaceEvents" },
+      { "name": "DISCORD_GATEWAY", "class_name": "DiscordGateway" },
       { "name": "BrowserSession", "class_name": "BrowserSession" },
     ],
   },
@@ -305,6 +312,6 @@
     { "tag": "v14", "new_sqlite_classes": ["Spaces"] },
     { "tag": "v15", "new_sqlite_classes": ["ConversationRoom"] },
     { "tag": "v16", "new_sqlite_classes": ["WorkspaceEvents"] },
-    { "tag": "v17", "new_sqlite_classes": ["BrowserSession"] },
+    { "tag": "v17", "new_sqlite_classes": ["DiscordGateway", "BrowserSession"] },
   ],
 }

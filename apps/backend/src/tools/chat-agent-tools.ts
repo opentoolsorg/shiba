@@ -5,6 +5,7 @@ import { browserClick, browserOpen, browserRead, browserScreenshot, browserType 
 import { generateVideo, videoCapability, videoInputSchema } from "./video-gen.js";
 import { generateImage } from "./image-gen.js";
 import { imageInputSchema } from "./image-models.js";
+import { pageInputSchema, reportInputSchema, saveGeneratedDocument } from "./document-gen.js";
 import { WEB_SEARCH_DESCRIPTION, runWebSearch, webSearchConfigured, webSearchInputSchema, webSearchQueries } from "./web-search.js";
 import { DEFAULT_WEB_SEARCH_BUDGET, incrementToolUsage } from "./tool-usage-store.js";
 import { selectorRequiresSubmitApproval } from "./browser-url.js";
@@ -130,5 +131,17 @@ export function createChatAgentMediaTools(env: Env, ctx: ChatAgentToolsContext):
       inputSchema: imageInputSchema,
       execute: async (input) => generateImage(env, { ...input, runId, userId, workspaceId: orgId.replace(/^team:/, "") }),
     }),
+    ...(userId && env.AGENT_AUDIT && (env.FILES || env.ARTIFACTS) ? {
+      generate_report: tool({
+        description: "Save a long-form Markdown report you wrote, with the sources you used, as a private file the user can read and download.",
+        inputSchema: reportInputSchema,
+        execute: async (input) => saveGeneratedDocument(env, "report", input, { runId, userId, workspaceId: orgId.replace(/^team:/, "") }),
+      }),
+      generate_page: tool({
+        description: "Save a self-contained static HTML page you wrote (inline CSS only, no scripts or remote resources) as a private file the user can preview and download.",
+        inputSchema: pageInputSchema,
+        execute: async (input) => saveGeneratedDocument(env, "page", input, { runId, userId, workspaceId: orgId.replace(/^team:/, "") }),
+      }),
+    } : {}),
   };
 }

@@ -18,6 +18,10 @@ Lists binding **names** only; never store values in git.
 | `CODEX_SUBSCRIPTION_AUTH_JSON` | optional | T49: `codex login` auth.json when SHIBA_CODEX_SUBSCRIPTION=1 and no per-user SIWC. | Deployment-wide subscription harness lane |
 | `CURSOR_SUBSCRIPTION_TOKEN` | optional | Cursor Agent API key when SHIBA_CURSOR_SUBSCRIPTION=1 and no per-user OAuth. | Deployment-wide subscription harness lane |
 | `DASHBOARD_APPROVERS` | optional | Comma-separated dashboard sign-in emails allowed to resolve shared approvals (automations, PR review lane, Sentry, email); unset = nobody. Not a credential. | Shared dashboard approval resolution |
+| `DISCORD_BOT_TOKEN` | optional | Worker-only bot token for the Gateway and Discord REST. | Discord interactions lane |
+| `DISCORD_CLIENT_ID` | optional | Discord application ID for OAuth2 guild installation. | Discord interactions lane |
+| `DISCORD_CLIENT_SECRET` | optional | Worker-only Discord OAuth2 client secret. | Discord interactions lane |
+| `DISCORD_OAUTH_REDIRECT_URI` | optional | Optional same-origin OAuth2 callback URI. | Discord interactions lane |
 | `DISCORD_PUBLIC_KEY` | optional | Discord interactions lane (POST /api/discord/interactions) — the app's Ed25519 public key, used to verify request signatures. | Discord interactions lane |
 | `FOUNDER_HUBSPOT_CREDENTIAL_KEY` | optional | Worker-only HubSpot capture encryption key (64 hex); supplied token is separate. | Native founder reads (Stripe, Meta, HubSpot) |
 | `FOUNDER_META_CREDENTIAL_KEY` | optional | Worker-only Meta encryption key (64 hex), separate from account credentials. | Native founder reads (Stripe, Meta, HubSpot) |

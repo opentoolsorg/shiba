@@ -22,6 +22,7 @@ import {
   type UsageReportWire,
 } from "../live-status";
 import { formatRunUsageLine } from "./RunUsageSummary";
+import { WorkspaceBillingCard } from "./WorkspaceBillingCard";
 import type { RetainedRun } from "../types";
 import {
   ERROR_FAMILY_STATUSES,
@@ -284,6 +285,8 @@ export function AnalyticsView({
           </div>
 
           <UsageSection sessionId={sessionId} sessionApiAvailable={sessionApiAvailable} />
+
+          <WorkspaceBillingCard sessionId={sessionId} sessionApiAvailable={sessionApiAvailable} />
 
           <section className="rounded-xl border border-[#e4e4e7] bg-white overflow-hidden dark:border-zinc-800 dark:bg-zinc-900/40">
             <header className="flex items-center justify-between gap-3 border-b border-[#e4e4e7] px-4 py-3 dark:border-zinc-800">

@@ -19,6 +19,7 @@ export type IntegrationBindingInputs = {
     | Array<{ catalogId: string; connectionLabel: string | null; status: string; health?: string }>
     | undefined;
   externalMcpLoading: boolean;
+  discord?: { loading: boolean; configured: boolean; partial: boolean };
 };
 
 function bindingPhase(
@@ -64,8 +65,10 @@ function phaseForBinding(
       );
       return bindingPhase(setupLoading, configured, partial);
     }
-    case "telegram":
     case "discord":
+      if (!inputs.discord) return bindingPhase(setupLoading, false, false, true);
+      return bindingPhase(inputs.discord.loading, inputs.discord.configured, inputs.discord.partial);
+    case "telegram":
     case "generic_webhook":
       return bindingPhase(setupLoading, false, false, true);
     case "mailbox":

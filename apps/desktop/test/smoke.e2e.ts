@@ -52,7 +52,20 @@ test("setup page renders when no URL is configured", async () => {
     const win = await app.firstWindow();
     await win.waitForLoadState("domcontentloaded");
     expect(win.url()).toMatch(/setup\.html/);
+    // First launch asks hosted or self-hosted; the URL field only applies to the latter.
+    await expect(win.locator("#hosted").isChecked()).resolves.toBe(true);
+    await expect(win.locator("input#url").isVisible()).resolves.toBe(false);
+    const nativeWindow = await app.browserWindow(win);
+    await expect.poll(() => nativeWindow.evaluate((window) => window.isVisible()), {
+      message: "The native setup window must be shown before capturing it",
+      timeout: 10_000,
+    }).toBe(true);
+    const artifacts = path.resolve(import.meta.dirname, "../../../.verify/desktop-shell");
+    mkdirSync(artifacts, { recursive: true });
+    await win.screenshot({ path: path.join(artifacts, "setup-choice.png") });
+    await win.locator("#self-hosted").check();
     await expect(win.locator("input#url").isVisible()).resolves.toBe(true);
+    await win.screenshot({ path: path.join(artifacts, "setup-self-hosted.png") });
 
     // D4: setup.html gets only the setup bridge, never the app bridge.
     const bridges = await win.evaluate(() => {
@@ -174,6 +187,7 @@ test("saved deployment survives restart and recovers after an unavailable origin
   try {
     const setup = await app.firstWindow();
     await setup.waitForURL(/setup\.html/);
+    await setup.locator("#self-hosted").check();
     await setup.locator("input#url").fill(stubUrl);
     const opened = app.waitForEvent("window");
     await setup.getByRole("button", { name: "Continue", exact: true }).click();
@@ -188,6 +202,7 @@ test("saved deployment survives restart and recovers after an unavailable origin
     app = await launch({ SHIBA_DESKTOP_URL: "http://127.0.0.1:1" }, [], userData);
     const recovery = await app.firstWindow();
     await recovery.waitForURL(/setup\.html/);
+    await expect(recovery.locator("#self-hosted").isChecked()).resolves.toBe(true);
     await recovery.locator("input#url").fill(stubUrl);
     const reopened = app.waitForEvent("window");
     await recovery.getByRole("button", { name: "Continue", exact: true }).click();
@@ -202,6 +217,7 @@ test("interactive setup overrides the initial setup hint and opens the selected 
   try {
     const setup = await app.firstWindow();
     await setup.waitForURL(/setup\.html/);
+    await setup.locator("#self-hosted").check();
     await setup.locator("input#url").fill(stubUrl);
     const opened = app.waitForEvent("window");
     await setup.getByRole("button", { name: "Continue", exact: true }).click();

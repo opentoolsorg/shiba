@@ -15,6 +15,7 @@ import type { ModelConfigSnapshot } from "./model-policy.js";
 import type { CodingTaskInput } from "./opencode-input.js";
 import { verifyStandinEnabled, type ExecutionTarget } from "@shiba/shared";
 import { assertSandboxRunPreflight, DEFAULT_CODING_RUN_FEATURES } from "./sandbox/preflight.js";
+import { HOSTED_PROVIDER_KILL_SWITCH_MESSAGE, isHostedProviderAccessStopped } from "./hosted-provider-kill-switch.js";
 
 export interface RunPreflightInput {
   harness: string;
@@ -98,6 +99,11 @@ export async function assertModelRunPreflight(
   if (params.initiatorUserId && keyKind && !personalKey && !personalOAuth &&
     params.route.connectionId === null && !localDaemon && !verifyStandinEnabled(env)) {
     throw new Error("Connect this provider in Settings → Providers before starting this task.");
+  }
+  const hostedGateway = !localDaemon && (params.route.connectionId !== null ||
+    (catalog?.credential.kind === "ai-gateway-byok" && !personalKey && !personalOAuth));
+  if (hostedGateway && isHostedProviderAccessStopped(env)) {
+    throw new Error(`${HOSTED_PROVIDER_KILL_SWITCH_MESSAGE} Connect your own provider in Settings → Providers, or ask an admin to clear SHIBA_HOSTED_PROVIDER_KILL_SWITCH.`);
   }
   if (
     catalog?.credential.kind === "ai-gateway-byok" &&

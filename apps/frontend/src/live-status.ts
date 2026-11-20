@@ -5,7 +5,7 @@
  * and never renders optimistic state.
  */
 
-import type { AuthSnapshot, OutboxEntry, SpineEvent } from "@shiba/shared";
+import type { AuthSnapshot, OutboxEntry, SpineEvent, WorkspaceBilling } from "@shiba/shared";
 import { MAX_SPINE_EVENTS } from "@shiba/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentPrincipal, InboxMailbox } from "./types";
@@ -16,7 +16,7 @@ export interface SetupStatus {
   github: { token: boolean; app: boolean; publish: boolean; webhookSecret: boolean };
   linear: { webhookSecret: boolean; apiToken: boolean; defaultRepo: boolean };
   slackVerification: { signingSecret: boolean };
-  gateway: { id: string; token: boolean; reachable: "yes" | "unauthorized" | "error" | "unknown" };
+  gateway: { id: string; token: boolean; reachable: "yes" | "unauthorized" | "error" | "unknown"; hostedAccessStopped?: boolean };
   access: { required: boolean };
   betterAuth: { configured: boolean };
   models: { orchestrator: string; coding: string; harness: string; roles: RoleModelWire[] };
@@ -283,6 +283,44 @@ export function useUsageReport(
     ? `/api/usage?session=${encodeURIComponent(sessionId)}`
     : "/api/usage";
   return useApiJson<UsageReportWire>(path);
+}
+
+// ---------------------------------------------------------------------------
+// Workspace credits (GET /api/billing, POST /api/billing/checkout|portal)
+// ---------------------------------------------------------------------------
+
+function billingPath(path: string, sessionId: string, sessionApiAvailable: boolean): string {
+  return sessionApiAvailable ? `${path}?session=${encodeURIComponent(sessionId)}` : path;
+}
+
+export function useWorkspaceBilling(
+  sessionId: string,
+  sessionApiAvailable: boolean,
+): { state: LoadState<{ billing?: WorkspaceBilling }>; reload: () => void } {
+  return useApiJson<{ billing?: WorkspaceBilling }>(billingPath("/api/billing", sessionId, sessionApiAvailable));
+}
+
+/** POST a billing action and return the Stripe-hosted URL to open. Throws with the Worker's message. */
+async function billingRedirect(path: string, body: unknown): Promise<string> {
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const result = (await response.json().catch(() => null)) as { url?: string; error?: string } | null;
+  if (!response.ok || typeof result?.url !== "string" || !result.url.startsWith("https://")) {
+    throw new Error(result?.error ?? `POST ${path} failed: ${response.status}`);
+  }
+  return result.url;
+}
+
+export function startWorkspaceTopUp(amountUsd: number, sessionId: string, sessionApiAvailable: boolean): Promise<string> {
+  return billingRedirect(billingPath("/api/billing/checkout", sessionId, sessionApiAvailable), { amountUsd });
+}
+
+export function openWorkspaceBillingPortal(sessionId: string, sessionApiAvailable: boolean): Promise<string> {
+  return billingRedirect(billingPath("/api/billing/portal", sessionId, sessionApiAvailable), {});
 }
 
 // ---------------------------------------------------------------------------

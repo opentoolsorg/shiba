@@ -96,6 +96,8 @@ export interface Env {
   GOOGLE_ANTIGRAVITY_CLIENT_SECRET?: string;
   /** Private launch/contributor registrations. */
   Waitlist: DurableObjectNamespace;
+  /** Singleton holding the Discord bot's Gateway connection for mentions. */
+  DISCORD_GATEWAY?: DurableObjectNamespace;
   /**
    * Vectorize index holding the 768-dim bge-base embedding for every banked
    * fact, keyed by fact id (megaplan T8). Index name `shiba-memory`; the
@@ -368,6 +370,12 @@ export interface Env {
   TELEGRAM_APPROVERS?: string;
   /** Optional. JSON map `{chatId: "https://github.com/owner/repo"}` for commands without a URL. */
   TELEGRAM_CHAT_REPOS?: string;
+  /** Optional. Exact sender addresses allowed to email task requests; unset = off. */
+  EMAIL_TASK_SENDERS?: string;
+  /** Optional. JSON map of registered mailbox addresses to saved employee IDs or slugs. */
+  EMAIL_TASK_EMPLOYEES?: string;
+  /** Optional. JSON map `{mailbox: "https://github.com/owner/repo"}` for emailed tasks without a URL. */
+  EMAIL_TASK_REPOS?: string;
   /** Optional. Teams bot (Entra app registration) id; with TEAMS_APP_PASSWORD enables POST /api/teams/messages. */
   TEAMS_APP_ID?: string;
   /** Optional. Teams bot client secret; used only for the Bot Framework client-credentials token. */
@@ -388,6 +396,12 @@ export interface Env {
   DISCORD_BOT_TOKEN?: string;
   /** Optional. Comma-separated Discord user ids allowed to approve; unset = nobody. */
   DISCORD_APPROVERS?: string;
+  /** Optional. Discord application (client) id; with DISCORD_CLIENT_SECRET enables the dashboard install flow and limits Shiba to installed servers. */
+  DISCORD_CLIENT_ID?: string;
+  /** Optional. Discord OAuth2 client secret; used only by the Worker for the install code exchange. */
+  DISCORD_CLIENT_SECRET?: string;
+  /** Optional. OAuth2 redirect URI registered in the Discord portal; default is this origin's /api/discord/installations/callback. */
+  DISCORD_OAUTH_REDIRECT_URI?: string;
   /**
    * Optional. Comma-separated dashboard user ids (Access emails) allowed to
    * resolve approvals that are NOT scoped to a caller's own web session —
@@ -429,6 +443,23 @@ export interface Env {
   GITHUB_PROJECT_NUMBER?: string;
   /** Optional. Server-side credential for AI Gateway. Never sent to containers. */
   AI_GATEWAY_TOKEN?: string;
+  /**
+   * Emergency stop for hosted inference: "1"/"true"/"on" refuses AI Gateway
+   * provider traffic and Workers AI team-model turns the deployment pays for.
+   * Personal keys, plan subscriptions and local daemons keep working.
+   */
+  SHIBA_HOSTED_PROVIDER_KILL_SWITCH?: string;
+  /**
+   * One yes/no for whether runs paid for by a plan subscription or paired local
+   * daemon also stop at zero credits. Unset = yes (every lane stops); "0" exempts them.
+   */
+  SHIBA_CREDITS_GATE_USER_FUNDED_RUNS?: string;
+  /** Optional. Stripe secret key for workspace credit top-ups; Worker-only, never sent to the dashboard or containers. */
+  STRIPE_SECRET_KEY?: string;
+  /** Optional. Stripe webhook signing secret (whsec_…) for /api/billing/stripe/webhook. */
+  STRIPE_WEBHOOK_SECRET?: string;
+  /** Optional. Stripe Billing Portal configuration id (bpc_…); unset uses the account default. */
+  STRIPE_PORTAL_CONFIGURATION_ID?: string;
   /** Worker-only root for purpose-derived internal signatures. */
   INTERNAL_SIGNING_KEY?: string;
   /** One-release grace: defaults to "1"; set "0" to reject legacy signatures. */

@@ -170,7 +170,9 @@ describe("SettingsPage", () => {
     expect(screen.getByText(/subscription kill switch to 0/)).toBeTruthy();
     expect(screen.getByText("Use a connected computer")).toBeTruthy();
     expect(screen.getByText("Memory summaries")).toBeTruthy();
-    expect(screen.getAllByText("Setup details for admins")).toHaveLength(2);
+    expect(screen.getByText("Hosted models")).toBeTruthy();
+    expect(screen.getByText("SHIBA_HOSTED_PROVIDER_KILL_SWITCH")).toBeTruthy();
+    expect(screen.getAllByText("Setup details for admins")).toHaveLength(3);
     const adminDetails = screen.getAllByText("Setup details for admins")[0]!;
     expect(adminDetails.closest("details")?.open).toBe(false);
     fireEvent.click(adminDetails);
@@ -217,3 +219,14 @@ describe("SettingsPage private data gate", () => {
     expect(screen.queryByRole("button", { name: "Switch to personal workspace" })).toBeNull();
   });
 });
+
+describe("hosted models kill switch notice", () => {
+  it("tells provider users when an admin paused hosted models", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input).includes("/api/setup/status")
+      ? Response.json({ gateway: { id: "default", token: true, reachable: "yes", hostedAccessStopped: true } })
+      : Response.json({ providers: [], defaultProviderId: null })));
+    render(<SettingsPage section="providers" />);
+    expect(await screen.findByText("Hosted models are paused")).toBeTruthy();
+  });
+});
+

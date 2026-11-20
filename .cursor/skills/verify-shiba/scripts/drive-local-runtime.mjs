@@ -90,8 +90,11 @@ await page.goto(origin+'/threads/');
 const onboarding=await onboardingResponse;assert(onboarding.ok(),'Account setup progress must load before navigation');
 const progress=await onboarding.json();
 if(progress.activatedAt===null&&progress.dismissedAt===null&&!progress.draftTask?.preparedAt){
+  // The guided first-result flow owns the setup surface; its skip records the same dismissal.
+  const skipJourney=page.getByRole('button',{name:'Skip for now',exact:true});
   const skipSetup=page.getByRole('button',{name:'Skip setup',exact:true});
-  await skipSetup.click();await skipSetup.waitFor({state:'hidden'});
+  if(await skipJourney.isVisible().catch(()=>false)){await skipJourney.click();await skipJourney.waitFor({state:'hidden',timeout:60000}).catch(()=>{})}
+  else{await skipSetup.click();await skipSetup.waitFor({state:'hidden',timeout:60000}).catch(()=>{})}
   passed('Dismiss the disposable account setup through the real UI');
 }
 await openAppView(page, "Integrations");

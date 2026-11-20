@@ -10,6 +10,7 @@ import { describeRoleModels, type RoleModelStatus } from "./agents/roles.js";
 import { isBetterAuthConfigured } from "./better-auth.js";
 import { readModelConfig } from "./model-policy.js";
 import { isAccessConfigured } from "./request-auth.js";
+import { isHostedProviderAccessStopped } from "./hosted-provider-kill-switch.js";
 import { runSetupDoctor, type SetupDoctorReport } from "./setup-doctor.js";
 import { listMissingSetupSecrets, type SetupSecretRow } from "./setup-missing-secrets.js";
 import { LOCAL_RUNTIME_FLAG } from "@shiba/shared";
@@ -25,7 +26,7 @@ export interface SetupStatus {
   github: { token: boolean; app: boolean; publish: boolean; webhookSecret: boolean };
   linear: { webhookSecret: boolean; apiToken: boolean; defaultRepo: boolean };
   slackVerification: { signingSecret: boolean };
-  gateway: { id: string; token: boolean; reachable: "yes" | "unauthorized" | "error" | "unknown" };
+  gateway: { id: string; token: boolean; reachable: "yes" | "unauthorized" | "error" | "unknown"; hostedAccessStopped: boolean };
   access: { required: boolean };
   betterAuth: { configured: boolean };
   /** `enabled` means the OIDC handler will mount; lists hold setting names only. */
@@ -99,6 +100,7 @@ export async function readSetupStatus(env: Env, probe = true, initiatorUserId?: 
       id: env.GATEWAY_ID || "default",
       token: Boolean(env.AI_GATEWAY_TOKEN),
       reachable: probe ? await probeGateway(env) : "unknown",
+      hostedAccessStopped: isHostedProviderAccessStopped(env),
     },
     access: { required: isAccessConfigured(env) },
     betterAuth: { configured: isBetterAuthConfigured(env) },

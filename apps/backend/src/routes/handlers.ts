@@ -51,6 +51,7 @@ import { handleRuns } from "../runs-routes.js";
 import { handleSwarm } from "../swarm-routes.js";
 import { handleDenRoutes } from "../den-routes.js";
 import { handleUsage } from "../usage-routes.js";
+import { handleWorkspaceBilling } from "../workspace-billing-routes.js";
 import { handleVoiceRoutes } from "../voice-routes.js";
 import { handleScreenshot } from "../screenshots-routes.js";
 import { handleE2eEvidence } from "../e2e-evidence-routes.js";
@@ -498,6 +499,10 @@ export const handlers = {
     const { request, env } = context;
     return handleUsage(request, env);
   },
+  async billingResponse(context: RequestContext): Promise<Response | null> {
+    const { request, env } = context;
+    return handleWorkspaceBilling(request, env);
+  },
   async voiceResponse(context: RequestContext): Promise<Response | null> {
     const { request, env } = context;
     return handleVoiceRoutes(request, env);
@@ -562,6 +567,10 @@ export const handlers = {
     return handleTelegramWebhook(request, env, chatCtx, {
       dedupe: (updateId) => seenDelivery(env, `telegram-update:${updateId}`),
     });
+  },
+  async discordInstallationResponse(context: RequestContext): Promise<Response | null> {
+    const { request, env } = context;
+    return (await import("../discord-installations.js")).handleDiscordInstallations(request, env);
   },
   async discordResponse(context: RequestContext): Promise<Response | null> {
     const { request, env, execution: ctx } = context;

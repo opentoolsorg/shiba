@@ -31,7 +31,7 @@ const condition = (done: boolean, text: string) => `[${done ? "x" : " "}] ${text
 
 const INLINE = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|\[[^\]]+\]\([^)\s]+\))/g;
 
-function renderInline(text: string): ReactNode[] {
+function renderInline(text: string, allowMailto: boolean): ReactNode[] {
   return text.split(INLINE).map((part, i) => {
     const key = `${i}-${part}`;
     if (part.startsWith("`") && part.endsWith("`") && part.length > 2)
@@ -45,7 +45,7 @@ function renderInline(text: string): ReactNode[] {
     if (part.startsWith("*") && part.endsWith("*") && part.length > 2)
       return <em key={key}>{part.slice(1, -1)}</em>;
     const [, label, href = ""] = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(part) ?? [];
-    if (label && SAFE_URL.test(href))
+    if (label && (allowMailto ? SAFE_URL : /^https?:\/\//i).test(href))
       return (
         <a key={key} href={href} target="_blank" rel="noopener noreferrer" className="underline">
           {label}
@@ -56,18 +56,18 @@ function renderInline(text: string): ReactNode[] {
 }
 
 /** Renders a small markdown subset to React nodes; raw input never reaches innerHTML. */
-export function MarkdownPreview({ source }: { source: string }) {
+export function MarkdownPreview({ source, allowMailto = true }: { source: string; allowMailto?: boolean }) {
   const blocks: ReactNode[] = [];
   let list: { ordered: boolean; items: string[] } | null = null;
   let paragraph: string[] = [];
   const flushParagraph = () => {
     if (paragraph.length)
-      blocks.push(<p key={`p${blocks.length}`}>{renderInline(paragraph.join(" "))}</p>);
+      blocks.push(<p key={`p${blocks.length}`}>{renderInline(paragraph.join(" "), allowMailto)}</p>);
     paragraph = [];
   };
   const flushList = () => {
     if (!list) return;
-    const items = list.items.map((item, i) => <li key={`${i}-${item}`}>{renderInline(item)}</li>);
+    const items = list.items.map((item, i) => <li key={`${i}-${item}`}>{renderInline(item, allowMailto)}</li>);
     blocks.push(
       list.ordered ? (
         <ol key={`l${blocks.length}`} className="list-decimal pl-5">
@@ -90,7 +90,7 @@ export function MarkdownPreview({ source }: { source: string }) {
       flushList();
       blocks.push(
         <p key={`h${blocks.length}`} className="font-semibold">
-          {renderInline(heading[2] ?? "")}
+          {renderInline(heading[2] ?? "", allowMailto)}
         </p>,
       );
     } else if (bullet || numbered) {

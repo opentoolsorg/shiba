@@ -34,7 +34,10 @@ export function resolveConfiguredOrigin(input: {
   }
   const saved = input.savedUrl ? input.parse(input.savedUrl, input.packaged) : null;
   if (saved) return saved;
-  return HOSTED_ORIGIN;
+  // A packaged first launch asks which deployment to connect to instead of
+  // silently assuming the hosted product; unpackaged dev keeps the hosted
+  // default so local runs need no extra click.
+  return input.packaged ? "" : HOSTED_ORIGIN;
 }
 
 /** Dashboard path for a view. `?run=` is intentionally omitted: the SPA treats it as the thread, not the diff tab. */

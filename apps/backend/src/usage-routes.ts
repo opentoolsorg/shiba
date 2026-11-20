@@ -53,24 +53,32 @@ export async function handleUsage(request: Request, env: Env): Promise<Response 
   if (!policyResponse.ok) return policyResponse;
   if (budgetRoute) return policyResponse;
   const { policy } = await policyResponse.json() as { policy?: UsageBudgetPolicy };
-  // The DO answers /api/runs with the same scoping the dashboard list gets;
-  // usage aggregates those records — the DO's write surface is untouched.
-  const runsRequest = new Request(new URL("/api/runs", request.url), request);
+  const runs = await readStoreRuns(request, env, stub);
+  if (runs instanceof Response) return runs;
+  const report = buildUsageReport(runs, env, {
+    days: parseUsageDays(url.searchParams.get("days")),
+    policy,
+  });
+  return Response.json(report);
+}
+
+/**
+ * The DO answers /api/runs with the same scoping the dashboard list gets;
+ * usage and billing aggregate those records — the DO's write surface is untouched.
+ */
+export async function readStoreRuns(request: Request, env: Env, stub: { fetch(request: Request): Promise<Response> }): Promise<DelegatedRun[] | Response> {
+  const runsRequest = new Request(new URL("/api/runs", request.url), { method: "GET", headers: request.headers });
   // Same strip as handleRuns: the clone carries the caller's headers into
   // the DO, where X-Agent-Principal (queuedBy + the /api/spine filter) and
   // X-Shiba-Intake (the local-runtime voucher) read as worker-vouched. This
   // lane forwards a read, never credentials — an inbound copy is a forgery.
   runsRequest.headers.delete(AGENT_PRINCIPAL_HEADER);
   runsRequest.headers.delete(LOCAL_INTAKE_HEADER);
+  runsRequest.headers.delete("content-length");
+  runsRequest.headers.delete("content-type");
   await signInternalRequest(runsRequest, env);
   const runsResponse = await stub.fetch(runsRequest);
-  if (!runsResponse.ok) {
-    return runsResponse;
-  }
+  if (!runsResponse.ok) return runsResponse;
   const body = (await runsResponse.json()) as { runs?: DelegatedRun[] };
-  const report = buildUsageReport(Array.isArray(body.runs) ? body.runs : [], env, {
-    days: parseUsageDays(url.searchParams.get("days")),
-    policy,
-  });
-  return Response.json(report);
+  return Array.isArray(body.runs) ? body.runs : [];
 }

@@ -6,6 +6,7 @@ import { defaultCodingFromConnection } from "./model-defaults.js";
 import { assertModelRunPreflight } from "./run-preflight.js";
 import { verifyStandinEnabled } from "@shiba/shared";
 import { webSearchConfigured } from "./tools/web-search.js";
+import { isHostedProviderAccessStopped } from "./hosted-provider-kill-switch.js";
 
 export interface ModelRouteStatus {
   ready: boolean;
@@ -52,7 +53,7 @@ export async function readModelRoute(env: Env, userId?: string, gatewayReachable
       // A ready catalog row alone does not prove this user's credentials are usable.
     }
   }
-  if (authorizationEnv.AI_GATEWAY_TOKEN?.trim() || verifyStandinEnabled(env)) {
+  if (!isHostedProviderAccessStopped(env) && (authorizationEnv.AI_GATEWAY_TOKEN?.trim() || verifyStandinEnabled(env))) {
     return { ready: true, via: "gateway", fix: null };
   }
   return { ready: false, via: null, fix: PROVIDERS_FIX };
