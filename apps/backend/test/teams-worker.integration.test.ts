@@ -1,11 +1,13 @@
 import type { UIMessage } from "ai";
 import { afterEach, expect, it, vi } from "vitest";
 import { CodingOrchestrator, type OrchestratorState } from "../src/agents/orchestrator.js";
+import { postToChatThread } from "../src/chat-lane.js";
 import type { Env } from "../src/env.js";
 import worker from "../src/index.js";
 import { formatAgentResult, parseAgentToolInput } from "../src/opencode-input.js";
 import { setSandboxHandleResolver } from "../src/sandbox/lifecycle.js";
 import { createTeamWorkspace } from "../src/team-workspaces-store.js";
+import { clearSeenTeamsActivities } from "../src/teams.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 
@@ -49,7 +51,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-it("fixture: verifies Teams install, approval, execution, exact conversation result, and reconnect at Worker ingress", async () => {
+it("fixture: verifies Teams install, deployment-level self-hosted execution, exact conversation result, and reconnect at Worker ingress", async () => {
   const d1 = customAgentD1();
   try {
     const prepare = (sql: string, values: unknown[] = []) => ({
@@ -223,7 +225,7 @@ it("fixture: verifies Teams install, approval, execution, exact conversation res
     const first = await card("mention-1");
     expect(instances.size).toBe(1);
     const host = [...instances.values()][0]!;
-    expect(host.state.pendingApprovals?.[0]?.status).toBe("pending");
+    expect(host.state.pendingApprovals?.[0]).toMatchObject({ status: "pending", orgId: "self-hosted" });
     expect(host.state.tasks).toHaveLength(1);
     expect(mocks.execute).not.toHaveBeenCalled();
     expect(mocks.destroy).not.toHaveBeenCalled();
@@ -235,6 +237,7 @@ it("fixture: verifies Teams install, approval, execution, exact conversation res
     expect(mocks.execute).not.toHaveBeenCalled();
     await deliver(activity("click-1", { value: first.approve, replyToId: first.id }));
     await vi.waitFor(() => expect(host.state.runs[0]?.status).toBe("completed"));
+    expect(host.state.runs[0]?.orgId).toBe("self-hosted");
     await vi.waitFor(() => expect(outbound).toContainEqual(expect.objectContaining({
       path: first.path, method: "POST", body: expect.objectContaining({ replyToId: "mention-1", text: expect.stringContaining(VERIFY_TEXT) }),
     })));
@@ -245,11 +248,24 @@ it("fixture: verifies Teams install, approval, execution, exact conversation res
     expect([...instances.values()].at(-1)?.state.pendingApprovals?.[0]?.status).toBe("rejected");
     expect(mocks.execute).toHaveBeenCalledTimes(1);
     const stale = await card("mention-3");
+    const staleHost = [...instances.values()].at(-1)!;
     expect(await (await dashboard("disconnect")).json()).toEqual({ status: "disconnected", installed: true });
     await deliver(message("disabled-message"));
     expect(instances.size).toBe(3);
     expect(await (await dashboard("connect")).json()).toEqual({ status: "connected", installed: true });
-    await deliver(activity("stale-click", { value: stale.approve }));
+    clearSeenTeamsActivities();
+    deliveries.clear();
+    const postsBeforeReplay = outbound.length;
+    await deliver(message("mention-1"));
+    await deliver(message("mention-3"));
+    expect(instances.size).toBe(3);
+    expect(outbound).toHaveLength(postsBeforeReplay);
+    expect(d1.sqlite.prepare("SELECT COUNT(*) AS count FROM teams_task_replies").get()?.count).toBe(3);
+    await postToChatThread(env, host.name, "A result from the retired connection");
+    expect(outbound).toHaveLength(postsBeforeReplay);
+    await deliver(activity("stale-click", { value: stale.approve, replyToId: stale.id }));
+    expect(outbound.at(-1)?.body.text).toBe("This approval isn't available in this conversation or connection.");
+    expect(staleHost.state.pendingApprovals?.[0]?.status).toBe("pending");
     expect(mocks.execute).toHaveBeenCalledTimes(1);
     const reconnected = await card("mention-4");
     await deliver(activity("click-4", { value: reconnected.approve, replyToId: reconnected.id }));

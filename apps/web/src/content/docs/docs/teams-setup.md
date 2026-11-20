@@ -7,6 +7,8 @@ Use this guide to connect a self-hosted Shiba Worker to **one Microsoft Teams te
 
 Before setting up Teams, make sure the Worker has [GitHub access](/docs/github-setup/) for the repository you’ll use and [model provider access](/docs/model-auth/) for the chosen agent harness. The Teams app does not configure either one.
 
+The native workspace owns the connection controls, not the execution authority. Approved Teams tasks use the deployment’s self-hosted runtime, GitHub access, and model configuration. Teams does not use workspace-scoped execution grants.
+
 ## 1. Register a single-tenant Azure Bot
 
 1. In the Azure portal, create an **Azure Bot** using the **Single Tenant** app type. If you use an existing Microsoft Entra app registration, choose one in the same tenant with **Accounts in this organizational directory only**. Copy the Application (client) ID and Directory (tenant) ID.
@@ -61,5 +63,7 @@ Shiba posts an Adaptive Card in the originating conversation with **Approve** an
 ## Disable or remove the app
 
 To stop processing Teams tasks, select **Disable Teams in Shiba** in the connection panel. This does not uninstall the app. Existing approval cards cannot be used after disablement and do not become valid when you re-enable the connection. A run approved before disablement may continue. Shiba suppresses replies from the old connection, but a reply already being sent can still arrive.
+
+Re-enabling does not re-queue a Teams message Shiba already accepted. Send a new message to request the task again.
 
 To remove the app from a chat or team, uninstall it in Teams as a separate action. Shiba records signed installation and removal events independently of whether the connection is enabled. Use **Refresh Teams status** to see the last observed installation state.

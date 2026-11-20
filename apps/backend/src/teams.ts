@@ -221,7 +221,7 @@ export async function handleTeamsMessages(
     !ACTIVITY_ID.test(botId) || !ACTIVITY_ID.test(recipientId) || botId === recipientId) return new Response("", { status: 200 });
   const generation = await teamsGeneration(env, settings);
   if (!generation) return new Response("", { status: 200 });
-  const key = await sha256Hex(JSON.stringify([generation, inbound.placeId, inbound.deliveryId]));
+  const key = await sha256Hex(JSON.stringify([settings.tenantId, settings.appId.toLowerCase(), inbound.placeId, inbound.deliveryId]));
   if (seenActivities.has(key)) return new Response("", { status: 200 });
   if (deps.dedupe) {
     try {
