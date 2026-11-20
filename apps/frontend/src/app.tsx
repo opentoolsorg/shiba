@@ -591,6 +591,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const selectedSessionIdRef = useRef<string>(selectedSessionId);
   selectedSessionIdRef.current = selectedSessionId;
   const [sessionRegistryOwner, setSessionRegistryOwner] = useState<string | null>(null);
+  const [sessionRegistryAnswer, setSessionRegistryAnswer] = useState<{ actor: string | null; failed: boolean } | null>(null);
 
   // Uploads belong to one session; drop results that arrive after switching threads.
   const attachmentsGeneration = useRef(0);
@@ -1461,14 +1462,18 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   useEffect(() => {
     if (!privateDataEnabled) {
       setSessionsLoaded(true);
+      setSessionRegistryAnswer(null);
       return;
     }
+    setSessionsLoaded(false);
     let cancelled = false;
+    let answer: { actor: string | null; failed: boolean } | null = null;
     fetch("/api/sessions", { cache: "no-store", credentials: "same-origin" })
       .then(async (response) => {
         // Older backends have no sessions API: stay on the implicit default
         // session and use unscoped run routes instead of erroring.
         if (response.status === 404 || response.status === 405) {
+          answer = { actor: orchestratorName, failed: false };
           if (!cancelled) setSessionApiAvailable(false);
           return;
         }
@@ -1478,6 +1483,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         const body = (await response.json()) as {
           sessions?: WebThread[];
         };
+        answer = { actor: orchestratorName, failed: false };
         if (!cancelled) {
           setSessionRegistryOwner(orchestratorName);
           setSessionApiAvailable(true);
@@ -1501,12 +1507,14 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         }
       })
       .catch((error: unknown) => {
+        answer = { actor: orchestratorName, failed: true };
         if (!cancelled) setNotice(error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
         if (!cancelled) {
           setSessionsLoaded(true);
           setSessionsSettledFor(orchestratorName);
+          setSessionRegistryAnswer(answer);
           setPendingThreadLink(null);
         }
       });
@@ -2836,17 +2844,31 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   };
 
   const threadCreationPending = useRef(false);
+  // A shared workspace opens its room without a session; a private thread needs
+  // verified access and this actor's answered thread registry before one can be
+  // created. Every creation entry point reads this one reason.
+  const taskCreationBlocker = teamWorkspaceId
+    ? null
+    : !privateDataEnabled
+      ? "Wait for your workspace access to be verified."
+      : sessionRegistryAnswer?.actor !== orchestratorName
+        ? "Loading your threads…"
+        : sessionRegistryAnswer.failed
+          ? "Your threads couldn't load. Reload to try again."
+          : !sessionApiAvailable
+            ? "Session creation is unavailable on this server."
+            : null;
   const handleNewTask = useCallback(async () => {
     if (teamWorkspaceId) {
       setSharedRoomId(undefined); setSharedHandoffId(undefined); setSharedEmployeeId(undefined); setMainView("threads");
       return null;
     }
-    if (threadCreationPending.current || !privateDataEnabled) return null;
-    const creationScope = activeSurfaceScopeRef.current;
-    if (!sessionApiAvailable) {
-      setNotice("Session creation is unavailable. Your existing draft has been kept.");
+    if (threadCreationPending.current) return null;
+    if (taskCreationBlocker) {
+      setNotice(taskCreationBlocker);
       return null;
     }
+    const creationScope = activeSurfaceScopeRef.current;
     threadCreationPending.current = true;
     try {
       const response = await fetch("/api/sessions", {
@@ -2887,14 +2909,15 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     } finally {
       threadCreationPending.current = false;
     }
-  }, [sessionApiAvailable, teamWorkspaceId, privateDataEnabled, pushThreadUrl]);
+  }, [taskCreationBlocker, teamWorkspaceId, pushThreadUrl]);
+  handleNewTaskRef.current = () => { void handleNewTask(); };
 
   const handleStartAgentThread = useCallback(async (profile: CustomAgentWire) => {
     if (teamWorkspaceId) {
       setSharedRoomId(undefined); setSharedHandoffId(undefined); setSharedEmployeeId(profile.id); setMainView("threads");
       return null;
     }
-    if (!privateDataEnabled) throw new Error("Wait for your workspace access to be verified.");
+    if (taskCreationBlocker) throw new Error(taskCreationBlocker);
     const creationScope = activeSurfaceScopeRef.current;
     if (threadCreationPending.current) throw new Error("Another thread is being created. Wait, then try again.");
     threadCreationPending.current = true;
@@ -2923,7 +2946,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     } finally {
       threadCreationPending.current = false;
     }
-  }, [applyThreadProfile, orchestratorName, refreshCustomAgents, teamWorkspaceId, privateDataEnabled, pushThreadUrl]);
+  }, [applyThreadProfile, orchestratorName, refreshCustomAgents, teamWorkspaceId, taskCreationBlocker, pushThreadUrl]);
 
   const startSidebarAgentThread = async (profile?: CustomAgentWire) => {
     const creationScope = activeSurfaceScopeRef.current;
@@ -3172,6 +3195,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         onOpenAgent={openBotPanel}
         onSelectThread={(id) => { void handleSelectSession(id); openView("threads"); }}
         onNewThread={(agentId) => { void startSidebarAgentThread(customAgentRecords.find((profile) => profile.id === agentId)); }}
+        newThreadDisabledReason={taskCreationBlocker ?? undefined}
         onNewAgent={() => openView("custom-agents")}
       />
     );
@@ -3517,8 +3541,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     void handleSelectSession(id);
                     setMainView("threads");
                   }}
-                  onNewTask={handleNewTask}
-                  onQuickAddTask={async (taskText) => {
+                  newTaskBlockedReason={taskCreationBlocker ?? undefined}
+                  onNewTask={taskCreationBlocker ? undefined : handleNewTask}
+                  onQuickAddTask={taskCreationBlocker ? undefined : async (taskText) => {
                     const id = await handleNewTask();
                     if (!id) return false;
                     if (!orchestratorName) return false;
@@ -4487,6 +4512,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               { id: "setup-guide", label: "Open setup guide", run: openFirstRun },
             ]}
             onNewTask={() => { void handleNewTask(); }}
+            newTaskBlockedReason={taskCreationBlocker ?? undefined}
             onNewChannel={() => openView("threads")}
             onOpenBot={(bot, focusComposer) => {
               if (bot.roomId) setSharedRoomId(bot.roomId);

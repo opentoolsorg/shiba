@@ -9,7 +9,7 @@ import { ChatResult, KnowledgeResult, TaskResult } from "./ResultRow";
 import { usePaletteBots, type PaletteBot } from "./usePaletteBots";
 import { usePaletteSearch, type PaletteChatHit, type PaletteKnowledgeHit, type PaletteTaskHit } from "./usePaletteSearch";
 
-export interface PaletteAction { id: string; label: string; hint?: string; run: () => void }
+export interface PaletteAction { id: string; label: string; hint?: string; disabled?: boolean; run: () => void }
 export interface PaletteSetting { id: string; label: string }
 
 const itemClass = "min-h-11 w-full px-3 text-left data-[selected=true]:bg-[var(--primary-soft)]";
@@ -33,7 +33,7 @@ function nextSlot(bots: PaletteBot[], bot: PaletteBot): number {
 
 export function CommandPalette({
   open, onClose, workspaceId, roomThreadOpen, needsYouCount, settings, extraActions = [],
-  onNewTask, onNewChannel, onOpenBot, onOpenChat, onOpenTask, onOpenKnowledge, onOpenSettings, onOpenNeedsYou,
+  onNewTask, newTaskBlockedReason, onNewChannel, onOpenBot, onOpenChat, onOpenTask, onOpenKnowledge, onOpenSettings, onOpenNeedsYou,
   onToggleTheme, onOpenShortcuts, onInsertAgentMention, onSearchAll, onMessageAbout,
 }: {
   open: boolean;
@@ -44,6 +44,8 @@ export function CommandPalette({
   settings: PaletteSetting[];
   extraActions?: PaletteAction[];
   onNewTask: () => void;
+  /** Why no task can be created yet; the action stays listed but inert. */
+  newTaskBlockedReason?: string;
   onNewChannel: () => void;
   onOpenBot: (bot: PaletteBot, focusComposer: boolean) => void;
   onOpenChat: (hit: PaletteChatHit) => void;
@@ -86,7 +88,7 @@ export function CommandPalette({
   }, [needsYouCount, open, workspaceId]);
 
   const actions = useMemo<PaletteAction[]>(() => [
-    { id: "new-task", label: "New task…", run: onNewTask },
+    { id: "new-task", label: "New task…", hint: newTaskBlockedReason, disabled: Boolean(newTaskBlockedReason), run: onNewTask },
     { id: "new-channel", label: "New channel", run: onNewChannel },
     { id: "message-bot", label: "Message @bot…", run: () => setPick("dm") },
     ...(roomThreadOpen ? [{ id: "mention-thread", label: "@bot in this thread", run: () => setPick("mention") }] : []),
@@ -94,7 +96,7 @@ export function CommandPalette({
     { id: "theme", label: "Toggle theme", run: onToggleTheme },
     { id: "shortcuts", label: "Keyboard shortcuts", run: onOpenShortcuts },
     ...extraActions,
-  ], [extraActions, needs, onNewChannel, onNewTask, onOpenNeedsYou, onOpenShortcuts, onToggleTheme, roomThreadOpen, trimmed]);
+  ], [extraActions, needs, newTaskBlockedReason, onNewChannel, onNewTask, onOpenNeedsYou, onOpenShortcuts, onToggleTheme, roomThreadOpen, trimmed]);
 
   const remember = (id: string) => { if (workspaceId) setRecents(pushRecent(workspaceId, id)); };
   const openBot = (bot: PaletteBot, focus: boolean) => {
@@ -190,7 +192,7 @@ export function CommandPalette({
             {recentRows.map((id) => <Command.Item key={id} value={`recent ${id}`} data-group="recent" className={itemClass} onSelect={() => { remember(id); onClose(); }}>{id}</Command.Item>)}
           </Group> : null}
           {!pick ? <Group id="palette-actions" title="Actions" show={visibleActions.length > 0}>
-            {visibleActions.map((item) => <Command.Item key={item.id} value={item.label} data-group="actions" className={itemClass} onSelect={() => { remember(`action:${item.id}`); item.run(); if (item.id !== "message-bot" && item.id !== "mention-thread") onClose(); }}>{item.label}</Command.Item>)}
+            {visibleActions.map((item) => <Command.Item key={item.id} value={item.label} data-group="actions" disabled={item.disabled} className={`${itemClass} flex items-center justify-between gap-3 data-[disabled=true]:cursor-not-allowed data-[disabled=true]:text-[var(--muted-foreground-2)]`} onSelect={() => { remember(`action:${item.id}`); item.run(); if (item.id !== "message-bot" && item.id !== "mention-thread") onClose(); }}><span>{item.label}</span>{item.hint ? <span className="truncate text-xs text-[var(--muted-foreground-2)]">{item.hint}</span> : null}</Command.Item>)}
           </Group> : null}
           {search.skeleton ? <div data-testid="palette-skeleton" aria-hidden="true"><div className="min-h-11" /><div className="min-h-11" /></div> : null}
           {search.unavailable ? <p className="px-4 py-2 text-xs text-[var(--muted-foreground-2)]">Message search is unavailable right now</p> : null}
