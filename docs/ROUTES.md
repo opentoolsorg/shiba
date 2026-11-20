@@ -100,6 +100,8 @@ Phase boundaries preserve precedence: `capability` runs before identity verifica
 | v1-schema | model | `*` | `^/api/v1/openapi\.json$` | public | Published API schema; ingress permits GET only. |
 | v1 | model | `*` | `^/api/v1/(?!openapi\.json$)` | session | Public GET schema; other routes require session at ingress, scoped bearer only on org-exempt paths. |
 | usageResponse | model | `*` | `^/api/usage$` | session |  |
+| billingWebhook | model | `*` | `^/api/billing/stripe/webhook$` | signature | Stripe-Signature HMAC verified inside handler. |
+| billing | model | `*` | `^/api/billing(?:$\|/(?:checkout\|portal)$)` | session |  |
 | voiceResponse | model | `*` | `^/api/voice/transcribe$` | session |  |
 | activityResponse | model | `*` | `^/api/activity$` | session |  |
 | screenshotResponse | model | `*` | `^/api/screenshots/` | session |  |

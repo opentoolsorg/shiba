@@ -69,6 +69,8 @@ export const SIGNATURE_AUTHENTICATED = [
   // Sentry issue alerts self-authenticate with the shared secret — the
   // handler verifies the hook signature / token before anything queues.
   "/api/sentry/webhook",
+  // Stripe billing events: the handler verifies Stripe-Signature (HMAC) first.
+  "/api/billing/stripe/webhook",
   "/api/trigger",
 ];
 

@@ -196,6 +196,10 @@ INTEGRATIONS_PROVIDER=openconnector
 # OPEN_CONNECTOR_SCOPED_READ_RUNTIME_TOKENS=
 # Optional native restricted Stripe reads encryption key (64 hex, Worker-only).
 # FOUNDER_STRIPE_CREDENTIAL_KEY=
+# Workspace credit top-ups: a Stripe test-mode secret key and the webhook signing
+# secret from `stripe listen --forward-to localhost:8788/api/billing/stripe/webhook`.
+# STRIPE_SECRET_KEY=sk_test_...
+# STRIPE_WEBHOOK_SECRET=whsec_...
 # Optional native Meta reads encryption key (64 hex, Worker-only).
 # FOUNDER_META_CREDENTIAL_KEY=
 # Optional native HubSpot capture encryption key (64 hex, Worker-only).

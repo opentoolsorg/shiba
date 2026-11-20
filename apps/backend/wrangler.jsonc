@@ -53,6 +53,10 @@
     "VAULT_WRITE_V2": "0",
     "SHIBA_PERSONAL_LOCAL_EXECUTION": "0",
     "SHIBA_TEAM_MODEL_SESSIONS": "0",
+    // Emergency stop for deployment-funded inference (AI Gateway, Workers AI team turns). "1" = stopped.
+    "SHIBA_HOSTED_PROVIDER_KILL_SWITCH": "0",
+    // 1 = every lane stops at zero credits; 0 = plan subscriptions and paired computers are exempt.
+    "SHIBA_CREDITS_GATE_USER_FUNDED_RUNS": "1",
     // Optional features remain unavailable without separately reviewed bindings and setup.
     "SHIBA_SHARED_COMPUTER": "0",
     "SHIBA_SHARED_COMPUTER_IMAGE": "",
