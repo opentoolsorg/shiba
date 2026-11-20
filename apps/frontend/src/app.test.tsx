@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { StrictMode, Suspense, type FormEvent } from "react";
+import { StrictMode, Suspense, type ComponentProps, type FormEvent } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./app";
 import { deriveOnboardingStatus } from "@shiba/shared";
@@ -49,7 +49,17 @@ vi.mock("./components/TaskComposer", () => ({ TaskComposer: ({ task, onTaskChang
   <button type="button" onClick={() => onHarnessChange?.("claude-code")}>Choose Claude API</button>
   <button type="submit" disabled={isSubmitting}>Queue fixture task</button>
 </form> }));
-vi.mock("./components/ChatMessageComposer", () => ({ ChatMessageComposer: ({ value, onChange, onPrepareWork }: { value: string; onChange?: (value: string) => void; onPrepareWork?: () => void }) => <div data-testid="chat-composer"><textarea aria-label="Task draft" value={value} onChange={(event) => onChange?.(event.target.value)} />{onPrepareWork ? <button type="button" onClick={onPrepareWork}>Review as work</button> : null}</div> }));
+vi.mock("./components/ChatMessageComposer", () => ({ ChatMessageComposer: ({
+  value, onChange, onPrepareWork, onSubmit, lookups, onToggleLookup,
+}: ComponentProps<typeof import("./components/ChatMessageComposer").ChatMessageComposer>) => (
+  <form data-testid="chat-composer" onSubmit={onSubmit}>
+    <textarea aria-label="Task draft" value={value} onChange={(event) => onChange(event.target.value)} />
+    {onPrepareWork ? <button type="button" onClick={onPrepareWork}>Review as work</button> : null}
+    {lookups?.filter((lookup) => lookup.id === "browser").map((lookup) => (
+      <button key={lookup.id} type="button" aria-pressed={lookup.on} onClick={() => onToggleLookup?.(lookup.id)}>Toggle fixture browser</button>
+    ))}
+  </form>
+) }));
 
 beforeEach(() => {
   window.history.replaceState(null, "", "/work/");
@@ -176,6 +186,35 @@ describe("app employee onboarding", () => {
 });
 
 describe("app Work and Threads routing", () => {
+  it("mounts the browser only in Chat and sends its tool marker only after opt-in", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/sessions/browser") return Response.json({ state: "none" });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    try {
+      expect(await screen.findByRole("region", { name: "Browser" })).toBeTruthy();
+      await screen.findByText("No session");
+      const draft = screen.getByRole("textbox", { name: "Task draft" });
+      fireEvent.change(draft, { target: { value: "Summarize the public site." } });
+      await act(async () => fireEvent.submit(screen.getByTestId("chat-composer")));
+      expect(mocks.chat.sendMessage.mock.calls.at(-1)?.[0]?.metadata).not.toHaveProperty("shibaChatTools");
+      fireEvent.click(screen.getByRole("button", { name: "Toggle fixture browser" }));
+      fireEvent.change(draft, { target: { value: "Open the public site." } });
+      await act(async () => fireEvent.submit(screen.getByTestId("chat-composer")));
+      expect(mocks.chat.sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+        text: "Open the public site.", metadata: expect.objectContaining({ shibaMode: "chat", shibaChatTools: ["browser"] }),
+      }));
+      fireEvent.click(screen.getByRole("tab", { name: "Work" }));
+      expect(screen.queryByRole("region", { name: "Browser" })).toBeNull();
+    } finally {
+      mocks.chat.sendMessage.mockClear();
+    }
+  });
+
   it("opens the returned approval from Chat and follows its server-linked run after approval", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", "/threads/");
@@ -245,7 +284,7 @@ describe("app Work and Threads routing", () => {
     window.history.replaceState(null, "", "/app/?prompt=STRICT_PROMPT_FIXTURE");
     render(<StrictMode><App /></StrictMode>);
     const draft = await screen.findByRole("textbox", { name: "Task draft" });
-    expect((draft as HTMLTextAreaElement).value).toBe("STRICT_PROMPT_FIXTURE");
+    await waitFor(() => expect((draft as HTMLTextAreaElement).value).toBe("STRICT_PROMPT_FIXTURE"));
     expect(window.location.pathname).toBe("/threads/");
     expect(new URLSearchParams(window.location.search).has("prompt")).toBe(false);
   });
@@ -389,6 +428,17 @@ describe("app Work and Threads routing", () => {
     await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("x"));
     expect(window.location.pathname).toBe("/threads/");
     expect(window.location.search).toBe("");
+  });
+
+  it("opens the Outputs video handoff as an unsent Chat draft", async () => {
+    window.history.replaceState(null, "", `/threads/?${new URLSearchParams({ prompt: "Create a 9:16 video of " })}`);
+    render(<App />);
+    await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Create a 9:16 video of "));
+    expect(window.location.search).toBe("");
+    expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
+    await act(async () => {});
+    const posts = vi.mocked(fetch).mock.calls.filter(([, options]) => options?.method === "POST").map(([url]) => String(url));
+    expect(posts.filter((url) => /\/api\/(runs|sessions|approvals|outputs)|chat-suggestions|video|image/.test(url))).toEqual([]);
   });
 
   it("opens the task inbox at root and after popstate", async () => {
@@ -536,8 +586,10 @@ describe("app Work and Threads routing", () => {
       return originalFetch(url, options);
     }));
     render(<App />);
-    const newTask = await screen.findByRole("button", { name: "New task" });
+    const newTask = await screen.findByRole("button", { name: "New task" }) as HTMLButtonElement;
     const input = screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement;
+    // Creation opens once the thread registry has answered; the burst must land on that state.
+    await waitFor(() => expect(newTask.disabled || input.disabled).toBe(false));
     fireEvent.change(input, { target: { value: "Keep quick-add draft" } });
     const form = input.closest("form")!;
     if (entry === "quick-add") fireEvent.submit(form);
@@ -554,6 +606,147 @@ describe("app Work and Threads routing", () => {
     expect(createSession).toHaveBeenCalledTimes(2);
     await act(async () => finish(Response.json({ session: { id: "mixed-thread", name: "New thread", agentName: "new-agent", updatedAt: 1 } })));
     expect((await screen.findByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Keep quick-add draft");
+  });
+
+  it("holds task creation until the thread registry answers", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const originalFetch = fetch;
+    let answerRegistry!: () => void;
+    const registry = new Promise<void>((resolve) => { answerRegistry = resolve; });
+    const createSession = vi.fn(async () => Response.json({ session: { id: "ready-thread", name: "New thread", agentName: "new-agent", updatedAt: 1 } }));
+    // The registry read starts right after the commit that made private data
+    // available, so the controls it finds are the ones that commit showed.
+    const liveAtRegistryRead: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/sessions" && options?.method === "POST") return createSession();
+      if (String(url) === "/api/sessions") {
+        const controls = document.querySelectorAll<HTMLButtonElement | HTMLInputElement>('button[aria-label="New task"], input[aria-label="Add a task and press Enter"]');
+        liveAtRegistryRead.push(...[...controls].filter((control) => !control.disabled).map((control) => control.getAttribute("aria-label")!));
+        await registry;
+        return Response.json({ sessions: [], defaultSessionId: "default" });
+      }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    const newTask = await screen.findByRole("button", { name: "New task" }) as HTMLButtonElement;
+    const input = screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement;
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.not.objectContaining({ method: "POST" })));
+    expect(liveAtRegistryRead).toEqual([]);
+    expect(newTask.disabled).toBe(true);
+    expect(input.disabled).toBe(true);
+    expect(screen.getByText("Loading your threads…")).toBeTruthy();
+    fireEvent.click(newTask);
+    fireEvent.keyDown(window, { key: "O", metaKey: true, shiftKey: true });
+    expect(createSession).not.toHaveBeenCalled();
+    await act(async () => answerRegistry());
+    await waitFor(() => expect(newTask.disabled).toBe(false));
+    expect(input.disabled).toBe(false);
+    expect(screen.queryByText("Loading your threads…")).toBeNull();
+    expect(createSession).not.toHaveBeenCalled();
+    fireEvent.click(newTask);
+    expect(createSession).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the command menu's New task inert until the thread registry answers", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const originalFetch = fetch;
+    let answerRegistry!: () => void;
+    const registry = new Promise<void>((resolve) => { answerRegistry = resolve; });
+    const createSession = vi.fn(async () => Response.json({ session: { id: "palette-thread", name: "New thread", agentName: "new-agent", updatedAt: 1 } }));
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/sessions" && options?.method === "POST") return createSession();
+      if (String(url) === "/api/sessions") { await registry; return Response.json({ sessions: [], defaultSessionId: "default" }); }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await screen.findByRole("button", { name: "New task" });
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.not.objectContaining({ method: "POST" })));
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const option = (await screen.findByText("New task…")).closest<HTMLElement>("[role='option']")!;
+    expect(option.getAttribute("aria-disabled")).toBe("true");
+    expect(within(option).getByText("Loading your threads…")).toBeTruthy();
+    fireEvent.click(option);
+    expect(createSession).not.toHaveBeenCalled();
+    await act(async () => answerRegistry());
+    await waitFor(() => expect(option.getAttribute("aria-disabled")).toBe("false"));
+    expect(createSession).not.toHaveBeenCalled();
+    fireEvent.click(option);
+    await waitFor(() => expect(createSession).toHaveBeenCalledOnce());
+  });
+
+  it("creates one task from the new-task shortcut once the thread registry answers", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const originalFetch = fetch;
+    let answerRegistry!: () => void;
+    const registry = new Promise<void>((resolve) => { answerRegistry = resolve; });
+    let finish!: (response: Response) => void;
+    const createSession = vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; }));
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/sessions" && options?.method === "POST") return createSession();
+      if (String(url) === "/api/sessions") { await registry; return Response.json({ sessions: [], defaultSessionId: "default" }); }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    const newTask = await screen.findByRole("button", { name: "New task" }) as HTMLButtonElement;
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.not.objectContaining({ method: "POST" })));
+    fireEvent.keyDown(window, { key: "O", ctrlKey: true, shiftKey: true });
+    expect(createSession).not.toHaveBeenCalled();
+    await act(async () => answerRegistry());
+    await waitFor(() => expect(newTask.disabled).toBe(false));
+    expect(createSession).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: "O", ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(window, { key: "O", metaKey: true, shiftKey: true });
+    expect(createSession).toHaveBeenCalledOnce();
+    await act(async () => finish(Response.json({ session: { id: "shortcut-thread", name: "New thread", agentName: "new-agent", updatedAt: 1 } })));
+    expect(await screen.findByRole("button", { name: "Rename thread" })).toBeTruthy();
+  });
+
+  it("holds the employee sidebar's New thread until the thread registry answers", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/custom-agents/");
+    const originalFetch = fetch;
+    const template = EMPLOYEE_TEMPLATES.find((item) => item.id === "research")!;
+    const profile = { id: "research-agent", slug: template.slug, version: 1, config: { ...template.config, harness: "opencode" } };
+    let answerRegistry!: () => void;
+    const registry = new Promise<void>((resolve) => { answerRegistry = resolve; });
+    const createSession = vi.fn(async () => Response.json({ session: { id: "agent-thread", name: profile.config.name, agentName: "research-chat", updatedAt: 1, metadata: { customAgentId: profile.id } } }));
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/custom-agents") return Response.json({ agents: [profile] });
+      if (String(url) === "/api/sessions" && options?.method === "POST") return createSession();
+      if (String(url) === "/api/sessions") { await registry; return Response.json({ sessions: [], defaultSessionId: "default" }); }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    const start = await screen.findByRole("button", { name: `New thread with ${profile.config.name}` }) as HTMLButtonElement;
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.not.objectContaining({ method: "POST" })));
+    expect(start.disabled).toBe(true);
+    expect(start.title).toBe("Loading your threads…");
+    fireEvent.click(start);
+    expect(createSession).not.toHaveBeenCalled();
+    await act(async () => answerRegistry());
+    await waitFor(() => expect(start.disabled).toBe(false));
+    expect(createSession).not.toHaveBeenCalled();
+    fireEvent.click(start);
+    fireEvent.click(start);
+    await waitFor(() => expect(createSession).toHaveBeenCalledOnce());
+  });
+
+  it("keeps task creation disabled with a reason when the server has no thread registry", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const originalFetch = fetch;
+    const createSession = vi.fn(async () => Response.json({}));
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url) === "/api/sessions" && options?.method === "POST") return createSession();
+      if (String(url) === "/api/sessions") return Response.json({}, { status: 404 });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    const newTask = await screen.findByRole("button", { name: "New task" }) as HTMLButtonElement;
+    await screen.findByText("Session creation is unavailable on this server.");
+    expect(newTask.disabled).toBe(true);
+    expect((screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(newTask);
+    expect(createSession).not.toHaveBeenCalled();
   });
 
   it("opens run deep links in Threads", async () => {
@@ -876,7 +1069,9 @@ describe("app Work and Threads routing", () => {
       return originalFetch(url, options);
     }));
     render(<App />);
-    const start = await screen.findByRole("button", { name: `New thread with ${profile.config.name}` });
+    const start = await screen.findByRole("button", { name: `New thread with ${profile.config.name}` }) as HTMLButtonElement;
+    // Starting a thread opens once the thread registry has answered.
+    await waitFor(() => expect(start.disabled).toBe(false));
     fireEvent.click(start);
     fireEvent.click(start);
     fireEvent.click(start);
@@ -1204,6 +1399,308 @@ describe("first-run setup reminders", () => {
   });
 });
 
+describe("bot page without a thread", () => {
+  const research = { id: "cag-research", orgId: "self-hosted", slug: "research", version: 1, config: { name: "Research bot", instructions: "Write briefs.", harness: "opencode" } };
+  const engineering = { id: "cag-engineering", orgId: "self-hosted", slug: "engineering", version: 1, config: { name: "Engineering bot", instructions: "Review code.", harness: "opencode" } };
+  const RESEARCH_THREAD = "11111111-1111-4111-8111-111111111111";
+  const ENGINEERING_THREAD = "22222222-2222-4222-8222-222222222222";
+  const researchThread = { id: RESEARCH_THREAD, name: "Competitor brief", agentName: `web:test-operator:${RESEARCH_THREAD}`, createdAt: 3, updatedAt: 3, metadata: { customAgentId: research.id } };
+  const engineeringThreadRecord = { id: ENGINEERING_THREAD, name: "Flaky test triage", agentName: `web:test-operator:${ENGINEERING_THREAD}`, createdAt: 2, updatedAt: 2, metadata: { customAgentId: engineering.id } };
+
+  /** Two bots; Research always has a thread, Engineering only when asked. */
+  function stubBots(resume?: (path: string) => Promise<Response>, engineeringThread?: boolean) {
+    const originalFetch = fetch;
+    const request = vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path === "/api/whoami") return Response.json({ agent: "test-operator", auth: "access" });
+      if (path === "/api/custom-agents" && options?.method !== "POST") return Response.json({ agents: [research, engineering] });
+      if (path === "/api/sessions" && options?.method === "POST") return Response.json({ status: 201, session: { id: "55555555-5555-4555-8555-555555555555", name: "Engineering bot", agentName: "web:test-operator:55555555-5555-4555-8555-555555555555", createdAt: 5, updatedAt: 5, metadata: { customAgentId: engineering.id } } });
+      if (path === "/api/sessions" && options?.method !== "POST") return Response.json({ sessions: engineeringThread ? [researchThread, engineeringThreadRecord] : [researchThread], defaultSessionId: "default" });
+      if (/^\/api\/sessions\/[^/]+\/resume$/.test(path)) return resume ? resume(path) : Response.json({ session: researchThread, resumed: true });
+      if (path === "/api/agents") return Response.json({ agents: [] });
+      if (path === "/api/approvals") return Response.json({ approvals: [], decided: [] });
+      if (path.startsWith("/api/runs")) return Response.json({ runs: [] });
+      return originalFetch(url, options);
+    });
+    vi.stubGlobal("fetch", request);
+    return request;
+  }
+
+  /** A bot's page is reachable from the Agents view, where every bot is listed. */
+  async function openBotFromAgentsView(name: RegExp) {
+    await act(async () => {
+      window.history.pushState(null, "", "/custom-agents/");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    const row = await screen.findAllByRole("button", { name });
+    fireEvent.click(row[0]!);
+  }
+
+  it("opens a threadless bot without borrowing the previous bot's thread", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    const request = stubBots();
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+
+    await openBotFromAgentsView(/Engineering bot/);
+
+    await screen.findByRole("heading", { name: "Engineering bot has no thread yet" });
+    expect(screen.queryByTestId("task-composer")).toBeNull();
+    expect(screen.queryByLabelText(/Thread name|Rename thread/i)).toBeNull();
+    await waitFor(() => expect(new URLSearchParams(window.location.search).has("session")).toBe(false));
+
+    fireEvent.click(screen.getByRole("button", { name: "Start a thread with Engineering bot" }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ name: "Engineering bot", metadata: { customAgentId: engineering.id } }),
+    })));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe("55555555-5555-4555-8555-555555555555"));
+    expect(screen.queryByRole("heading", { name: "Engineering bot has no thread yet" })).toBeNull();
+  });
+
+  it("does not leave the previous bot's composer live when a bot's thread fails to resume", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    stubBots(async () => new Response(JSON.stringify({ error: "Session service unavailable" }), { status: 503, headers: { "Content-Type": "application/json" } }), true);
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+
+    await openBotFromAgentsView(/Engineering bot/);
+
+    await screen.findByRole("heading", { name: /Engineering bot's thread could not be opened/ });
+    // The bot and its session commit together: no Research composer survives under this bot.
+    expect(screen.queryByTestId("task-composer")).toBeNull();
+    expect(screen.queryByTestId("chat-composer")).toBeNull();
+    await waitFor(() => expect(new URLSearchParams(window.location.search).has("session")).toBe(false));
+    // The keyboard send shortcut reaches nothing here either.
+    mocks.chat.sendMessage.mockClear();
+    fireEvent.keyDown(window, { key: "Enter", ctrlKey: true });
+    expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("stays inert while a bot's thread opens and never sends the previous draft", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    stubBots(async (path) => {
+      if (!path.includes(ENGINEERING_THREAD)) return Response.json({ resumed: true });
+      await held;
+      return Response.json({ session: engineeringThreadRecord, resumed: true });
+    }, true);
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+
+    await openBotFromAgentsView(/Engineering bot/);
+    await screen.findByRole("heading", { name: /Opening Engineering bot/ });
+    expect(screen.queryByTestId("task-composer")).toBeNull();
+    expect(screen.queryByTestId("chat-composer")).toBeNull();
+    mocks.chat.sendMessage.mockClear();
+    fireEvent.keyDown(window, { key: "Enter", ctrlKey: true });
+    expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
+
+    await act(async () => { release?.(); await held; });
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(ENGINEERING_THREAD));
+  });
+
+  it("keeps Engineering as the recovery bot when its named thread was removed", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    // Start inside Research's named thread, with its conversation actually on
+    // screen, then open Engineering, whose thread is gone.
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [{ id: "m1", role: "assistant", parts: [{ type: "text", text: "Annual report history" }] }] as never[];
+    const request = stubBots(async (path) => {
+      if (!path.includes(ENGINEERING_THREAD)) return Response.json({ resumed: true });
+      return new Response(JSON.stringify({ error: "Session not found." }), { status: 404, headers: { "Content-Type": "application/json" } });
+    }, true);
+    render(<App />);
+    // Wait for Research's own conversation and composer, not just the URL.
+    await screen.findByText("Annual report history");
+    await waitFor(() => expect(screen.getAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent).join(" ")).toContain("Research bot"));
+    expect(await screen.findByTestId("chat-composer")).toBeTruthy();
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+
+    await openBotFromAgentsView(/Engineering bot/);
+
+    await screen.findByRole("heading", { name: /Engineering bot's thread could not be opened/ });
+    expect(screen.getByText(/That thread was removed from this workspace/)).toBeTruthy();
+    expect(screen.queryByTestId("chat-composer")).toBeNull();
+    await waitFor(() => expect(new URLSearchParams(window.location.search).has("session")).toBe(false));
+
+    fireEvent.click(screen.getByRole("button", { name: "Start a thread with Engineering bot" }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ name: "Engineering bot", metadata: { customAgentId: engineering.id } }),
+    })));
+  });
+
+  it("does not call a superseded resume a failure", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    // Engineering's resume hangs, then fails after Research is selected again.
+    stubBots(async (path) => {
+      if (!path.includes(ENGINEERING_THREAD)) return Response.json({ resumed: true });
+      await held;
+      return new Response(JSON.stringify({ error: "late failure" }), { status: 503, headers: { "Content-Type": "application/json" } });
+    }, true);
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+
+    await openBotFromAgentsView(/Engineering bot/);
+    await screen.findByRole("heading", { name: /Opening Engineering bot/ });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Competitor brief/ }));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+    await act(async () => { release?.(); await held; });
+    await act(async () => { await Promise.resolve(); });
+
+    // The newer Research selection owns the page; the stale failure is not narrated.
+    expect(screen.queryByRole("heading", { name: /could not be opened/ })).toBeNull();
+    expect(await screen.findByTestId("chat-composer")).toBeTruthy();
+  });
+
+  it("drops a resume reply that lands after a newer bot was opened", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    mocks.chat.messages = [];
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    stubBots(async () => { await held; return Response.json({ session: researchThread, resumed: true }); });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /Competitor brief/ }));
+    await openBotFromAgentsView(/Engineering bot/);
+    await screen.findByRole("heading", { name: "Engineering bot has no thread yet" });
+
+    await act(async () => { release?.(); await held; });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(screen.getByRole("heading", { name: "Engineering bot has no thread yet" })).toBeTruthy();
+    await waitFor(() => expect(new URLSearchParams(window.location.search).has("session")).toBe(false));
+    expect(screen.queryAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent).join(" ")).not.toContain("Research bot");
+  });
+});
+
+describe("bot run outputs across a thread switch", () => {
+  const research = { id: "cag-research", orgId: "self-hosted", slug: "research", version: 1, config: { name: "Research bot", instructions: "Write briefs.", harness: "opencode" } };
+  const THREAD_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const THREAD_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const threadA = { id: THREAD_A, name: "First brief", agentName: `web:test-operator:${THREAD_A}`, createdAt: 9, updatedAt: 9, metadata: { customAgentId: research.id } };
+  const threadB = { id: THREAD_B, name: "Second brief", agentName: `web:test-operator:${THREAD_B}`, createdAt: 5, updatedAt: 5, metadata: { customAgentId: research.id } };
+  const finishedRun = {
+    runId: "run-a", sandboxId: "sandbox-1", repoUrl: "", task: "Write the brief", baseBranch: "main",
+    publishPullRequest: false, generation: 1, status: "completed", createdAt: 1, updatedAt: 2,
+    customAgentId: research.id, deliverables: [{ path: "reports/first.md", bytes: 10, mediaType: "text/markdown" }],
+  };
+
+  it("ignores a 405 resume that lands after the first thread was selected again", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${THREAD_A}`);
+    mocks.chat.messages = [];
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const originalFetch = fetch;
+    const runsRequests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const parsed = new URL(String(url), "http://localhost");
+      if (parsed.pathname === "/api/whoami") return Response.json({ agent: "test-operator", auth: "access" });
+      if (parsed.pathname === "/api/custom-agents" && options?.method !== "POST") return Response.json({ agents: [research] });
+      if (parsed.pathname === "/api/sessions" && options?.method !== "POST") return Response.json({ sessions: [threadA, threadB], defaultSessionId: "default" });
+      if (/^\/api\/sessions\/[^/]+\/resume$/.test(parsed.pathname)) {
+        // The second thread's resume is held, then answers 405 (route unsupported);
+        // the first thread's succeeds at once.
+        if (!parsed.pathname.includes(THREAD_B)) return Response.json({ resumed: true });
+        await held;
+        return new Response(null, { status: 405 });
+      }
+      if (parsed.pathname === "/api/agents") return Response.json({ agents: [] });
+      if (parsed.pathname === "/api/approvals") return Response.json({ approvals: [], decided: [] });
+      if (parsed.pathname.startsWith("/api/runs")) {
+        runsRequests.push(parsed.pathname + parsed.search);
+        return Response.json({ runs: [] });
+      }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(THREAD_A));
+
+    // Switch to the second thread (its resume hangs), then back to the first.
+    fireEvent.click(await screen.findByRole("button", { name: /Second brief/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /First brief/ }));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(THREAD_A));
+    expect(await screen.findByTestId("chat-composer")).toBeTruthy();
+
+    const before = runsRequests.length;
+    await act(async () => { release?.(); await held; });
+    await act(async () => { await Promise.resolve(); });
+
+    // The abandoned resume's 405 must not switch session scoping off behind the
+    // thread now on screen: that would send the next read to the default store.
+    const after = runsRequests.slice(before);
+    expect(after.filter((path) => !path.includes("session="))).toHaveLength(0);
+    expect(screen.queryByText(/does not support session-scoped runs/)).toBeNull();
+    expect(new URLSearchParams(window.location.search).get("session")).toBe(THREAD_A);
+  });
+
+  it("keeps the previous thread's file on its own session while the next read is pending", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${THREAD_A}`);
+    mocks.chat.messages = [];
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const raw = String(url);
+      const parsed = new URL(raw, "http://localhost");
+      if (parsed.pathname === "/api/whoami") return Response.json({ agent: "test-operator", auth: "access" });
+      if (parsed.pathname === "/api/custom-agents" && options?.method !== "POST") return Response.json({ agents: [research] });
+      if (parsed.pathname === "/api/sessions" && options?.method !== "POST") return Response.json({ sessions: [threadA, threadB], defaultSessionId: "default" });
+      if (/^\/api\/sessions\/[^/]+\/resume$/.test(parsed.pathname)) return Response.json({ resumed: true });
+      if (parsed.pathname === "/api/agents") return Response.json({ agents: [] });
+      if (parsed.pathname === "/api/approvals") return Response.json({ approvals: [], decided: [] });
+      if (parsed.pathname.startsWith("/api/runs")) {
+        // Hold the second thread's answer so the switch is observed mid-flight.
+        if (parsed.searchParams.get("session") === THREAD_B) { await held; return Response.json({ runs: [] }); }
+        return Response.json({ runs: [finishedRun] });
+      }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(THREAD_A));
+
+    await act(async () => {
+      window.history.pushState(null, "", "/custom-agents/");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    fireEvent.click((await screen.findAllByRole("button", { name: /Research bot/ }))[0]!);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(THREAD_A));
+
+    fireEvent.click(await screen.findByRole("tab", { name: "Library" }));
+    const panel = within(await screen.findByRole("tabpanel", { name: "Library" }));
+    const link = await panel.findByRole("link", { name: "Download reports/first.md" });
+    expect(link.getAttribute("href")).toBe(`/api/runs/run-a/deliverables/0?session=${THREAD_A}`);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Second brief/ }));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(THREAD_B));
+
+    // The held answer means the old file is still in memory; it must not be
+    // relabelled with the session that has not answered yet.
+    await panel.findByText(/Loading this bot's captured files/);
+    // Nothing anywhere on the page — panel or the conversation's own Deliverables
+    // card — offers the retained file under the session that has not answered.
+    expect(screen.queryAllByRole("link").map((anchor) => anchor.getAttribute("href") ?? "").join(" ")).not.toContain(THREAD_B);
+    expect(screen.queryByRole("link", { name: "Download reports/first.md" })).toBeNull();
+
+    await act(async () => { release?.(); await held; });
+  });
+});
+
 describe("bot thread links", () => {
   const research = { id: "cag-research", orgId: "self-hosted", slug: "research", version: 1, config: { name: "Research bot", instructions: "Write briefs.", harness: "opencode" } };
   const engineering = { id: "cag-engineering", orgId: "self-hosted", slug: "engineering", version: 1, config: { name: "Engineering bot", instructions: "Review code.", harness: "opencode" } };
@@ -1273,7 +1770,9 @@ describe("bot thread links", () => {
     mocks.chat.messages = [];
     stubThreads();
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "New thread with Research bot" }));
+    const start = await screen.findByRole("button", { name: "New thread with Research bot" }) as HTMLButtonElement;
+    await waitFor(() => expect(start.disabled).toBe(false));
+    fireEvent.click(start);
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe("44444444-4444-4444-8444-444444444444"));
     expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({
       method: "POST",
@@ -1316,6 +1815,56 @@ describe("bot thread links", () => {
     render(<App />);
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
     expect(window.history.length).toBe(before);
+  });
+
+  it("lands a ?prompt= handoff in the remembered thread's visible composer without sending", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    localStorage.setItem("shiba:selected-session", RESEARCH_THREAD);
+    writeDraft(composerDraftScope("test-operator", "default"), "Default thread draft");
+    window.history.replaceState(null, "", "/threads/?prompt=https%3A%2F%2Fexample.com%2Fdocs");
+    mocks.chat.messages = [];
+    mocks.chat.sendMessage.mockClear();
+    stubThreads();
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+    await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("https://example.com/docs"));
+    expect(new URLSearchParams(window.location.search).has("prompt")).toBe(false);
+    expect(readDraft(composerDraftScope("test-operator", RESEARCH_THREAD))).toBe("https://example.com/docs");
+    expect(readDraft(composerDraftScope("test-operator", "default"))).toBe("Default thread draft");
+    expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
+    expect(vi.mocked(fetch).mock.calls.some(([url, options]) => options?.method === "POST" && /^\/api\/(?:runs|sessions|approvals)/.test(String(url)))).toBe(false);
+  });
+
+  it("adds a ?prompt= handoff below the remembered thread's unsent draft instead of replacing it", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    localStorage.setItem("shiba:selected-session", RESEARCH_THREAD);
+    writeDraft(composerDraftScope("test-operator", RESEARCH_THREAD), "Unsent research notes");
+    window.history.replaceState(null, "", "/threads/?prompt=https%3A%2F%2Fexample.com%2Fdocs");
+    mocks.chat.messages = [];
+    mocks.chat.sendMessage.mockClear();
+    stubThreads();
+    render(<App />);
+    await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Unsent research notes\n\nhttps://example.com/docs"));
+    expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD);
+    expect(readDraft(composerDraftScope("test-operator", RESEARCH_THREAD))).toBe("Unsent research notes\n\nhttps://example.com/docs");
+    expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
+    expect(vi.mocked(fetch).mock.calls.some(([url, options]) => options?.method === "POST" && /^\/api\/(?:runs|sessions|approvals)/.test(String(url)))).toBe(false);
+  });
+
+  it("lands the Outputs video handoff in the remembered thread without asking for suggestions", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    localStorage.setItem("shiba:selected-session", RESEARCH_THREAD);
+    window.history.replaceState(null, "", `/threads/?${new URLSearchParams({ prompt: "Create a 9:16 video of " })}`);
+    mocks.chat.messages = [];
+    mocks.chat.sendMessage.mockClear();
+    stubThreads();
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+    await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Create a 9:16 video of "));
+    await act(async () => {});
+    expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
+    const posts = vi.mocked(fetch).mock.calls.filter(([, options]) => options?.method === "POST").map(([url]) => String(url));
+    expect(posts.filter((url) => /\/api\/(runs|sessions|approvals|outputs)|chat-suggestions|video|image/.test(url))).toEqual([]);
   });
 
   it("replaces a dead thread link instead of leaving it in history", async () => {
@@ -1367,6 +1916,50 @@ describe("bot thread links", () => {
     });
     await screen.findByText(/That thread isn't available to you/);
     expect(new URLSearchParams(window.location.search).has("session")).toBe(false);
+  });
+
+  it("saves successive library edits with the version the previous save returned", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    const saves: { expectedVersion: number; expected: string[] }[] = [];
+    let version = research.version;
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path === "/api/whoami") return Response.json({ agent: "test-operator", auth: "access" });
+      if (path === "/api/sessions" && options?.method !== "POST") return Response.json({ sessions: threads, defaultSessionId: "default" });
+      // The list keeps answering the version it was opened with, so only the
+      // save's own answer can move the record forward.
+      if (path === "/api/custom-agents" && options?.method !== "POST") {
+        return Response.json({ agents: [research, engineering] });
+      }
+      if (path === `/api/custom-agents/${research.id}` && options?.method === "PATCH") {
+        const body = JSON.parse(String(options.body)) as { config: { expectedDeliverables?: string[] }; expectedVersion: number };
+        saves.push({ expectedVersion: body.expectedVersion, expected: body.config.expectedDeliverables ?? [] });
+        version += 1;
+        return Response.json({ agent: { ...research, version, config: { ...research.config, expectedDeliverables: body.config.expectedDeliverables } } });
+      }
+      if (path === "/api/agents") return Response.json({ agents: [] });
+      if (path === "/api/approvals") return Response.json({ approvals: [], decided: [] });
+      if (path.startsWith("/api/runs")) return Response.json({ runs: [] });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Show details panel" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Library" }));
+    fireEvent.change(await screen.findByLabelText("Add a required output"), { target: { value: "brief.md" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(saves).toHaveLength(1));
+
+    // The second edit runs before any list refetch: it must still send the
+    // version the first save returned, or the server refuses it as stale.
+    await act(async () => {});
+    fireEvent.change(await screen.findByLabelText("Add a required output"), { target: { value: "summary.md" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(saves).toHaveLength(2));
+    expect(saves[0]).toEqual({ expectedVersion: 1, expected: ["brief.md"] });
+    expect(saves[1]).toEqual({ expectedVersion: 2, expected: ["brief.md", "summary.md"] });
   });
 
   it("leaves a shared room link intact and never attaches a private thread to it", async () => {
@@ -1438,5 +2031,153 @@ describe("bot thread links", () => {
     }));
     render(<App />);
     await waitFor(() => expect(new URLSearchParams(window.location.search).has("session")).toBe(false));
+  });
+});
+
+describe("Work approval receipts survive refresh and Back", () => {
+  const run = (runId: string, approvalId: string, summary: string) => ({ runId, task: "SAME_TEXT_TASK", status: "completed", repoUrl: "", sandboxId: "fixture-sandbox", baseBranch: "main", publishPullRequest: false, generation: 1, createdAt: 1, updatedAt: 2, summary, approval: { approvalId } });
+  const decided = (approvalId: string, status: "approved" | "rejected", task: string) => ({ approvalId, threadKey: "fixture-thread", task, repoUrl: "", createdAt: 1, decidedAt: 2, kind: "run", status });
+  function stub(body: { runs?: unknown[]; approvals?: unknown[]; decided?: unknown[]; decision?: unknown; approvalsDelayMs?: number; runsDelayMs?: number }) {
+    const originalFetch = fetch;
+    const later = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path === "/api/approvals" && options?.method === "POST") return Response.json(body.decision ?? { result: "unknown" });
+      if (path === "/api/approvals" && !options?.method) { await later(body.approvalsDelayMs); return Response.json({ approvals: body.approvals ?? [], decided: body.decided ?? [] }); }
+      if (path.startsWith("/api/runs") && !options?.method) { await later(body.runsDelayMs); return Response.json({ runs: body.runs ?? [] }); }
+      return originalFetch(url, options);
+    }));
+  }
+  const posted = () => vi.mocked(fetch).mock.calls.filter(([, options]) => options?.method === "POST" && (options.body ? String(options.body).includes("approvalId") : false));
+
+  it("restores an approval receipt to its exact linked run with a replaced entry and no decision POST", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/work/?view=board&task=gate-a&taskKind=approval&tab=approval");
+    const entries = window.history.length;
+    stub({ runs: [run("decoy-run", "gate-b", "DECOY_OUTPUT"), run("linked-run", "gate-a", "LINKED_OUTPUT")], decided: [decided("gate-a", "approved", "SAME_TEXT_TASK")] });
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("task")).toBe("linked-run"));
+    expect(new URLSearchParams(window.location.search).get("taskKind")).toBe("run");
+    expect(window.location.pathname).toBe("/work/");
+    expect(window.history.length).toBe(entries);
+    const inspector = await screen.findByRole("dialog", { name: "Work inspector: SAME_TEXT_TASK" });
+    fireEvent.click(within(inspector).getByRole("tab", { name: "Output" }));
+    expect(await screen.findByText("LINKED_OUTPUT")).toBeTruthy();
+    expect(screen.queryByText("DECOY_OUTPUT")).toBeNull();
+    expect(posted()).toHaveLength(0);
+  });
+
+  it("keeps a decided approval without a run open on its server-recorded outcome", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/work/?view=board&task=gate-c&taskKind=approval&tab=approval");
+    stub({ decided: [decided("gate-c", "rejected", "REJECTED_RECEIPT")] });
+    render(<App />);
+    const inspector = await screen.findByRole("dialog", { name: "Work inspector: REJECTED_RECEIPT" });
+    expect(within(inspector).getAllByText("Rejected").length).toBeGreaterThan(1);
+    expect(within(inspector).queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(within(inspector).queryByText(/sandbox starting/)).toBeNull();
+    expect(new URLSearchParams(window.location.search).get("task")).toBe("gate-c");
+    expect(posted()).toHaveLength(0);
+  });
+
+  const runsAnswered = async () => {
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).startsWith("/api/runs"))).toBe(true));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+  };
+
+  it("fails closed when more than one run claims the same approval", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/work/?view=board&task=gate-d&taskKind=approval&tab=approval");
+    stub({ runs: [run("first-run", "gate-d", "FIRST_OUTPUT"), run("second-run", "gate-d", "SECOND_OUTPUT")], decided: [decided("gate-d", "approved", "AMBIGUOUS_RECEIPT")] });
+    render(<App />);
+    expect(await screen.findByText(/more than one run/)).toBeTruthy();
+    await runsAnswered();
+    expect(new URLSearchParams(window.location.search).get("task")).toBe("gate-d");
+    expect(new URLSearchParams(window.location.search).get("taskKind")).toBe("approval");
+    expect(posted()).toHaveLength(0);
+  });
+
+  it.each([
+    ["an email receipt", { ...decided("mail-1", "approved", "MAIL_RECEIPT"), kind: "email_send" }],
+    ["a rejected receipt", decided("mail-1", "rejected", "MAIL_RECEIPT")],
+  ])("keeps %s when a stale run names its approval id", async (_label, receipt) => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/work/?view=board&task=mail-1&taskKind=approval&tab=approval");
+    stub({ runs: [{ ...run("stale-run", "mail-1", "STALE_OUTPUT"), task: "STALE_RUN" }], decided: [receipt] });
+    render(<App />);
+    await screen.findByRole("dialog", { name: "Work inspector: MAIL_RECEIPT" });
+    await runsAnswered();
+    expect(new URLSearchParams(window.location.search).get("task")).toBe("mail-1");
+    expect(screen.queryByRole("dialog", { name: "Work inspector: STALE_RUN" })).toBeNull();
+  });
+
+  it.each([
+    ["runs answer first", { approvalsDelayMs: 300 }],
+    ["approvals answer first", { runsDelayMs: 300 }],
+  ])("keeps a decided email receipt against a stale run when %s", async (_label, delays) => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/work/?view=board&task=mail-2&taskKind=approval&tab=approval");
+    stub({ ...delays, runs: [{ ...run("stale-run", "mail-2", "STALE_OUTPUT"), task: "STALE_RUN" }], decided: [{ ...decided("mail-2", "approved", "MAIL_RECEIPT_2"), kind: "email_send" }] });
+    render(<App />);
+    await screen.findByRole("dialog", { name: "Work inspector: MAIL_RECEIPT_2" }, { timeout: 3000 });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 400)); });
+    expect(new URLSearchParams(window.location.search).get("task")).toBe("mail-2");
+    expect(screen.queryByRole("dialog", { name: "Work inspector: STALE_RUN" })).toBeNull();
+  });
+
+  it("keeps the receipt URL and the ambiguity notice when no receipt is listed", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/work/?view=board&task=gate-g&taskKind=approval&tab=approval");
+    stub({ runs: [run("first-run", "gate-g", "FIRST_OUTPUT"), run("second-run", "gate-g", "SECOND_OUTPUT")] });
+    render(<App />);
+    expect(await screen.findByText(/more than one run/)).toBeTruthy();
+    await runsAnswered();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 200)); });
+    expect(new URLSearchParams(window.location.search).get("task")).toBe("gate-g");
+    expect(screen.queryByText(/isn't available in this workspace/)).toBeNull();
+    expect(screen.getByText(/more than one run/)).toBeTruthy();
+  });
+
+  it("resolves an already-loaded linked run when Back or Forward restores a receipt inside Work", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/work/?view=board&task=gate-e&taskKind=approval&tab=approval");
+    stub({ runs: [run("run-f", "gate-f", "RUN_F_OUTPUT")], decided: [decided("gate-e", "rejected", "RECEIPT_E"), decided("gate-f", "approved", "SAME_TEXT_TASK")] });
+    render(<App />);
+    await screen.findByRole("dialog", { name: "Work inspector: RECEIPT_E" });
+    await runsAnswered();
+    const answered = vi.mocked(fetch).mock.calls.length;
+    await act(async () => {
+      window.history.pushState(null, "", "/work/?view=board&task=gate-f&taskKind=approval&tab=approval");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("task")).toBe("run-f"));
+    expect(vi.mocked(fetch).mock.calls.slice(answered).some(([url]) => String(url).startsWith("/api/runs"))).toBe(false);
+    expect(posted()).toHaveLength(0);
+  });
+
+  it("shows a queued decision as queued on the Work receipt", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/work/?view=board&task=gate-q&taskKind=approval&tab=approval");
+    stub({ approvals: [{ approvalId: "gate-q", threadKey: "fixture-thread", task: "QUEUED_RECEIPT", repoUrl: "https://github.com/fixture/repo", createdAt: 1, kind: "run", status: "pending" }], decision: { result: "queued", code: "repo_claim_queued" } });
+    render(<App />);
+    const inspector = await screen.findByRole("dialog", { name: "Work inspector: QUEUED_RECEIPT" });
+    fireEvent.click(within(inspector).getByRole("button", { name: "Approve" }));
+    await waitFor(() => expect(posted()).toHaveLength(1));
+    expect(await within(inspector).findByText(/queued behind another run/)).toBeTruthy();
+    expect(within(inspector).queryByText(/sandbox starting/)).toBeNull();
+  });
+
+  it("replaces an unknown receipt link without leaking a title or adding history", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/work/?view=board&task=ghost-gate&taskKind=approval&tab=approval");
+    const entries = window.history.length;
+    stub({ runs: [run("other-run", "other-gate", "OTHER_OUTPUT")] });
+    render(<App />);
+    await waitFor(() => expect(new URLSearchParams(window.location.search).has("task")).toBe(false));
+    expect(new URLSearchParams(window.location.search).get("view")).toBe("board");
+    expect(window.history.length).toBe(entries);
+    expect(await screen.findByText(/That item isn't available in this workspace/)).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(posted()).toHaveLength(0);
   });
 });

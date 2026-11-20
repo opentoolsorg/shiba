@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Shiba draft handoff options</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <main class="panel wide">
+      <h1>Shiba dashboard address</h1>
+      <p class="hint">
+        The origin of the Shiba dashboard this extension opens drafts in, such as
+        <code>https://shiba.example.com</code>. Only the origin is stored; a path, query or
+        credentials are refused rather than trimmed.
+      </p>
+      <form id="form">
+        <label class="field">
+          <span>Destination</span>
+          <input id="destination" type="url" autocomplete="off" spellcheck="false" />
+        </label>
+        <div class="row">
+          <button class="primary" id="save" type="submit">Save</button>
+          <button class="link" id="forget" type="button">Forget</button>
+        </div>
+      </form>
+      <p class="notice" id="status" role="status" hidden></p>
+    </main>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

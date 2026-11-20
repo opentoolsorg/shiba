@@ -2,8 +2,8 @@ import { DatabaseSync } from "node:sqlite";
 import { applyAuthMigrations } from "./fixtures/auth-migrations.js";
 import { createServer, type Server } from "node:http";
 import { generateKeyPairSync, sign, createHash } from "node:crypto";
-import { afterEach, describe, expect, it } from "vitest";
-import { betterAuthFor, ensureBetterAuthSchema, getSsoConfig, isSsoEmailAllowed, handleBetterAuth, resolveBetterAuthUserId, type BetterAuthLaneEnv } from "../src/better-auth.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { betterAuthFor, ensureBetterAuthSchema, getSsoConfig, getSsoReadiness, isSsoEmailAllowed, handleBetterAuth, resolveBetterAuthUserId, type BetterAuthLaneEnv } from "../src/better-auth.js";
 
 const BASE = "http://localhost:8787";
 const credentials = {};
@@ -36,9 +36,20 @@ function seed(f: Fixture, verified = true, policy: "bootstrap" | "invited" | nul
 }
 
 const servers: Server[] = [];
-afterEach(async () => { await Promise.all(servers.splice(0).map(server => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())))); });
+afterEach(async () => { vi.restoreAllMocks(); await Promise.all(servers.splice(0).map(server => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())))); });
 
-async function issuer() {
+const GOOGLE_ISSUER = "https://accounts.google.com";
+/** Serve a fixed public issuer's discovery document from the local fixture, offline. */
+function routeIssuer(publicIssuer: string, origin: string) {
+  const realFetch = globalThis.fetch;
+  vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+    const url = input instanceof Request ? input.url : String(input);
+    if (!url.startsWith(`${publicIssuer}/`)) return realFetch(input, init);
+    return realFetch(`${origin}${url.slice(publicIssuer.length)}`, init);
+  });
+}
+
+async function issuer(publicIssuer?: string) {
   const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   let nonce = "", email = "local@example.test", badSignature = false;
   let tokenBody: URLSearchParams | undefined;
@@ -46,7 +57,7 @@ async function issuer() {
   const server = createServer(async (request, response) => {
     response.setHeader("content-type", "application/json");
     if (request.url === "/.well-known/openid-configuration") {
-      response.end(JSON.stringify({ issuer: origin, authorization_endpoint: `${origin}/authorize`, token_endpoint: `${origin}/token`,
+      response.end(JSON.stringify({ issuer: publicIssuer ?? origin, authorization_endpoint: `${origin}/authorize`, token_endpoint: `${origin}/token`,
         jwks_uri: `${origin}/jwks`, id_token_signing_alg_values_supported: ["RS256"] }));
     } else if (request.url === "/jwks") {
       response.end(JSON.stringify({ keys: [{ ...publicKey.export({ format: "jwk" }), kid: "fixture", alg: "RS256", use: "sig" }] }));
@@ -55,7 +66,7 @@ async function issuer() {
       for await (const chunk of request) chunks.push(Buffer.from(chunk));
       tokenBody = new URLSearchParams(Buffer.concat(chunks).toString());
       const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
-      const payload = `${encode({ alg: "RS256", kid: "fixture" })}.${encode({ iss: origin, aud: "client", sub: "subject", email, email_verified: true,
+      const payload = `${encode({ alg: "RS256", kid: "fixture" })}.${encode({ iss: publicIssuer ?? origin, aud: "client", sub: "subject", email, email_verified: true,
         name: "Remote", nonce, iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 300 })}`;
       const signature = Buffer.from(sign("RSA-SHA256", Buffer.from(payload), privateKey)).toString("base64url");
       response.end(JSON.stringify({ access_token: "fixture-access", token_type: "Bearer", expires_in: 300,
@@ -81,6 +92,36 @@ describe("SSO configuration and domain policy", () => {
   it.each(["http://idp.example.test", "https://user:password@idp.example.test", "https://idp.example.test?key=value", "broken"])("rejects invalid issuer %s", value => {
     expect(getSsoConfig({ ...complete, SSO_OIDC_ISSUER: value })).toMatchObject({ enabled: false, missing: ["SSO_OIDC_ISSUER"] });
   });
+  it("keeps manual issuer mode as the default", () => {
+    expect(getSsoConfig(complete)).toMatchObject({ preset: undefined, settings: ["SSO_OIDC_ISSUER", "SSO_OIDC_CLIENT_ID", "SSO_OIDC_CLIENT_SECRET"],
+      missing: [], conflicting: [] });
+  });
+  it("uses the opt-in Google Workspace preset issuer and display name", () => {
+    const { SSO_OIDC_ISSUER: _issuer, ...preset } = complete;
+    expect(getSsoConfig({ ...preset, SSO_OIDC_PRESET: " Google-Workspace " })).toMatchObject({ enabled: true, preset: "google-workspace",
+      issuer: GOOGLE_ISSUER, displayName: "Google Workspace", missing: [], conflicting: [],
+      settings: ["SSO_OIDC_PRESET", "SSO_OIDC_CLIENT_ID", "SSO_OIDC_CLIENT_SECRET"] });
+    expect(getSsoConfig({ ...preset, SSO_OIDC_PRESET: "google-workspace", SSO_OIDC_DISPLAY_NAME: "Example Inc" }).displayName).toBe("Example Inc");
+    expect(getSsoConfig({ ...complete, SSO_OIDC_PRESET: "google-workspace", SSO_OIDC_ISSUER: `${GOOGLE_ISSUER}/` })).toMatchObject({ enabled: true, issuer: GOOGLE_ISSUER });
+  });
+  it.each([complete.SSO_OIDC_ISSUER, "/", "//", "accounts.google.com"])("rejects a preset beside a different explicit issuer %s", value => {
+    expect(getSsoConfig({ ...complete, SSO_OIDC_PRESET: "google-workspace", SSO_OIDC_ISSUER: value })).toMatchObject({ enabled: false, issuer: undefined,
+      missing: [], conflicting: ["SSO_OIDC_PRESET", "SSO_OIDC_ISSUER"] });
+  });
+  it("treats a blank explicit issuer beside the preset as unset", () => {
+    expect(getSsoConfig({ ...complete, SSO_OIDC_PRESET: "google-workspace", SSO_OIDC_ISSUER: "  " })).toMatchObject({ enabled: true, issuer: GOOGLE_ISSUER });
+  });
+  it.each(["okta", "__proto__", "constructor"])("rejects unknown preset %s", value => {
+    expect(getSsoConfig({ ...complete, SSO_OIDC_PRESET: value })).toMatchObject({ enabled: false, issuer: undefined, missing: ["SSO_OIDC_PRESET"] });
+  });
+  it("reports ready only when the auth lane will mount the handler", () => {
+    const store = {} as D1Database;
+    expect(getSsoReadiness(complete)).toMatchObject({ ready: false, missing: ["BETTER_AUTH_SECRET", "AGENT_AUDIT"] });
+    expect(getSsoReadiness({ ...complete, BETTER_AUTH_SECRET: "short", AGENT_AUDIT: store })).toMatchObject({ ready: false, missing: ["BETTER_AUTH_SECRET"] });
+    expect(getSsoReadiness({ ...complete, SHIBA_SSO_ENABLED: "0", BETTER_AUTH_SECRET: "s".repeat(32), AGENT_AUDIT: store })).toMatchObject({ ready: false, missing: [] });
+    expect(getSsoReadiness({ ...complete, BETTER_AUTH_SECRET: "s".repeat(32), AGENT_AUDIT: store })).toEqual({ ready: true, preset: undefined, settings: ["SSO_OIDC_ISSUER", "SSO_OIDC_CLIENT_ID", "SSO_OIDC_CLIENT_SECRET", "BETTER_AUTH_SECRET", "AGENT_AUDIT"],
+      missing: [], conflicting: [] });
+  });
   it("matches exact normalized domains or the exact bootstrap owner email", () => {
     const env = { SSO_ALLOWED_DOMAINS: " example.test, OTHER.test ", BETTER_AUTH_OWNER_EMAIL: "owner@outside.test" };
     for (const email of ["person@EXAMPLE.test", "person@other.test", "OWNER@outside.test"]) expect(isSsoEmailAllowed(env, email)).toBe(true);
@@ -89,9 +130,26 @@ describe("SSO configuration and domain policy", () => {
   });
   it("publishes only the display name and enabled state for configured SSO", async () => {
     const response = await handleBetterAuth(new Request(`${BASE}/api/auth/social-providers`), { ...complete,
-      BETTER_AUTH_SECRET: "s".repeat(32), SSO_OIDC_DISPLAY_NAME: "Company Identity" });
+      BETTER_AUTH_SECRET: "s".repeat(32), AGENT_AUDIT: {} as D1Database, SSO_OIDC_DISPLAY_NAME: "Company Identity" });
     expect(await response?.json()).toEqual({ providers: { google: false, slack: false },
       sso: { enabled: true, displayName: "Company Identity" } });
+  });
+  it("publishes only the preset display name, never issuer or client values", async () => {
+    const { SSO_OIDC_ISSUER: _issuer, ...preset } = complete;
+    const response = await handleBetterAuth(new Request(`${BASE}/api/auth/social-providers`), { ...preset, SSO_OIDC_PRESET: "google-workspace",
+      BETTER_AUTH_SECRET: "s".repeat(32), AGENT_AUDIT: {} as D1Database });
+    const body = await response?.text() ?? "";
+    expect(JSON.parse(body)).toEqual({ providers: { google: false, slack: false }, sso: { enabled: true, displayName: "Google Workspace" } });
+    for (const value of [GOOGLE_ISSUER, "accounts.google.com", "client", "fixture-secret", "google-workspace"]) expect(body).not.toContain(value);
+  });
+  it("hides preset SSO when the auth store is missing, matching setup readiness and the handler", async () => {
+    const { SSO_OIDC_ISSUER: _issuer, ...preset } = complete;
+    const env: BetterAuthLaneEnv = { ...preset, SSO_OIDC_PRESET: "google-workspace", BETTER_AUTH_SECRET: "s".repeat(32) };
+    expect(getSsoReadiness(env)).toMatchObject({ ready: false, missing: ["AGENT_AUDIT"] });
+    const options = await handleBetterAuth(new Request(`${BASE}/api/auth/social-providers`), env);
+    expect(await options?.json()).toMatchObject({ sso: { enabled: false } });
+    const signIn = await handleBetterAuth(post("sign-in/social", { provider: "sso", callbackURL: `${BASE}/app/` }), env);
+    expect(signIn?.status).toBe(503);
   });
   it.each([{}, { SHIBA_SSO_ENABLED: "1" }])("hides incomplete or disabled SSO without discovery or a database", async env => {
     const response = await handleBetterAuth(new Request(`${BASE}/api/auth/social-providers`), { ...env, BETTER_AUTH_SECRET: "s".repeat(32) });
@@ -101,9 +159,10 @@ describe("SSO configuration and domain policy", () => {
 });
 
 describe("OIDC discovery and code exchange", () => {
-  async function roundTrip(options: { allowed?: boolean; badSignature?: boolean; wrongNonce?: boolean; verified?: boolean; kind?: "bootstrap" | "invited"; owner?: boolean; linked?: boolean; newAccount?: boolean } = {}) {
-    const remote = await issuer();
-    const f = await fixture({ ...complete, SSO_OIDC_ISSUER: remote.origin,
+  async function roundTrip(options: { preset?: boolean; allowed?: boolean; badSignature?: boolean; wrongNonce?: boolean; verified?: boolean; kind?: "bootstrap" | "invited"; owner?: boolean; linked?: boolean; newAccount?: boolean } = {}) {
+    const remote = await issuer(options.preset ? GOOGLE_ISSUER : undefined);
+    if (options.preset) routeIssuer(GOOGLE_ISSUER, remote.origin);
+    const f = await fixture({ ...complete, ...(options.preset ? { SSO_OIDC_ISSUER: undefined, SSO_OIDC_PRESET: "google-workspace" } : { SSO_OIDC_ISSUER: remote.origin }),
       SSO_ALLOWED_DOMAINS: options.allowed === false ? "other.test" : "example.test",
       ...(options.owner ? { BETTER_AUTH_OWNER_EMAIL: "local@example.test" } : {}) });
     if (!options.newAccount) seed(f, options.verified ?? true, options.kind ?? (options.allowed === false ? "invited" : "bootstrap"));
@@ -130,6 +189,19 @@ describe("OIDC discovery and code exchange", () => {
     const cookie = callback.headers.getSetCookie().map(value => value.split(";")[0]).join("; ");
     expect(await resolveBetterAuthUserId(new Request(`${BASE}/api/whoami`, { headers: { cookie } }), f.env)).toBe("local@example.test");
     expect(f.sqlite.prepare('SELECT providerId FROM "account"').get()?.providerId).toBe("sso");
+    f.sqlite.close();
+  });
+  it("signs in through the Google Workspace preset on the same callback", async () => {
+    const { f, callback } = await roundTrip({ preset: true });
+    expect(callback.headers.get("location")).toBe(`${BASE}/app/`);
+    expect(f.sqlite.prepare('SELECT providerId FROM "account"').get()?.providerId).toBe("sso");
+    f.sqlite.close();
+  });
+  it("refuses a disallowed domain through the Google Workspace preset", async () => {
+    const { f, callback } = await roundTrip({ preset: true, allowed: false });
+    expect(callback.headers.get("location")).toContain("sso_domain_not_allowed");
+    expect(f.sqlite.prepare('SELECT COUNT(*) AS c FROM "account"').get()?.c).toBe(0);
+    expect(f.sqlite.prepare('SELECT COUNT(*) AS c FROM "session"').get()?.c).toBe(0);
     f.sqlite.close();
   });
   it("allows the configured owner email outside the domain list", async () => {

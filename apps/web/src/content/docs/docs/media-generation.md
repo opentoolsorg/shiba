@@ -23,7 +23,7 @@ The catalog and provider contracts live in `apps/backend/src/tools/image-models.
 
 ## Videos
 
-Video generation retains the existing Google connection and deployment enablement settings. A personal Google key must be connected. Dashboard chat asks for human confirmation before starting a paid job. MCP reports `approval_required` and cannot approve spending. Provider failures and timeouts may still be billed; check the provider account before retrying.
+Video generation retains the existing Google connection and deployment enablement settings. A personal Google key must be connected. Dashboard chat and Slack ask for human confirmation before starting a paid job. MCP reports `approval_required` and cannot approve spending. Provider failures and timeouts may still be billed; check the provider account before retrying.
 
 All modes accept a prompt, 3–8 seconds, and 16:9, 9:16, or 1:1. Only the sources listed for a mode are permitted:
 
@@ -36,6 +36,14 @@ All modes accept a prompt, 3–8 seconds, and 16:9, 9:16, or 1:1. Only the sourc
 | `video-editing` | `sourceVideoArtifactId` | Edit a video using the prompt |
 
 Omitting mode defaults to text-to-video, except legacy requests containing a source image retain image-to-video behavior. Sources must be unarchived artifacts owned by the requester in the same workspace. Images must be PNG/JPEG up to 10 MB; videos must be MP4 up to 50 MB. The backend advertises supported modes and sends sources as image/video content parts with the prompt in the existing background interactions request. Provider acceptance and quality depend on the connected account; these are not guarantees of live provider availability.
+
+## Generate media in Slack
+
+Mention Shiba with `generate image <description>` or send it as a direct message. A completed image is attached in the same thread. If you have linked your Slack user to your Shiba workspace, the image is also in **Outputs**.
+
+Use `generate video <description>` for an eight-second text-to-video clip. Video requires a managed Slack installation with `files:write`, a linked Slack identity, and your own Google API key. Select **Generate video** on the confirmation card in the same thread. Only the requester can confirm, within ten minutes, and they must be on the Slack approver list.
+
+Slack attachments are visible to the conversation's audience. See [Slack delivery requirements](/docs/slack/#get-files-back-in-the-thread) before generating from sensitive material.
 
 ## HTTP API
 

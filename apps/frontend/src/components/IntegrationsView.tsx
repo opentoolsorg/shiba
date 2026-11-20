@@ -28,6 +28,7 @@ import { WorkspaceConnectorsPanel } from "./WorkspaceConnectorsPanel";
 import { MainCard, type Scope } from "./ui/ContextPanel";
 import { SlackInstallationsPanel } from "./SlackInstallationsPanel";
 import { SlackCoworkerPanel } from "./SlackCoworkerPanel";
+import { TeamsConnectionPanel } from "./TeamsConnectionPanel";
 import { FounderStripeReads } from "./FounderStripeReads";
 import { FounderMetaReads } from "./FounderMetaReads";
 import { FounderHubSpotReads } from "./FounderHubSpotReads";
@@ -35,6 +36,7 @@ import { FounderReconciliation } from "./FounderReconciliation";
 import { FounderReconciliationSchedules } from "./FounderReconciliationSchedules";
 import { FounderReconciliationAutomaticSlack } from "./FounderReconciliationAutomaticSlack";
 import { FounderStripeAutomaticSlack } from "./FounderStripeAutomaticSlack";
+import { BrowserLoginVault } from "./BrowserLoginVault";
 
 function IntegrationRow({
   name,
@@ -143,6 +145,7 @@ interface IntegrationsViewProps {
   onNavigate?: (view: AppNavView) => void;
   initialTab?: "skills" | "mcp" | "connectors";
   actorId?: string | null;
+  nativeSession?: boolean;
   scope?: Scope;
   workspaceId?: string;
   workspaceName?: string;
@@ -163,7 +166,17 @@ export function IntegrationsView(props: IntegrationsViewProps): JSX.Element {
 }
 
 function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspaceId: string }): JSX.Element {
-  const [showSlack, setShowSlack] = useState(false);
+  const [slackReturn] = useState(() => {
+    if (typeof window === "undefined") return null;
+    const result = new URLSearchParams(window.location.search).get("slackInstall");
+    return result === "pending-review" || result === "cancelled" ? result : null;
+  });
+  const [showSlack, setShowSlack] = useState(slackReturn !== null);
+  const slackSetup = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (slackReturn && window.location.hash === "#slack-installations") slackSetup.current?.scrollIntoView();
+  }, [slackReturn]);
+  const [showTeams, setShowTeams] = useState(false);
   const [showCoworker, setShowCoworker] = useState(false);
   const [showStripe, setShowStripe] = useState(false);
   const [showMeta, setShowMeta] = useState(false);
@@ -172,14 +185,33 @@ function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspace
   const [showFutureComparisons, setShowFutureComparisons] = useState(false);
   const [showCombinedSlack, setShowCombinedSlack] = useState(false);
   const [showStripeSlack, setShowStripeSlack] = useState(false);
-  return <div className="min-w-0 space-y-4"><IntegrationsSetupCard workspaceId={props.workspaceId} /><WorkspaceConnectorsPanel bindingInputs={UNREAD_PRIVATE_BINDINGS}
+  const [showBrowserLogins, setShowBrowserLogins] = useState(false);
+  return <div className="min-w-0 space-y-4">
+    <section className="space-y-3 px-4 pt-4">
+      <button type="button" aria-expanded={showBrowserLogins} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]" onClick={() => setShowBrowserLogins((shown) => !shown)}>
+        {showBrowserLogins ? "Close browser logins" : "Browser logins"}
+      </button>
+      {showBrowserLogins ? <BrowserLoginVault workspaceId={props.workspaceId} workspaceName={props.workspaceName} workspaceRole={props.workspaceRole} /> : null}
+    </section>
+    <IntegrationsSetupCard workspaceId={props.workspaceId} /><WorkspaceConnectorsPanel bindingInputs={UNREAD_PRIVATE_BINDINGS}
     actorId={props.actorId} workspaceId={props.workspaceId} workspaceName={props.workspaceName} workspaceRole={props.workspaceRole}
     allowPersonalScope={props.allowPersonalScope} onPersonalScope={props.onPersonalScope} />
-    {props.workspaceRole === "owner" && props.actorId && <section className="p-4">
+    {props.workspaceRole === "owner" && props.actorId && <section ref={slackSetup} id="slack-installations" className="p-4">
       <button type="button" aria-expanded={showSlack} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowSlack((shown) => !shown)}>
         {showSlack ? "Close Slack installation setup" : "Manage Slack installations"}
       </button>
-      {showSlack && <SlackInstallationsPanel workspaceId={props.workspaceId} actorId={props.actorId} />}
+      {showSlack && <>
+        {slackReturn && <p role="status" className="py-2 text-xs">{slackReturn === "cancelled"
+          ? "Slack authorization was cancelled. Review the bot permissions to start a new request."
+          : "Check for a pending installation below. If you don't see it, select the workspace where you started setup."}</p>}
+        <SlackInstallationsPanel workspaceId={props.workspaceId} actorId={props.actorId} />
+      </>}
+    </section>}
+    {props.nativeSession && props.workspaceRole === "owner" && props.actorId && <section className="space-y-3 p-4">
+      <button type="button" aria-expanded={showTeams} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowTeams((shown) => !shown)}>
+        Manage Microsoft Teams connection
+      </button>
+      {showTeams && <TeamsConnectionPanel workspaceId={props.workspaceId} />}
     </section>}
     {props.actorId && props.onAdoptSlackTask && <section className="p-4">
       <button type="button" aria-expanded={showCoworker} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowCoworker((shown) => !shown)}>{showCoworker ? "Close Slack coworker" : "Review my Slack task drafts"}</button>
@@ -246,7 +278,7 @@ function PersonalIntegrationsView({
   const [setupSearch, setSetupSearch] = useState("");
   const [libraryCatalog, setLibraryCatalog] = useState<Array<{ slug: string; name: string; summary: string; installed: boolean }>>([]);
   const [spacesCatalog, setSpacesCatalog] = useState<Array<{ id: string; name: string; template: string }>>([]);
-  const [activeTab, setActiveTab] = useState<"skills" | "mcp" | "connectors">(() => {
+  const [activeTab, setActiveTab] = useState<"skills" | "mcp" | "connectors" | "logins">(() => {
     if (initialTab) return initialTab;
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
@@ -254,10 +286,11 @@ function PersonalIntegrationsView({
       if (val === "skills") return "skills";
       if (val === "mcp" || val === "mcps") return "mcp";
       if (val === "connectors" || val === "integrations") return "connectors";
+      if (val === "logins") return "logins";
     }
     return "connectors";
   });
-  const selectTab = (tab: "skills" | "mcp" | "connectors") => {
+  const selectTab = (tab: "skills" | "mcp" | "connectors" | "logins") => {
     setActiveTab(tab);
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
@@ -579,7 +612,7 @@ function PersonalIntegrationsView({
   }, [status, mailboxes.state, providers, savedSkills, toolDirectory, libraryCatalog, spacesCatalog]);
 
   const scopeCrumb = scope === "workspace" ? "Workspace" : "Personal";
-  const sectionCrumb = activeTab === "skills" ? "Skills" : activeTab === "mcp" ? "MCP Servers" : "Connectors";
+  const sectionCrumb = activeTab === "skills" ? "Skills" : activeTab === "mcp" ? "MCP Servers" : activeTab === "logins" ? "Saved logins" : "Connectors";
   const crumbs = [scopeCrumb, "Extensions", sectionCrumb];
 
   return (
@@ -674,13 +707,17 @@ function PersonalIntegrationsView({
           </div> : null}
         </div>
         <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8" role="tablist" aria-label="Integration category">
-          {([['skills', 'Skills'], ['mcp', 'MCP servers'], ['connectors', 'Connectors']] as const).map(([id, label]) => (
+          {([['skills', 'Skills'], ['mcp', 'MCP servers'], ['connectors', 'Connectors'], ['logins', 'Saved logins']] as const).map(([id, label]) => (
             <button key={id} type="button" role="tab" aria-selected={activeTab === id} onClick={() => selectTab(id)} className={`min-h-11 shrink-0 border-b-2 px-3 text-xs font-semibold transition-colors ${activeTab === id ? "border-[var(--primary)] text-[var(--primary)]" : "border-transparent text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"}`}>
               {label}
             </button>
           ))}
         </div>
-        {activeTab === "skills" ? <SkillsView embedded scope={scope} /> : activeTab === "mcp" ? <ExtensionMcpServersView scope={scope} /> : showCapabilityCatalog ? (
+        {activeTab === "logins" ? (
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 lg:px-8">
+            <BrowserLoginVault key={actorId ?? "personal"} />
+          </div>
+        ) : activeTab === "skills" ? <SkillsView embedded scope={scope} /> : activeTab === "mcp" ? <ExtensionMcpServersView scope={scope} /> : showCapabilityCatalog ? (
         <div className="min-h-0 flex-1">
           {providersError ? <p className="border-b border-[var(--border-1)] px-4 py-2 text-xs text-[var(--warning-fg)]" role="status">{providersError} Provider state may be stale. Retry refresh before relying on the last displayed state.</p> : null}
           {toolDirectoryError ? <p className="border-b border-[var(--border-1)] px-4 py-2 text-xs text-[var(--warning-fg)]" role="status">{toolDirectoryError} MCP schemas are withheld from the dashboard directory.</p> : null}

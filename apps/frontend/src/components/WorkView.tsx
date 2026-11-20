@@ -22,6 +22,8 @@ import { WorkTimelineView } from "./WorkTimelineView";
 
 export type WorkViewMode = WorkHeaderViewMode;
 
+const ambiguityNotice = "This approval is claimed by more than one run, so Work won't open either one. Compare them from the board.";
+
 export interface WorkTask {
   id: string;
   kind: WorkTaskKind;
@@ -43,9 +45,19 @@ export interface WorkViewProps {
   runs?: RetainedRun[];
   sessions?: SessionItem[];
   storedApprovals?: StoredApproval[];
+  /** Already-decided approvals: a receipt stays addressable after it leaves the pending queue. */
+  decidedApprovals?: StoredApproval[];
+  /** The runs owner has landed a full payload, so a summary is not a missing diff. */
+  runsDetailReady?: boolean;
+  /** Approvals and runs have both answered once; only then is an id genuinely unknown. */
+  selectionResolved?: boolean;
+  /** Neither owner knows the selected id — the caller replaces the URL and explains. */
+  onMissingSelection?: (task: string) => void;
   pendingApprovals?: ChatPendingApproval[];
   onSelectTask?: (id: string, kind: WorkTask["kind"]) => void;
   onNewTask?: () => void;
+  /** Why task creation is unavailable while onNewTask is absent. */
+  newTaskBlockedReason?: string;
   onQuickAddTask?: (task: string) => Promise<boolean>;
   onReviewApproval?: (approvalId: string) => void;
   /** Supplied only after current workspace membership has been verified. */
@@ -79,6 +91,10 @@ export interface WorkViewProps {
   onDecideStoredApproval?: WorkPeekProps["onDecideStoredApproval"];
   claimConflicts?: Record<string, { actorId: string; branch: string; repo: string; runId: string }>;
   approvalDecisions?: Record<string, boolean>;
+  /** Server answers for decisions taken here (`approved`, `queued`, `rejected`). */
+  approvalDecisionResults?: Record<string, string>;
+  /** The runs owner's load error, so the inspector never mistakes a failed load for no diff. */
+  runsError?: string | null;
   /** Scope used by existing deliverable links; never guessed from a run id. */
   peekSessionId?: string;
   /** Existing app feedback must remain visible above the modal's inert background. */
@@ -87,6 +103,8 @@ export interface WorkViewProps {
   renderPeekContent?: (task: WorkTask, tab: WorkPeekTab) => ReactNode;
   /** Router adapter: receive the complete next Work state, preserving caller-owned search keys. */
   onSearchChange?: (state: WorkSearchState) => void;
+  /** Normalizes an address the browser just loaded or restored; it must not add a history entry. */
+  onSearchRestore?: (state: WorkSearchState) => void;
   /** A new server-confirmed handoff may select an item without changing sessions. */
   requestedState?: WorkSearchState;
 }
@@ -169,8 +187,10 @@ export function WorkView(props: WorkViewProps): JSX.Element {
   }, [onViewChange]);
   const onViewChangeRef = useRef(onViewChange);
   onViewChangeRef.current = onViewChange;
+  const urlRestore = useRef(false);
   useEffect(() => {
     const read = (initial = false) => {
+      urlRestore.current = true;
       const state = parseWorkSearch(new URLSearchParams(window.location.search));
       setInternalView(state.view);
       setSelection({ task: state.task, taskKind: state.taskKind, tab: state.tab });
@@ -192,10 +212,15 @@ export function WorkView(props: WorkViewProps): JSX.Element {
   }, [props.requestedState]);
   const onSearchChangeRef = useRef(props.onSearchChange);
   onSearchChangeRef.current = props.onSearchChange;
+  const onSearchRestoreRef = useRef(props.onSearchRestore);
+  onSearchRestoreRef.current = props.onSearchRestore;
   useEffect(() => {
     if (!urlReady) return;
     const state = { view, ...selection };
-    if (onSearchChangeRef.current) onSearchChangeRef.current(state);
+    const restore = urlRestore.current;
+    urlRestore.current = false;
+    const writer = (restore ? onSearchRestoreRef.current : undefined) ?? onSearchChangeRef.current;
+    if (writer) writer(state);
     else writeWorkUrl(state);
   }, [view, selection, urlReady]);
   const setTaskId = useCallback((task: string | null) => setSelection({ task, tab: "steps" }), []);
@@ -230,6 +255,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
     runs = [],
     sessions = [],
     storedApprovals = [],
+    decidedApprovals = [],
     pendingApprovals = [],
     onSelectTask,
     onNewTask,
@@ -284,13 +310,75 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
   const q = filterQuery.trim().toLowerCase();
   const filteredTasks = tasks.filter((t) => !q || `${t.title} ${t.repo} ${t.stateLabel}`.toLowerCase().includes(q));
   const openCount = tasks.filter((t) => t.group === "needs-approval" || t.group === "queued" || t.group === "running" || t.group === "pr-open").length;
-  const selected = tasks.find((task) => task.id === props.selection.task && (!props.selection.taskKind || task.kind === props.selection.taskKind));
+  const selectedTask = tasks.find((task) => task.id === props.selection.task && (!props.selection.taskKind || task.kind === props.selection.taskKind));
+  // A decided approval leaves the pending queue, but its receipt stays
+  // addressable — resolved only from the authorized decided list, never guessed.
+  const decidedReceipt = useMemo<WorkTask | undefined>(() => {
+    const id = props.selection.task;
+    if (!id || (props.selection.taskKind && props.selection.taskKind !== "approval")) return undefined;
+    const approval = decidedApprovals.find((item) => item.approvalId === id);
+    if (!approval) return undefined;
+    const rejected = approval.status === "rejected";
+    return {
+      id: approval.approvalId,
+      kind: "approval",
+      title: approval.task || "Decided approval",
+      repo: parseRepoName(approval.repoUrl) || "",
+      group: rejected ? "attention" : "done",
+      stateLabel: rejected ? "Rejected" : "Approved",
+      createdAt: approval.createdAt,
+      updatedAt: approval.decidedAt ?? approval.createdAt,
+      routine: approval.routine,
+    };
+  }, [decidedApprovals, props.selection.task, props.selection.taskKind]);
+  const selected = selectedTask ?? decidedReceipt;
+  // Two runs claiming one approval is evidence of nothing: show the receipt, open neither.
+  const ambiguousRun =
+    props.selection.taskKind !== "run" && props.selection.taskKind !== "session" && Boolean(props.selection.task) &&
+    runs.filter((item) => item.approval?.approvalId === props.selection.task).length > 1;
+  // A decision taken in this session is itself a receipt: the approval leaves
+  // the pending queue before its run exists, so the selection must survive
+  // that gap instead of being cleared as unknown.
+  const decidedLocally = props.selection.task
+    ? props.approvalDecisions?.[props.selection.task] !== undefined
+    : false;
+  // Ambiguous run linkage is a known state too: keep the selector and its notice.
+  const selectionKnown = Boolean(selected) || decidedLocally || ambiguousRun;
   const resolvedSelection = useRef<string | null>(null);
   const selectionKey = JSON.stringify([props.selection.taskKind, props.selection.task]);
   useEffect(() => {
-    if (selected) resolvedSelection.current = selectionKey;
+    if (selectionKnown) resolvedSelection.current = selectionKey;
     else if (resolvedSelection.current === selectionKey) props.onClosePeek();
-  }, [selected, selectionKey, props.onClosePeek]);
+  }, [selectionKnown, selectionKey, props.onClosePeek]);
+  // Lists that settled before this selection appeared cannot prove it unknown:
+  // both owners must answer again after it was selected.
+  const [answeredBaseline, setAnsweredBaseline] = useState({ key: selectionKey, decided: props.decidedApprovals, runs: props.runs });
+  if (answeredBaseline.key !== selectionKey) setAnsweredBaseline({ key: selectionKey, decided: props.decidedApprovals, runs: props.runs });
+  const answeredSinceSelection =
+    answeredBaseline.key === selectionKey &&
+    answeredBaseline.decided !== props.decidedApprovals &&
+    answeredBaseline.runs !== props.runs;
+  // An id neither owner knows is not a task to show: report it so the caller
+  // replaces the URL instead of leaving a stale selector behind.
+  const missingSelectionKey =
+    props.selection.task && !selectionKnown && props.selectionResolved && answeredSinceSelection
+      ? selectionKey
+      : null;
+  const reportedMissingSelection = useRef<string | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+  useEffect(() => {
+    if (selected) setUnavailable(false);
+  }, [selected]);
+  useEffect(() => {
+    if (!missingSelectionKey) {
+      reportedMissingSelection.current = null;
+      return;
+    }
+    if (reportedMissingSelection.current === missingSelectionKey) return;
+    reportedMissingSelection.current = missingSelectionKey;
+    setUnavailable(true);
+    props.onMissingSelection?.(props.selection.task!);
+  }, [missingSelectionKey, props.selection.task, props.onMissingSelection]);
 
   const handleOpenTask = useCallback((id: string) => {
     const task = tasks.find((t) => personalTaskKey(t) === id);
@@ -378,11 +466,18 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
           if (searchOpen) setFilterQuery("");
         }}
         onNewTask={onNewTask ?? (() => {})}
+        newTaskDisabled={!onNewTask}
+        newTaskDisabledReason={props.newTaskBlockedReason}
         activeView={activeView}
         onViewChange={setView}
         className="border-b border-zinc-200 dark:border-zinc-800"
       />
-      {props.selection.task && !selected ? <div role="status" className="flex items-center justify-between gap-3 border-b border-[var(--border-1)] px-4 py-2 text-xs">
+      {ambiguousRun && !selected ? <div role="status" className="border-b border-[var(--border-1)] px-4 py-2 text-xs">{ambiguityNotice}</div> : null}
+      {unavailable ? <div role="status" className="flex items-center justify-between gap-3 border-b border-[var(--border-1)] px-4 py-2 text-xs">
+        <p>That item isn't available in this workspace. It may belong to another workspace or have been removed.</p>
+        <button type="button" className={viewButtonClass} onClick={() => setUnavailable(false)}>Dismiss</button>
+      </div> : null}
+      {props.selection.task && !selectionKnown ? <div role="status" className="flex items-center justify-between gap-3 border-b border-[var(--border-1)] px-4 py-2 text-xs">
         <p>The selected item is not in the currently loaded work list.</p>
         <button type="button" className={viewButtonClass} onClick={props.onClosePeek}>Clear selection</button>
       </div> : null}
@@ -507,7 +602,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
         if (run) { props.onClosePeek(); props.onRepeatTask?.(run); }
       } : undefined}
       run={selected.kind === "run" ? runs.find((run) => run.runId === selected.id) : undefined}
-      storedApproval={selected.kind === "approval" ? storedApprovals.find((approval) => approval.approvalId === selected.id) : undefined}
+      storedApproval={selected.kind === "approval" ? (storedApprovals.find((approval) => approval.approvalId === selected.id) ?? decidedApprovals.find((approval) => approval.approvalId === selected.id)) : undefined}
       pendingApproval={selected.kind === "approval" ? pendingApprovals.find((approval) => approval.approvalId === selected.id) : undefined}
       tab={props.selection.tab}
       onTabChange={props.onPeekTabChange}
@@ -515,8 +610,11 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
       onOpenFull={onSelectTask ? () => onSelectTask(selected.id, selected.kind) : undefined}
       onReviewApproval={onReviewApproval ? () => onReviewApproval(selected.id) : undefined}
       sessionId={props.peekSessionId}
-      notice={props.peekNotice}
+      notice={ambiguousRun ? ambiguityNotice : props.peekNotice}
       decisions={props.approvalDecisions}
+      decisionResults={props.approvalDecisionResults}
+      diffReady={props.runsDetailReady !== false}
+      diffError={props.runsError}
       onDecideApproval={props.onDecideApproval}
       onDecideStoredApproval={props.onDecideStoredApproval}
       claimConflict={selected.kind === "approval" ? props.claimConflicts?.[selected.id] ?? null : null}

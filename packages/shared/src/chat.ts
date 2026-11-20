@@ -9,6 +9,7 @@ export type ChatPlatform = "telegram" | "discord" | "teams" | "web";
 
 // Telegram group chat ids are negative; Discord ids are numeric snowflakes.
 const CONVERSATION_ID = /^-?\d{1,24}$/;
+const TELEGRAM_CONVERSATION_ID = /^(-?\d{1,24})(?::([1-9]\d{0,15}))?$/;
 // Web conversation ids are opaque but bounded: letters, digits, dash, and
 // underscore only, so a name can never smuggle a second colon.
 const WEB_CONVERSATION_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -21,6 +22,7 @@ const EMPLOYEE_DECISION_DATA = /^(emp-approve|emp-reject):(eap-[0-9a-f]{32})$/;
 function isValidConversationId(platform: ChatPlatform, id: string): boolean {
   if (platform === "web") return WEB_CONVERSATION_ID.test(id);
   if (platform === "teams") return TEAMS_CONVERSATION_ID.test(id);
+  if (platform === "telegram") return TELEGRAM_CONVERSATION_ID.test(id);
   return CONVERSATION_ID.test(id);
 }
 
@@ -32,12 +34,16 @@ export function buildChatThreadName(platform: ChatPlatform, conversationId: stri
   return `${platform}:${id}`;
 }
 
-export function parseChatThreadName(name: string): { platform: ChatPlatform; conversationId: string } | null {
+export function parseChatThreadName(name: string): { platform: ChatPlatform; conversationId: string; topicId?: string } | null {
   const match = THREAD_NAME.exec(name);
   if (!match) return null;
   const platform = match[1] as ChatPlatform;
   const conversationId = match[2]!;
   if (!isValidConversationId(platform, conversationId)) return null;
+  if (platform === "telegram") {
+    const [, chatId, topicId] = TELEGRAM_CONVERSATION_ID.exec(conversationId)!;
+    return { platform, conversationId: chatId!, ...(topicId ? { topicId } : {}) };
+  }
   return { platform, conversationId };
 }
 

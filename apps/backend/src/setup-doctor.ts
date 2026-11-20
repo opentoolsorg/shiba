@@ -2,7 +2,7 @@
  * Pre-run setup diagnostics — shared by GET /api/setup/status and the
  * `pnpm shiba doctor` CLI. Never returns secret values.
  */
-import { getSsoConfig } from "@shiba/auth/better-auth";
+import { getSsoReadiness } from "@shiba/auth/better-auth";
 import { AGENT_ROLES, type AgentRole } from "@shiba/shared";
 import { describeRoleModels } from "./agents/roles.js";
 import type { Env } from "./env.js";
@@ -300,10 +300,17 @@ export async function runSetupDoctor(
 
 
   if (env.SHIBA_SSO_ENABLED === "1") {
-    const sso = getSsoConfig(env);
-    push(findings, "sso.config", sso.enabled ? "ok" : "warn",
-      sso.enabled ? "OIDC sign-in is configured." : `OIDC sign-in is unavailable. Missing or invalid: ${sso.missing.join(", ")}.`,
-      sso.enabled ? undefined : "Configure the listed environment settings, then retry GET /api/setup/status.");
+    const sso = getSsoReadiness(env);
+    if (sso.ready) {
+      push(findings, "sso.config", "ok", `OIDC sign-in is ready${sso.preset ? ` with the ${sso.preset} issuer preset` : ""}.`);
+    } else {
+      const problems = [
+        ...(sso.missing.length ? [`Missing or invalid: ${sso.missing.join(", ")}.`] : []),
+        ...(sso.conflicting.length ? [`Conflicting: ${sso.conflicting.join(", ")}; set the preset or an explicit issuer, not both.`] : []),
+      ];
+      push(findings, "sso.config", "warn", `OIDC sign-in is unavailable. ${problems.join(" ")}`,
+        "Configure the listed environment settings, then retry GET /api/setup/status.");
+    }
   }
   checkGateway(hints.gateway, findings);
   await checkSandboxProvider(env, findings);

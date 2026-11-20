@@ -1,0 +1,11 @@
+{
+  "name": "shiba-chrome-draft-handoff",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Minimal MV3 Chrome action that opens a page address as an unsent Shiba draft.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:e2e": "node test/chrome-handoff.e2e.mjs"
+  }
+}

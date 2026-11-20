@@ -17,10 +17,18 @@ There are two file paths through the product:
 
 | Output | When to use it | Current limits |
 | --- | --- | --- |
-| **Named deliverables** | You need specific files whose presence can be checked. Enter their paths in the task's output-file settings. | Up to 8 UTF-8 `.md`, `.txt`, `.json`, or `.csv` files; 16 KiB each and 64 KiB combined. |
+| **Named deliverables** | You need specific files whose presence can be checked. Enter their paths in the task's output-file settings. | Up to 8 UTF-8 or binary files across the formats listed below. |
 | **Artifact ZIP** | A cloud artifact workspace needs a collection of final files. You can leave the named-output list empty and ask for final files under `out/`. | Up to 64 files under `out/`; 1 MiB per file and 8 MiB combined, before ZIP overhead. |
 
-Use safe relative paths, such as `out/launch-brief.md`, rather than absolute paths, hidden files, or `../`. File names must be unique even when capitalization is ignored. A local artifact workspace requires named text deliverables; the cloud ZIP collection is a different route.
+Use safe relative paths, such as `out/launch-brief.md`, rather than absolute paths, hidden files, or `../`. File names must be unique even when capitalization is ignored. A local artifact workspace requires named deliverables; cloud ZIP collection is a different route.
+
+### Named formats and limits
+
+| Format | Per file | Combined budget per run |
+| --- | --- | --- |
+| Markdown, text, JSON, CSV | 16 KiB | 64 KiB for text |
+| HTML, PDF | 512 KiB for HTML, 10 MiB for PDF | 10.5 MiB for HTML and PDF |
+| XLSX, DOCX, PPTX, PNG, JPG/JPEG, WebP, GIF, MP4 | 5 MiB each, or 12 MiB for MP4 | 16 MiB for Office and media |
 
 ZIP collection supports complete text and binary files, but that does not guarantee the selected employee has tools to create every format. Check the tools available in your installation before asking for a formatted presentation or document. Files outside `out/` are not part of an artifact ZIP.
 
@@ -28,7 +36,9 @@ ZIP collection supports complete text and binary files, but that does not guaran
 
 After the task completes, look in **Deliverables** or choose **Download artifacts ZIP** in **Run progress**.
 
-For a named deliverable, **Captured** means the server retained a complete file that passed presence and size checks. JSON files also pass a syntax check. These checks do not establish factual accuracy, correct calculations, or suitable writing.
+For a named deliverable, **Captured** means the server retained a complete file that passed presence and size checks. JSON must parse and binary files must have their expected file signature. These checks do not establish factual accuracy, correct calculations, or suitable writing.
+
+Images and MP4s preview inline. Office files download with their file type and size shown. For a run started in a supported [Slack thread](/docs/slack/), Discord channel or thread, or Telegram chat or topic, Shiba attaches the captured files back where the run began. It does not attach the workspace ZIP or post to a different conversation.
 
 Read the file itself. Check claims against the supplied sources and verify any totals. The file card can show its size, content hash, version, source run, and the employee-profile or skill versions used to produce it. These identify the captured result; they are not a quality score.
 
@@ -49,7 +59,7 @@ Where available, **Version history** lets you download previous captured version
 
 ## Keep downloads private
 
-Named-deliverable downloads require authorized access to the run. Artifact ZIP downloads use a signed link that expires after seven days. **Anyone with the complete ZIP link can download the archive**, so treat it like the files themselves and share it only with intended recipients.
+Named-deliverable downloads require authorized access to the run. If Shiba attaches a file in chat, the chat platform controls access to that copy. Start the run in a conversation whose participants may see all of its outputs. Artifact ZIP downloads use a signed link that expires after seven days. **Anyone with the complete ZIP link can download the archive**, so treat it like the files themselves and share it only with intended recipients.
 
 Expiry stops use of that signed link; it is not a promise that stored files or previously downloaded copies have been deleted. Download work you need to keep while the link is available, and follow your installation's retention policy.
 

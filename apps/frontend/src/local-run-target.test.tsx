@@ -3,7 +3,7 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ConnectedComputer, DesktopStatus } from "@shiba/shared";
 import { LOCAL_HEARTBEAT_STALE_MS } from "@shiba/shared";
-import { eligibleLocalComputers, useLocalRunTarget } from "./local-run-target";
+import { eligibleLocalComputers, pairedComputerStates, useLocalRunTarget } from "./local-run-target";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
@@ -34,6 +34,32 @@ describe("authoritative local computer eligibility", () => {
       { machineId: "invalid-shape" },
     ];
     expect(eligibleLocalComputers(rows, "opencode", now).map((row) => row.machineId)).toEqual(["busy", "idle"]);
+  });
+});
+
+describe("paired computer states", () => {
+  it("keeps every paired computer and says why it cannot run", () => {
+    const now = Date.now();
+    const rows = [
+      machine("ready"), machine("busy", { status: "busy" }),
+      machine("offline", { status: "offline" }),
+      machine("stale", { lastHeartbeat: now - LOCAL_HEARTBEAT_STALE_MS - 1 }),
+      machine("other-harness", { harnesses: ["claude"] }),
+      { ...machine("revoked"), revoked: true },
+    ];
+    expect(pairedComputerStates(rows, "opencode", now)).toEqual([
+      { machineId: "busy", hostname: "busy", state: "busy" },
+      { machineId: "offline", hostname: "offline", state: "offline" },
+      { machineId: "other-harness", hostname: "other-harness", state: "incompatible" },
+      { machineId: "ready", hostname: "ready", state: "ready" },
+      { machineId: "stale", hostname: "stale", state: "offline" },
+    ]);
+  });
+
+  it("reports a harness no paired daemon runs as incompatible rather than absent", () => {
+    expect(pairedComputerStates([machine("ready")], "gemini")).toEqual([
+      { machineId: "ready", hostname: "ready", state: "incompatible" },
+    ]);
   });
 });
 

@@ -24,10 +24,12 @@ export interface ApprovalCardProps {
 
 export function ApprovalCard({ approval, decided, decision, onDecideApproval, agentName, reviewAfterPublish, conflict, onClaimChoice }: ApprovalCardProps): JSX.Element {
   const videoGeneration = approval.tool === "generate_video";
-  const rawTestCommand =
-    typeof approval.input === "object" && approval.input !== null && !Array.isArray(approval.input)
-      ? (approval.input as Record<string, unknown>)["testCommand"]
-      : undefined;
+  const browserSignIn = approval.tool === "browser_sign_in";
+  const input = typeof approval.input === "object" && approval.input !== null && !Array.isArray(approval.input)
+    ? approval.input as Record<string, unknown> : {};
+  const loginId = typeof input.loginId === "string" ? input.loginId : undefined;
+  const loginLabel = typeof input.loginLabel === "string" ? input.loginLabel : typeof input.label === "string" ? input.label : undefined;
+  const rawTestCommand = input.testCommand;
   const testCommand =
     Array.isArray(rawTestCommand) &&
     rawTestCommand.length > 0 &&
@@ -38,7 +40,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
     <div className="bg-[var(--bg)] overflow-hidden">
       <div className="flex items-center px-4 min-h-11 text-xs text-[var(--muted-foreground-2)]" role="status">
         {decided && decision !== undefined
-          ? decision ? videoGeneration ? "Approved — paid video generation permitted" : "Approved — sandbox starting" : "Denied. This decision is final."
+          ? decision ? browserSignIn ? "Approved — saved sign-in permitted" : videoGeneration ? "Approved — paid video generation permitted" : "Approved — sandbox starting" : "Denied. This decision is final."
           : decided ? "Decision recorded" : "Waiting for your approval"}
       </div>
       <div className="p-4 flex flex-col gap-3">
@@ -49,7 +51,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
               <ShibaMark className="size-5" label="Shiba Guard" />
             </span>
           </Tooltip>
-          <span className="truncate">{approval.tool}</span>
+          <span className="truncate">{browserSignIn ? "Confirm saved sign-in" : approval.tool}</span>
         </div>
         {decided && decision !== undefined ? (
           <span className={`text-xs font-medium border px-2 py-0.5 rounded-[var(--radius-button)] shrink-0 ${
@@ -70,7 +72,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
         <p className="text-[10px] font-mono text-[var(--muted-foreground-2)] truncate -mt-1">via {agentName}</p>
       ) : null}
 
-      {testCommand !== undefined ? (
+      {!browserSignIn && testCommand !== undefined ? (
         <p className="text-[11px] font-mono text-[var(--muted-foreground-2)]">
           <span className="font-semibold text-[var(--fg)]">Tests:</span> {testCommand}
         </p>
@@ -87,30 +89,33 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
         </div>
       ) : null}
 
-      <pre className="whitespace-pre-wrap font-mono text-xs text-[var(--muted-foreground-2)] bg-[var(--card)] p-3 rounded-[var(--radius-button)] border border-[var(--border-1)] max-h-56 overflow-auto">
+      {browserSignIn ? (
+        <div className="space-y-1 break-words border border-[var(--border-1)] bg-[var(--card)] p-3 text-xs">
+          {loginLabel ? <p className="font-semibold text-[var(--fg)]">{loginLabel}</p> : null}
+          {loginId ? <p className="text-[var(--ink-2)]">Login ID: <code>{loginId}</code></p> : null}
+        </div>
+      ) : <pre className="whitespace-pre-wrap font-mono text-xs text-[var(--muted-foreground-2)] bg-[var(--card)] p-3 rounded-[var(--radius-button)] border border-[var(--border-1)] max-h-56 overflow-auto">
         {typeof approval.input === "string"
           ? approval.input
           : JSON.stringify(approval.input, null, 2)}
-      </pre>
+      </pre>}
 
-      {reviewAfterPublish ||
-      (typeof approval.input === "object" &&
-        approval.input !== null &&
-        !Array.isArray(approval.input) &&
-        (approval.input as Record<string, unknown>).reviewAfterPublish === true) ? (
+      {!browserSignIn && (reviewAfterPublish || input.reviewAfterPublish === true) ? (
         <p className="text-xs text-[var(--fg)] leading-relaxed">
           After the PR opens, a read-only review will run and Shiba will post its findings as a PR review.
         </p>
       ) : null}
 
       <p className="text-xs text-[var(--muted-foreground-2)] leading-relaxed">
-        {videoGeneration
+        {browserSignIn
+          ? "Approve to use this saved login in the current browser on its approved site. The password and one-time code stay out of Chat. Reject to cancel this sign-in attempt."
+          : videoGeneration
           ? "Approve to generate this video using your connected provider. This spends money on that provider account. Reject to cancel before generation starts."
           : "Approve to run this in an isolated sandbox with the payload above. Reject to cancel — no container starts."}
       </p>
 
       <div className="flex flex-wrap items-center gap-3 pt-1">
-        <Tooltip content={videoGeneration ? "Approve paid video generation" : "Approve tool execution inside isolated container"} side="top">
+        <Tooltip content={browserSignIn ? "Approve this saved sign-in" : videoGeneration ? "Approve paid video generation" : "Approve tool execution inside isolated container"} side="top">
           <button
             type="button"
             className="bg-[var(--inverse)] hover:bg-[var(--inverse-hover)] text-[var(--inverse-text)] font-medium min-h-11 min-w-11 px-4 rounded-lg transition-colors disabled:opacity-60 text-sm flex items-center gap-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
@@ -122,7 +127,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
           </button>
         </Tooltip>
 
-        <Tooltip content="Reject tool execution and cancel operation" side="top">
+        <Tooltip content={browserSignIn ? "Reject this saved sign-in" : "Reject tool execution and cancel operation"} side="top">
           <button
             type="button"
             className="bg-[var(--secondary)] hover:bg-[var(--secondary-hover)] text-[var(--fg)] font-medium min-h-11 min-w-11 px-4 rounded-lg transition-colors disabled:opacity-60 text-sm flex items-center gap-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"

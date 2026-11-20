@@ -37,6 +37,28 @@ function readComputers(raw: unknown): ConnectedComputer[] {
   return computers;
 }
 
+/** Why a paired computer cannot take work right now, in the order it is reported. */
+export type PairedComputerState = "ready" | "busy" | "offline" | "incompatible";
+export interface PairedComputerView { machineId: string; hostname: string; state: PairedComputerState }
+
+/**
+ * Every computer paired with this workspace, each with the reason it can or
+ * cannot run now. Unlike `eligibleLocalComputers` this never hides a device, so
+ * a drawer can tell "nothing is paired" from "paired, but not usable".
+ */
+export function pairedComputerStates(raw: unknown, harness: string, now = Date.now()): PairedComputerView[] {
+  const daemonHarness = LOCAL_DAEMON_HARNESSES[harness.trim().toLowerCase()];
+  return readComputers(raw).map((computer) => ({
+    machineId: computer.machineId,
+    hostname: computer.hostname,
+    state: !daemonHarness || !computer.harnesses.includes(daemonHarness) ? "incompatible" as const
+      : computer.status === "offline" ||
+        now - computer.lastHeartbeat > LOCAL_HEARTBEAT_STALE_MS ||
+        computer.lastHeartbeat - now > LOCAL_HEARTBEAT_STALE_MS ? "offline" as const
+        : computer.status === "busy" ? "busy" as const : "ready" as const,
+  })).sort((a, b) => a.hostname.localeCompare(b.hostname) || a.machineId.localeCompare(b.machineId));
+}
+
 /** Match the daemon's CLI names and the server's 75-second liveness window. */
 export function eligibleLocalComputers(raw: unknown, harness: string, now = Date.now()): ConnectedComputer[] {
   const daemonHarness = LOCAL_DAEMON_HARNESSES[harness.trim().toLowerCase()];
@@ -124,6 +146,8 @@ export function useLocalRunTarget({
 
   const computers = enabled && fleet?.identityKey === identityKey
     ? eligibleLocalComputers(fleet.computers, harness, now) : [];
+  const paired = enabled && fleet?.identityKey === identityKey
+    ? pairedComputerStates(fleet.computers, harness, now) : [];
   const nativeId = desktopStatus?.state === "idle" || desktopStatus?.state === "busy"
     ? desktopStatus.machineId : undefined;
   const native = computers.find((computer) => computer.machineId === nativeId);
@@ -152,6 +176,7 @@ export function useLocalRunTarget({
       ?? (chosen && !targetMachineId ? "The selected computer is offline or no longer available. Choose another paired computer." : null);
   return {
     computers,
+    paired,
     localRunAvailable: computers.length > 0,
     targetMachineId,
     loading: enabled && (loading || fleet?.identityKey !== identityKey),

@@ -22,6 +22,8 @@ export interface ApprovalsViewProps {
   orchestratorName?: string | null;
   onRefresh?: () => void;
   reviewAfterPublishById?: Record<string, boolean>;
+  /** Exact Work receipt URL for this approval; the queue itself has no selection key. */
+  onOpenInWork?: (approval: StoredApproval) => void;
   /** Poll the live session only when this page is active. */
   liveHarness?: boolean;
   scope?: Scope;
@@ -31,6 +33,9 @@ export interface ApprovalsViewProps {
 }
 
 type OutcomeFilter = "all" | "approved" | "rejected" | "executed";
+
+const workLinkClass =
+  "min-h-11 rounded px-2 text-xs text-[#71717a] underline-offset-2 hover:text-[#0a0a0a] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] dark:text-zinc-400 dark:hover:text-zinc-100";
 
 export function ApprovalsView({
   pendingApprovals,
@@ -45,6 +50,7 @@ export function ApprovalsView({
   orchestratorName,
   onRefresh,
   reviewAfterPublishById,
+  onOpenInWork,
   liveHarness = false,
   scope = "personal",
   sidebarCollapsed = false,
@@ -202,15 +208,23 @@ export function ApprovalsView({
                       />
                     ))}
                     {visibleStored.map((approval) => (
-                      <StoredApprovalCard
-                        key={approval.approvalId}
-                        approval={approval}
-                        decided={storedDecisions[approval.approvalId] !== undefined}
-                        decision={storedDecisions[approval.approvalId]}
-                        onDecide={onDecideStoredApproval}
-                        conflict={claimConflicts?.[approval.approvalId] ?? null}
-                        onClaimChoice={(choice) => onDecideStoredApproval(approval, choice !== "cancel", choice)}
-                      />
+                      <div key={approval.approvalId}>
+                        {onOpenInWork ? (
+                          <div className="flex justify-end px-4 pt-2">
+                            <button type="button" className={workLinkClass} onClick={() => onOpenInWork(approval)}>
+                              Open in Work
+                            </button>
+                          </div>
+                        ) : null}
+                        <StoredApprovalCard
+                          approval={approval}
+                          decided={storedDecisions[approval.approvalId] !== undefined}
+                          decision={storedDecisions[approval.approvalId]}
+                          onDecide={onDecideStoredApproval}
+                          conflict={claimConflicts?.[approval.approvalId] ?? null}
+                          onClaimChoice={(choice) => onDecideStoredApproval(approval, choice !== "cancel", choice)}
+                        />
+                      </div>
                     ))}
                   </div>
                 )}
@@ -255,7 +269,20 @@ export function ApprovalsView({
                 ) : (
                   <div className="divide-y divide-[#e4e4e7] dark:divide-zinc-800">
                     {filteredDecided.filter(matches).map((approval) => (
-                      <DecidedApprovalRow key={approval.approvalId} approval={approval} />
+                      <div key={approval.approvalId} className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <DecidedApprovalRow approval={approval} />
+                        </div>
+                        {onOpenInWork ? (
+                          <button
+                            type="button"
+                            className={`${workLinkClass} mr-4 mt-3 shrink-0`}
+                            onClick={() => onOpenInWork(approval)}
+                          >
+                            Open in Work
+                          </button>
+                        ) : null}
+                      </div>
                     ))}
                   </div>
                 )}

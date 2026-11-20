@@ -51,7 +51,9 @@ describe("video artifacts", () => {
     const { container } = render(<RunDeliverables runId="run-1" sessionId="session-1" status="completed" deliverables={[{
       path: "outputs/video.mp4", mediaType: "video/mp4", bytes: 128, sha256: "ab".repeat(32),
     }]} />);
-    expect(container.querySelector("video")?.getAttribute("src"))
-      .toBe("/api/runs/run-1/deliverables/0?session=session-1");
+    const players = container.querySelectorAll("video");
+    expect(players).toHaveLength(1);
+    expect(players[0]?.getAttribute("src"))
+      .toBe("/api/runs/run-1/deliverables/0?session=session-1&inline=1");
   });
 });

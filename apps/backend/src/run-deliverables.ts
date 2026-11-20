@@ -1,12 +1,13 @@
 /** Deterministic capture checks; these do not assess a document's semantic quality. */
 import {
   deliverableByteLimit,
+  deliverableBudget,
+  deliverableBudgetLimits,
+  deliverableExtension,
   deliverableMediaType,
   expectedDeliverablesSchema,
-  hasPdfMagic,
+  hasDeliverableMagic,
   isBinaryDeliverablePath,
-  MAX_TOTAL_DELIVERABLE_BYTES,
-  MAX_TOTAL_LARGE_DELIVERABLE_BYTES,
   type RunDeliverable,
   type RunResultArtifact,
   type RunArtifactBundle,
@@ -138,17 +139,10 @@ function mediaType(path: string): string {
 function base64Bytes(content: string): Uint8Array<ArrayBuffer> | null {
   if (content.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(content)) return null;
   const raw = atob(content);
-  return btoa(raw) === content ? Uint8Array.from(raw, (character) => character.charCodeAt(0)) : null;
-}
-
-/** PDFs arrive as base64; anything else, including renamed text, is refused with a plain message. */
-async function verifyPdf(path: string, file: CapturedFile): Promise<{ bytes: Uint8Array<ArrayBuffer>; content: string }> {
-  const bytes = file.encoding === "base64" && file.content !== null ? base64Bytes(file.content) : null;
-  if (!bytes || !hasPdfMagic(bytes)) throw new Error(`Deliverable ${path} is not a valid PDF file.`);
-  if (bytes.byteLength > deliverableByteLimit(path)) {
-    throw new Error(`Deliverable ${path} exceeds ${deliverableByteLimit(path)} bytes; refusing truncated output.`);
-  }
-  return { bytes, content: file.content! };
+  if (btoa(raw) !== content) return null;
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  return bytes;
 }
 
 function containsBinaryControl(content: string): boolean {
@@ -168,8 +162,7 @@ export async function verifyExpectedDeliverables(
   const parsed = expectedDeliverablesSchema.safeParse(expected);
   if (!parsed.success) throw new Error("Invalid expected deliverable paths.");
   const artifacts: RunResultArtifact[] = [];
-  let totalBytes = 0;
-  let largeBytes = 0;
+  const totals = { text: 0, report: 0, "office-media": 0 };
   for (const path of parsed.data) {
     const matches = files.filter((file) => file.path === path);
     if (matches.length !== 1) {
@@ -179,8 +172,15 @@ export async function verifyExpectedDeliverables(
     let encoded: Uint8Array<ArrayBuffer>;
     let content: string;
     let encoding: "base64" | undefined;
+    const limit = deliverableByteLimit(path);
     if (isBinaryDeliverablePath(path)) {
-      ({ bytes: encoded, content } = await verifyPdf(path, file));
+      if (file.content !== null && file.content.length > Math.ceil(limit / 3) * 4) {
+        throw new Error(`Deliverable ${path} exceeds ${limit} bytes; refusing truncated output.`);
+      }
+      const bytes = file.encoding === "base64" && file.content !== null ? base64Bytes(file.content) : null;
+      if (!bytes || !hasDeliverableMagic(path, bytes)) throw new Error(`Deliverable ${path} is not a valid ${deliverableExtension(path).toUpperCase()} file.`);
+      encoded = bytes;
+      content = file.content!;
       encoding = "base64";
     } else {
       if (file.encoding !== "utf8" || file.content === null) {
@@ -192,16 +192,13 @@ export async function verifyExpectedDeliverables(
       if (new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(encoded) !== content || containsBinaryControl(content)) {
         throw new Error(`Deliverable ${path} contains binary or invalid UTF-8 text.`);
       }
-      if (encoded.byteLength > deliverableByteLimit(path)) {
-        throw new Error(`Deliverable ${path} exceeds ${deliverableByteLimit(path)} bytes; refusing truncated output.`);
-      }
     }
-    if (/\.(?:html|pdf)$/i.test(path)) {
-      largeBytes += encoded.byteLength;
-      if (largeBytes > MAX_TOTAL_LARGE_DELIVERABLE_BYTES) throw new Error(`HTML and PDF deliverables exceed ${MAX_TOTAL_LARGE_DELIVERABLE_BYTES} bytes in total.`);
-    } else {
-      totalBytes += encoded.byteLength;
-      if (totalBytes > MAX_TOTAL_DELIVERABLE_BYTES) throw new Error(`Deliverables exceed ${MAX_TOTAL_DELIVERABLE_BYTES} bytes in total.`);
+    if (encoded.byteLength > limit) throw new Error(`Deliverable ${path} exceeds ${limit} bytes; refusing truncated output.`);
+    const budget = deliverableBudget(path);
+    totals[budget] += encoded.byteLength;
+    if (totals[budget] > deliverableBudgetLimits[budget]) {
+      const label = budget === "report" ? "HTML and PDF deliverables" : budget === "office-media" ? "Office and media deliverables" : "Deliverables";
+      throw new Error(`${label} exceed ${deliverableBudgetLimits[budget]} bytes in total.`);
     }
     if (path.toLowerCase().endsWith(".json")) {
       try { JSON.parse(content); } catch {

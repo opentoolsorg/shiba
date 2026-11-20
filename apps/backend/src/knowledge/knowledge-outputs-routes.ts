@@ -40,7 +40,7 @@ export async function handleKnowledgeOutputs(request: Request, env: Env): Promis
   if (url.pathname === "/api/outputs/media-options" && request.method === "GET") {
     const video = await videoCapabilityForUser(env, userId);
     return json({ imageModels: env.AI && (env.FILES || env.ARTIFACTS) ? imageModels.map(({ id, label, supportsDimensions }) => ({ id, label, supportsDimensions })) : [], imageAspectRatios,
-      video: { enabled: video.enabled, modes: video.enabled ? videoModes : [], aspectRatios: video.enabled ? ["16:9", "9:16", "1:1"] : [] } });
+      video: { enabled: video.enabled, reason: video.reason, modes: video.enabled ? videoModes : [], aspectRatios: video.enabled ? ["16:9", "9:16", "1:1"] : [] } });
   }
   if (url.pathname === "/api/outputs/images" && request.method === "POST") {
     let body: unknown;

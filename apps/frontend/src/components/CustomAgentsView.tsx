@@ -1021,6 +1021,8 @@ export function useCustomAgentOptions(enabled = true, workspaceId?: string, acto
   loading: boolean;
   error: string | null;
   refresh: () => void;
+  /** Replace one record with the server's answer, so its version stays current. */
+  applyAgent: (agent: CustomAgentWire) => void;
 } {
   const scope = enabled ? JSON.stringify([actorId?.trim().toLowerCase() ?? "", workspaceId ?? ""]) : "";
   const current = useRef({ scope, generation: 0 });
@@ -1064,6 +1066,17 @@ export function useCustomAgentOptions(enabled = true, workspaceId?: string, acto
     return () => { controller.current?.abort(); requestSequence.current++; };
   }, [refresh, enabled]);
 
+  // A saved record replaces its own row instead of waiting for the next list
+  // fetch: a second edit must carry the version the first save returned.
+  const applyAgent = useCallback((agent: CustomAgentWire) => {
+    setState((previous) => previous.scope !== scope || previous.generation !== generation
+      ? previous
+      : { ...previous, agents: previous.agents.map((item) => item.id === agent.id ? agent : item) });
+  }, [scope, generation]);
+
   const visible = enabled && state.scope === scope && state.generation === generation;
-  return { agents: visible ? state.agents : [], loading: enabled && (!visible || state.loading), error: visible ? state.error : null, refresh };
+  return {
+    agents: visible ? state.agents : [], loading: enabled && (!visible || state.loading),
+    error: visible ? state.error : null, refresh, applyAgent,
+  };
 }

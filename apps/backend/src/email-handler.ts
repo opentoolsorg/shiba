@@ -29,7 +29,8 @@
  * `emailId/raw-source` (recorded in the attachment manifest) so nothing is
  * lost to a parser bug or hostile MIME.
  */
-import PostalMime, { type Address, type Attachment } from "postal-mime";
+import PostalMime, { addressParser, type Address, type Attachment } from "postal-mime";
+import { buildEmailEnvelope } from "./channels/email/index.js";
 import type { Env } from "./env.js";
 import { mailboxDirectoryStub, mailboxStub } from "./mailbox-do.js";
 import {
@@ -433,6 +434,37 @@ export async function handleInboundEmail(
     );
     if (outcome === "stored") {
       stats.stored += 1;
+      const fromHeaders = env.EMAIL_TASK_SENDERS?.trim() && env.EMAIL_TASK_EMPLOYEES?.trim()
+        ? parsed.headers.filter((header) => header.key === "from")
+        : [];
+      const authors = fromHeaders.length === 1 ? addressParser(fromHeaders[0]?.value ?? "") : [];
+      const sender = authors.length === 1 ? authors[0] : undefined;
+      const envelope = sender?.address?.trim().toLowerCase() === message.from?.trim().toLowerCase() && sender?.address
+        ? buildEmailEnvelope({
+            messageId: parsed.messageId,
+            from: sender.address,
+            fromName: sender.name,
+            to,
+            subject: parsed.subject,
+            text: parsed.text,
+            inReplyTo: parsed.inReplyTo,
+            references: splitMessageIds(parsed.references),
+            headers: message.headers ?? new Headers(),
+          })
+        : null;
+      if (envelope !== null) {
+        const intake = import("./email-tasks.js")
+          .then(({ handleEmailTaskRequest }) =>
+            handleEmailTaskRequest(env, { rawBody: JSON.stringify(envelope), headers: message.headers ?? new Headers() }))
+          .then((result) => {
+            if (result.status !== "queued") logWarn("inbound_email_task_not_queued", { to, status: result.status, reason: result.reason });
+          })
+          .catch((error: unknown) => {
+            logWarn("inbound_email_task_failed", { to, error: error instanceof Error ? error.message : String(error) });
+          });
+        ctx?.waitUntil?.(intake);
+        await intake;
+      }
     } else if (outcome === "duplicate") {
       stats.duplicates += 1;
     }
