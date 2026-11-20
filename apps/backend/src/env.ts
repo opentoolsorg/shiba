@@ -369,10 +369,10 @@ export interface Env {
   TEAMS_APP_ID?: string;
   /** Optional. Teams bot client secret; used only for the Bot Framework client-credentials token. */
   TEAMS_APP_PASSWORD?: string;
-  /** Optional. Tenant id for a single-tenant bot; unset = multi-tenant (botframework.com). */
+  /** Optional. Microsoft Entra tenant ID of the single-tenant bot and allowed Teams tenant. */
   TEAMS_APP_TENANT_ID?: string;
-  /** Optional. Connector base for proactive post-back; replies use the activity's serviceUrl. */
-  TEAMS_SERVICE_URL?: string;
+  /** Optional. Native Shiba workspace whose owners can connect the deployment's Teams bot. */
+  TEAMS_WORKSPACE_ID?: string;
   /** Optional. Comma-separated Teams user ids (Entra object ids) allowed to approve; unset = nobody. */
   TEAMS_APPROVERS?: string;
   /** Optional. JSON map of Teams conversation id to GitHub repo URL. */

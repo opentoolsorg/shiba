@@ -1,14 +1,14 @@
 /**
- * Shared plumbing for the Telegram and Discord lanes. One Telegram chat or
- * Discord channel is one CodingOrchestrator conversation named
- * `{platform}:{id}`, so queueing, approval, and result post-back reuse the
- * DO paths the Slack lane already uses. Every request only queues a pending
- * approval; nothing here starts a container.
+ * Shared plumbing for the Telegram, Discord and Teams lanes. Queueing,
+ * approval and result post-back reuse existing orchestrator paths. Teams
+ * stores each task's reply address separately from its orchestrator name.
+ * Intake only queues a pending approval; nothing here starts a container.
  */
 import { parseChatThreadName } from "@shiba/shared";
 import type { ChatPlatform, ChatTaskRequest, ExecutionTarget } from "@shiba/shared";
 import { getAgentByName } from "agents/routing";
 import type { Env } from "./env.js";
+import { postTeamsTaskReply } from "./channels/teams/connection.js";
 import { createChannelAdapter } from "./ports/channel/registry.js";
 import { extractGitHubRepoUrl, parseChannelRepoMap } from "./slack-context.js";
 
@@ -297,6 +297,7 @@ export async function discordApi(label: string, path: string, init: DiscordReque
 export function postToChatThread(env: Env, threadName: string, text: string): Promise<void> | null {
   const ids = parseChatThreadName(threadName);
   if (!ids || ids.platform === "web") return null;
+  if (ids.platform === "teams") return postTeamsTaskReply(env, threadName, text);
   const adapter = createChannelAdapter(env, ids.platform);
   if (!adapter) return null;
   const limit = ids.platform === "discord" ? 2000 : 4000;

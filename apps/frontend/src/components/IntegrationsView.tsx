@@ -28,6 +28,7 @@ import { WorkspaceConnectorsPanel } from "./WorkspaceConnectorsPanel";
 import { MainCard, type Scope } from "./ui/ContextPanel";
 import { SlackInstallationsPanel } from "./SlackInstallationsPanel";
 import { SlackCoworkerPanel } from "./SlackCoworkerPanel";
+import { TeamsConnectionPanel } from "./TeamsConnectionPanel";
 import { FounderStripeReads } from "./FounderStripeReads";
 import { FounderMetaReads } from "./FounderMetaReads";
 import { FounderHubSpotReads } from "./FounderHubSpotReads";
@@ -143,6 +144,7 @@ interface IntegrationsViewProps {
   onNavigate?: (view: AppNavView) => void;
   initialTab?: "skills" | "mcp" | "connectors";
   actorId?: string | null;
+  nativeSession?: boolean;
   scope?: Scope;
   workspaceId?: string;
   workspaceName?: string;
@@ -164,6 +166,7 @@ export function IntegrationsView(props: IntegrationsViewProps): JSX.Element {
 
 function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspaceId: string }): JSX.Element {
   const [showSlack, setShowSlack] = useState(false);
+  const [showTeams, setShowTeams] = useState(false);
   const [showCoworker, setShowCoworker] = useState(false);
   const [showStripe, setShowStripe] = useState(false);
   const [showMeta, setShowMeta] = useState(false);
@@ -180,6 +183,12 @@ function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspace
         {showSlack ? "Close Slack installation setup" : "Manage Slack installations"}
       </button>
       {showSlack && <SlackInstallationsPanel workspaceId={props.workspaceId} actorId={props.actorId} />}
+    </section>}
+    {props.nativeSession && props.workspaceRole === "owner" && props.actorId && <section className="space-y-3 p-4">
+      <button type="button" aria-expanded={showTeams} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowTeams((shown) => !shown)}>
+        Manage Microsoft Teams connection
+      </button>
+      {showTeams && <TeamsConnectionPanel workspaceId={props.workspaceId} />}
     </section>}
     {props.actorId && props.onAdoptSlackTask && <section className="p-4">
       <button type="button" aria-expanded={showCoworker} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowCoworker((shown) => !shown)}>{showCoworker ? "Close Slack coworker" : "Review my Slack task drafts"}</button>
