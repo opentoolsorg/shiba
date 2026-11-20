@@ -16,6 +16,12 @@ const legacyDuplicate = new Set([
   "0062_media_generations.sql",
   "0063_runtime_d1_schema.sql",
   "0063_workspace_channel_facts.sql",
+  // Three parallel lanes each shipped 0070/0071 on main; renaming would break applied history.
+  "0070_discord_installations.sql",
+  "0070_teams_connection.sql",
+  "0070_workspace_billing.sql",
+  "0071_employee_tool_levels.sql",
+  "0071_workspace_billing_ledger.sql",
 ]);
 // main skipped 0067 when it added 0068/0069; never fill it retroactively.
 // main skipped 0072/0073 when it added 0074 (browser logins); never fill them retroactively.
