@@ -37,7 +37,9 @@ Keep secrets in your deployment's secret configuration, not in URLs or channel m
 
 ## Check the connection
 
-Invite the bot to a test channel and send a small `/shiba` request with a repository URL. Confirm that an approval card appears, an unlisted user cannot approve it, and rejection starts no repository work. Then test one approved task and inspect the returned result.
+For the operator-provisioned bot, invite it to a test channel and mention it with a small task. Verify that an approval card appears in the same thread, an unlisted user cannot approve it, and rejecting it starts no work. Then approve a fresh request and look for the result in its originating thread. Use a repository URL for repository work, or `workspace:slack-check` for a repo-free test.
+
+Test `/shiba workspace:slack-check <task>` separately. The approval card and, on a single-workspace deployment with private reply storage configured (`ATTACHMENTS`), the final text are private to the requester in that channel. Approve your own test command with an account on the approver list. Use a channel mention instead when another approver needs to see the card.
 
 Repository selection uses the supplied URL or thread context, then the channel mapping. If no repository can be resolved, Shiba asks for one. A missing bot token prevents mention replies and starts no run.
 
@@ -53,4 +55,6 @@ The Slack installations panel uses a separate OAuth flow. Setting only `SLACK_BO
 - `SLACK_OAUTH_PKCE_ENABLED=true` only after the administrator has enabled PKCE for the Slack app. This app setting requires Slack support to undo.
 - `SLACK_OAUTH_QUERY_REDACTION_VERIFIED=true` only after the operator has configured and verified query-string redaction in invocation and access logs. The OAuth callback includes temporary authorization data in its query.
 
-Keep secrets in Cloudflare secrets or your server's secret store. The panel requires a verified native workspace owner to review bot scopes, install the app, and separately review and activate the returned installation. It does not grant employee execution or provider access. See [Getting a workspace ready](/docs/workspace-ready/) for the other setup cards.
+In the Slack app configuration, register the exact callback URL and subscribe to `app_uninstalled` and `tokens_revoked` at the Events API endpoint so Shiba can invalidate a disconnected installation.
+
+Keep secrets in Cloudflare secrets or your server's secret store. The panel requires a verified native workspace owner to review bot scopes, install the app, and separately review and activate the returned installation. If you cancel in Slack, the existing installation is unchanged. To disconnect locally, review and choose **Disable in Shiba**; this doesn't uninstall the Slack app. To reconnect, review the scopes, prepare a fresh authorization, then activate the new pending revision. The panel does not grant employee execution or provider access and is not a way to provision the operator bot above. See [Getting a workspace ready](/docs/workspace-ready/) for the other setup cards.

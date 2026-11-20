@@ -75,6 +75,15 @@ export async function findSlackOAuthState(env: SlackInstallationEnv, state: stri
   if (!/^[A-Za-z0-9_-]{43}$/.test(state)) return null;
   return env.AGENT_AUDIT.prepare("SELECT * FROM slack_installation_oauth WHERE state_hash=? AND state='pending' AND expires_at>?").bind(await slackStateHash(state), Date.now()).first<SlackOAuthRow>();
 }
+export async function cancelSlackInstallation(env: SlackInstallationEnv, member: WorkspaceNativeMember, pending: SlackOAuthRow, verifySession: () => Promise<void>) {
+  const config = slackOAuthConfiguration(env);
+  if (pending.owner_member_json !== JSON.stringify(member) || pending.config_json !== JSON.stringify(config)) throw new SlackInstallationError("slack_oauth_original_owner_required", 403);
+  await verifySession();
+  const native = membershipSql(member, true);
+  const cancelled = await env.AGENT_AUDIT.prepare(`UPDATE slack_installation_oauth SET state='cancelled',verifier_cipher='' WHERE id=? AND state='pending' AND state_hash=? AND expires_at>${installationNowSql} AND owner_member_json=? AND ${native.sql}`)
+    .bind(pending.id, pending.state_hash, pending.owner_member_json, ...native.values).run();
+  if (cancelled.meta.changes !== 1) throw new SlackInstallationError("slack_oauth_state_consumed", 403);
+}
 export async function completeSlackInstallation(env: SlackInstallationEnv, member: WorkspaceNativeMember, pending: SlackOAuthRow, code: string, verifySession: () => Promise<void>, deps: SlackOAuthDeps = {}) {
   const config = slackOAuthConfiguration(env); await requireSlackInstallationOwner(env, member);
   if (pending.owner_member_json !== JSON.stringify(member) || pending.config_json !== JSON.stringify(config) || !code || code.length > 4_096) throw new SlackInstallationError("slack_oauth_original_owner_required", 403);

@@ -166,7 +166,16 @@ export function IntegrationsView(props: IntegrationsViewProps): JSX.Element {
 }
 
 function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspaceId: string }): JSX.Element {
-  const [showSlack, setShowSlack] = useState(false);
+  const [slackReturn] = useState(() => {
+    if (typeof window === "undefined") return null;
+    const result = new URLSearchParams(window.location.search).get("slackInstall");
+    return result === "pending-review" || result === "cancelled" ? result : null;
+  });
+  const [showSlack, setShowSlack] = useState(slackReturn !== null);
+  const slackSetup = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (slackReturn && window.location.hash === "#slack-installations") slackSetup.current?.scrollIntoView();
+  }, [slackReturn]);
   const [showTeams, setShowTeams] = useState(false);
   const [showCoworker, setShowCoworker] = useState(false);
   const [showStripe, setShowStripe] = useState(false);
@@ -187,11 +196,16 @@ function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspace
     <IntegrationsSetupCard workspaceId={props.workspaceId} /><WorkspaceConnectorsPanel bindingInputs={UNREAD_PRIVATE_BINDINGS}
     actorId={props.actorId} workspaceId={props.workspaceId} workspaceName={props.workspaceName} workspaceRole={props.workspaceRole}
     allowPersonalScope={props.allowPersonalScope} onPersonalScope={props.onPersonalScope} />
-    {props.workspaceRole === "owner" && props.actorId && <section className="p-4">
+    {props.workspaceRole === "owner" && props.actorId && <section ref={slackSetup} id="slack-installations" className="p-4">
       <button type="button" aria-expanded={showSlack} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowSlack((shown) => !shown)}>
         {showSlack ? "Close Slack installation setup" : "Manage Slack installations"}
       </button>
-      {showSlack && <SlackInstallationsPanel workspaceId={props.workspaceId} actorId={props.actorId} />}
+      {showSlack && <>
+        {slackReturn && <p role="status" className="py-2 text-xs">{slackReturn === "cancelled"
+          ? "Slack authorization was cancelled. Review the bot permissions to start a new request."
+          : "Check for a pending installation below. If you don't see it, select the workspace where you started setup."}</p>}
+        <SlackInstallationsPanel workspaceId={props.workspaceId} actorId={props.actorId} />
+      </>}
     </section>}
     {props.nativeSession && props.workspaceRole === "owner" && props.actorId && <section className="space-y-3 p-4">
       <button type="button" aria-expanded={showTeams} className="min-h-11 border border-[var(--line)] bg-[var(--card)] px-3 text-xs" onClick={() => setShowTeams((shown) => !shown)}>
