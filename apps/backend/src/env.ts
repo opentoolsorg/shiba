@@ -326,6 +326,8 @@ export interface Env {
   SLACK_APPROVERS?: string;
   /** Optional. Worker-only bot token for verified Slack replies, cards and opt-in session status. */
   SLACK_BOT_TOKEN?: string;
+  /** Set to "0" to disable automatically attaching outputs to source chat threads. */
+  SHIBA_CHANNEL_OUTPUT_DELIVERY?: string;
   /** Managed installations are opt-in; credentials stay in encrypted Worker storage. */
   SLACK_INSTALLATIONS_ENABLED?: string;
   /** Explicit operator opt-in for separately consented private coworker notices. */
@@ -618,6 +620,7 @@ export interface Env {
   EMAIL_QUEUE?: Queue;
   JOBS_QUEUE?: Queue;
   SLACK_IMPORT_WORKFLOW?: Workflow;
+  SLACK_MEDIA_WORKFLOW?: Workflow<import("./slack-media-output.js").SlackMediaWorkflowInput>;
   AUTOMATION_RUN_WORKFLOW?: Workflow;
   /** General file storage (WS07); distinct from run-scoped ARTIFACTS. */
   FILES?: R2Bucket;

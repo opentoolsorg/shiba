@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState, type JSX } from "react";
+import { Download, FileSpreadsheet, FileText, Presentation } from "lucide-react";
+import { useEffect, useId, useRef, useState, type JSX } from "react";
+import { formatBytes } from "../ui-helpers";
 import { MarkdownPreview } from "./TaskDetailSections";
+import { VideoArtifactPlayer } from "./VideoArtifactPlayer";
 
 const MAX_CSV_ROWS = 500;
 const PREVIEW_LINES = 40;
@@ -29,7 +32,16 @@ export function parseCsv(text: string, maxRows = MAX_CSV_ROWS + 1): string[][] {
 }
 
 export const withQuery = (src: string, query: string) => `${src}${src.includes("?") ? "&" : "?"}${query}`;
-const extensionOf = (path: string) => path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+const extensionOf = (path: string) => /\.([^./]+)$/.exec(path)?.[1]?.toLowerCase() ?? "";
+const OFFICE_FORMATS = new Map([
+  ["xlsx", { label: "XLSX spreadsheet", icon: FileSpreadsheet }],
+  ["docx", { label: "DOCX document", icon: FileText }],
+  ["pptx", { label: "PPTX presentation", icon: Presentation }],
+]);
+
+export function isOfficeDeliverable(path: string): boolean {
+  return OFFICE_FORMATS.has(extensionOf(path));
+}
 
 function useText(src: string, enabled: boolean): { text: string | null; error: boolean } {
   const [state, setState] = useState<{ text: string | null; error: boolean }>({ text: null, error: false });
@@ -91,11 +103,45 @@ function CsvTable({ text }: { text: string }): JSX.Element {
  * Safe preview of a deliverable. HTML runs only inside a sandboxed frame without
  * allow-same-origin, so it has no cookie or API access.
  */
-export function DeliverablePreview({ src, path, downloadHref }: { src: string; path: string; downloadHref?: string }): JSX.Element | null {
+export function DeliverablePreview({ src, path, downloadHref, bytes }: { src: string; path: string; downloadHref?: string; bytes?: number }): JSX.Element | null {
   const extension = extensionOf(path);
   const frame = useRef<HTMLIFrameElement>(null);
+  const descriptionId = useId();
   const textual = ["md", "txt", "csv", "json"].includes(extension);
   const { text, error } = useText(src, textual);
+  if (["png", "jpg", "jpeg", "webp", "gif"].includes(extension)) {
+    return (
+      <img
+        alt={`Preview of ${path}`}
+        src={withQuery(src, "inline=1")}
+        loading="lazy"
+        className="h-auto max-h-80 w-fit max-w-full rounded border border-[var(--border-1)] object-contain"
+      />
+    );
+  }
+  if (extension === "mp4") return <VideoArtifactPlayer src={withQuery(src, "inline=1")} title={path} />;
+  const office = OFFICE_FORMATS.get(extension);
+  if (office) {
+    const fileName = path.split("/").pop();
+    return (
+      <a
+        href={downloadHref ?? src}
+        download={fileName}
+        aria-label={`Download ${path}`}
+        aria-describedby={descriptionId}
+        className="flex min-h-11 min-w-0 max-w-xl items-center gap-3 rounded border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] [@media(hover:hover)]:hover:bg-[var(--card-hover)]"
+      >
+        <office.icon aria-hidden="true" className="size-5 shrink-0 text-[var(--muted-foreground-1)]" />
+        <span className="min-w-0 flex-1">
+          <span className="block break-words text-xs font-medium">{fileName}</span>
+          <span id={descriptionId} className="block text-[11px] tabular-nums text-[var(--muted-foreground-2)]">
+            {office.label}{bytes !== undefined && ` · ${formatBytes(bytes)}`}
+          </span>
+        </span>
+        <Download aria-hidden="true" className="size-4 shrink-0 text-[var(--primary)]" />
+      </a>
+    );
+  }
   if (extension === "html") {
     return (
       <div className="flex flex-col gap-1">

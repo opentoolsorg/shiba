@@ -583,8 +583,8 @@ export const handlers = {
     return handleTeamsConnection(request, env);
   },
   async managedSlackResponse(context: RequestContext): Promise<Response | null> {
-    const { request, env } = context;
-    return handleMultiInstallationSlackCallback(request, env);
+    const { request, env, execution } = context;
+    return handleMultiInstallationSlackCallback(request, env, execution);
   },
   async slackEventsResponse(context: RequestContext): Promise<Response | null> {
     const { request, env, execution: ctx } = context;

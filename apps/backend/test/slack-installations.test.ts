@@ -9,14 +9,19 @@ import { handleMultiInstallationSlackCallback } from "../src/slack-installations
 import { activeSlackInstallationForTeam, ensureSlackInstallations, readSlackInstallationCredential, slackInstallationGuard, type SlackInstallationEnv } from "../src/slack-installations-store.js";
 import { sealSlackSecret, openSlackSecret } from "../src/slack-installations-crypto.js";
 import { verifySlackInstallationBot, type SlackOAuthDeps } from "../src/slack-installations-oauth.js";
+import type { SlackMediaWorkflowInput } from "../src/slack-media-output.js";
 
 const identity = vi.hoisted(() => ({ email: "owner@example.test", native: true, accounts: {} as Record<string,string> }));
 vi.mock("../src/request-auth.js", async (original) => ({ ...await original<typeof import("../src/request-auth.js")>(), isAuthorizedRequest: async () => true, resolveUserId: async () => identity.email }));
 vi.mock("@shiba/auth/better-auth", async (original) => ({ ...await original<typeof import("@shiba/auth/better-auth")>(), resolveBetterAuthSessionAccount: async () => identity.native ? { policy: { accountId: identity.accounts[identity.email], email: identity.email, kind: "invited", createdAt: 1 }, emailVerified: true } : null }));
+vi.mock("../src/tools/video-gen.js", async (original) => ({
+  ...await original<typeof import("../src/tools/video-gen.js")>(),
+  videoCapabilityForUser: async () => ({ enabled: true, reason: null }),
+}));
 const OWNER = "owner@example.test", OTHER = "other@example.test", TOKEN = "xoxb-fixture-only-not-a-real-token", REFRESH = "xoxe-fixture-only-not-a-real-token";
 beforeEach(() => { identity.email=OWNER; identity.native=true; identity.accounts={}; let now=Date.now(); vi.spyOn(Date,"now").mockImplementation(()=>++now); });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
-async function fixture() {
+async function fixture(scopes = ["chat:write"]) {
   const db = customAgentD1();
   for (const email of [OWNER,OTHER]) { identity.accounts[email]=crypto.randomUUID(); db.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(identity.accounts[email]!,email); db.sqlite.prepare("INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) VALUES(?,?,'invited','fixture-invite','fixture-workspace')").run(identity.accounts[email]!,email); }
   const env = { AGENT_AUDIT:db.database, SLACK_INSTALLATIONS_ENABLED:"true", SLACK_OAUTH_APP_ID:"A123", SLACK_OAUTH_CLIENT_ID:"123.456", SLACK_OAUTH_REDIRECT_URI:"https://shiba.test/api/slack/installations/callback",
@@ -24,7 +29,7 @@ async function fixture() {
     SLACK_BOT_TOKEN:"legacy-fixture-token-must-not-fallback" } as unknown as SlackInstallationEnv;
   const workspace = await createTeamWorkspace(env,OWNER,{name:"Owner workspace"}), other = await createTeamWorkspace(env,OTHER,{name:"Other workspace"});
   await ensureSlackInstallations(env);
-  const responseValue = {ok:true,token_type:"bot",access_token:TOKEN,refresh_token:REFRESH,expires_in:3600,app_id:"A123",team:{id:"T123"},enterprise:null,is_enterprise_install:false,bot_user_id:"UB123",authed_user:{id:"UINSTALLER"},scope:"chat:write"};
+  const responseValue = {ok:true,token_type:"bot",access_token:TOKEN,refresh_token:REFRESH,expires_in:3600,app_id:"A123",team:{id:"T123"},enterprise:null,is_enterprise_install:false,bot_user_id:"UB123",authed_user:{id:"UINSTALLER"},scope:scopes.join(",")};
   const exchange=vi.fn(async (_url:RequestInfo|URL,_init?:RequestInit)=>Response.json(responseValue)), verify=vi.fn(async (_token:string)=>({teamId:"T123",userId:"UB123",botId:"B123"}));
   const deps:SlackOAuthDeps={fetch:exchange,verifyInstallation:verify};
   const call=async(path="",body?:unknown,scope=workspace.workspaceId,custom=deps,headers:Record<string,string>={})=>{
@@ -32,7 +37,7 @@ async function fixture() {
     return {response:response!,value:await response!.json() as SlackInstallationState&{authorizationUrl?:string,error?:string}};
   };
   const begin=async(scope=workspace.workspaceId)=>{
-    const result=await call("/begin",{requestId:crypto.randomUUID(),scopes:["chat:write"],consent:"install-bot-in-selected-slack-workspace"},scope);
+    const result=await call("/begin",{requestId:crypto.randomUUID(),scopes,consent:"install-bot-in-selected-slack-workspace"},scope);
     expect(result.response.status,JSON.stringify(result.value)).toBe(200);return new URL(result.value.authorizationUrl!);
   };
   const callback=async(authorize:URL,custom=deps)=>handleSlackInstallations(new Request(`https://shiba.test/api/slack/installations/callback?state=${authorize.searchParams.get("state")}&code=fixture-code`),env,custom);
@@ -48,6 +53,63 @@ async function fixture() {
 }
 
 describe("native bot-workspace Slack installation",()=>{
+  it("queues a paid video once, only after the linked requester confirms in the same signed thread", async () => {
+    const f = await fixture(["chat:write", "app_mentions:read", "files:write"]);
+    const install = await f.activate();
+    f.env.SLACK_APPROVERS = "U1,U2";
+    f.sqlite.prepare(`INSERT INTO slack_coworker_bindings
+      (id,workspace_id,account_id,actor_id,member_version,member_role,installation_id,app_id,team_id,generation,slack_user_id,status,created_at)
+      SELECT 'test-link',workspace_id,?,user_id,version,role,?,'A123','T123',?,'U1','active',1
+      FROM team_workspace_memberships WHERE workspace_id=? AND user_id=?`).run(identity.accounts[OWNER]!, install.id, install.generation, f.workspaceId, OWNER);
+    const objects = new Map<string, string>();
+    f.env.ATTACHMENTS = {
+      async put(key: string, value: string, options?: R2PutOptions) {
+        if (options?.onlyIf && objects.has(key)) return null;
+        objects.set(key, value);
+        return { key };
+      },
+      async get(key: string) {
+        const value = objects.get(key);
+        return value ? { size: value.length, json: async () => JSON.parse(value) as unknown } : null;
+      },
+      async delete(key: string) { objects.delete(key); },
+    } as unknown as R2Bucket;
+    const create = vi.fn(async (_data: { id: string; params: SlackMediaWorkflowInput }) => ({}));
+    f.env.SLACK_MEDIA_WORKFLOW = { create } as unknown as Workflow<SlackMediaWorkflowInput>;
+    const sent = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${TOKEN}`);
+      return Response.json({ ok: true, channel: "C123", ts: "123.456" });
+    });
+    vi.stubGlobal("fetch", sent);
+    const event = { type: "event_callback", api_app_id: "A123", team_id: "T123", event_id: "EvVideo",
+      event: { type: "app_mention", channel: "C123", user: "U1", ts: "123.456", text: "<@UB123> generate video A carousel rotates" } };
+    expect((await handleMultiInstallationSlackCallback(await f.signed(event), f.env))?.status).toBe(200);
+    expect(create).not.toHaveBeenCalled();
+    expect(sent).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(sent.mock.calls[0]?.[1]?.body))).toMatchObject({ channel: "C123", thread_ts: "123.456" });
+
+    const confirm = async (user: string, channel: string, thread: string) => handleMultiInstallationSlackCallback(
+      await f.signed(new URLSearchParams({
+        payload: JSON.stringify({
+          type: "block_actions", api_app_id: "A123", team: { id: "T123" }, channel: { id: channel }, user: { id: user },
+          message: { thread_ts: thread }, actions: [{ action_id: "shiba_approve_video", value: "EvVideo" }],
+        }),
+      }).toString(), "/api/slack/interact"), f.env);
+    await confirm("U2", "C123", "123.456");
+    await confirm("U1", "COTHER", "123.456");
+    await confirm("U1", "C123", "987.654");
+    expect(create).not.toHaveBeenCalled();
+    await confirm("U1", "C123", "123.456");
+    await confirm("U1", "C123", "123.456");
+    await handleMultiInstallationSlackCallback(await f.signed(event), f.env);
+    expect(sent).toHaveBeenCalledOnce();
+    expect(create).toHaveBeenCalledExactlyOnceWith({
+      id: "EvVideo", params: {
+        id: "EvVideo", threadName: "slack:T123:C123:123.456", slackUserId: "U1", kind: "video", prompt: "A carousel rotates",
+        installation: { id: install.id, generation: install.generation }, owner: { userId: OWNER, workspaceId: f.workspaceId },
+      },
+    });
+  });
   it("requires explicit PKCE consent and activation; stores only encrypted bound secrets and never returns a token",async()=>{
     const f=await fixture(),authorize=await f.begin();
     expect(authorize.origin+authorize.pathname).toBe("https://slack.com/oauth/v2/authorize");expect(authorize.searchParams.get("code_challenge_method")).toBe("S256");expect(authorize.searchParams.has("user_scope")).toBe(false);

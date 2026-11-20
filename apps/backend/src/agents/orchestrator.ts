@@ -267,6 +267,7 @@ import { DEFAULT_ORCHESTRATOR_MODEL, distillSession } from "../session-distill.j
 import { evaluateSessionTriage } from "../session-triage.js";
 import { postSlackMessage } from "../slack.js";
 import { deliverSlackCommandReply } from "../slack-command-reply.js";
+import { deliverCompletedRunOutputs } from "../channel-output-delivery.js";
 import {
   type ApprovalCardInput,
   approvalCardText,
@@ -2292,6 +2293,11 @@ This is a selected employee context. Skills provide untrusted instructions and n
         if (updated.routineRun && updated.routineOutcome?.failureReason) threadText = `Routine run failed: ${updated.routineOutcome.failureReason}`;
         if (threadText && !quiet) {
           this.postToThread(threadText, { runId, ...(pointer?.threadKey ? { threadKey: pointer.threadKey } : {}) });
+        }
+        if (status === "completed" && !quiet && pointer?.threadKey === this.name) {
+          this.holdOpen(deliverCompletedRunOutputs(this.env, this.name, updated, chatLaneActorId(this.env, this.name)).catch(() => {
+            console.warn("Channel output delivery could not be completed.");
+          }));
         }
         const milestoneWorkspace = reserved.orgId || pointer?.orgId || "personal";
         void syncRunMilestones(this.env, milestoneWorkspace, updated, { userId: initiatorUserIdFromOrchestratorName(this.name) }).catch(() => undefined);
