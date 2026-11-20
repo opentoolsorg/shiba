@@ -112,7 +112,7 @@ export function OutputsView(): JSX.Element {
             <label className="text-sm">Video shape<select value={shape} onChange={(event) => setVideoShape(event.target.value)} className="mt-1 block min-h-11 border border-[var(--border-1)] bg-[var(--card)] px-3">
               {videoShapes.map((shape) => <option key={shape} value={shape}>{shapeLabels[shape] ?? "Custom"} · {shape}</option>)}
             </select></label>
-            <a href={`/threads/?${new URLSearchParams({ prompt: `Create a ${shape} video of ` })}`} className="inline-flex min-h-11 items-center gap-2 border border-[var(--border-1)] bg-[var(--inverse)] px-4 text-sm text-[var(--inverse-text)]">
+            <a href={`/threads/?${new URLSearchParams({ prompt: `Create a ${shape} video of `, create: "video" })}`} className="inline-flex min-h-11 items-center gap-2 border border-[var(--border-1)] bg-[var(--inverse)] px-4 text-sm text-[var(--inverse-text)]">
               <MessageSquare aria-hidden="true" size={14} /> Create in Chat
             </a>
           </div> : <button type="button" disabled aria-describedby="outputs-video-reason" className="inline-flex min-h-11 shrink-0 items-center gap-2 self-start border border-[var(--border-1)] px-4 text-sm opacity-50 sm:self-auto">

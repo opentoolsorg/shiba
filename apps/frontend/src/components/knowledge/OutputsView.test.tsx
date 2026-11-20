@@ -113,7 +113,7 @@ describe("Outputs gallery", () => {
     fireEvent.change(screen.getByLabelText("Video shape"), { target: { value: "9:16" } });
     const href = new URL(link.getAttribute("href") ?? "", "https://shiba.test");
     expect(href.pathname).toBe("/threads/");
-    expect(readPromptParam(href.search)).toEqual({ prompt: "Create a 9:16 video of ", nextSearch: "" });
+    expect(readPromptParam(href.search)).toEqual({ prompt: "Create a 9:16 video of ", nextSearch: "", createVideo: true });
     expect(screen.getByText(/nothing is generated until you approve it/)).toBeTruthy();
     expect(mock.mock.calls.map(([url, init]) => [url, init?.method ?? "GET"])).toEqual(expect.arrayContaining([["/api/outputs/media-options", "GET"]]));
     expect(mock.mock.calls.every(([url, init]) => (init?.method ?? "GET") === "GET" && /^\/api\/outputs(\?|\/media-options$|$)/.test(url))).toBe(true);

@@ -216,14 +216,16 @@ export function formatTimeAgo(timestamp: number): string {
  * Reads and removes the ?prompt= parameter from location.search for composer prefill.
  * Blank or whitespace-only values return null. Length is capped at 4000 characters.
  */
-export function readPromptParam(search: string): { prompt: string | null; nextSearch: string } {
+export function readPromptParam(search: string): { prompt: string | null; nextSearch: string; createVideo?: true } {
   const params = new URLSearchParams(search);
   const raw = params.get("prompt");
   if (raw === null || raw.trim() === "") {
     return { prompt: null, nextSearch: params.toString() ? `?${params.toString()}` : "" };
   }
   params.delete("prompt");
+  const createVideo = params.get("create") === "video";
+  if (createVideo) params.delete("create");
   const nextSearch = params.toString() ? `?${params.toString()}` : "";
   const prompt = raw.slice(0, 4000);
-  return { prompt, nextSearch };
+  return { prompt, nextSearch, ...(createVideo ? { createVideo: true } : {}) };
 }

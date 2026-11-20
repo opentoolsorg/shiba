@@ -7,16 +7,22 @@ import { ChatMessageComposer, type ChatCreateChoice } from "./ChatMessageCompose
 export type MentionableAgent = { id: string; name: string; role?: EmployeeRole; mascotPreset?: CustomAgentMascotPreset; look?: AgentMascotLook; avatar?: AgentAvatarChoice };
 
 type ComposerProps = Omit<ComponentProps<typeof ChatMessageComposer>, "agentName" | "onMention" | "mentionOpen" | "textareaRef" | "children" | "placeholder" | "createChoice" | "onCreateChange" | "onSubmit"> & {
+  onVideoHandoff?: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>, create?: ChatCreateChoice) => void | Promise<boolean | void>;
 };
 
-export function AgentComposerShell({ agentName, agents, ...composer }: ComposerProps & { agentName: string; agents: readonly MentionableAgent[] }): JSX.Element {
+export function AgentComposerShell({ agentName, agents, onVideoHandoff, ...composer }: ComposerProps & { agentName: string; agents: readonly MentionableAgent[] }): JSX.Element {
   const [mentionAt, setMentionAt] = useState<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuId = useId();
   const { value, onChange } = composer;
   const [creation, setCreation] = useState<{ choice: ChatCreateChoice; draft: string } | null>(null);
+  useEffect(() => {
+    if (!onVideoHandoff) return;
+    setCreation({ choice: "video", draft: value });
+    onVideoHandoff();
+  }, [onVideoHandoff, value]);
   if (creation && creation.draft !== value && !(composer.busy && !value)) setCreation(null);
   const editDraft = (text: string) => {
     if (creation) setCreation(text.trim() && creation.draft === value ? { ...creation, draft: text } : null);
