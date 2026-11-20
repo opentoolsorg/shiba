@@ -1,5 +1,5 @@
 import { type FormEvent, type JSX, type KeyboardEvent, type ReactNode, type RefObject, useRef } from "react";
-import { ArrowUp, AtSign, BookOpen, Globe2, LoaderCircle, Mic, Plus, Square } from "lucide-react";
+import { ArrowUp, AtSign, BookOpen, Globe2, LoaderCircle, Mic, Monitor, Plus, Square } from "lucide-react";
 import type { ChatLookupId, ChatLookupOption } from "../chat-lookups";
 import { useVoiceInput } from "../hooks/useVoiceInput";
 
@@ -39,7 +39,7 @@ export function ChatMessageComposer({
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
   /** Opens the existing Work editor with this same draft; never submits or approves it. */
   onPrepareWork?: () => void;
-  /** Read-only lookups (web, knowledge) the next Chat message may use; off unless the person turns them on. */
+  /** Tools the next Chat message may use; off unless the person turns them on. */
   lookups?: readonly ChatLookupOption[];
   onToggleLookup?: (id: ChatLookupId) => void;
   children?: ReactNode;
@@ -83,7 +83,7 @@ export function ChatMessageComposer({
           disabled={streaming}
         />
         <div className="flex items-center justify-between gap-3 pt-1">
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             <button
               type="button"
               aria-label="Add to message"
@@ -112,9 +112,9 @@ export function ChatMessageComposer({
               <AtSign aria-hidden="true" className="size-4" />
             </button>
             {onToggleLookup && lookups.length ? (
-              <div role="group" aria-label="Lookups for this message" className="flex items-center gap-1.5">
+              <div role="group" aria-label="Tools for this message" className="flex min-w-0 flex-wrap items-center gap-1.5">
                 {lookups.map((lookup) => {
-                  const Icon = lookup.id === "web_search" ? Globe2 : BookOpen;
+                  const Icon = lookup.id === "browser" ? Monitor : lookup.id === "web_search" ? Globe2 : BookOpen;
                   return (
                     <button
                       key={lookup.id}
@@ -122,12 +122,13 @@ export function ChatMessageComposer({
                       aria-pressed={lookup.on}
                       disabled={!lookup.available || streaming}
                       title={lookup.available
-                        ? `${lookup.on ? "Turn off" : "Turn on"} the ${lookup.label.toLowerCase()} lookup.${
+                        ? lookup.id === "browser" ? `${lookup.on ? "Turn off" : "Turn on"} the browser for Chat in this thread. Saved sign-in requires your approval.`
+                        : `${lookup.on ? "Turn off" : "Turn on"} the ${lookup.label.toLowerCase()} lookup.${
                           lookup.id === "knowledge_search" ? " It searches your personal files and notes." : ""
                         } It stays on for later Chat messages until you turn it off.`
                         : lookup.unavailableReason}
                       onClick={() => onToggleLookup(lookup.id)}
-                      className={`inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-50 ${
+                      className={`inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11 ${
                         lookup.on
                           ? "border-[var(--primary)] bg-[var(--primary-soft)] text-[var(--primary)]"
                           : "border-[var(--border-1)] text-[var(--muted-foreground-1)] hover:bg-[var(--secondary)] hover:text-[var(--fg)]"
@@ -147,11 +148,11 @@ export function ChatMessageComposer({
                   SHIBA IS RESPONDING
                 </span>
               ) : lookups.some((lookup) => lookup.on)
-                ? `CHAT MODE · ${lookups.filter((lookup) => lookup.on).map((lookup) => lookup.label.toUpperCase()).join(" + ")} LOOKUP`
+                ? `CHAT MODE · ${lookups.filter((lookup) => lookup.on).map((lookup) => lookup.id === "browser" ? "BROWSER" : `${lookup.label.toUpperCase()} LOOKUP`).join(" + ")}`
                 : "CHAT MODE"}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 flex-wrap justify-end gap-2">
             {failed ? (
               <button
                 type="button"

@@ -120,6 +120,8 @@ The optional `ComputerSession` class owns a separately approved, offline human d
 
 [Output archives](docs/container-replacement-journal-proposal.md) retain an approved native owner's sanitized, externally acknowledged output in room SQLite, with a separate D1 quota/lease reservation. They do not restore destroyed processes, unacknowledged output or uncommitted files, and do not authorize replacement execution.
 
+The BrowserSession DO serializes agent and dashboard operations for one authenticated Chat thread and stores the Cloudflare Browser Rendering session ID for reconnects. Browser access is separate from both local computers and coding containers. Saved browser logins are purpose-bound ciphertext in D1; only an approved Worker-side sign-in on the exact saved HTTPS origin can decrypt them.
+
 ## 4. Durable Objects — the state map
 
 | DO | Owns | Migration |

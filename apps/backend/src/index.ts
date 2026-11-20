@@ -46,6 +46,7 @@ export { CodingOrchestrator } from "./agents/orchestrator.js";
 export { OpenCodeAgent } from "./agents/opencode-agent.js";
 export { ExplorerAgent } from "./agents/specialists/explorer-agent.js";
 export { ReviewerAgent } from "./agents/specialists/reviewer-agent.js";
+export { BrowserSession } from "./tools/browser-session-do.js";
 export {
   Automations,
   ChatGptAuth,

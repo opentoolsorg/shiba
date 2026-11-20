@@ -6,6 +6,7 @@ import { IntegrationsView } from "./IntegrationsView";
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  window.history.replaceState(null, "", "/");
 });
 
 function stubIntegrationsFetch() {
@@ -40,6 +41,7 @@ function stubIntegrationsFetch() {
       return Response.json({ ok: true, provider: "openconnector", connections: [], items: [] });
     }
     if (url === "/api/mailboxes") return Response.json({ mailboxes: [] });
+    if (url.startsWith("/api/browser-logins")) return Response.json({ logins: [] });
     if (url === "/api/v1/mcp/servers") return Response.json({ servers: [] });
     if (url === "/api/v1/mcp/catalog-connections") return Response.json({ ok: true, connections: [] });
     if (url.endsWith("/api/reason-network/status")) return Response.json({ state: "setup_required", enabled: false });
@@ -48,6 +50,23 @@ function stubIntegrationsFetch() {
 }
 
 describe("IntegrationsView scopes", () => {
+  it("opens the personal vault from Saved logins and the team vault in workspace integrations", async () => {
+    stubIntegrationsFetch();
+    const view = render(<IntegrationsView actorId="owner@example.test" />);
+    (await screen.findByRole("tab", { name: "Saved logins" })).click();
+    expect(await screen.findByText("Personal vault")).toBeTruthy();
+    expect(fetch).toHaveBeenCalledWith("/api/browser-logins", expect.anything());
+
+    const workspaceId = `ws_${"b".repeat(24)}`;
+    view.rerender(<IntegrationsView actorId="owner@example.test" workspaceId={workspaceId} workspaceName="Example team" workspaceRole="owner" />);
+    expect(screen.queryByText("Personal vault")).toBeNull();
+    (await screen.findByRole("button", { name: "Browser logins" })).click();
+    expect(await screen.findByText("Example team", { exact: true })).toBeTruthy();
+    expect(fetch).toHaveBeenCalledWith(`/api/browser-logins?workspaceId=${workspaceId}`, expect.objectContaining({
+      headers: { "X-Shiba-Workspace": workspaceId },
+    }));
+  });
+
   it("renders Personal, Workspace, and Archived tabs for skills", async () => {
     stubIntegrationsFetch();
     render(<IntegrationsView actorId="owner@example.test" />);

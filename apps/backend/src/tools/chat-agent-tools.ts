@@ -11,7 +11,8 @@ import { selectorRequiresSubmitApproval } from "./browser-url.js";
 import { knowledgeSearchToolArgsSchema } from "@shiba/shared";
 import { knowledgeSearchConfigured } from "../knowledge/knowledge-tool.js";
 import { hybridKnowledgeSearch } from "../knowledge/knowledge-search.js";
-import { closeBrowserSession } from "./browser-sessions.js";
+import { browserCommand, chatBrowserKey } from "./browser-sessions.js";
+import { loginIdSchema } from "./browser-logins.js";
 
 export interface ChatAgentToolsContext {
   runId: string;
@@ -22,7 +23,7 @@ export interface ChatAgentToolsContext {
    * a thread-wide key would let two batches exhaust search for its lifetime.
    */
   budgetKey?: string;
-  onClose?: () => void;
+  canUseBrowserLogins?: () => Promise<boolean>;
 }
 
 /** AI SDK tools for chat-mode orchestrator turns (media + browser). */
@@ -31,6 +32,7 @@ export function createChatAgentMediaTools(env: Env, ctx: ChatAgentToolsContext):
   const runId = ctx.runId;
   const userId = ctx.userId;
   const budgetKey = ctx.budgetKey ?? runId;
+  const browserKey = chatBrowserKey(runId);
 
   return {
     web_search: tool({
@@ -62,37 +64,59 @@ export function createChatAgentMediaTools(env: Env, ctx: ChatAgentToolsContext):
         },
       }),
     } : {}),
-    browser_open: tool({
-      description: "Open a URL in a browser session tied to this chat run.",
-      inputSchema: z.object({ url: z.string().url() }),
-      execute: async ({ url }) => browserOpen(env, runId, url),
-    }),
-    browser_read: tool({
-      description: "Read readable text from the current browser session.",
-      inputSchema: z.object({}).strict(),
-      execute: async () => browserRead(runId),
-    }),
-    browser_click: tool({
-      description: "Click a CSS selector in the browser session. Submit buttons require approval.",
-      inputSchema: z.object({ selector: z.string().min(1).max(500) }),
-      needsApproval: async ({ selector }) => selectorRequiresSubmitApproval(selector),
-      execute: async ({ selector }) => browserClick(runId, selector, {
-        approved: selectorRequiresSubmitApproval(selector),
+    ...(ctx.canUseBrowserLogins ? {
+      browser_open: tool({
+        description: "Open a URL in a browser session tied to this chat run.",
+        inputSchema: z.object({ url: z.string().url() }),
+        execute: async ({ url }) => browserOpen(env, browserKey, runId, url),
       }),
-    }),
-    browser_type: tool({
-      description: "Type text into a focused element. Password fields require approval.",
-      inputSchema: z.object({ selector: z.string().min(1).max(500), text: z.string().max(2000) }),
-      needsApproval: async ({ selector, text }) => selectorRequiresSubmitApproval(selector, text),
-      execute: async ({ selector, text }) => browserType(runId, selector, text, {
-        approved: selectorRequiresSubmitApproval(selector, text),
+      browser_read: tool({
+        description: "Read readable text from the current browser session.",
+        inputSchema: z.object({}).strict(),
+        execute: async () => browserRead(env, browserKey),
       }),
-    }),
-    browser_screenshot: tool({
-      description: "Save a PNG screenshot from the browser session to Outputs.",
-      inputSchema: z.object({}).strict(),
-      execute: async () => browserScreenshot(env, runId),
-    }),
+      browser_click: tool({
+        description: "Click a CSS selector in the browser session. Submit buttons require approval.",
+        inputSchema: z.object({ selector: z.string().min(1).max(500) }),
+        needsApproval: async ({ selector }) => selectorRequiresSubmitApproval(selector),
+        execute: async ({ selector }) => browserClick(env, browserKey, selector, {
+          approved: selectorRequiresSubmitApproval(selector),
+        }),
+      }),
+      browser_type: tool({
+        description: "Type text into a focused element. Password fields require approval.",
+        inputSchema: z.object({ selector: z.string().min(1).max(500), text: z.string().max(2000) }),
+        needsApproval: async ({ selector, text }) => selectorRequiresSubmitApproval(selector, text),
+        execute: async ({ selector, text }) => browserType(env, browserKey, selector, text, {
+          approved: selectorRequiresSubmitApproval(selector, text),
+        }),
+      }),
+      browser_screenshot: tool({
+        description: "Save a PNG screenshot from the browser session to Outputs.",
+        inputSchema: z.object({}).strict(),
+        execute: async () => browserScreenshot(env, browserKey, runId),
+      }),
+      browser_sign_in: tool({
+        description: "Use a saved login by ID on its exact HTTPS origin. Always asks the signed-in person to approve this use. Never ask the user to paste credentials into chat.",
+        inputSchema: z.strictObject({ loginId: loginIdSchema }),
+        needsApproval: async ({ loginId }, { toolCallId }) => {
+          if (!userId || !await ctx.canUseBrowserLogins?.()) throw new Error("Saved browser sign-in requires a signed-in dashboard thread.");
+          await browserCommand(env, browserKey, { kind: "prepare-sign-in", actor: userId, loginId, toolCallId });
+          return true;
+        },
+        execute: async ({ loginId }, { toolCallId }) => {
+          if (!userId || !await ctx.canUseBrowserLogins?.()) throw new Error("Saved browser sign-in requires a signed-in dashboard thread.");
+          return browserCommand<{ signedIn: boolean; url: string; loginLabel: string }>(env, browserKey, {
+            kind: "sign-in", actor: userId, loginId, toolCallId,
+          });
+        },
+      }),
+      browser_close: tool({
+        description: "Close the browser session for this chat run.",
+        inputSchema: z.object({}).strict(),
+        execute: async () => browserCommand<{ closed: boolean }>(env, browserKey, { kind: "close" }),
+      }),
+    } : {}),
     ...(videoCapability(env).enabled && userId ? {
       generate_video: tool({
         description: "Generate a paid short MP4 from text or your image artifact. Requires human confirmation before spending.",
@@ -105,15 +129,6 @@ export function createChatAgentMediaTools(env: Env, ctx: ChatAgentToolsContext):
       description: "Generate an image from a prompt with a chosen style and shape.",
       inputSchema: imageInputSchema,
       execute: async (input) => generateImage(env, { ...input, runId, userId, workspaceId: orgId.replace(/^team:/, "") }),
-    }),
-    browser_close: tool({
-      description: "Close the browser session for this chat run.",
-      inputSchema: z.object({}).strict(),
-      execute: async () => {
-        await closeBrowserSession(runId);
-        ctx.onClose?.();
-        return { closed: true };
-      },
     }),
   };
 }

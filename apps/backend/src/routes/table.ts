@@ -46,6 +46,7 @@ export const ROUTES: readonly RouteEntry[] = [
   route("slackCoworkerResponse", "authenticated", "*", "^/api/slack/coworker(?:/|$)", "session", handlers.slackCoworkerResponse),
   route("sharedComputerResponse", "authenticated", "*", "^/api/shared-computers(?:/|$)", "session", handlers.sharedComputerResponse),
   route("workspaceIntegrationResponse", "authenticated", "*", "^/api/workspace-integrations(?:/|$)", "session", handlers.workspaceIntegrationResponse),
+  route("browserResponse", "authenticated", "*", "^/api/(?:sessions/browser|browser-logins(?:/[^/]+)?)$", "session", handlers.browserResponse),
   route("personalExecutionResponse", "authenticated", "*", "^/api/personal-execution(?:/|$)", "session", handlers.personalExecutionResponse),
   route("teamModelResponse", "authenticated", "*", "^/api/team-model-sessions(?:/|$)", "session", handlers.teamModelResponse),
   route("learningResponse", "authenticated", "*", "^/api/learning(?:/|$)", "session", handlers.learningResponse),

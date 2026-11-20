@@ -6,6 +6,7 @@ import { registerAskUserTool } from "./ws08-ask-user.js";
 import { registerAskUiTool } from "./ask-ui.js";
 import { registerKnowledgeSearchTool } from "../knowledge/knowledge-tool.js";
 import { browserClick, browserOpen, browserRead, browserScreenshot, browserToolError, browserType } from "./browser.js";
+import { loginIdSchema } from "./browser-logins.js";
 import { videoCapability, videoInputSchema } from "./video-gen.js";
 import { generateImage } from "./image-gen.js";
 import { imageInputSchema } from "./image-models.js";
@@ -19,6 +20,10 @@ function jsonResult(payload: Record<string, unknown>): CallToolResult {
 function runIdFromArgs(args: Record<string, unknown>, ctxRunId?: string): string {
   if (typeof args.runId === "string" && args.runId.trim()) return args.runId.trim();
   return ctxRunId?.trim() || "mcp-session";
+}
+
+function browserMcpKey(orgId: string | undefined, principal: string, runId: string) {
+  return JSON.stringify(["mcp", orgId ?? "self-hosted", principal, runId]);
 }
 
 /** Single MCP registration entry for WS10 agent media tools. */
@@ -69,7 +74,8 @@ export function registerAgentMediaMcpTools(registry: ToolRegistry, env: Env): vo
     async (args, ctx) => {
       try {
         const runId = runIdFromArgs(args, ctx.principal.principal);
-        const opened = await browserOpen(env, runId, String(args.url ?? ""));
+        const key = browserMcpKey(ctx.principal.orgId, ctx.principal.principal, runId);
+        const opened = await browserOpen(env, key, key, String(args.url ?? ""));
         return jsonResult({ ok: true, ...opened });
       } catch (error) {
         return jsonResult({ ok: false, ...browserToolError(error) });
@@ -88,7 +94,7 @@ export function registerAgentMediaMcpTools(registry: ToolRegistry, env: Env): vo
     async (args, ctx) => {
       try {
         const runId = runIdFromArgs(args, ctx.principal.principal);
-        const content = await browserRead(runId);
+        const content = await browserRead(env, browserMcpKey(ctx.principal.orgId, ctx.principal.principal, runId));
         return jsonResult({ ok: true, ...content });
       } catch (error) {
         return jsonResult({ ok: false, ...browserToolError(error) });
@@ -108,16 +114,15 @@ export function registerAgentMediaMcpTools(registry: ToolRegistry, env: Env): vo
       try {
         const runId = runIdFromArgs(args, ctx.principal.principal);
         const selector = String(args.selector ?? "");
-        const approved = args.approved === true;
-        const clicked = await browserClick(runId, selector, { approved });
+        const clicked = await browserClick(env, browserMcpKey(ctx.principal.orgId, ctx.principal.principal, runId), selector);
         return jsonResult({ ok: true, ...clicked });
       } catch (error) {
         return jsonResult({ ok: false, ...browserToolError(error) });
       }
     },
     {
-      description: "Click an element in the active browser session. Submit-like selectors require approved=true.",
-      inputSchema: { ...browserRunSchema, selector: z.string().min(1).max(500), approved: z.boolean().optional() },
+      description: "Click an element in the active browser session. Use dashboard chat for approval-required selectors.",
+      inputSchema: { ...browserRunSchema, selector: z.string().min(1).max(500) },
       annotations: { readOnlyHint: false },
     },
   );
@@ -130,20 +135,18 @@ export function registerAgentMediaMcpTools(registry: ToolRegistry, env: Env): vo
         const runId = runIdFromArgs(args, ctx.principal.principal);
         const selector = String(args.selector ?? "");
         const text = String(args.text ?? "");
-        const approved = args.approved === true;
-        const typed = await browserType(runId, selector, text, { approved });
+        const typed = await browserType(env, browserMcpKey(ctx.principal.orgId, ctx.principal.principal, runId), selector, text);
         return jsonResult({ ok: true, ...typed });
       } catch (error) {
         return jsonResult({ ok: false, ...browserToolError(error) });
       }
     },
     {
-      description: "Type into an element. Password/submit fields require approved=true.",
+      description: "Type into an element. Use dashboard chat for approval-required selectors.",
       inputSchema: {
         ...browserRunSchema,
         selector: z.string().min(1).max(500),
         text: z.string().max(2000),
-        approved: z.boolean().optional(),
       },
       annotations: { readOnlyHint: false },
     },
@@ -155,7 +158,8 @@ export function registerAgentMediaMcpTools(registry: ToolRegistry, env: Env): vo
     async (args, ctx) => {
       try {
         const runId = runIdFromArgs(args, ctx.principal.principal);
-        const shot = await browserScreenshot(env, runId);
+        const key = browserMcpKey(ctx.principal.orgId, ctx.principal.principal, runId);
+        const shot = await browserScreenshot(env, key, key);
         return jsonResult({ ok: true, ...shot });
       } catch (error) {
         return jsonResult({ ok: false, ...browserToolError(error) });
@@ -167,6 +171,15 @@ export function registerAgentMediaMcpTools(registry: ToolRegistry, env: Env): vo
       annotations: { readOnlyHint: true },
     },
   );
+
+  registry.registerTool("browser_sign_in", "api:write", async () => ({
+    ...jsonResult({ status: "approval_required", error: "Use browser_sign_in in dashboard Chat so a person can approve this specific use. MCP cannot supply that approval." }),
+    isError: true,
+  }), {
+    description: "Saved browser sign-in requires a human confirmation in dashboard Chat.",
+    inputSchema: { loginId: loginIdSchema },
+    annotations: { readOnlyHint: false },
+  });
 
   if (videoCapability(env).enabled) {
     registry.registerTool("generate_video", "api:write", async () => jsonResult({
