@@ -66,15 +66,17 @@ describe("DiscordInstallationsClient", () => {
     ]) {
       expect(() => checkDiscordAuthorizeUrl(bad)).toThrow();
       const client = new DiscordInstallationsClient(WORKSPACE, async () => Response.json({ authorizeUrl: bad }));
-      await expect(client.begin(undefined, new AbortController().signal)).rejects.toThrow();
+      await expect(client.begin(undefined, new AbortController().signal)).rejects.toMatchObject({
+        message: "The authorization link does not point to Discord. Nothing was opened.",
+      });
     }
   });
 
   it("rejects an invalid guild id before sending anything", async () => {
     const fetcher = vi.fn(async () => Response.json(status()));
     const client = new DiscordInstallationsClient(WORKSPACE, fetcher);
-    await expect(client.begin("../x", new AbortController().signal)).rejects.toThrow(/Invalid Discord server id/);
-    await expect(client.disconnect("abc", new AbortController().signal)).rejects.toThrow(/Invalid Discord server id/);
+    await expect(client.begin("../x", new AbortController().signal)).rejects.toMatchObject({ message: "Invalid Discord server id." });
+    await expect(client.disconnect("abc", new AbortController().signal)).rejects.toMatchObject({ message: "Invalid Discord server id." });
     expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -95,11 +97,11 @@ describe("DiscordInstallationsClient", () => {
     await expect(
       new DiscordInstallationsClient(WORKSPACE, async () => Response.json({ error: "Discord storage is not bound." }, { status: 503 })).read(signal),
     ).rejects.toMatchObject({ message: "Discord storage is not bound.", status: 503 });
-    await expect(new DiscordInstallationsClient(WORKSPACE, async () => new Response("no", { status: 403 })).read(signal)).rejects.toThrow(
-      /permission/,
-    );
-    await expect(new DiscordInstallationsClient(WORKSPACE, async () => Response.json({ installations: "nope" })).read(signal)).rejects.toThrow(
-      /could not be read/,
-    );
+    await expect(new DiscordInstallationsClient(WORKSPACE, async () => new Response("no", { status: 403 })).read(signal)).rejects.toMatchObject({
+      message: "You don't have permission to manage the Discord connection.", status: 403,
+    });
+    await expect(new DiscordInstallationsClient(WORKSPACE, async () => Response.json({ installations: "nope" })).read(signal)).rejects.toMatchObject({
+      message: "Discord connection status could not be read.", status: 200,
+    });
   });
 });
