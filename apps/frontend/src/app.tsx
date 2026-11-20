@@ -452,6 +452,9 @@ export function App(): React.JSX.Element {
   latestSelectedDraftRef.current = selectedOnboardingDraftRef;
   const selectedOnboardingTaskText = useRef<string | null>(null);
   const initialComposerPrompt = useRef(task);
+  const initialVideoHandoff = useRef(typeof window !== "undefined" && readPromptParam(window.location.search).createVideo === true);
+  const [videoHandoffScope, setVideoHandoffScope] = useState<string | null>(null);
+  const consumeVideoHandoff = useCallback(() => setVideoHandoffScope(null), []);
   const [pendingOnboardingDraft, setPendingOnboardingDraft] = useState<SelectedOnboardingDraft | null>(null);
   const [incomingSlackTask, setIncomingSlackTask] = useState<IncomingTaskDraft | null>(null);
   const [publishPullRequest, setPublishPullRequest] = useState(false);
@@ -1010,7 +1013,14 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       const withHandoff = saved.trim() && saved !== handoff ? `${saved}\n\n${handoff}` : handoff;
       const restored = quick ? quick.text : handoff ? withHandoff : keepCurrentTask ? task : saved;
       quickDraft.current = null;
-      if (composerScope) initialComposerPrompt.current = "";
+      if (composerScope) {
+        if (handoff && !quick && initialVideoHandoff.current) {
+          setVideoHandoffScope(composerScope);
+          setConversationMode("chat");
+        }
+        initialComposerPrompt.current = "";
+        initialVideoHandoff.current = false;
+      }
       selectedOnboardingTaskText.current = restored;
       setTask(restored);
       if (composerScope && handoff) writeDraft(composerScope, restored, null, orchestratorName ?? "");
@@ -1026,7 +1036,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     if (!task.trim()) return flushDraft();
     const timer = window.setTimeout(flushDraft, 300);
     return () => window.clearTimeout(timer);
-  }, [composerScope, sessionsSettledFor, task, selectedOnboardingDraftRef, flushDraft]);
+  }, [composerScope, sessionsSettledFor, task, selectedOnboardingDraftRef, flushDraft, setConversationMode]);
   // A failed submit restores its text only into the session it came from.
   const restoreDraft = useCallback((scope: string, text: string, reference?: OnboardingDraftRef | null) => {
     if (draftScope.current === scope) {
@@ -4333,6 +4343,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                         onChange={setTask}
                         onPrepareWork={() => setConversationMode("work")}
                         onSubmit={(event, create) => submitTask(event, { create })}
+                        onVideoHandoff={composerVisible && videoHandoffScope === composerScope ? consumeVideoHandoff : undefined}
                         onStop={() => { void chat.stop(); }}
                         onRetry={() => { void chat.regenerate(); }}
                         busy={!composerVisible || isSubmitting || clearing || threadLinkPending}

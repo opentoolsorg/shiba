@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { App } from "./app";
+import { writeConversationMode, writeRememberedSessionId } from "./conversation-mode";
 import { ONBOARDING_DISMISSED_KEY } from "./components/AgentExperience";
 
 const mocks = vi.hoisted(() => ({
@@ -27,8 +28,10 @@ beforeEach(() => {
   sessionStorage.clear();
   localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
   mocks.chat.sendMessage.mockReset();
-  vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL) => {
+  vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
     const path = String(url);
+    if (path === "/api/outputs") return Response.json({ items: [] });
+    if (path === "/api/outputs/media-options") return Response.json({ imageModels: [], imageAspectRatios: [], video: { enabled: true, aspectRatios: ["16:9", "9:16"] } });
     if (path === "/api/whoami") return Response.json({ agent: "test-operator", auth: "access" });
     if (path === "/api/sessions") return Response.json({ sessions: [thread], defaultSessionId: "default" });
     if (path === `/api/sessions/${thread.id}/resume`) return Response.json({ session: thread, resumed: true });
@@ -120,4 +123,32 @@ it("does not take an unsent Create choice into another conversation", async () =
   await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(thread.id));
   expect(await create()).toHaveProperty("value", "");
   expect((await send("Different conversation")).metadata).not.toHaveProperty("shibaChatCreate");
+});
+
+it("hands off an unsent Video draft to the remembered thread and opts in only when sent", async () => {
+  window.history.replaceState(null, "", "/outputs/");
+  writeRememberedSessionId(thread.id);
+  writeConversationMode(thread.id, "work");
+  const outputs = render(<App />);
+  const link = await screen.findByRole<HTMLAnchorElement>("link", { name: "Create in Chat" });
+  fireEvent.change(screen.getByLabelText("Video shape"), { target: { value: "9:16" } });
+  const href = link.getAttribute("href");
+  expect(href).toBeTruthy();
+  outputs.unmount();
+
+  window.history.pushState(null, "", href);
+  render(<App />);
+  await waitFor(() => expect(screen.getByRole("combobox", { name: "Create for this message" })).toHaveProperty("value", "video"));
+  expect(new URLSearchParams(window.location.search).get("session")).toBe(thread.id);
+  expect(new URLSearchParams(window.location.search).has("create")).toBe(false);
+  expect(new URLSearchParams(window.location.search).has("prompt")).toBe(false);
+  expect(screen.getByRole("textbox", { name: "Message Shiba" })).toHaveProperty("value", "Create a 9:16 video of ");
+  expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
+  expect(vi.mocked(fetch).mock.calls.some(([url, init]) =>
+    init?.method === "POST" && /chat-suggestions|\/api\/(runs|approvals|outputs)/.test(String(url)))).toBe(false);
+
+  const text = "Create a 9:16 video of a paper boat";
+  expect(await send(text)).toEqual({ text, metadata: { shibaMode: "chat", shibaRoomViewerId: "viewer", shibaChatCreate: "video" } });
+  await waitFor(() => expect(screen.getByRole("combobox", { name: "Create for this message" })).toHaveProperty("value", ""));
+  expect((await send("Continue")).metadata).not.toHaveProperty("shibaChatCreate");
 });

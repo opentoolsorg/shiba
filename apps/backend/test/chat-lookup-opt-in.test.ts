@@ -1,3 +1,5 @@
+import { generateText } from "ai";
+import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { CodingOrchestrator } from "../src/agents/orchestrator.js";
@@ -135,10 +137,29 @@ describe("chat create choice", () => {
       env, name: buildSessionAgentName("ada@example.test", "11111111-1111-4111-8111-111111111111"),
       messages: chat({ shibaChatCreate: "video" }), state: {}, employeeToolProfileId: () => undefined,
     }) as unknown as CodingOrchestrator;
-    const tools = instance.getTools() as Record<string, { needsApproval?: unknown }>;
-    expect((await instance.beforeTurn({ tools, system: "base" } as never)).activeTools).toEqual(["generate_video"]);
+    const tools = instance.getTools();
+    const turn = await instance.beforeTurn({ tools, system: instance.getSystemPrompt() } as never);
+    expect(turn.activeTools).toEqual(["generate_video"]);
     expect(tools.generate_video?.needsApproval).toBe(true);
     expect(tools.generate_report?.needsApproval).toBeUndefined();
+
+    const execute = vi.spyOn(tools.generate_video!, "execute").mockResolvedValue({ ok: true });
+    const model = new MockLanguageModelV3({
+      doGenerate: async ({ tools: offered }) => {
+        expect(offered?.map((entry) => entry.name)).toEqual(["generate_video"]);
+        return {
+          content: [{ type: "tool-call", toolCallId: "video-request", toolName: "generate_video", input: JSON.stringify({ prompt: "A paper boat", aspectRatio: "9:16" }) }],
+          finishReason: { unified: "tool-calls", raw: undefined },
+          usage: { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: undefined } },
+          warnings: [],
+        };
+      },
+    });
+    const result = await generateText({
+      model, tools, activeTools: turn.activeTools, system: turn.instructions, prompt: "Create a 9:16 video of a paper boat",
+    });
+    expect(result.content).toContainEqual(expect.objectContaining({ type: "tool-approval-request", toolCall: expect.objectContaining({ toolCallId: "video-request" }) }));
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("registers report and page writers only for a signed-in user with file storage", () => {
