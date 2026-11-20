@@ -18,7 +18,8 @@ const legacyDuplicate = new Set([
   "0063_workspace_channel_facts.sql",
 ]);
 // main skipped 0067 when it added 0068/0069; never fill it retroactively.
-const skippedNumbers = new Set([67]);
+// main skipped 0072/0073 when it added 0074 (browser logins); never fill them retroactively.
+const skippedNumbers = new Set([67, 72, 73]);
 
 const historicalNames = new Set([
   "0001_audit_log.sql",
