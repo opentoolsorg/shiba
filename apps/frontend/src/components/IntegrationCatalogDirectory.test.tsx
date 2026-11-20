@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import type { IntegrationProviderCatalogItem } from "@shiba/shared";
+import { setupRequiredCatalog, type IntegrationProviderCatalogItem } from "@shiba/shared";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IntegrationCatalogDirectory } from "./IntegrationCatalogDirectory";
@@ -151,6 +151,120 @@ describe("IntegrationCatalogDirectory OAuth redirects", () => {
     expect(screen.queryByTestId("integration-catalog-row-github")).toBeNull();
     expect(within(screen.getByTestId("integration-catalog-row-stripe")).getByRole("link", { name: "Configure MCP" }).getAttribute("href")).toBe("/integrations/?tab=mcp#mcp-preset-stripe");
   });
+  it("keeps a bundled entry distinct from its apps and stops claiming configured for a partial bundle", async () => {
+    const gmail = { id: "gmail", providerKey: "gmail", name: "Gmail", description: "Mail app", source: "openconnector", connectable: true, isConnected: false, setupState: "ready" };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/connections")) return Response.json({ ok: true, provider: "openconnector", connections: [{ id: "account-gmail", providerKey: "gmail", provider: "openconnector" }] });
+      if (path.endsWith("/meta")) return Response.json({ health: { provider: "openconnector", status: "healthy", checkedAt: 1 } });
+      return Response.json({ items: [gmail], hasMore: false });
+    }));
+    render(<IntegrationCatalogDirectory actorId="alice" bindingInputs={{ setupLoading: false, mailboxCount: 0, mailboxLoading: false, gmailConnected: true, gmailLoading: false, externalMcpServerCount: 0, externalMcpCatalogConnections: [], externalMcpLoading: false }} />);
+    fireEvent.change(screen.getByLabelText("Filter by domain"), { target: { value: "sales" } });
+    await screen.findByTestId("integration-catalog-row-gmail-calendar");
+    const app = await screen.findByTestId("integration-catalog-row-provider-gmail");
+    await waitFor(() => expect(within(app).getByText("Account configured")).toBeTruthy());
+    expect(screen.getAllByTestId("integration-catalog-row-gmail-calendar")).toHaveLength(1);
+    await waitFor(() => {
+      const row = screen.getByTestId("integration-catalog-row-gmail-calendar");
+      expect(within(row).getByText("Needs attention")).toBeTruthy();
+      expect(within(row).queryByText("Configured")).toBeNull();
+    });
+  });
+
+  it("narrows the catalog to paths this deployment can actually put to work", async () => {
+    const connectable = { id: "campaign-stats", providerKey: "campaign-stats", name: "Live campaign stats", description: "Provider action catalog", source: "openconnector", connectable: true, isConnected: false };
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/connections")) return Response.json({ ok: true, provider: "openconnector", connections: [] });
+      if (path.endsWith("/meta")) return Response.json({ health: { provider: "openconnector", status: "healthy", checkedAt: 1 } });
+      return Response.json({ items: [connectable], hasMore: false });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    render(<IntegrationCatalogDirectory actorId="alice" bindingInputs={{ setupLoading: false, mailboxCount: 0, mailboxLoading: false, gmailConnected: false, gmailLoading: false, externalMcpServerCount: 0, externalMcpCatalogConnections: [], externalMcpLoading: false }} />);
+    fireEvent.change(screen.getByLabelText("Filter integration setup"), { target: { value: "supported" } });
+    await waitFor(() => expect(fetcher.mock.calls.some(([url]) => String(url).includes("/catalog?") && String(url).includes("readiness=ready"))).toBe(true));
+    fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "GitHub" } });
+    expect(await screen.findByTestId("integration-catalog-row-github")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "Salesforce" } });
+    await waitFor(() => expect(screen.queryByTestId("integration-catalog-row-salesforce")).toBeNull());
+    fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "Live campaign stats" } });
+    expect(await screen.findByText("Live campaign stats")).toBeTruthy();
+  });
+
+  it("does not count an unconfigured provider's setup references as supported", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/connections")) return Response.json({ ok: true, provider: "openconnector", configured: false, connections: [] });
+      if (path.endsWith("/meta")) return Response.json({ health: { provider: "openconnector", status: "unconfigured", checkedAt: 1 } });
+      return Response.json(setupRequiredCatalog(new URL(path, "http://localhost").searchParams.get("query") ?? undefined));
+    }));
+    render(<IntegrationCatalogDirectory actorId="alice" bindingInputs={{ setupLoading: false, mailboxCount: 0, mailboxLoading: false, gmailConnected: false, gmailLoading: false, externalMcpServerCount: 0, externalMcpCatalogConnections: [], externalMcpLoading: false }} />);
+    fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "Google Drive" } });
+    expect(await screen.findByTestId("integration-catalog-row-provider-googledrive")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Filter integration setup"), { target: { value: "supported" } });
+    await waitFor(() => expect(screen.queryByText("Searching the provider catalog…")).toBeNull());
+    expect(screen.queryByTestId("integration-catalog-row-provider-googledrive")).toBeNull();
+    expect(screen.queryByTestId("integration-catalog-row-google-drive-docs-sheets")).toBeNull();
+  });
+
+  it("keeps a partial bundle's badge when a search returns none of its apps", async () => {
+    const gmail = { id: "gmail", providerKey: "gmail", name: "Gmail", description: "Mail app", source: "openconnector", connectable: true, isConnected: false, setupState: "ready" };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/connections")) return Response.json({ ok: true, provider: "openconnector", connections: [{ id: "account-gmail", providerKey: "gmail", provider: "openconnector" }] });
+      if (path.endsWith("/meta")) return Response.json({ health: { provider: "openconnector", status: "healthy", checkedAt: 1 } });
+      return Response.json({ items: path.includes("Calendar") ? [] : [gmail], hasMore: false });
+    }));
+    render(<IntegrationCatalogDirectory actorId="alice" bindingInputs={{ setupLoading: false, mailboxCount: 0, mailboxLoading: false, gmailConnected: true, gmailLoading: false, externalMcpServerCount: 0, externalMcpCatalogConnections: [], externalMcpLoading: false }} />);
+    await screen.findByText("Account configured");
+    fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "Google Calendar" } });
+    await waitFor(() => expect(screen.queryByText("Searching the provider catalog…")).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId("integration-catalog-row-provider-gmail")).toBeNull());
+    const row = screen.getByTestId("integration-catalog-row-gmail-calendar");
+    expect(within(row).getByText("Needs attention")).toBeTruthy();
+    expect(within(row).queryByText("Configured")).toBeNull();
+  });
+
+  it("still loads when Supported replaces Ready before the search debounce fires", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/connections")) return Response.json({ ok: true, provider: "openconnector", connections: [] });
+      if (path.endsWith("/meta")) return Response.json({ health: { provider: "openconnector", status: "healthy", checkedAt: 1 } });
+      return Response.json({ items: [], hasMore: false });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    render(<IntegrationCatalogDirectory actorId="alice" bindingInputs={{ setupLoading: false, mailboxCount: 0, mailboxLoading: false, gmailConnected: false, gmailLoading: false, externalMcpServerCount: 0, externalMcpCatalogConnections: [], externalMcpLoading: false }} />);
+    await waitFor(() => expect(fetcher.mock.calls.some(([url]) => String(url).includes("/catalog?"))).toBe(true));
+    await waitFor(() => expect(screen.queryByText("Searching the provider catalog…")).toBeNull());
+    fireEvent.change(screen.getByLabelText("Filter integration setup"), { target: { value: "ready" } });
+    fireEvent.change(screen.getByLabelText("Filter integration setup"), { target: { value: "supported" } });
+    await waitFor(() => expect(fetcher.mock.calls.some(([url]) => String(url).includes("readiness=ready"))).toBe(true));
+    await waitFor(() => expect(screen.queryByText("Searching the provider catalog…")).toBeNull());
+  });
+
+  it("replaces a provider-only bundled row once the provider lists every app it covers", async () => {
+    const apps = [
+      { id: "googledrive", name: "Google Drive" },
+      { id: "googledocs", name: "Google Docs" },
+      { id: "googlesheets", name: "Google Sheets" },
+    ].map((app) => ({ ...app, providerKey: app.id, description: `${app.name} app`, source: "openconnector", connectable: true, isConnected: false, setupState: "ready" }));
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/connections")) return Response.json({ ok: true, provider: "openconnector", connections: [] });
+      if (path.endsWith("/meta")) return Response.json({ health: { provider: "openconnector", status: "healthy", checkedAt: 1 } });
+      return Response.json({ items: [...apps, { id: "googlecalendar", providerKey: "googlecalendar", name: "Google Calendar", description: "Calendar app", source: "openconnector", connectable: true, isConnected: false, setupState: "ready" }], hasMore: false });
+    }));
+    render(<IntegrationCatalogDirectory actorId="alice" bindingInputs={{ setupLoading: false, mailboxCount: 0, mailboxLoading: false, gmailConnected: false, gmailLoading: false, externalMcpServerCount: 0, externalMcpCatalogConnections: [], externalMcpLoading: false }} />);
+    fireEvent.change(screen.getByLabelText("Filter integration setup"), { target: { value: "ready" } });
+    await screen.findByTestId("integration-catalog-row-provider-googlesheets");
+    expect(await screen.findByTestId("integration-catalog-row-provider-googledrive")).toBeTruthy();
+    expect(await screen.findByTestId("integration-catalog-row-provider-googledocs")).toBeTruthy();
+    expect(screen.queryByTestId("integration-catalog-row-google-drive-docs-sheets")).toBeNull();
+    const ids = [...document.querySelectorAll("[data-testid^='integration-catalog-row-']")].map((node) => node.getAttribute("data-testid"));
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   it.each(["https://oauth.example.com/connect", "http://oauth.example.com", "javascript:alert(1)"])(
     "isolates HTTPS popups and rejects unsafe redirects (%s)", async (redirectUrl) => {
       const popup = { opener: {}, location: { replace: vi.fn() }, close: vi.fn(), closed: false } as unknown as Window;
