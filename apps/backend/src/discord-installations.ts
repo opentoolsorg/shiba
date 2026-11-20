@@ -171,8 +171,8 @@ export async function beginDiscordInstall(
   await db(env).batch([
     db(env).prepare("DELETE FROM discord_install_states WHERE expires_at<?").bind(now),
     db(env)
-      .prepare("INSERT INTO discord_install_states(state_hash,org_id,user_id,redirect_uri,expires_at) VALUES(?,?,?,?,?)")
-      .bind(await sha256Hex(state), input.orgId, input.userId, redirectUri, now + STATE_TTL_MS),
+      .prepare("INSERT INTO discord_install_states(state_hash,org_id,user_id,redirect_uri,expected_guild_id,expires_at) VALUES(?,?,?,?,?,?)")
+      .bind(await sha256Hex(state), input.orgId, input.userId, redirectUri, input.guildId ?? null, now + STATE_TTL_MS),
   ]);
   const url = new URL(DISCORD_AUTHORIZE_URL);
   url.search = new URLSearchParams({
@@ -224,7 +224,7 @@ export async function completeDiscordInstall(
   const pending = await db(env)
     .prepare("SELECT * FROM discord_install_states WHERE state_hash=? AND consumed_at IS NULL AND expires_at>?")
     .bind(stateHash, now)
-    .first<{ org_id: string; user_id: string; redirect_uri: string }>();
+    .first<{ org_id: string; user_id: string; redirect_uri: string; expected_guild_id: string | null }>();
   if (!pending || pending.redirect_uri !== url.origin + url.pathname || request.headers.has("authorization")) return { result: "failed" };
   const userId = await isAuthorizedRequest(request, env) ? await resolveUserId(request, env) : null;
   const consumed = await db(env)
@@ -236,7 +236,9 @@ export async function completeDiscordInstall(
   if (url.searchParams.has("error")) return { result: "denied" };
   const code = url.searchParams.get("code") ?? "";
   const guildParam = url.searchParams.get("guild_id") ?? "";
-  if (!code || code.length > 2048 || (guildParam && !GUILD_ID.test(guildParam))) return { result: "failed" };
+  if (!code || code.length > 2048 || (guildParam && (
+    !GUILD_ID.test(guildParam) || (pending.expected_guild_id && guildParam !== pending.expected_guild_id)
+  ))) return { result: "failed" };
 
   const exchanged = await fetchImpl(`${DISCORD_API}/oauth2/token`, {
     method: "POST",
@@ -259,7 +261,8 @@ export async function completeDiscordInstall(
     }).catch(() => null);
   }
   const guildId = typeof token.guild?.id === "string" ? token.guild.id : "";
-  if (!GUILD_ID.test(guildId) || (guildParam && guildId !== guildParam)) return { result: "failed" };
+  if (!GUILD_ID.test(guildId) || (guildParam && guildId !== guildParam) ||
+    (pending.expected_guild_id && guildId !== pending.expected_guild_id)) return { result: "failed" };
   const guildName = typeof token.guild?.name === "string" ? token.guild.name.slice(0, 100) : guildId;
 
   const prior = await getDiscordInstallation(env, guildId);
@@ -285,25 +288,33 @@ export async function disconnectDiscordInstallation(
   guildId: string,
   deps: DiscordInstallDeps = {},
 ): Promise<void> {
-  const row = await getDiscordInstallation(env, guildId);
-  if (!row || row.org_id !== orgId) throw new DiscordInstallError("discord_installation_not_found", 404);
   const now = (deps.now ?? Date.now)();
+  const fenced = await db(env)
+    .prepare(`UPDATE discord_installations
+      SET state='disconnected',updated_at=MAX(?,updated_at+1),commands_registered=0,last_error=NULL
+      WHERE guild_id=? AND org_id=? RETURNING updated_at`)
+    .bind(now, guildId, orgId)
+    .first<{ updated_at: number }>();
+  if (!fenced) throw new DiscordInstallError("discord_installation_not_found", 404);
   const botToken = env.DISCORD_BOT_TOKEN?.trim();
   let lastError: string | null = null;
   if (botToken) {
     const left = await (deps.fetch ?? fetch)(`${DISCORD_API}/users/@me/guilds/${guildId}`, {
       method: "DELETE",
       headers: { Authorization: `Bot ${botToken}` },
+      signal: AbortSignal.timeout(10_000),
     }).catch(() => null);
     if (!left) lastError = "Discord did not answer; the bot may still be in the server. Remove it from Server Settings → Integrations.";
     else if (!left.ok && left.status !== 404) lastError = `Discord refused to remove the bot (${left.status}). Remove it from Server Settings → Integrations.`;
   } else {
     lastError = "DISCORD_BOT_TOKEN is not set, so the bot could not leave the server. Remove it from Server Settings → Integrations.";
   }
-  await db(env)
-    .prepare("UPDATE discord_installations SET state='disconnected',updated_at=?,commands_registered=0,last_error=? WHERE guild_id=? AND org_id=?")
-    .bind(now, lastError, guildId, orgId)
-    .run();
+  if (lastError) {
+    await db(env)
+      .prepare("UPDATE discord_installations SET last_error=? WHERE guild_id=? AND org_id=? AND state='disconnected' AND updated_at=?")
+      .bind(lastError, guildId, orgId, fenced.updated_at)
+      .run();
+  }
 }
 
 async function readBody(request: Request): Promise<unknown> {

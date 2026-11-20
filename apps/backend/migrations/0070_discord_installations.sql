@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS discord_install_states (
   org_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
   redirect_uri TEXT NOT NULL,
+  expected_guild_id TEXT,
   expires_at INTEGER NOT NULL,
   consumed_at INTEGER
 );

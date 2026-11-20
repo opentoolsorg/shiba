@@ -74,6 +74,12 @@ const BOT_TOKEN = "fixture-bot-token-not-real";
 
 interface DiscordCall { method: string; url: string; body: unknown; authorization: string | null }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 function bucket(): R2Bucket {
   const stored = new Map<string, Uint8Array>();
   return {
@@ -112,6 +118,8 @@ async function fixture() {
 
   const discord: DiscordCall[] = [];
   let guildNameServed = "Fixture Server";
+  let guildIdServed = GUILD;
+  let leaveGuild = () => Promise.resolve(Response.json({}));
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init);
     const url = new URL(request.url);
@@ -121,8 +129,9 @@ async function fixture() {
     try { body = JSON.parse(text); } catch { body = Object.fromEntries(new URLSearchParams(text)); }
     discord.push({ method: request.method, url: url.pathname, body, authorization: request.headers.get("authorization") });
     if (url.pathname === "/api/v10/oauth2/token") {
-      return Response.json({ access_token: "installer-user-token", token_type: "Bearer", scope: "bot applications.commands", guild: { id: GUILD, name: guildNameServed } });
+      return Response.json({ access_token: "installer-user-token", token_type: "Bearer", scope: "bot applications.commands", guild: { id: guildIdServed, name: guildNameServed } });
     }
+    if (request.method === "DELETE" && url.pathname.endsWith(`/users/@me/guilds/${GUILD}`)) return leaveGuild();
     if (url.pathname.endsWith("/messages") && request.method === "POST") return Response.json({ id: String(9e17 + discord.length) });
     return Response.json({});
   }));
@@ -168,7 +177,11 @@ async function fixture() {
     hosts.byName.set(name, host as never);
     return host;
   };
-  return { env, db, discord, status, install, interaction, orchestrator, settle, call, setGuildName: (name: string) => { guildNameServed = name; } };
+  return { env, db, discord, status, install, interaction, orchestrator, settle, call, dashboard,
+    setGuildName: (name: string) => { guildNameServed = name; },
+    setGuildId: (id: string) => { guildIdServed = id; },
+    setLeaveGuild: (leave: () => Promise<Response>) => { leaveGuild = leave; },
+  };
 }
 
 function wireHarness(env: Record<string, unknown>) {
@@ -364,6 +377,60 @@ describe("Discord journey (fixture, real Worker routes)", () => {
       data: { name: "shiba", type: 1, options: [{ name: "task", value: "x" }, { name: "repo", value: REPO }] },
     });
     expect(await resumed.json()).toEqual({ type: 5 });
+  });
+
+  it("fences signed interactions and mentions before a pending Discord leave finishes, even if the leave fails", async () => {
+    const f = await fixture();
+    const host = f.orchestrator(`discord:${CHANNEL}`);
+    await f.install();
+    f.discord.length = 0;
+
+    const started = deferred<void>();
+    const remote = deferred<Response>();
+    f.setLeaveGuild(() => { started.resolve(); return remote.promise; });
+    const disconnect = f.dashboard(`/api/discord/installations/${GUILD}/disconnect`, {});
+    try {
+      await Promise.race([started.promise, disconnect.then(() => { throw new Error("Disconnect ended before requesting a guild leave"); })]);
+      expect((await f.status()).installations[0]).toMatchObject({ state: "disconnected", commandsRegistered: false });
+      const blocked = await f.interaction({
+        id: "940000000000000001", type: 2, member: { user: { id: REQUESTER } },
+        data: { name: "shiba", type: 1, options: [{ name: "task", value: "x" }, { name: "repo", value: REPO }] },
+      });
+      expect(await blocked.json()).toMatchObject({ type: 4, data: { content: expect.stringContaining("disconnected from Shiba") } });
+      const mention = await handleDiscordMention(f.env as never, {
+        id: "940000000000000002", channel_id: CHANNEL, guild_id: GUILD, content: `<@${BOT_USER}> x ${REPO}`,
+        author: { id: REQUESTER }, mentions: [{ id: BOT_USER }],
+      }, BOT_USER, { seen: async () => false });
+      expect(mention.outcome).toBe("rejected");
+      expect(host.state.runs).toHaveLength(0);
+      expect(f.discord).toMatchObject([{ method: "DELETE" }]);
+    } finally {
+      remote.resolve(new Response(null, { status: 502 }));
+    }
+    expect(await (await disconnect).json()).toMatchObject({
+      installations: [{ state: "disconnected", commandsRegistered: false, lastError: expect.stringContaining("(502)") }],
+    });
+  });
+
+  it.each(["absent", "matches target", "matches wrong guild"])("rejects a mismatched reconnect when the callback guild hint is %s", async (hint) => {
+    const f = await fixture();
+    await f.install();
+    await f.dashboard(`/api/discord/installations/${GUILD}/disconnect`, {});
+    const before = (await f.status()).installations;
+    const otherGuild = "222222222222222223";
+    f.setGuildId(otherGuild);
+    f.discord.length = 0;
+
+    const begin = await f.dashboard("/api/discord/installations/begin", { guildId: GUILD });
+    expect(begin.status).toBe(200);
+    const authorize = new URL(((await begin.json()) as { authorizeUrl: string }).authorizeUrl);
+    const params = new URLSearchParams({ state: authorize.searchParams.get("state")!, code: "fixture-code" });
+    if (hint !== "absent") params.set("guild_id", hint === "matches target" ? GUILD : otherGuild);
+    const callback = await f.call(`/api/discord/installations/callback?${params}`);
+    expect(callback.headers.get("location")).toContain("discordInstall=failed");
+    expect(f.discord.some((entry) => entry.url === "/api/v10/oauth2/token")).toBe(hint !== "matches wrong guild");
+    expect(f.discord.some((entry) => entry.method === "PUT")).toBe(false);
+    expect((await f.status()).installations).toEqual(before);
   });
 
   it("rejects an unsigned interaction and an install callback from a different user or a replayed state", async () => {
