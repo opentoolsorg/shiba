@@ -1585,7 +1585,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       const names = enabled.flatMap((name) => name === "browser"
         ? ["browser_open", "browser_read", "browser_click", "browser_type", "browser_screenshot", "browser_sign_in", "browser_close"]
         : [name]);
-      return { activeTools: names.filter((name) => name in ctx.tools), instructions: system };
+      return { activeTools: [...names, ...(create ? [create] : [])].filter((name) => name in ctx.tools), instructions: system };
     }
     if (isAppToolsOnlyTurn(this.messages)) {
       const context = await resolveAppToolsEmployeeContext(this.env, this.name ?? "");
