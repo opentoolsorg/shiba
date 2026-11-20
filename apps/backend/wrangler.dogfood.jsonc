@@ -143,6 +143,10 @@
       {
         "name": "WorkspaceEvents",
         "class_name": "WorkspaceEvents"
+      },
+      {
+        "name": "DISCORD_GATEWAY",
+        "class_name": "DiscordGateway"
       }
     ]
   },
@@ -312,6 +316,7 @@
     "ChatGptAuth": { "type": "durable-object", "storage": "sqlite" },
     "CodingOrchestrator": { "type": "durable-object", "storage": "sqlite" },
     "ConversationRoom": { "type": "durable-object", "storage": "sqlite" },
+    "DiscordGateway": { "type": "durable-object", "storage": "sqlite" },
     "LocalDispatch": { "type": "durable-object", "storage": "sqlite" },
     "Mailbox": { "type": "durable-object", "storage": "sqlite" },
     "Memory": { "type": "durable-object", "storage": "sqlite" },

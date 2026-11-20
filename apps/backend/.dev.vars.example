@@ -112,7 +112,14 @@
 
 # DISCORD_APPROVERS empty means nobody can approve.
 # DISCORD_PUBLIC_KEY=
+# Worker-only bot token for the Gateway and Discord REST.
 # DISCORD_BOT_TOKEN=
+# Application ID for OAuth2 guild installation.
+# DISCORD_CLIENT_ID=
+# Worker-only Discord OAuth2 client secret.
+# DISCORD_CLIENT_SECRET=
+# Optional explicit same-origin callback URI.
+# DISCORD_OAUTH_REDIRECT_URI=
 # DISCORD_APPROVERS=
 # JSON map {channelId: "https://github.com/owner/repo"} for commands without a repo.
 # DISCORD_CHANNEL_REPOS=

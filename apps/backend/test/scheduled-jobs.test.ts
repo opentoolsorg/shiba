@@ -17,7 +17,8 @@ vi.mock("../src/platform/queues.js", () => ({ dispatchQueueBatch: vi.fn().mockRe
 const names = [
   "learning.sweep", "founder.stripe", "founder.meta", "founder.hubspot", "founder.reconcile", "founder.reads",
   "founder.slack", "founder.stripe-slack", "founder.reconcile-slack", "slack.private-status",
-  "founder.reviews", "founder.connectors", "automations.tick", "drafts.sweep", "audit.prune",
+  "founder.reviews", "founder.connectors", "automations.tick", "drafts.sweep", "discord.gateway",
+  "audit.prune",
 ] as const;
 const queuedNames = names;
 const scheduledAt = 1_800_000_000_000;

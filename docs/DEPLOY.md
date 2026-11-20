@@ -143,12 +143,20 @@ All declared infrastructure bindings must be available for deployment even when 
 | Deployment subscription lanes | `CLAUDE_SUBSCRIPTION_TOKEN`, `CODEX_SUBSCRIPTION_AUTH_JSON`, `CURSOR_SUBSCRIPTION_TOKEN` |
 | Local runtime/pairing/internal identity | `LOCAL_ADAPTER_TOKEN`, `PAIRING_SECRET`, `INTERNAL_SIGNING_KEY` |
 | Slack | `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN`, `SLACK_APPROVERS`, `SLACK_CHANNEL_REPOS` |
-| Telegram and Discord | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `DISCORD_PUBLIC_KEY` |
+| Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` |
+| Discord guild installation | `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_PUBLIC_KEY`, `DISCORD_BOT_TOKEN`, `DISCORD_APPROVERS`, `DASHBOARD_APPROVERS`; optional `DISCORD_CHANNEL_REPOS`, `DISCORD_AGENT_HARNESS`, `DISCORD_OAUTH_REDIRECT_URI` |
 | Linear | `LINEAR_WEBHOOK_SECRET`, `LINEAR_API_KEY`, `LINEAR_OAUTH_ACCESS_TOKEN`, `LINEAR_DEFAULT_REPO_URL` |
 | Gmail | `GMAIL_CLIENT_SECRET`, `GMAIL_TOKEN_KEY` |
 | Automation triggers | `TRIGGER_TOKEN` |
 
 Per-account subscription suffix secrets and per-MCP credential secrets are runtime-resolved names outside the base manifest. Provision them only for enabled connections. `SANDBOX_IMAGE`, when supplied, must use `registry.cloudflare.com/<CLOUDFLARE_ACCOUNT_ID>/...`; cross-account image overrides fail preflight.
+
+### Connect a Discord server
+
+1. Create a Discord application with a bot and enable **Guild Install** and **Requires OAuth2 Code Grant**. Register `https://<app-host>/api/discord/installations/callback` under OAuth2 → Redirects. Only set `DISCORD_OAUTH_REDIRECT_URI` if you want to configure that value explicitly; it must use the dashboard origin.
+2. Bind the application's ID, OAuth client secret, Ed25519 public key, and bot token to the Worker. Set **Interactions Endpoint URL** to `https://<app-host>/api/discord/interactions` after binding the public key. If you use Cloudflare Access, let Discord reach that exact interaction path without dashboard login; the Worker verifies every POST's Discord signature. Keep dashboard and OAuth management routes protected.
+3. Put the deployment operator's dashboard identity in `DASHBOARD_APPROVERS` and the Discord approvers' numeric user IDs in `DISCORD_APPROVERS`. In the operator's personal dashboard, open **Integrations → Chat & approval channels → Discord → Connect a server** and authorize a server you can manage. The bot needs View Channel, Send Messages, Read Message History, and Send Messages in Threads in the channels you use. The bot receives addressed mentions without the privileged Message Content intent.
+4. Use `/shiba` or mention the bot in a server channel or thread. Include a GitHub repository URL or configure `DISCORD_CHANNEL_REPOS` for that channel or thread ID. A listed approver must decide the card before a run starts. Disconnect stops new Discord work, and reconnect reruns the install. Existing approved runs are not cancelled by disconnecting.
 
 ---
 
