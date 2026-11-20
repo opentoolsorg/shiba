@@ -33,7 +33,8 @@ async function readJson<T>(response: Response): Promise<T> {
   return body;
 }
 
-export function EmployeeToolPolicyView(): JSX.Element {
+/** `initialEmployeeId` opens the policy for one bot, so a bot panel can hand off its Tools row. */
+export function EmployeeToolPolicyView({ initialEmployeeId }: { initialEmployeeId?: string | null } = {}): JSX.Element {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [principals, setPrincipals] = useState<EmployeeActor[]>([]);
   const [employeeId, setEmployeeId] = useState("");
@@ -126,7 +127,9 @@ export function EmployeeToolPolicyView(): JSX.Element {
           registered.unshift({ principal: currentIdentity, scopes: [], created: Date.now(), live: true, source: "web-session" });
         }
         setEmployees(listed); setPrincipals(registered);
-        const firstEmployee = listed[0]?.id ?? "";
+        // A named bot wins over the first row, but only when it is still in the directory.
+        const requested = initialEmployeeId && listed.some((item) => item.id === initialEmployeeId) ? initialEmployeeId : "";
+        const firstEmployee = requested || (listed[0]?.id ?? "");
         const firstActor = currentIdentity ?? registered.find((item) => item.live)?.principal ?? registered[0]?.principal ?? "";
         setEmployeeId(firstEmployee); setActorId(firstActor);
         await Promise.all([firstEmployee ? refreshPolicy(firstEmployee, firstActor) : Promise.resolve(), refreshApprovals()]);
@@ -135,7 +138,7 @@ export function EmployeeToolPolicyView(): JSX.Element {
       } finally { if (!cancelled) setLoading(false); }
     })();
     return () => { cancelled = true; };
-  }, [refreshApprovals, refreshPolicy]);
+  }, [initialEmployeeId, refreshApprovals, refreshPolicy]);
 
   const chooseEmployee = async (id: string) => {
     setEmployeeId(id); setPolicy(null); setError(null); setNotice(null);
