@@ -2,7 +2,7 @@
  * and post-checkpoint mutation coverage live in repository-snapshot.test.ts. */
 import { createHash } from "node:crypto";
 import { tokenizeCommand } from "../src/exec-allowlist.js";
-import { REPOSITORY_MANIFEST_READER, REPOSITORY_BLOB_READER, DELIVERABLE_BLOB_READER, unescapePorcelainPath, type ExecResult } from "../src/runtime.js";
+import { REPOSITORY_MANIFEST_READER, REPOSITORY_BLOB_READER, DELIVERABLE_BLOB_CHUNK_BYTES, DELIVERABLE_BLOB_READER, unescapePorcelainPath, type ExecResult } from "../src/runtime.js";
 
 export const FIXTURE_BASE_REVISION = "a".repeat(40);
 export const FIXTURE_BASELINE_COMMIT = "b".repeat(40);
@@ -64,7 +64,8 @@ export function repositorySnapshotFixture(options: {
     if (argv[2] === REPOSITORY_BLOB_READER || argv[2] === DELIVERABLE_BLOB_READER) {
       const bytes = blobs.get(argv[3]!);
       if (!bytes) throw new Error(`Unknown fixture blob: ${argv[3]}`);
-      return ok(Buffer.from(bytes).toString("base64"));
+      const offset = Number(argv[4] ?? "0");
+      return ok(Buffer.from(argv[2] === DELIVERABLE_BLOB_READER ? bytes.subarray(offset, offset + DELIVERABLE_BLOB_CHUNK_BYTES) : bytes).toString("base64"));
     }
     return undefined;
   };

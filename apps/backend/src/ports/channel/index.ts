@@ -13,7 +13,7 @@
  */
 import type { Env } from "../../env.js";
 
-export type ChannelId = "slack" | "discord" | "telegram" | "teams";
+export type ChannelId = "slack" | "discord" | "telegram" | "teams" | "email";
 
 export const CHANNEL_CAPABILITIES = [
   "post",

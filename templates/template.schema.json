@@ -13,6 +13,12 @@
     "skills": { "type": "array", "items": { "type": "string" } },
     "plugins": { "type": "array", "items": { "type": "string" } },
     "harness": { "type": "string" },
+    "expectedDeliverables": {
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": { "type": "string", "maxLength": 240, "pattern": "^(?:[A-Za-z0-9](?:[A-Za-z0-9._ -]*[A-Za-z0-9._-])?/)*[A-Za-z0-9][A-Za-z0-9._ -]*\\.(?:[mM][dD]|[tT][xX][tT]|[jJ][sS][oO][nN]|[cC][sS][vV]|[hH][tT][mM][lL]|[pP][dD][fF]|[xX][lL][sS][xX]|[dD][oO][cC][xX]|[pP][pP][tT][xX]|[pP][nN][gG]|[jJ][pP][eE]?[gG]|[wW][eE][bB][pP]|[gG][iI][fF]|[mM][pP]4)$" }
+    },
     "chat_lanes": { "type": "array", "items": { "enum": ["slack"] }, "default": ["slack"] },
     "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" }
   },

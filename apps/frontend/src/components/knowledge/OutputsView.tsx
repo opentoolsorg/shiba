@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type JSX, type FormEvent } from "react";
-import { Download, FileArchive } from "lucide-react";
+import { Download, FileArchive, MessageSquare } from "lucide-react";
 import { LoadErrorState } from "../LoadErrorState";
 import { MainCard } from "../ui/ContextPanel";
 import { VideoArtifactPlayer } from "../VideoArtifactPlayer";
@@ -14,7 +14,7 @@ interface OutputItem {
   media?: { kind: "image" | "video"; mode: string; label: string; prompt: string; aspectRatio: string; durationSeconds?: number; width?: number; height?: number };
 }
 
-interface MediaOptions { imageModels: Array<{ id: string; label: string; supportsDimensions: boolean }>; imageAspectRatios: string[] }
+interface MediaOptions { imageModels: Array<{ id: string; label: string; supportsDimensions: boolean }>; imageAspectRatios: string[]; video?: { enabled: boolean; reason?: string | null; aspectRatios: string[] } }
 const modeLabels: Record<string, string> = { "text-to-image": "Created from a description", "text-to-video": "Created from a description", "image-to-video": "Animated from an image", "reference-to-video": "Made with reference images", "motion-control": "Motion copied from a video", "video-editing": "Edited from a video" };
 const shapeLabels: Record<string, string> = { "1:1": "Square", "16:9": "Wide", "9:16": "Tall", "4:3": "Landscape", "3:4": "Portrait" };
 
@@ -23,6 +23,8 @@ export function OutputsView(): JSX.Element {
   const [filter, setFilter] = useState<"" | "archive" | "image" | "video">("");
   const [error, setError] = useState<string | null>(null);
   const [options, setOptions] = useState<MediaOptions | null>(null);
+  const [optionsFailed, setOptionsFailed] = useState(false);
+  const [videoShape, setVideoShape] = useState("16:9");
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("");
   const [aspectRatio, setAspectRatio] = useState("1:1");
@@ -50,9 +52,14 @@ export function OutputsView(): JSX.Element {
       if (!response.ok) throw new Error("Image creation options are unavailable.");
       const body = await response.json() as MediaOptions;
       if (active) setOptions(body);
-    }).catch(() => { if (active) setOptions(null); });
+    }).catch(() => { if (active) { setOptions(null); setOptionsFailed(true); } });
     return () => { active = false; };
   }, []);
+
+  const videoEnabled = options?.video?.enabled === true;
+  const videoShapes = options?.video?.aspectRatios.length ? options.video.aspectRatios : ["16:9"];
+  const shape = videoShapes.includes(videoShape) ? videoShape : videoShapes[0];
+  const videoReason = optionsFailed ? "Video options could not be loaded. Refresh the page to try again." : options?.video?.reason ?? "Video creation is not available in this workspace.";
 
   async function createImage(event: FormEvent) {
     event.preventDefault();
@@ -91,6 +98,24 @@ export function OutputsView(): JSX.Element {
             <button type="submit" disabled={busy || !prompt.trim()} className="min-h-11 border border-[var(--border-1)] bg-[var(--inverse)] px-4 text-sm text-[var(--inverse-text)] disabled:opacity-50">{busy ? "Creating your image…" : "Create image"}</button>
           </div>
         </form>}
+        {(options || optionsFailed) && <section aria-labelledby="outputs-video-heading" className="mb-6 flex flex-col gap-3 border border-[var(--border-1)] p-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <h2 id="outputs-video-heading" className="font-medium">Create a video</h2>
+            {videoEnabled
+              ? <p className="mt-1 text-sm text-[var(--muted-foreground-2)]">Videos are made in Chat. You can edit the description there, and nothing is generated until you approve it.</p>
+              : <p id="outputs-video-reason" className="mt-1 text-sm text-[var(--muted-foreground-2)]">{videoReason}</p>}
+          </div>
+          {videoEnabled ? <div className="flex flex-wrap items-end gap-3">
+            <label className="text-sm">Video shape<select value={shape} onChange={(event) => setVideoShape(event.target.value)} className="mt-1 block min-h-11 border border-[var(--border-1)] bg-[var(--card)] px-3">
+              {videoShapes.map((shape) => <option key={shape} value={shape}>{shapeLabels[shape] ?? "Custom"} · {shape}</option>)}
+            </select></label>
+            <a href={`/threads/?${new URLSearchParams({ prompt: `Create a ${shape} video of ` })}`} className="inline-flex min-h-11 items-center gap-2 border border-[var(--border-1)] bg-[var(--inverse)] px-4 text-sm text-[var(--inverse-text)]">
+              <MessageSquare aria-hidden="true" size={14} /> Create in Chat
+            </a>
+          </div> : <button type="button" disabled aria-describedby="outputs-video-reason" className="inline-flex min-h-11 shrink-0 items-center gap-2 self-start border border-[var(--border-1)] px-4 text-sm opacity-50 sm:self-auto">
+            <MessageSquare aria-hidden="true" size={14} /> Create in Chat
+          </button>}
+        </section>}
         <nav aria-label="Output types" className="mb-4 flex flex-wrap gap-2">
           {([["", "All"], ["image", "Images"], ["video", "Videos"], ["archive", "Run deliverables"]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)} className={`min-h-11 border border-[var(--border-1)] px-3 text-sm ${filter === value ? "bg-[var(--panel-2)] font-medium" : "bg-[var(--card)]"}`}>{label}</button>)}
         </nav>

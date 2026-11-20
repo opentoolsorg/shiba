@@ -10,6 +10,6 @@ describe("browser tool approval", () => {
   });
 
   it("rejects submit clicks without approved=true", async () => {
-    await expect(browserClick("run-1", 'input[type="submit"]', { approved: false })).rejects.toThrow(/approval|browser_open/);
+    await expect(browserClick({}, "run-1", 'input[type="submit"]', { approved: false })).rejects.toThrow(/requires human approval/);
   });
 });

@@ -34,6 +34,8 @@
     { "pattern": "app.tryshiba.dev", "custom_domain": true },
   ],
   "vars": {
+    // Optional email task intake: set EMAIL_TASK_SENDERS and EMAIL_TASK_EMPLOYEES
+    // as Worker vars. EMAIL_TASK_REPOS can set a default repository per mailbox.
     // Outbound telemetry requires explicit opt-in and operator-supplied destinations.
     "SHIBA_ERROR_REPORTING": "none",
     "SHIBA_ANALYTICS": "none",
@@ -68,6 +70,7 @@
     "OPEN_CONNECTOR_READ_VERSION_ID": "",
     "OPEN_CONNECTOR_READ_MANIFEST_SHA256": "",
     "SLACK_INSTALLATIONS_ENABLED": "false",
+    "SHIBA_CHANNEL_OUTPUT_DELIVERY": "1",
     "SLACK_COWORKER_PRIVATE_STATUS_ENABLED": "false",
     "SLACK_OAUTH_APP_ID": "",
     "SLACK_OAUTH_CLIENT_ID": "",
@@ -210,6 +213,7 @@
       { "name": "Spaces", "class_name": "Spaces" },
       { "name": "ConversationRoom", "class_name": "ConversationRoom" },
       { "name": "WorkspaceEvents", "class_name": "WorkspaceEvents" },
+      { "name": "BrowserSession", "class_name": "BrowserSession" },
     ],
   },
   // Email attachment bodies >256KB go here, keyed `emailId/partId`
@@ -254,6 +258,7 @@
   },
   "workflows": [
     { "binding": "SLACK_IMPORT_WORKFLOW", "name": "shiba-slack-import", "class_name": "SlackImportWorkflow" },
+    { "binding": "SLACK_MEDIA_WORKFLOW", "name": "shiba-slack-media", "class_name": "SlackMediaWorkflow" },
     { "binding": "AUTOMATION_RUN_WORKFLOW", "name": "shiba-automation-run", "class_name": "AutomationRunWorkflow" },
   ],
   // Megaplan T8: bge-base-en-v1.5 embeddings of banked facts, keyed by
@@ -306,5 +311,6 @@
     { "tag": "v14", "new_sqlite_classes": ["Spaces"] },
     { "tag": "v15", "new_sqlite_classes": ["ConversationRoom"] },
     { "tag": "v16", "new_sqlite_classes": ["WorkspaceEvents"] },
+    { "tag": "v17", "new_sqlite_classes": ["BrowserSession"] },
   ],
 }

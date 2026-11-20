@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import type { RunDeliverable, RunStatus } from "@shiba/shared";
-import { VideoArtifactPlayer } from "./VideoArtifactPlayer";
-import { DeliverablePreview } from "./DeliverablePreview";
+import { DeliverablePreview, isOfficeDeliverable } from "./DeliverablePreview";
 
 interface ArtifactVersion {
   runId: string;
@@ -263,12 +262,12 @@ function ArtifactDetails({
       setShareMessage("Could not share to the room.");
     }
   };
+  const officeCard = completed && isOfficeDeliverable(filePath);
   return (
     <>
       <span className="text-[var(--muted-foreground-2)]">
-        Captured · {file.bytes.toLocaleString()} bytes · {file.mediaType}
+        Captured · {file.bytes.toLocaleString()} bytes{!officeCard && ` · ${file.mediaType}`}
       </span>
-      {file.mediaType === "video/mp4" && <VideoArtifactPlayer src={href} title={filePath} />}
       <code className="text-[10px] break-all text-[var(--muted-foreground-2)]">
         SHA-256: {file.sha256}
       </code>
@@ -290,14 +289,16 @@ function ArtifactDetails({
           Agent profile v{file.provenance.customAgent.version}
         </span>
       )}
-      <a
-        href={href}
-        download={filePath.split("/").pop()}
-        className="text-[var(--primary)] underline w-fit"
-      >
-        Download {filePath}
-      </a>
-      {completed && <DeliverablePreview src={href} path={filePath} downloadHref={href} />}
+      {!officeCard && (
+        <a
+          href={href}
+          download={filePath.split("/").pop()}
+          className="text-[var(--primary)] underline w-fit"
+        >
+          Download {filePath}
+        </a>
+      )}
+      {completed && <DeliverablePreview src={href} path={filePath} downloadHref={href} bytes={file.bytes} />}
       {completed && (
         <div className="flex flex-wrap items-center gap-2 text-[11px]">
           {rooms === null ? (

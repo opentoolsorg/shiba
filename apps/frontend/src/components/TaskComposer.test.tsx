@@ -278,8 +278,15 @@ describe("TaskComposer", () => {
   it("quick picks fill the expected deliverables with a sensible filename", () => {
     const onArtifactDeliverablesChange = vi.fn();
     renderComposer("docked", { executionTargetKind: "artifact-workspace", artifactDeliverables: "", onArtifactDeliverablesChange, task: "Quarterly numbers", repoUrl: "" });
-    for (const [label, path] of [["Report (Markdown)", "report.md"], ["Dashboard (HTML)", "dashboard.html"], ["Spreadsheet (CSV)", "data.csv"], ["PDF", "report.pdf"]]) {
-      fireEvent.click(screen.getByRole("button", { name: label! }));
+    for (const [label, path] of [
+      ["Report (Markdown)", "report.md"],
+      ["Dashboard (HTML)", "dashboard.html"],
+      ["Spreadsheet (CSV)", "data.csv"],
+      ["Spreadsheet (XLSX)", "data.xlsx"],
+      ["Document (DOCX)", "report.docx"],
+      ["PDF", "report.pdf"],
+    ] as const) {
+      fireEvent.click(screen.getByRole("button", { name: label }));
       expect(onArtifactDeliverablesChange).toHaveBeenLastCalledWith(path);
     }
   });

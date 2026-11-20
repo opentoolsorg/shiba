@@ -148,7 +148,7 @@ export async function claimEmployeeActionInvocation(
   env: CapabilityInvocationEnv,
   input: {
     approvalId: string; orgId: string; principal: string; tool: string;
-    argsHash: string; idempotencyKey: string; now?: number;
+    argsHash: string; idempotencyKey: string; now?: number; employeeLevel?: "ask" | "auto";
   },
 ): Promise<EmployeeActionInvocationClaim> {
   if (!input.approvalId || !input.orgId || !input.principal || !input.tool ||
@@ -175,13 +175,18 @@ export async function claimEmployeeActionInvocation(
           input.approvalId, input.orgId, input.principal,
           input.orgId, input.principal, input.idempotencyKey, input.tool, input.argsHash),
       env.AGENT_AUDIT.prepare(`UPDATE employee_tool_approvals
-        SET consumed_at = COALESCE(consumed_at, ${timeExpression}), consumed_invocation_id = COALESCE(consumed_invocation_id, ?)
+        SET consumed_at = COALESCE(consumed_at, ${timeExpression}), consumed_invocation_id = COALESCE(consumed_invocation_id, ?),
+          level_at_execution = ?
         WHERE approval_id = ? AND org_id = ? AND actor_id = ? AND status = 'approved'
           AND expires_at > ${timeExpression} AND consumed_at IS NULL AND consumed_invocation_id IS NULL
+          AND (? IS NULL OR ? = COALESCE((SELECT level FROM employee_tool_levels AS levels
+            WHERE levels.org_id = employee_tool_approvals.org_id AND levels.employee_id = employee_tool_approvals.employee_id
+              AND levels.capability_id = employee_tool_approvals.capability_id), 'ask'))
           AND NOT EXISTS (
             SELECT 1 FROM capability_invocations WHERE org_id = ? AND principal = ? AND idempotency_key = ?
           )`)
-        .bind(...timeBindings, invocationId, input.approvalId, input.orgId, input.principal, ...timeBindings,
+        .bind(...timeBindings, invocationId, input.employeeLevel ?? null, input.approvalId, input.orgId, input.principal, ...timeBindings,
+          input.employeeLevel ?? null, input.employeeLevel ?? null,
           input.orgId, input.principal, input.idempotencyKey),
       env.AGENT_AUDIT.prepare(`UPDATE employee_tool_approvals SET status = 'expired'
         WHERE approval_id = ? AND org_id = ? AND actor_id = ? AND status = 'approved'

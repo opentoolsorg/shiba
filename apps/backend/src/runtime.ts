@@ -19,8 +19,11 @@ import {
   buildLocalRunEnvelope,
   expectedDeliverablesSchema,
   DELIVERABLE_FORMAT_HINT,
+  deliverableBudget,
+  deliverableBudgetLimits,
   deliverableByteLimit,
   isBinaryDeliverablePath,
+  MAX_BINARY_DELIVERABLE_BYTES,
   type LocalRunResult,
   mergeRunUsage,
   RUN_SIGNAL_KINDS,
@@ -218,7 +221,8 @@ export const COMPUTER_PREVIEW_MESSAGE =
 
 // A fixed adapter-owned reader transports Git object bytes as ASCII. The
 // scoped allowlist permits only this exact script, never arbitrary node -e.
-export const DELIVERABLE_BLOB_READER = `const {spawnSync}=require("node:child_process");const id=process.argv[1];if(!/^[a-f0-9]{40,64}$/.test(id||""))process.exit(2);const out=spawnSync("git",["--no-replace-objects","cat-file","blob",id],{maxBuffer:16385,timeout:60000});if(out.error||out.status!==0||out.stdout.length>16384)process.exit(1);process.stdout.write(out.stdout.toString("base64"));`;
+export const DELIVERABLE_BLOB_CHUNK_BYTES = 196_608;
+export const DELIVERABLE_BLOB_READER = `const {spawn}=require("node:child_process");const id=process.argv[1],offset=Number(process.argv[2]);if(!/^[a-f0-9]{40,64}$/.test(id||"")||!Number.isSafeInteger(offset)||offset<0||offset>${MAX_BINARY_DELIVERABLE_BYTES})process.exit(2);const child=spawn("git",["--no-replace-objects","cat-file","blob",id],{stdio:["ignore","pipe","ignore"]});const chunks=[];let size=0;child.stdout.on("data",chunk=>{const start=Math.max(0,offset-size),end=Math.min(chunk.length,offset+${DELIVERABLE_BLOB_CHUNK_BYTES}-size);if(start<end)chunks.push(chunk.subarray(start,end));size+=chunk.length;if(size>${MAX_BINARY_DELIVERABLE_BYTES})child.kill()});child.on("error",()=>process.exitCode=1);child.on("close",code=>{if(code!==0)process.exitCode=1;else process.stdout.write(Buffer.concat(chunks).toString("base64"))});`;
 
 export const WORKSPACE_MANIFEST_READER = `const {spawnSync}=require("node:child_process");const ref=process.argv[1];if(!/^(?:[a-f0-9]{40}|[a-f0-9]{64}|refs\\/shiba\\/checkpoints\\/[A-Za-z0-9_-]+\\/[0-9]+)$/.test(ref||""))process.exit(2);const out=spawnSync("git",["--no-replace-objects","ls-tree","-r","-z",ref,"--","out"],{maxBuffer:65537,timeout:60000});if(out.error||out.status!==0||out.stdout.length>65536)process.exit(1);process.stdout.write(JSON.stringify({tree:out.stdout.toString("base64")}));`;
 const WORKSPACE_BLOB_CHUNK_BYTES = 196_608;
@@ -921,7 +925,7 @@ export class LocalRuntimeAdapter implements RuntimeAdapter {
     }
     input = input.personalExecution ? input : artifact ? {
       ...input,
-      task: `${input.task}${onboardingSourceInstructions(input.onboardingSourceSnapshot)}\n\nWrite only these approved complete deliverables relative to your current working directory: ${artifact.expectedDeliverables.join(", ")}. Text files are limited to 16384 bytes, .html to 524288 bytes and .pdf to 10485760 bytes. ${DELIVERABLE_FORMAT_HINT} Only these files will be privately exported; other files are not recoverable artifacts.`,
+      task: `${input.task}${onboardingSourceInstructions(input.onboardingSourceSnapshot)}\n\nWrite only these approved complete deliverables relative to your current working directory: ${artifact.expectedDeliverables.map((path) => `${path} (max ${deliverableByteLimit(path)} bytes)`).join(", ")}. ${DELIVERABLE_FORMAT_HINT} Only these files will be privately exported; other files are not recoverable artifacts.`,
     } : withDeliverableInstructions(input);
     const milestone = (kind: RunSignalKind, detail?: string) => {
       signals.push(
@@ -1336,7 +1340,7 @@ function withDeliverableInstructions(input: CodingTaskInput): CodingTaskInput {
   const workspace = input.executionTarget?.kind === "artifact-workspace"
     ? `the approved artifact workspace${input.executionTarget.workspaceName ? ` (${input.executionTarget.workspaceName})` : ""}`
     : "the approved repository workspace";
-  return { ...input, task: `${input.task}\n\nRequired deliverables (relative to ${workspace}):\n${expected.map((path) => `- ${path}`).join("\n")}\nWrite complete nonempty files at these exact paths. Text files must be UTF-8 and JSON files must parse. Text files are limited to 16384 bytes each and 65536 bytes total; HTML to 524288 bytes each; PDF to 10485760 bytes each; HTML and PDF together to 11010048 bytes. ${DELIVERABLE_FORMAT_HINT} A completion claim without these files will fail verification.` };
+  return { ...input, task: `${input.task}\n\nRequired deliverables (relative to ${workspace}):\n${expected.map((path) => `- ${path} (max ${deliverableByteLimit(path)} bytes)`).join("\n")}\nWrite complete nonempty files at these exact paths. Text files must be UTF-8 and JSON files must parse. Combined limits: ${deliverableBudgetLimits.text} bytes for text, ${deliverableBudgetLimits.report} for HTML and PDF, ${deliverableBudgetLimits["office-media"]} for Office and media files. ${DELIVERABLE_FORMAT_HINT} A completion claim without these files will fail verification.` };
 }
 
 /** Read regular files from the settled Git snapshot. Symlinks (including
@@ -1347,6 +1351,7 @@ export async function collectExpectedSandboxDeliverables(
 ): Promise<CollectedChanges["files"]> {
   const paths = expectedDeliverablesSchema.parse(expected ?? []);
   const files: CollectedChanges["files"] = [];
+  const totals = { text: 0, report: 0, "office-media": 0 };
   for (const path of paths) {
     const tree = await ops.exec(shellJoin(["git", "--no-replace-objects", "ls-tree", "-z", checkpoint, "--", path]), { cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal });
     const match = /^(100644|100755) blob ([a-f0-9]{40,64})\t([^\0]+)\0$/.exec(tree.stdout);
@@ -1355,24 +1360,32 @@ export async function collectExpectedSandboxDeliverables(
     const size = await ops.exec(shellJoin(["git", "--no-replace-objects", "cat-file", "-s", objectId]), { cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal });
     const bytes = Number(size.stdout.trim());
     if (size.exitCode !== 0 || !/^\d+\s*$/.test(size.stdout) || !Number.isSafeInteger(bytes) || bytes > deliverableByteLimit(path)) throw new Error(`Deliverable ${path} exceeds its byte limit or could not be read completely.`);
-    const encodedLength = Math.ceil(bytes / 3) * 4;
-    const blob = await ops.exec(shellJoin(["node", "-e", DELIVERABLE_BLOB_READER, objectId]), { cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal, maxOutputChars: Math.ceil(deliverableByteLimit(path) / 3) * 4 + 1 });
-    const encoded = blob.stdout;
-    if (blob.exitCode !== 0 || encoded.length !== encodedLength || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) throw new Error(`Deliverable ${path} has malformed or truncated byte transport.`);
+    const budget = deliverableBudget(path);
+    totals[budget] += bytes;
+    if (totals[budget] > deliverableBudgetLimits[budget]) throw new Error(`Deliverable ${path} exceeds its total byte budget.`);
+    const header = new TextEncoder().encode(`blob ${bytes}\0`);
+    const objectBytes = new Uint8Array(header.byteLength + bytes);
+    objectBytes.set(header);
+    const data = objectBytes.subarray(header.byteLength);
+    const chunks: string[] = [];
+    for (let offset = 0; offset < bytes; offset += DELIVERABLE_BLOB_CHUNK_BYTES) {
+      const length = Math.min(DELIVERABLE_BLOB_CHUNK_BYTES, bytes - offset);
+      const encodedLength = Math.ceil(length / 3) * 4;
+      const blob = await ops.exec(shellJoin(["node", "-e", DELIVERABLE_BLOB_READER, objectId, String(offset)]), { cwd: workdir, timeoutMs: GIT_TIMEOUT_MS, signal, maxOutputChars: encodedLength + 1 });
+      const encoded = blob.stdout;
+      if (blob.exitCode !== 0 || encoded.length !== encodedLength || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) throw new Error(`Deliverable ${path} has malformed or truncated byte transport.`);
+      const raw = atob(encoded);
+      if (raw.length !== length || btoa(raw) !== encoded) throw new Error(`Deliverable ${path} has noncanonical byte transport.`);
+      for (let i = 0; i < length; i++) data[offset + i] = raw.charCodeAt(i);
+      if (isBinaryDeliverablePath(path)) chunks.push(encoded);
+    }
     let content: string;
     let encoding: "utf8" | "base64" = "utf8";
     try {
-      const raw = atob(encoded);
-      const data = Uint8Array.from(raw, (character) => character.charCodeAt(0));
-      if (data.byteLength !== bytes || btoa(raw) !== encoded) throw new Error("Noncanonical byte transport");
-      const header = new TextEncoder().encode(`blob ${bytes}\0`);
-      const objectBytes = new Uint8Array(header.byteLength + data.byteLength);
-      objectBytes.set(header); objectBytes.set(data, header.byteLength);
       const digest = new Uint8Array(await crypto.subtle.digest(objectId.length === 40 ? "SHA-1" : "SHA-256", objectBytes));
       const actualId = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
       if (actualId !== objectId) throw new Error("Git object integrity mismatch");
-      // PDFs stay base64; verifyExpectedDeliverables checks their magic bytes.
-      if (isBinaryDeliverablePath(path)) { content = encoded; encoding = "base64"; }
+      if (isBinaryDeliverablePath(path)) { content = chunks.join(""); encoding = "base64"; }
       else content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(data);
     } catch {
       throw new Error(`Deliverable ${path} contains invalid UTF-8 or malformed byte transport.`);

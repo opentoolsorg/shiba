@@ -21,7 +21,7 @@ describe("AgentTemplatesCatalog", () => {
   });
   it("filters real catalog cards with search and category chips", () => {
     render(<AgentTemplatesCatalog onUse={vi.fn()} />);
-    expect(document.querySelectorAll(".agent-template-card")).toHaveLength(11);
+    expect(document.querySelectorAll(".agent-template-card")).toHaveLength(12);
     fireEvent.click(screen.getByRole("button", { name: "engineering" }));
     expect(document.querySelectorAll(".agent-template-card")).toHaveLength(4);
     fireEvent.change(screen.getByRole("searchbox", { name: "Search templates" }), { target: { value: "reviewer" } });
@@ -29,6 +29,18 @@ describe("AgentTemplatesCatalog", () => {
     expect(screen.getByRole("heading", { name: "PR Reviewer" })).toBeTruthy();
     fireEvent.change(screen.getByRole("searchbox", { name: "Search templates" }), { target: { value: "no-such-teammate" } });
     expect(screen.getByText(/No teammates match your search/)).toBeTruthy();
+  });
+
+  it("hires the Sales report template with both required output files", async () => {
+    const onUse = vi.fn().mockResolvedValue(undefined);
+    render(<AgentTemplatesCatalog onUse={onUse} />);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search templates" }), { target: { value: "Sales report" } });
+    expect(screen.getByRole("heading", { name: "Sales report" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Hire" }));
+    await waitFor(() => expect(onUse).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      id: "sales-report",
+      expectedDeliverables: ["report.pdf", "sales.xlsx"],
+    })));
   });
 
   it("shows a featured row only for the unfiltered catalog and hires from it", async () => {
