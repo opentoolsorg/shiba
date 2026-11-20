@@ -28,6 +28,7 @@ import { handleInbox } from "../inbox-routes.js";
 import { handleLocalAdapter, isLocalRuntimePath } from "../local-routes.js";
 import { handleMemory } from "../memory-routes.js";
 import { handleFiles } from "../files/files-routes.js";
+import { handleFileAppPreview } from "../files/file-app-preview.js";
 import { handleNotes } from "../notes/notes-routes.js";
 import { handleKnowledge } from "../knowledge/knowledge-routes.js";
 import { handleKnowledgeOutputs } from "../knowledge/knowledge-outputs-routes.js";
@@ -538,6 +539,9 @@ export const handlers = {
   async filesResponse(context: RequestContext): Promise<Response | null> {
     const { request, env } = context;
     return handleFiles(request, env);
+  },
+  async fileAppPreviewResponse({ request, env, url }: RequestContext): Promise<Response> {
+    return handleFileAppPreview(request, env, url.pathname.split("/")[3] ?? "");
   },
   async notesResponse(context: RequestContext): Promise<Response | null> {
     const { request, env } = context;

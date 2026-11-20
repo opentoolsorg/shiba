@@ -30,6 +30,7 @@ function route(
 export const ROUTES: readonly RouteEntry[] = [
   route("permit", "capability", "*", "^/internal/founder-automatic-read/permit$", "internal", handlers.permit, "One-purpose signed permit; verified before identity or D1."),
   route("artifactDownload", "ingress", "*", "^/api/artifacts/download$", "signature", handlers.artifactDownload, "Signed archive capability; public landing only, verified download token."),
+  route("fileAppPreviewResponse", "ingress", "*", "^/api/files/[^/]+/app-preview$", "access", handlers.fileAppPreviewResponse, "Verified Access identity, active workspace and personal file ownership; reads only, before session refresh and model preflight."),
   route("betterAuthResponse", "ingress", "*", "^/api/auth/", "public", handlers.betterAuthResponse, "Sign-in protocol; package excludes subscription routes and verifies protected verbs."),
   route("callback", "ingress", "*", "^/api/slack/installations/callback$", "public", handlers.callback, "OAuth callback validates pending state and original owner."),
   route("discordInstallCallback", "ingress", "GET", "^/api/discord/installations/callback$", "public", handlers.discordInstallationResponse, "OAuth callback validates single-use state and the original dashboard user."),
