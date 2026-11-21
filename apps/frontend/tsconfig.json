@@ -20,7 +20,12 @@
     "noFallthroughCasesInSwitch": true,
     "types": [
       "vite/client"
-    ]
+    ],
+    "paths": {
+      "lucide-react": [
+        "./src/icons.tsx"
+      ]
+    }
   },
   "include": [
     "src",
