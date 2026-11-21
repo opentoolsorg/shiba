@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { CustomAgentConfig } from "@shiba/shared";
+import { departmentForRoleTemplate, type CustomAgentConfig } from "@shiba/shared";
 import { EMPLOYEE_TEMPLATES } from "../employee-templates";
 import { CustomAgentsView, type CustomAgentWire } from "./CustomAgentsView";
 
@@ -175,6 +175,7 @@ describe("role drafts in the Bots directory", () => {
         slug: template.slug,
         config: {
           name: editedName, emoji: template.config.emoji, roleTemplateId: template.id, instructions: template.config.instructions, harness: "opencode",
+          department: departmentForRoleTemplate(template.id),
           ...(template.config.expectedDeliverables?.length ? { expectedDeliverables: template.config.expectedDeliverables } : {}),
         },
       },

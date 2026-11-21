@@ -6,7 +6,7 @@ import { LoadErrorState } from "./LoadErrorState";
 import { EmptyState, SkeletonLines, StatusNotice } from "./surface";
 import { agentThreads, type WebThread } from "../agent-threads";
 import { formatTimeAgo } from "../ui-helpers";
-import { AGENT_MASCOT_ACCS, AGENT_MASCOT_EYES, AGENT_MASCOT_SHAPES, CUSTOM_AGENT_MASCOT_PRESETS, defaultLookFor, departmentForRoleTemplate, formLook, normalizeMascotColor, sanitizeCustomAgentSlug, type CustomAgentConfig, type CustomAgentRoleTemplateId, type AgentAvatarChoice } from "@shiba/shared";
+import { AGENT_MASCOT_ACCS, AGENT_MASCOT_EYES, AGENT_MASCOT_SHAPES, CUSTOM_AGENT_DEPARTMENTS, CUSTOM_AGENT_MASCOT_PRESETS, defaultLookFor, departmentForRoleTemplate, formLook, normalizeMascotColor, sanitizeCustomAgentSlug, type CustomAgentConfig, type CustomAgentDepartment, type CustomAgentRoleTemplateId, type AgentAvatarChoice } from "@shiba/shared";
 import { AgentLookStyler } from "./AgentLookStyler";
 import { codingModelOptions, type ConnectionOption } from "../live-status";
 import { EMPLOYEE_TEMPLATES, employeeRole, employeeRoleLabel, type EmployeeTemplate } from "../employee-templates";
@@ -156,6 +156,20 @@ function ScopedCustomAgentsView({
   const visibleAgents = agents?.filter((agent) => [agent.config.name, agent.slug, agent.config.harness,
     agent.config.codingModel ?? "", employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))]
     .some((value) => value.toLocaleLowerCase().includes(rosterQuery)));
+  const agentsByDepartment = new Map<CustomAgentDepartment, CustomAgentWire[]>();
+  for (const agent of visibleAgents ?? []) {
+    const department = agent.config.department ?? "general";
+    agentsByDepartment.set(department, [...(agentsByDepartment.get(department) ?? []), agent]);
+  }
+  const departmentOrder: readonly CustomAgentDepartment[] = [...CUSTOM_AGENT_DEPARTMENTS.filter((dept) => dept !== "general"), "general"];
+  const agentNameById = new Map((agents ?? []).map((agent) => [agent.id, agent.config.name]));
+  const reportsLabelFor = (config: CustomAgentConfig): string | null => {
+    if (config.reportsTo?.kind === "agent") {
+      const manager = agentNameById.get(config.reportsTo.agentId);
+      return manager ? `reports to ${manager}` : null;
+    }
+    return config.reportsTo?.kind === "user" ? "reports to you" : null;
+  };
   const [form, setForm] = useState(() => readRoleDraft(draftScope));
   const [draftStorageAvailable, setDraftStorageAvailable] = useState(true);
   const [expectedVersion, setExpectedVersion] = useState<number | undefined>(undefined);
@@ -674,14 +688,30 @@ function ScopedCustomAgentsView({
             </div>
           ) : null}
           {agents && agents.length > 0 ? (
-            <ul aria-label="Saved employees" className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              {visibleAgents?.map((agent) => (
+            <ul aria-label="Saved employees" className="flex flex-col gap-6">
+              {departmentOrder.map((department) => {
+                const group = agentsByDepartment.get(department);
+                if (!group?.length) return null;
+                return (
+                  <li key={department} role="group" aria-label={`${department} department`}>
+                    <h2 className="mb-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">
+                      {department}
+                      <span className="border border-[var(--line)] px-1.5 text-[9px]">{group.length}</span>
+                    </h2>
+                    <ul aria-label={`${department} saved employees`} className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                      {group.map((agent) => (
                 <li
                   key={agent.id}
                   className="flex min-w-0 flex-col justify-between gap-4 border border-[var(--line)] bg-[var(--card)] p-4 shadow-[2px_2px_0_var(--paper-shadow)]"
                 >
                   <div className="min-w-0">
-                    <div className="mb-3 flex items-center gap-3"><AgentAvatar agentId={agent.id} name={agent.config.name} mascotPreset={agent.config.mascotPreset} look={agent.config.look} avatar={agent.config.avatar} slug={agent.slug} role={employeeRole(agent.slug, agent.config.roleTemplateId)} /><span className="text-xs font-medium text-[var(--muted-foreground-2)]">{[agent.config.title, employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))].filter(Boolean).join(" · ")}</span></div>
+                    <div className="mb-3 flex items-center gap-3"><AgentAvatar agentId={agent.id} name={agent.config.name} mascotPreset={agent.config.mascotPreset} look={agent.config.look} avatar={agent.config.avatar} slug={agent.slug} role={employeeRole(agent.slug, agent.config.roleTemplateId)} /><span className="text-xs font-medium text-[var(--muted-foreground-2)]">{[agent.config.title, employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))].filter(Boolean).join(" · ")}</span>{agent.config.channelIdentities && (agent.config.channelIdentities.slack || agent.config.channelIdentities.discord || agent.config.channelIdentities.email) ? (
+                      <span className="ml-auto flex gap-1" aria-label="Employee channels">
+                        {agent.config.channelIdentities.slack ? <span title={`slack: ${agent.config.channelIdentities.slack}`} className="border border-[var(--line)] px-1 font-mono text-[9px] text-[var(--ink-2)]">S</span> : null}
+                        {agent.config.channelIdentities.discord ? <span title={`discord: ${agent.config.channelIdentities.discord}`} className="border border-[var(--line)] px-1 font-mono text-[9px] text-[var(--ink-2)]">D</span> : null}
+                        {agent.config.channelIdentities.email ? <span title={`email: ${agent.config.channelIdentities.email}`} className="border border-[var(--line)] px-1 font-mono text-[9px] text-[var(--ink-2)]">@</span> : null}
+                      </span>
+                    ) : null}</div>
                     <div className="flex flex-wrap items-center gap-2">
                       <button type="button" onClick={(event) => { profileTrigger.current = event.currentTarget; focusProfile.current = true; setSelectedAgentId(agent.id); }} aria-label={`View profile ${agent.config.name}`}
                         className="min-h-11 break-words text-left font-serif text-xl text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]">{agent.config.name}</button>
@@ -689,6 +719,9 @@ function ScopedCustomAgentsView({
                         {agent.slug}
                         {` · v${agent.version}`}
                       </span>
+                      {reportsLabelFor(agent.config) ? (
+                        <span className="text-[10px] font-mono text-[var(--muted-foreground-3)]">{reportsLabelFor(agent.config)}</span>
+                      ) : null}
                     </div>
                     <div className="text-[11px] text-[var(--muted-foreground-2)] mt-0.5 line-clamp-2">
                       {agent.config.instructions}
@@ -769,7 +802,11 @@ function ScopedCustomAgentsView({
                     )}
                   </div>
                 </li>
-              ))}
+                      ))}
+                    </ul>
+                  </li>
+                );
+              })}
             </ul>
           ) : null}
           {notice ? <StatusNotice tone={notice.tone}>{notice.text}</StatusNotice> : null}
@@ -869,7 +906,7 @@ function ScopedCustomAgentsView({
                 >
                   <option value="">Directly to you</option>
                   {(agents ?? []).filter((agent) => agent.id !== editingId).map((agent) => (
-                    <option key={agent.id} value={agent.id}>{agent.config.name}</option>
+                    <option key={agent.id} value={agent.id}>{agent.config.name} ({agent.config.department ?? "general"})</option>
                   ))}
                 </select>
               </label>
