@@ -117,6 +117,7 @@ function ScopedCustomAgentsView({
   onInitialAgentApplied,
   draftScope,
   workspaceId,
+  actorId,
   isCurrent,
 }: CustomAgentsViewProps & { isCurrent: () => boolean }): JSX.Element {
   const alive = useRef(true);
@@ -158,7 +159,7 @@ function ScopedCustomAgentsView({
     .some((value) => value.toLocaleLowerCase().includes(rosterQuery)));
   const agentsByDepartment = new Map<CustomAgentDepartment, CustomAgentWire[]>();
   for (const agent of visibleAgents ?? []) {
-    const department = agent.config.department ?? "general";
+    const department = agent.config.department ?? departmentForRoleTemplate(agent.config.roleTemplateId);
     agentsByDepartment.set(department, [...(agentsByDepartment.get(department) ?? []), agent]);
   }
   const departmentOrder: readonly CustomAgentDepartment[] = [...CUSTOM_AGENT_DEPARTMENTS.filter((dept) => dept !== "general"), "general"];
@@ -168,7 +169,10 @@ function ScopedCustomAgentsView({
       const manager = agentNameById.get(config.reportsTo.agentId);
       return manager ? `reports to ${manager}` : null;
     }
-    return config.reportsTo?.kind === "user" ? "reports to you" : null;
+    if (config.reportsTo?.kind === "user") {
+      return config.reportsTo.userId === actorId ? "reports to you" : `reports to ${config.reportsTo.userId}`;
+    }
+    return null;
   };
   const [form, setForm] = useState(() => readRoleDraft(draftScope));
   const [draftStorageAvailable, setDraftStorageAvailable] = useState(true);
@@ -906,7 +910,7 @@ function ScopedCustomAgentsView({
                 >
                   <option value="">Directly to you</option>
                   {(agents ?? []).filter((agent) => agent.id !== editingId).map((agent) => (
-                    <option key={agent.id} value={agent.id}>{agent.config.name} ({agent.config.department ?? "general"})</option>
+                    <option key={agent.id} value={agent.id}>{agent.config.name} ({agent.config.department ?? departmentForRoleTemplate(agent.config.roleTemplateId)})</option>
                   ))}
                 </select>
               </label>
