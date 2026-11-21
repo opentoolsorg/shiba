@@ -68,7 +68,7 @@ async function host() {
       if (!child.stdin) throw new Error("The native process fixture requires stdin.");
       child.stdin.on("error", () => undefined);
       child.stdin.end(options?.stdin ? Buffer.from(await new Response(options.stdin).arrayBuffer()) : undefined);
-      return { output: () => ended };
+      return { output: () => ended, exitCode: ended.then(({ exitCode }) => exitCode) };
     }),
   };
   const storage = {
@@ -270,7 +270,10 @@ describe("Sandbox execution journal RPC", () => {
     if (!actual) throw new Error("Missing native execution fixture.");
     item.native.exec.mockImplementationOnce(async (argv, options) => {
       const process = await actual(argv, options);
-      return { output: async () => { const output = await process.output(); entered.release(); await blocked.pending; return output; } };
+      return {
+        output: async () => { const output = await process.output(); entered.release(); await blocked.pending; return output; },
+        exitCode: (process.exitCode as Promise<number>).then(async (code) => { entered.release(); await blocked.pending; return code; }),
+      };
     });
     const reading = item.sandbox.readExecution(item.input.jobId, 0);
     await entered.pending;
@@ -287,7 +290,10 @@ describe("Sandbox execution journal RPC", () => {
       ...(kind === "missing-exit" ? {} : { exitCode: 0 }),
     };
     if (kind === "sequence") { reply.frames = [{ sequence: 2, stream: "stdout", dataBase64: "eA==" }]; reply.cursor = 1; }
-    item.native.exec.mockResolvedValueOnce({ output: async () => ({ stdout: Buffer.from(JSON.stringify(reply)), stderr: Buffer.alloc(0), exitCode: kind === "failed-control" ? 7 : 0 }) });
+    item.native.exec.mockResolvedValueOnce({
+      output: async () => ({ stdout: Buffer.from(JSON.stringify(reply)), stderr: Buffer.alloc(0), exitCode: kind === "failed-control" ? 7 : 0 }),
+      exitCode: Promise.resolve(kind === "failed-control" ? 7 : 0),
+    });
     expect(await item.sandbox.readExecution(item.input.jobId, 0)).toMatchObject({ state: "lost", done: true });
   });
 

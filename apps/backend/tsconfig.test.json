@@ -6,7 +6,8 @@
     "moduleResolution": "Bundler",
     "baseUrl": ".",
     "paths": {
-      "@tanstack/react-router": ["../frontend/node_modules/@tanstack/react-router"]
+      "@tanstack/react-router": ["../frontend/node_modules/@tanstack/react-router"],
+      "lucide-react": ["../frontend/src/icons.tsx"]
     },
     "jsx": "react-jsx",
     "strict": true,

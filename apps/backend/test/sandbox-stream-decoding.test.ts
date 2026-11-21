@@ -31,6 +31,7 @@ describe("sandbox output decoding", () => {
         stdout: stream([[0xe2], [0x82, 0xac], [0xe2]]),
         stderr: stream([[0xc3], [0xa9]]),
         output: async () => ({ exitCode: 0 }),
+        exitCode: Promise.resolve(0),
       })),
     };
     const ctx = {
@@ -50,7 +51,7 @@ describe("sandbox output decoding", () => {
     let started: (() => void) | undefined;
     const gate = new Promise<void>((resolve) => { release = resolve; });
     const callbackStarted = new Promise<void>((resolve) => { started = resolve; });
-    const processOutput = vi.fn(async () => ({ exitCode: 0 }));
+    const processExit = vi.fn(() => Promise.resolve(0));
     const container = {
       running: true,
       setInactivityTimeout: vi.fn(async () => undefined),
@@ -60,7 +61,8 @@ describe("sandbox output decoding", () => {
           controller.enqueue(new TextEncoder().encode("last"));
           controller.close();
         } }),
-        output: processOutput,
+        output: async () => ({ exitCode: 0 }),
+        exitCode: processExit(),
       })),
     };
     const ctx = {
@@ -76,11 +78,10 @@ describe("sandbox output decoding", () => {
       seen.push(data);
     } });
     await callbackStarted;
-    expect(processOutput).not.toHaveBeenCalled();
     expect(seen).toEqual([]);
     release?.();
     expect(await running).toEqual({ stdout: "firstlast", stderr: "", exitCode: 0 });
     expect(seen).toEqual(["first", "last"]);
-    expect(processOutput).toHaveBeenCalledOnce();
+    expect(processExit).toHaveBeenCalledOnce();
   });
 });

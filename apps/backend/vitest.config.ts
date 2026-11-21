@@ -8,6 +8,7 @@ export default defineConfig({
       "@tanstack/react-router": join(import.meta.dirname, "../frontend/node_modules/@tanstack/react-router/dist/esm/index.js"),
       "@cloudflare/ai-chat/react": join(import.meta.dirname, "../frontend/node_modules/@cloudflare/ai-chat/dist/react.js"),
       "agents/react": join(import.meta.dirname, "../frontend/node_modules/agents/dist/react.js"),
+      "lucide-react": join(import.meta.dirname, "../frontend/src/icons.tsx"),
     },
   },
   esbuild: {
