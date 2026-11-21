@@ -1,9 +1,9 @@
-import { defineConfig } from "vite";
-import { tanstackStart } from "@tanstack/react-start/plugin/vite";
-import viteReact from "@vitejs/plugin-react";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import viteReact from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
 
 const rootDir = fileURLToPath(new URL(".", import.meta.url));
 
@@ -32,6 +32,13 @@ const PWA_MIME: Record<string, string> = {
 
 export default defineConfig({
   root: rootDir,
+  resolve: {
+    alias: {
+      // lucide imports resolve to the Hugeicons-backed shim; keeps call sites
+      // untouched while swapping the glyph set (src/icons.tsx).
+      "lucide-react": resolve(rootDir, "src/icons.tsx"),
+    },
+  },
   // The dashboard's favicon and og:image live only in apps/web/public.
   publicDir: resolve(rootDir, "../web/public"),
   build: {
@@ -42,12 +49,18 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes("node_modules")) {
-            if (id.includes("/components/DiffView") || id.includes("/components/founder-")) return "founder-diff";
-            if (id.includes("/components/HarnessSessionPanel") || id.includes("/components/RemoteAccessView")) return "remote-runtime";
+            if (id.includes("/components/DiffView") || id.includes("/components/founder-"))
+              return "founder-diff";
+            if (
+              id.includes("/components/HarnessSessionPanel") ||
+              id.includes("/components/RemoteAccessView")
+            )
+              return "remote-runtime";
             return undefined;
           }
           if (id.includes("xterm")) return "xterm";
-          if (id.includes("@git-diff-view") || id.includes("diff-match-patch")) return "diff-viewer";
+          if (id.includes("@git-diff-view") || id.includes("diff-match-patch"))
+            return "diff-viewer";
           return undefined;
         },
       },
