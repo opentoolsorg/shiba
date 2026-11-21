@@ -6,7 +6,7 @@ import { LoadErrorState } from "./LoadErrorState";
 import { EmptyState, SkeletonLines, StatusNotice } from "./surface";
 import { agentThreads, type WebThread } from "../agent-threads";
 import { formatTimeAgo } from "../ui-helpers";
-import { AGENT_MASCOT_ACCS, AGENT_MASCOT_EYES, AGENT_MASCOT_SHAPES, CUSTOM_AGENT_MASCOT_PRESETS, defaultLookFor, formLook, normalizeMascotColor, sanitizeCustomAgentSlug, type CustomAgentConfig, type CustomAgentRoleTemplateId, type AgentAvatarChoice } from "@shiba/shared";
+import { AGENT_MASCOT_ACCS, AGENT_MASCOT_EYES, AGENT_MASCOT_SHAPES, CUSTOM_AGENT_MASCOT_PRESETS, defaultLookFor, departmentForRoleTemplate, formLook, normalizeMascotColor, sanitizeCustomAgentSlug, type CustomAgentConfig, type CustomAgentRoleTemplateId, type AgentAvatarChoice } from "@shiba/shared";
 import { AgentLookStyler } from "./AgentLookStyler";
 import { codingModelOptions, type ConnectionOption } from "../live-status";
 import { EMPLOYEE_TEMPLATES, employeeRole, employeeRoleLabel, type EmployeeTemplate } from "../employee-templates";
@@ -48,15 +48,20 @@ const EMPTY_FORM = {
   sandboxProvider: "",
   defaultRepoUrl: "",
   expectedDeliverables: "",
+  title: "",
+  reportsToAgentId: "",
+  slackIdentity: "",
+  discordIdentity: "",
+  emailIdentity: "",
 };
 
 function readRoleDraft(scope?: string): typeof EMPTY_FORM {
   if (!scope) return EMPTY_FORM;
   try {
     const draft = JSON.parse(localStorage.getItem(`shiba-role-draft-v1:${scope}`) ?? "null");
-    if (draft && Object.keys(EMPTY_FORM).every((key) => key === "roleTemplateId" || key === "mascotPreset" || key.startsWith("look") || typeof draft[key] === "string")) {
+    if (draft && Object.keys(EMPTY_FORM).every((key) => key === "roleTemplateId" || key === "mascotPreset" || key.startsWith("look") || draft[key] === undefined || typeof draft[key] === "string")) {
       return {
-        ...Object.fromEntries(Object.keys(EMPTY_FORM).map((key) => [key, draft[key]])),
+        ...Object.fromEntries(Object.keys(EMPTY_FORM).map((key) => [key, typeof draft[key] === "string" ? draft[key] : ""])),
         mascotPreset: CUSTOM_AGENT_MASCOT_PRESETS.includes(draft.mascotPreset) ? draft.mascotPreset : "",
         lookShape: (AGENT_MASCOT_SHAPES as readonly string[]).includes(draft.lookShape) ? draft.lookShape : "",
         lookColor: normalizeMascotColor(draft.lookColor) ?? "",
@@ -311,6 +316,11 @@ function ScopedCustomAgentsView({
       sandboxProvider: agent.config.sandboxProvider ?? "",
       defaultRepoUrl: agent.config.defaultRepoUrl ?? "",
       expectedDeliverables: agent.config.expectedDeliverables?.join("\n") ?? "",
+      title: agent.config.title ?? "",
+      reportsToAgentId: agent.config.reportsTo?.kind === "agent" ? agent.config.reportsTo.agentId : "",
+      slackIdentity: agent.config.channelIdentities?.slack ?? "",
+      discordIdentity: agent.config.channelIdentities?.discord ?? "",
+      emailIdentity: agent.config.channelIdentities?.email ?? "",
     });
   };
 
@@ -408,13 +418,45 @@ function ScopedCustomAgentsView({
       ...(form.sandboxProvider ? { sandboxProvider: form.sandboxProvider as CustomAgentConfig["sandboxProvider"] } : {}),
       ...(form.defaultRepoUrl.trim() ? { defaultRepoUrl: form.defaultRepoUrl.trim() } : {}),
       ...(expectedDeliverables.length ? { expectedDeliverables } : {}),
+      ...(form.title.trim() ? { title: form.title.trim() } : {}),
     };
     // Clearing an optional field must clear its old value while other saved
     // settings survive an edit of the visible fields.
-    for (const key of ["emoji", "mascotPreset", "roleTemplateId", "codingModel", "connectionId", "sandboxProvider", "defaultRepoUrl", "expectedDeliverables"] as const) {
+    for (const key of ["emoji", "mascotPreset", "roleTemplateId", "codingModel", "connectionId", "sandboxProvider", "defaultRepoUrl", "expectedDeliverables", "title"] as const) {
       if (!form[key].trim()) delete config[key];
     }
     if (!look) delete config.look;
+    if (EMPLOYEE_TEMPLATES.some((template) => template.id === form.roleTemplateId)) {
+      // An explicit department survives edits that leave the role alone; a role
+      // change (or a missing value) re-derives it from the template.
+      const roleChanged = (editingConfig?.roleTemplateId ?? "") !== form.roleTemplateId;
+      if (roleChanged || !editingConfig?.department) {
+        config.department = departmentForRoleTemplate(form.roleTemplateId as CustomAgentRoleTemplateId);
+      } else {
+        config.department = editingConfig.department;
+      }
+    }
+    if (form.reportsToAgentId) {
+      // A selection the directory still lists becomes the manager; a saved value
+      // the visibility filter hides stays as loaded.
+      if ((agents ?? []).some((agent) => agent.id === form.reportsToAgentId && agent.id !== editingId)) {
+        config.reportsTo = { kind: "agent", agentId: form.reportsToAgentId };
+      }
+    } else if (editingConfig?.reportsTo?.kind === "agent" && (agents ?? []).some((agent) => agent.id === (editingConfig.reportsTo as { agentId: string }).agentId)) {
+      // Empty select with a visible saved manager means the user cleared it;
+      // a user-kind manager or one outside the directory is preserved.
+      delete config.reportsTo;
+    }
+    const channelIdentities = {
+      ...(form.slackIdentity.trim() ? { slack: form.slackIdentity.trim() } : {}),
+      ...(form.discordIdentity.trim() ? { discord: form.discordIdentity.trim() } : {}),
+      ...(form.emailIdentity.trim() ? { email: form.emailIdentity.trim() } : {}),
+    };
+    if (Object.keys(channelIdentities).length) {
+      config.channelIdentities = channelIdentities;
+    } else {
+      delete config.channelIdentities;
+    }
     try {
       const response = editingId
         ? await fetch(`/api/custom-agents/${encodeURIComponent(editingId)}`, {
@@ -639,7 +681,7 @@ function ScopedCustomAgentsView({
                   className="flex min-w-0 flex-col justify-between gap-4 border border-[var(--line)] bg-[var(--card)] p-4 shadow-[2px_2px_0_var(--paper-shadow)]"
                 >
                   <div className="min-w-0">
-                    <div className="mb-3 flex items-center gap-3"><AgentAvatar agentId={agent.id} name={agent.config.name} mascotPreset={agent.config.mascotPreset} look={agent.config.look} avatar={agent.config.avatar} slug={agent.slug} role={employeeRole(agent.slug, agent.config.roleTemplateId)} /><span className="text-xs font-medium text-[var(--muted-foreground-2)]">{employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))}</span></div>
+                    <div className="mb-3 flex items-center gap-3"><AgentAvatar agentId={agent.id} name={agent.config.name} mascotPreset={agent.config.mascotPreset} look={agent.config.look} avatar={agent.config.avatar} slug={agent.slug} role={employeeRole(agent.slug, agent.config.roleTemplateId)} /><span className="text-xs font-medium text-[var(--muted-foreground-2)]">{[agent.config.title, employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))].filter(Boolean).join(" · ")}</span></div>
                     <div className="flex flex-wrap items-center gap-2">
                       <button type="button" onClick={(event) => { profileTrigger.current = event.currentTarget; focusProfile.current = true; setSelectedAgentId(agent.id); }} aria-label={`View profile ${agent.config.name}`}
                         className="min-h-11 break-words text-left font-serif text-xl text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]">{agent.config.name}</button>
@@ -806,6 +848,64 @@ function ScopedCustomAgentsView({
                   className={FIELD}
                 />
               </label>
+
+              <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+                Job title
+                <input
+                  type="text"
+                  value={form.title}
+                  onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                  placeholder="Support lead"
+                  className={FIELD}
+                />
+              </label>
+
+              <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+                Reports to
+                <select
+                  value={form.reportsToAgentId}
+                  onChange={(e) => setForm((f) => ({ ...f, reportsToAgentId: e.target.value }))}
+                  className={FIELD}
+                >
+                  <option value="">Directly to you</option>
+                  {(agents ?? []).filter((agent) => agent.id !== editingId).map((agent) => (
+                    <option key={agent.id} value={agent.id}>{agent.config.name}</option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+                  Slack handle
+                  <input
+                    type="text"
+                    value={form.slackIdentity}
+                    onChange={(e) => setForm((f) => ({ ...f, slackIdentity: e.target.value }))}
+                    placeholder="@seba-support"
+                    className={FIELD}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+                  Discord handle
+                  <input
+                    type="text"
+                    value={form.discordIdentity}
+                    onChange={(e) => setForm((f) => ({ ...f, discordIdentity: e.target.value }))}
+                    placeholder="seba#1234"
+                    className={FIELD}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+                  Work email
+                  <input
+                    type="email"
+                    value={form.emailIdentity}
+                    onChange={(e) => setForm((f) => ({ ...f, emailIdentity: e.target.value }))}
+                    placeholder="seba@tuempresa.cl"
+                    className={FIELD}
+                  />
+                </label>
+              </div>
 
               <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
                 Instructions
