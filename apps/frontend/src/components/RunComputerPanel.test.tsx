@@ -60,6 +60,30 @@ describe("RunComputerPanel", () => {
     expect(viewport.disabled).toBe(true);
   });
 
+  it("zooms the screen viewer and resets without disturbing remote input", async () => {
+    const fetcher = vi.fn(async () => screenResponse("agent"));
+    vi.stubGlobal("fetch", fetcher);
+    render(<RunComputerPanel runId={runId} status="running" />);
+    await flush();
+    const remote = screen.getByRole("button", { name: "Cloud computer screen" });
+    const world = remote.parentElement as HTMLElement;
+    const viewer = screen.getByLabelText("Cloud computer screen viewer");
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in on the computer screen" }));
+    await flush();
+    const zoomed = world.getAttribute("style") ?? "";
+    expect(zoomed).toContain("transform");
+    // happy-dom's WheelEvent ignores ctrlKey in its init dict, so patch it on.
+    const pinch = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -100 });
+    Object.defineProperty(pinch, "ctrlKey", { value: true });
+    fireEvent(viewer, pinch);
+    await flush();
+    expect(world.getAttribute("style") ?? "").not.toBe(zoomed);
+    fireEvent.click(screen.getByRole("button", { name: "Zoom out of the computer screen" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reset the computer screen zoom" }));
+    await flush();
+    expect(fetcher).not.toHaveBeenCalledWith(url, actionRequest({ action: { type: "scroll", dx: 0, dy: -100 } }));
+  });
+
   it("respects another controller, including a conflict while taking control", async () => {
     const fetcher = vi.fn()
       .mockResolvedValueOnce(screenResponse())

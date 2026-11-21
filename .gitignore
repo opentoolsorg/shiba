@@ -43,6 +43,7 @@ shiba-ai-coworker-docs/
 !.agents/skills/testing-dashboard-e2e/
 !.agents/skills/testing-shiba-dashboard/
 !.agents/skills/shiba-ui-polish/
+!.agents/skills/ui-sdk/
 .claude/
 .tgrep/ 
 audit/

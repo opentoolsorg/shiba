@@ -1,6 +1,8 @@
 import { Monitor } from "lucide-react";
-import { type KeyboardEvent, type MouseEvent, useCallback, useEffect, useId, useRef, useState } from "react";
+import { type KeyboardEvent, type MouseEvent, type RefObject, type WheelEvent as ReactWheelEvent, useCallback, useEffect, useId, useRef, useState } from "react";
+import { usePart, usePrimitive } from "@ui-sdk/react/primitive";
 import type { RunStatus } from "@shiba/shared";
+import { CanvasWorld, computerCanvas } from "./computer-canvas";
 
 type Control = "agent" | "you" | "other";
 type Input =
@@ -246,16 +248,13 @@ function LiveComputer({ url }: { url: string }) {
         ) : null}
       </div>
       {frame ? (
-        <button
-          className={`block w-full border border-[var(--border-1)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] ${canInput ? "cursor-crosshair" : "cursor-default"}`}
-          type="button"
-          ref={viewport}
-          disabled={!canInput}
-          aria-label="Cloud computer screen"
-          onClick={(event) => { if (event.detail !== 0) clickScreen(event, "left"); }}
-          onAuxClick={(event) => { if (event.button === 1) clickScreen(event, "middle"); }}
-          onContextMenu={(event) => clickScreen(event, "right")}
-          onKeyDown={(event) => {
+        <ScreenViewer
+          frame={frame}
+          canInput={canInput}
+          screen={screen}
+          viewport={viewport}
+          clickScreen={clickScreen}
+          postKey={(event) => {
             if (!canInput) return;
             const action = desktopKey(event);
             if (!action) return;
@@ -263,9 +262,7 @@ function LiveComputer({ url }: { url: string }) {
             event.stopPropagation();
             void post({ action });
           }}
-        >
-          <img ref={screen} src={frame} alt="Live view of the run desktop" width={1280} height={800} className="block h-auto w-full" draggable={false} />
-        </button>
+        />
       ) : null}
       {frame ? (
         <p className="text-xs text-[var(--muted-foreground-2)]">
@@ -287,5 +284,54 @@ function LiveComputer({ url }: { url: string }) {
         </form>
       ) : null}
     </div>
+  );
+}
+
+function ScreenViewer({ frame, canInput, screen, viewport, clickScreen, postKey }: {
+  frame: string;
+  canInput: boolean;
+  screen: RefObject<HTMLImageElement | null>;
+  viewport: RefObject<HTMLButtonElement | null>;
+  clickScreen: (event: MouseEvent<HTMLButtonElement>, button: "left" | "middle" | "right") => void;
+  postKey: (event: KeyboardEvent<HTMLButtonElement>) => void;
+}) {
+  const canvas = usePrimitive(computerCanvas, {});
+  const zoomScreen = (event: ReactWheelEvent<HTMLDivElement>) => {
+    if (event.ctrlKey || event.metaKey) {
+      // ctrl/cmd + wheel zooms; a plain wheel keeps scrolling the remote desktop.
+      event.preventDefault();
+      canvas.api.viewport.wheel(event.nativeEvent);
+    }
+  };
+  return (
+    <>
+      {usePart(canvas, "root", {}, {
+        "aria-label": "Cloud computer screen viewer",
+        className: "aspect-[8/5] w-full border border-[var(--border-1)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]",
+        onWheel: zoomScreen,
+        children: (
+          <CanvasWorld>
+            <button
+              className={`block w-full ${canInput ? "cursor-crosshair" : "cursor-default"}`}
+              type="button"
+              ref={viewport}
+              disabled={!canInput}
+              aria-label="Cloud computer screen"
+              onClick={(event) => { if (event.detail !== 0) clickScreen(event, "left"); }}
+              onAuxClick={(event) => { if (event.button === 1) clickScreen(event, "middle"); }}
+              onContextMenu={(event) => clickScreen(event, "right")}
+              onKeyDown={postKey}
+            >
+              <img ref={screen} src={frame} alt="Live view of the run desktop" width={1280} height={800} className="block h-auto w-full" draggable={false} />
+            </button>
+          </CanvasWorld>
+        ),
+      }, "div")}
+      <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Screen zoom controls">
+        <button className={BUTTON} type="button" aria-label="Zoom out of the computer screen" onClick={() => canvas.api.viewport.zoomBy(0.8)}>−</button>
+        <button className={BUTTON} type="button" aria-label="Reset the computer screen zoom" onClick={() => canvas.api.viewport.setViewport({ x: 0, y: 0, zoom: 1 })}>Fit</button>
+        <button className={BUTTON} type="button" aria-label="Zoom in on the computer screen" onClick={() => canvas.api.viewport.zoomBy(1.25)}>+</button>
+      </div>
+    </>
   );
 }
