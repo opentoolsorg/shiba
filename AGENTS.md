@@ -1,5 +1,10 @@
 # Agent tradeoffs
 
+Context lives beside the work: read the `AGENTS.md` in the directory you are
+editing (`apps/backend`, `apps/frontend`, `packages/shared`) and the topic
+notes under `docs/architecture/` — `browser.md` and `computer-use.md` cover
+the human-in-the-loop browser and desktop stacks.
+
 These are load-bearing rules for this repo. A change that breaks one of them is wrong even if the tests that used to pass still pass. Each rule names the test that locks it.
 
 ## Credentials never enter the container

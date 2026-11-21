@@ -18,6 +18,8 @@ The architecture notes are in one file for each topic:
   - [State map](docs/architecture/durable-objects.md#state-map)
 - [Security model](docs/architecture/security-model.md)
 - [Request lifecycle](docs/architecture/request-lifecycle.md)
+- [Browser use](docs/architecture/browser.md)
+- [Computer use](docs/architecture/computer-use.md)
 - [Harnesses](docs/architecture/harnesses.md)
 - [Change rules and known gaps](docs/architecture/change-rules.md)
   - [How this evolves](docs/architecture/change-rules.md#how-this-evolves)
