@@ -46,6 +46,7 @@ const TRUST_ENV: Record<string, string> = {
   CURL_CA_BUNDLE: CA_PATH,
   SSL_CERT_FILE: CA_PATH,
   NODE_EXTRA_CA_CERTS: CA_PATH,
+  GIT_SSL_CAINFO: CA_PATH,
 };
 
 interface SandboxCtx extends DurableObjectState {
