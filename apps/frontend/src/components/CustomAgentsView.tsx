@@ -1,7 +1,8 @@
 import { EmployeeRoutines } from "./RoutinesView";
 import { EmployeeAccessSettings } from "./EmployeeAccessSettings";
 import { useCallback, useEffect, useId, useRef, useState, type JSX, type KeyboardEvent } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Plus, ShieldCheck } from "lucide-react";
+import { pathForView } from "../app-navigation";
 import { LoadErrorState } from "./LoadErrorState";
 import { EmptyState, SkeletonLines, StatusNotice } from "./surface";
 import { agentThreads, type WebThread } from "../agent-threads";
@@ -22,6 +23,25 @@ const FIELD =
   "bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/40 placeholder-[var(--muted-foreground-3)]/60 transition-colors w-full";
 
 const SANDBOX_PROVIDERS = ["cloudflare", "docker-local", "computesdk", "e2b"] as const;
+
+const OVERLINE = "font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]";
+const BTN =
+  "min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--card-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] disabled:opacity-50";
+const BTN_PRIMARY =
+  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-[var(--radius-button)] border border-[var(--primary)] bg-[var(--primary)] px-4 text-xs font-medium text-[var(--primary-text)] hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-50";
+const STAGE = "flex flex-col gap-4 border-t border-[var(--border-1)] pt-5";
+const ROLE_FILTER_ALL = "all";
+
+/** Every interactive task and scheduled automation requires human approval. */
+const INTERACTIVE_APPROVAL = "Interactive tasks need your approval of the exact task before anything runs.";
+const AUTOMATION_APPROVAL = "Automated runs also require human approval.";
+
+/** The tool-policy page is a personal-scope view, so a team workspace gets an honest note instead of a link. */
+function ToolPolicyNote({ workspaceId, onOpenToolPolicy }: { workspaceId?: string; onOpenToolPolicy?: () => void }): JSX.Element {
+  if (workspaceId) return <p>Employee tool policy is currently available for personal employee profiles only.</p>;
+  if (onOpenToolPolicy) return <button type="button" onClick={onOpenToolPolicy} className="inline-flex min-h-11 items-center text-[var(--primary)] underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">Review employee tool policy</button>;
+  return <a href={pathForView("employee-tools")} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-[var(--primary)] underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">Review employee tool policy (opens in a new tab)</a>;
+}
 
 export interface CustomAgentWire {
   id: string;
@@ -87,6 +107,7 @@ export interface CustomAgentsViewProps {
   draftScope?: string;
   workspaceId?: string;
   actorId?: string;
+  onOpenToolPolicy?: () => void;
 }
 
 /** Keep drafts and async callbacks in the account/workspace that created them. */
@@ -104,6 +125,7 @@ function ScopedCustomAgentsView({
   threadsLoading = false,
   threadsUnavailable = false,
   onOpenThread,
+  onOpenToolPolicy,
   connections = [],
   modelSuggestions = [],
   initialTemplateId = null,
@@ -147,8 +169,18 @@ function ScopedCustomAgentsView({
   const [directoryQuery, setDirectoryQuery] = useState("");
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const selectedAgent = agents?.find((agent) => agent.id === selectedAgentId);
+  const [roleFilter, setRoleFilter] = useState(ROLE_FILTER_ALL);
   const rosterQuery = directoryQuery.trim().toLocaleLowerCase();
-  const visibleAgents = agents?.filter((agent) => [agent.config.name, agent.slug, agent.config.harness,
+  // Only roles that saved employees actually carry are offered; a role is a label, not a department or reporting line.
+  const rosterRoles = [...new Set((agents ?? []).map((agent) => employeeRole(agent.slug, agent.config.roleTemplateId)))];
+  const rosterRolesKey = rosterRoles.join("\0");
+  useEffect(() => {
+    if (agents && roleFilter !== ROLE_FILTER_ALL && !rosterRolesKey.split("\0").includes(roleFilter)) {
+      setRoleFilter(ROLE_FILTER_ALL);
+    }
+  }, [agents, roleFilter, rosterRolesKey]);
+  const visibleAgents = agents?.filter((agent) => (roleFilter === ROLE_FILTER_ALL || employeeRole(agent.slug, agent.config.roleTemplateId) === roleFilter)
+    && [agent.config.name, agent.slug, agent.config.harness,
     agent.config.codingModel ?? "", employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))]
     .some((value) => value.toLocaleLowerCase().includes(rosterQuery)));
   const [form, setForm] = useState(() => readRoleDraft(draftScope));
@@ -160,7 +192,6 @@ function ScopedCustomAgentsView({
   const [startingAgentId, setStartingAgentId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [editingConfig, setEditingConfig] = useState<CustomAgentConfig | null>(null);
-  const [access, setAccess] = useState<"only-me" | "workspace">("workspace");
   const [conflict, setConflict] = useState(false);
   const directoryRequest = useRef(0);
   const startingThread = useRef(false);
@@ -188,6 +219,18 @@ function ScopedCustomAgentsView({
   }, [focusNameRequest, showArchived]);
   const templateTitleId = useId();
   const templateDescriptionId = useId();
+  const roleHelpId = useId();
+  const stageRoleId = useId();
+  const stageBoundariesId = useId();
+  const stageReviewId = useId();
+  const reviewRoleSlug = sanitizeCustomAgentSlug(form.slug.trim() || form.name.trim()) ?? "";
+  const reviewRole = employeeRoleLabel(employeeRole(reviewRoleSlug, (form.roleTemplateId as CustomAgentRoleTemplateId) || undefined));
+  const reviewDeliverables = form.expectedDeliverables.split(/\r?\n/).filter((value) => value.trim()).length;
+  const reviewConnection = form.connectionId
+    ? connections.find((connection) => connection.id === form.connectionId)?.label ?? "Saved connection (unavailable)"
+    : null;
+  // A saved avatar wins over the look controls, so an edit must preview it rather than the look.
+  const savedAvatar = editingId ? editingConfig?.avatar : undefined;
 
   useEffect(() => {
     if (!draftScope || editingId) return;
@@ -518,21 +561,24 @@ function ScopedCustomAgentsView({
   };
 
   return (
-    <div className="employee-directory flex h-full min-w-0 flex-1 flex-col overflow-hidden border border-[var(--line)] bg-[var(--paper)] text-[var(--ink)]">
-      <header className="flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] bg-[var(--card)] px-4 py-2">
-        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-[14px]">
-          <span className="text-[#71717a] dark:text-zinc-400">
+    <div className="employee-directory flex h-full min-w-0 flex-1 flex-col overflow-hidden border border-[var(--border-1)] bg-[var(--bg)] text-[var(--fg)]">
+      <header className="flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--border-1)] bg-[var(--card)] px-4 py-2">
+        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-[13px]">
+          <span className="text-[var(--muted-foreground-2)]">
             {workspaceId ? "Workspace" : "Personal"}
           </span>
-          <ChevronRight className="size-3.5 text-[#a1a1aa] dark:text-zinc-600" aria-hidden="true" />
-          <span className="text-[#71717a] dark:text-zinc-400">Agents</span>
-          <ChevronRight className="size-3.5 text-[#a1a1aa] dark:text-zinc-600" aria-hidden="true" />
-          <span className="font-medium text-[#0a0a0a] dark:text-zinc-100" aria-current="page">
+          <ChevronRight className="size-3.5 text-[var(--muted-foreground-3)]" aria-hidden="true" />
+          <span className="text-[var(--muted-foreground-2)]">Agents</span>
+          <ChevronRight className="size-3.5 text-[var(--muted-foreground-3)]" aria-hidden="true" />
+          <span className="font-medium text-[var(--fg)]" aria-current="page">
             {showArchived ? "Archived" : "All"}
           </span>
         </nav>
-        <div className="flex items-center gap-2">
-          <button type="button" disabled={busy} className="min-h-11 rounded-md px-3 text-xs font-medium focus-visible:outline-2 focus-visible:outline-[var(--ring)]" onClick={() => { resetForm(); setShowArchived(false); focusName(); }}>New bot</button>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="hidden items-center gap-1.5 text-xs text-[var(--muted-foreground-2)] sm:inline-flex">
+            <ShieldCheck className="size-4" aria-hidden="true" />Interactive runs require approval
+          </span>
+          <button type="button" disabled={busy} className={BTN} onClick={() => { resetForm(); setShowArchived(false); focusName(); }}>New bot</button>
           <div className="flex gap-1" role="group" aria-label="Bot directory">
             {[false, true].map((archived) => (
               <button
@@ -543,10 +589,11 @@ function ScopedCustomAgentsView({
                 onClick={() => {
                   if (archived === showArchived) return;
                   setAgents(null);
+                  setRoleFilter(ROLE_FILTER_ALL);
                   resetForm();
                   setShowArchived(archived);
                 }}
-                className="rounded-md border border-[#e4e4e7] px-2.5 py-1 text-xs font-medium aria-pressed:bg-[#f4f4f5] aria-pressed:text-[#0a0a0a] dark:border-zinc-800 dark:aria-pressed:bg-zinc-800 dark:aria-pressed:text-zinc-100 text-[#71717a] dark:text-zinc-400"
+                className={`${BTN} aria-pressed:bg-[var(--secondary)] aria-pressed:text-[var(--fg)] text-[var(--muted-foreground-2)]`}
               >
                 {archived ? "Archived bots" : "Active bots"}
               </button>
@@ -557,17 +604,40 @@ function ScopedCustomAgentsView({
 
       <div className="flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="max-w-6xl mx-auto flex flex-col gap-6">
-          <section aria-label="Employee directory" className="flex flex-wrap items-end justify-between gap-4">
-            <div className="min-w-0">
-              <p className="font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">Team / Saved employees</p>
-              <h1 className="font-serif text-2xl text-[var(--ink)]">Your employee roster</h1>
-              <p className="mt-1 max-w-2xl text-sm text-[var(--ink-2)]">Find a saved employee, inspect its defaults, or launch a dedicated thread. Work still requires human approval.</p>
+          <section aria-label="Employee directory" className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className={OVERLINE}>Team / Saved employees</p>
+                <h1 className="mt-1 font-[family-name:var(--font-display)] text-2xl font-semibold tracking-tight text-[var(--fg)]">Your employee roster</h1>
+                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--muted-foreground-2)]">Find a saved employee, inspect its defaults, or launch a dedicated thread. Interactive tasks require approval before execution.</p>
+              </div>
+              {!showArchived ? (
+                <button type="button" disabled={busy} className={BTN_PRIMARY} onClick={() => { resetForm(); focusName(); }}>
+                  <Plus className="size-4" aria-hidden="true" />Hire employee
+                </button>
+              ) : null}
             </div>
-            <label className="flex w-full flex-col gap-1 text-xs text-[var(--ink-2)] sm:w-72">
-              Search employees
-              <input type="search" value={directoryQuery} onChange={(event) => setDirectoryQuery(event.target.value)}
-                placeholder="Name, role, harness or model" className="min-h-11 w-full border border-[var(--input-line)] bg-[var(--card)] px-3 text-sm text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]" />
-            </label>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex min-w-0 flex-1 basis-64 flex-col gap-1 text-xs text-[var(--muted-foreground-2)]">
+                Search employees
+                <input type="search" value={directoryQuery} onChange={(event) => setDirectoryQuery(event.target.value)}
+                  placeholder="Name, role, harness or model" className={`${FIELD} min-h-11 text-sm`} />
+              </label>
+              {rosterRoles.length > 1 || roleFilter !== ROLE_FILTER_ALL ? (
+                <label className="flex flex-col gap-1 text-xs text-[var(--muted-foreground-2)]">
+                  Filter by role
+                  <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)} className={`${FIELD} min-h-11 text-sm`}>
+                    <option value={ROLE_FILTER_ALL}>All roles</option>
+                    {rosterRoles.map((role) => <option key={role} value={role}>{employeeRoleLabel(role)}</option>)}
+                  </select>
+                </label>
+              ) : null}
+            </div>
+            {agents && agents.length > 0 ? (
+              <p className="text-xs text-[var(--muted-foreground-2)]">
+                {visibleAgents?.length ?? 0} of {agents.length} {showArchived ? "archived" : "saved"} employees
+              </p>
+            ) : null}
           </section>
           {workspaceId ? (
             <PrimaryBotPicker
@@ -579,25 +649,47 @@ function ScopedCustomAgentsView({
             />
           ) : null}
           {selectedAgent ? (
-            <section ref={profileSection} tabIndex={-1} aria-label={`${selectedAgent.config.name} overview`} className="border border-[var(--line)] bg-[var(--card)] p-4">
+            <section ref={profileSection} tabIndex={-1} aria-label={`${selectedAgent.config.name} overview`} className="rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)] p-5 shadow-[var(--sh-card)]">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="flex min-w-0 items-center gap-3">
                   <AgentAvatar agentId={selectedAgent.id} name={selectedAgent.config.name} mascotPreset={selectedAgent.config.mascotPreset} look={selectedAgent.config.look} avatar={selectedAgent.config.avatar} slug={selectedAgent.slug} role={employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId)} large />
-                  <div className="min-w-0"><p className="font-mono text-[10px] uppercase text-[var(--ink-2)]">Saved profile · v{selectedAgent.version}</p><h2 className="break-words font-serif text-xl">{selectedAgent.config.name}</h2><p className="text-xs text-[var(--ink-2)]">{employeeRoleLabel(employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId))}</p><button type="button" disabled={!canManage(selectedAgent.id)} onClick={() => { setAvatarError(null); setAvatarEditorFor(selectedAgent); }} className="mt-1 min-h-9 border border-[var(--line)] px-2 text-[11px] disabled:opacity-50">Edit avatar</button></div>
+                  <div className="min-w-0"><p className={OVERLINE}>Saved profile · v{selectedAgent.version}</p><h2 className="break-words font-[family-name:var(--font-display)] text-xl font-semibold tracking-tight">{selectedAgent.config.name}</h2><p className="text-xs text-[var(--muted-foreground-2)]">{employeeRoleLabel(employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId))}</p><button type="button" disabled={!canManage(selectedAgent.id)} onClick={() => { setAvatarError(null); setAvatarEditorFor(selectedAgent); }} className="mt-1 min-h-9 rounded-[var(--radius-button)] border border-[var(--border-1)] px-2 text-[11px] hover:bg-[var(--card-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] disabled:opacity-50">Edit avatar</button></div>
                 </div>
-                <button type="button" className="min-h-11 border border-[var(--line)] px-3 text-xs" onClick={() => { setSelectedAgentId(null); profileTrigger.current?.focus(); }}>Close profile</button>
+                <button type="button" className={BTN} onClick={() => { setSelectedAgentId(null); profileTrigger.current?.focus(); }}>Close profile</button>
               </div>
-              <dl className="my-4 grid gap-3 text-xs sm:grid-cols-2">
-                <div><dt className="text-[var(--ink-2)]">Harness</dt><dd className="break-words font-mono">{selectedAgent.config.harness}</dd></div>
-                <div><dt className="text-[var(--ink-2)]">Model</dt><dd className="break-words font-mono">{selectedAgent.config.codingModel || "Workspace default"}</dd></div>
-                <div><dt className="text-[var(--ink-2)]">Sandbox</dt><dd>{selectedAgent.config.sandboxProvider || "Organization default"}</dd></div>
-                <div><dt className="text-[var(--ink-2)]">Repository</dt><dd className="break-all">{selectedAgent.config.defaultRepoUrl || "Choose when starting work"}</dd></div>
-              </dl>
-              <h3 className="text-xs font-medium">Instructions</h3>
-              <p className="mt-1 whitespace-pre-wrap break-words text-sm text-[var(--ink-2)]">{selectedAgent.config.instructions}</p>
+              <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                <div className="flex min-w-0 flex-col gap-5">
+                  <dl className="grid gap-3 text-xs sm:grid-cols-2">
+                    <div><dt className="text-[var(--muted-foreground-2)]">Harness</dt><dd className="break-words font-mono">{selectedAgent.config.harness}</dd></div>
+                    <div><dt className="text-[var(--muted-foreground-2)]">Model</dt><dd className="break-words font-mono">{selectedAgent.config.codingModel || "Workspace default"}</dd></div>
+                    <div><dt className="text-[var(--muted-foreground-2)]">Sandbox</dt><dd>{selectedAgent.config.sandboxProvider || "Organization default"}</dd></div>
+                    <div><dt className="text-[var(--muted-foreground-2)]">Repository</dt><dd className="break-all">{selectedAgent.config.defaultRepoUrl || "Choose when starting work"}</dd></div>
+                    {selectedAgent.config.expectedDeliverables?.length ? <div className="sm:col-span-2"><dt className="text-[var(--muted-foreground-2)]">Required deliverables</dt><dd className="break-all font-mono">{selectedAgent.config.expectedDeliverables.join(", ")}</dd></div> : null}
+                  </dl>
+                  <div>
+                    <h3 className="text-xs font-medium">Instructions</h3>
+                    <p className="mt-1 whitespace-pre-wrap break-words text-sm text-[var(--muted-foreground-2)]">{selectedAgent.config.instructions}</p>
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-medium">How work runs</h3>
+                    <ol className="mt-2 flex list-decimal flex-col gap-1.5 pl-5 text-xs leading-relaxed text-[var(--muted-foreground-2)]">
+                      <li>Describe the task in a dedicated thread.</li>
+                      <li>{INTERACTIVE_APPROVAL}</li>
+                      <li>The employee runs approved work inside the approved repository scope.</li>
+                      <li>Results and any required deliverables return to the thread.</li>
+                    </ol>
+                    <p className="mt-2 text-xs leading-relaxed text-[var(--muted-foreground-2)]">{AUTOMATION_APPROVAL}</p>
+                  </div>
+                </div>
+                <aside aria-label="Boundaries" className="flex h-fit flex-col gap-2 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)] p-4 text-xs leading-relaxed text-[var(--muted-foreground-2)]">
+                  <h3 className="flex items-center gap-1.5 text-xs font-medium text-[var(--fg)]"><ShieldCheck className="size-4" aria-hidden="true" />Boundaries</h3>
+                  <p>Saving a profile grants no tool or app access. A model connection only provides model access; it does not grant tool permissions or spending authority.</p>
+                  <ToolPolicyNote workspaceId={workspaceId} onOpenToolPolicy={onOpenToolPolicy} />
+                </aside>
+              </div>
               {!workspaceId ? <EmployeeRoutines key={selectedAgent.id} employeeId={selectedAgent.id} /> : null}
               {workspaceId ? <EmployeeAccessSettings key={selectedAgent.id} workspaceId={workspaceId} employeeId={selectedAgent.id} onAccessChange={(level) => setCallerLevels((current) => ({ ...current, [selectedAgent.id]: level }))} /> : null}
-              {!showArchived ? <button type="button" disabled={busy || !canManage(selectedAgent.id)} onClick={() => startEdit(selectedAgent)} className="mt-3 min-h-11 border border-[var(--line)] px-3 text-xs disabled:opacity-50">Edit profile</button> : null}
+              {!showArchived ? <button type="button" disabled={busy || !canManage(selectedAgent.id)} onClick={() => startEdit(selectedAgent)} className={`${BTN} mt-4`}>Edit profile</button> : null}
             </section>
           ) : null}
           {loadError ? <LoadErrorState message={loadError} onRetry={refresh} /> : null}
@@ -626,23 +718,23 @@ function ScopedCustomAgentsView({
           ) : null}
 
           {agents && agents.length > 0 && visibleAgents?.length === 0 ? (
-            <div className="border border-dashed border-[var(--line)] p-5 text-sm text-[var(--ink-2)]">
+            <div className="rounded-[var(--radius-card)] border border-dashed border-[var(--border-2)] p-5 text-sm text-[var(--muted-foreground-2)]">
               <p>No employees match your search.</p>
-              <button type="button" onClick={() => setDirectoryQuery("")} className="mt-2 min-h-11 border border-[var(--line)] px-3 text-[var(--ink)]">Clear employee search</button>
+              <button type="button" onClick={() => { setDirectoryQuery(""); setRoleFilter(ROLE_FILTER_ALL); }} className={`${BTN} mt-2`}>Clear employee search</button>
             </div>
           ) : null}
           {agents && agents.length > 0 ? (
-            <ul aria-label="Saved employees" className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <ul aria-label="Saved employees" className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {visibleAgents?.map((agent) => (
                 <li
                   key={agent.id}
-                  className="flex min-w-0 flex-col justify-between gap-4 border border-[var(--line)] bg-[var(--card)] p-4 shadow-[2px_2px_0_var(--paper-shadow)]"
+                  className="flex min-w-0 flex-col justify-between gap-4 rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)] p-5 shadow-[var(--sh-card)]"
                 >
                   <div className="min-w-0">
                     <div className="mb-3 flex items-center gap-3"><AgentAvatar agentId={agent.id} name={agent.config.name} mascotPreset={agent.config.mascotPreset} look={agent.config.look} avatar={agent.config.avatar} slug={agent.slug} role={employeeRole(agent.slug, agent.config.roleTemplateId)} /><span className="text-xs font-medium text-[var(--muted-foreground-2)]">{employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))}</span></div>
                     <div className="flex flex-wrap items-center gap-2">
                       <button type="button" onClick={(event) => { profileTrigger.current = event.currentTarget; focusProfile.current = true; setSelectedAgentId(agent.id); }} aria-label={`View profile ${agent.config.name}`}
-                        className="min-h-11 break-words text-left font-serif text-xl text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]">{agent.config.name}</button>
+                        className="min-h-11 break-words text-left font-[family-name:var(--font-display)] text-lg font-semibold leading-snug text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">{agent.config.name}</button>
                       <span className="break-all text-[11px] font-mono text-[var(--muted-foreground-2)]">
                         {agent.slug}
                         {` · v${agent.version}`}
@@ -688,21 +780,21 @@ function ScopedCustomAgentsView({
                         disabled={startingAgentId !== null || busy || (Boolean(workspaceId) && !["chat", "manage"].includes(callerLevels[agent.id] ?? "none"))}
                         onClick={() => void startThread(agent)}
                         aria-label={`Launch bot ${agent.config.name}`}
-                        className="min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] text-[11px] border border-[var(--primary)] text-[var(--primary)] px-2 py-1 disabled:opacity-50"
+                        className="min-h-11 rounded-[var(--radius-button)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] text-[11px] border border-[var(--primary)] text-[var(--primary)] px-2 py-1 disabled:opacity-50"
                       >
                         {startingAgentId === agent.id ? "Launching…" : "Launch bot"}
                       </button>
                     ) : null}
                     <button type="button" disabled={busy || !canManage(agent.id)} onClick={() => void changeLifecycle(agent, showArchived ? "restore" : "archive")}
                       aria-label={`${showArchived ? "Restore" : "Archive"} bot ${agent.config.name}`}
-                      className="min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] text-[11px] border border-[var(--border-1)] px-2 py-1 disabled:opacity-50">
+                      className="min-h-11 rounded-[var(--radius-button)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] text-[11px] border border-[var(--border-1)] px-2 py-1 disabled:opacity-50">
                       {showArchived ? "Restore bot" : "Archive bot"}
                     </button>
                     {!showArchived ? <button
                       type="button"
                       disabled={busy || !canManage(agent.id)}
                       onClick={() => startEdit(agent)}
-                      className="min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] text-[11px] border border-[var(--border-1)] px-2 py-1"
+                      className="min-h-11 rounded-[var(--radius-button)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] text-[11px] border border-[var(--border-1)] px-2 py-1"
                     >
                       Edit bot
                     </button> : null}
@@ -711,7 +803,7 @@ function ScopedCustomAgentsView({
                         type="button"
                         disabled={busy || !canManage(agent.id)}
                         onClick={() => void deleteAgent(agent.id)}
-                        className="min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] text-[11px] border border-[var(--destructive)]/40 text-[var(--destructive)] px-2 py-1"
+                        className="min-h-11 rounded-[var(--radius-button)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] text-[11px] border border-[var(--destructive)]/40 text-[var(--destructive)] px-2 py-1"
                       >
                         Confirm delete bot
                       </button>
@@ -720,7 +812,7 @@ function ScopedCustomAgentsView({
                         type="button"
                         disabled={busy || !canManage(agent.id)}
                         onClick={() => setConfirmDeleteId(agent.id)}
-                        className="min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)] text-[11px] border border-[var(--destructive)]/40 text-[var(--destructive)] px-2 py-1"
+                        className="min-h-11 rounded-[var(--radius-button)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] text-[11px] border border-[var(--destructive)]/40 text-[var(--destructive)] px-2 py-1"
                       >
                         Delete bot
                       </button>
@@ -743,7 +835,7 @@ function ScopedCustomAgentsView({
 
           {!showArchived ? (
             <form
-              className={`rounded-xl border border-[#e4e4e7] bg-white p-5 flex flex-col gap-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 ${editingId ? "" : "w-full max-w-xl self-center"}`}
+              className={`rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)] p-5 flex flex-col gap-5 shadow-[var(--sh-card)] ${editingId ? "" : "w-full max-w-3xl self-center"}`}
               aria-busy={busy}
               onSubmit={(event) => {
                 event.preventDefault();
@@ -751,14 +843,14 @@ function ScopedCustomAgentsView({
               }}
               onKeyDown={onFormKeyDown}
             >
-              <div className="flex items-center justify-between gap-2 border-b border-[#e4e4e7] pb-3 dark:border-zinc-800">
+              <div className="flex items-center justify-between gap-2 border-b border-[var(--border-1)] pb-3">
                 <div className="flex items-center gap-2.5">
-                  <MascotAvatar id={editingId ?? (form.slug || form.name || "new-agent")} name={form.name || "New agent"} mascotPreset={(form.mascotPreset as CustomAgentConfig["mascotPreset"]) || undefined} look={formLook(form.lookShape, form.lookColor, form.lookEyes, form.lookAcc)} role={employeeRole(form.slug || form.name, (form.roleTemplateId as CustomAgentRoleTemplateId) || undefined)} size={32} decorative />
+                  <MascotAvatar id={editingId ?? (form.slug || form.name || "new-agent")} name={form.name || "New agent"} mascotPreset={(form.mascotPreset as CustomAgentConfig["mascotPreset"]) || undefined} look={formLook(form.lookShape, form.lookColor, form.lookEyes, form.lookAcc)} avatar={savedAvatar} role={employeeRole(form.slug || form.name, (form.roleTemplateId as CustomAgentRoleTemplateId) || undefined)} size={32} decorative />
                   <div>
-                    <h2 className="text-sm font-semibold text-[#0a0a0a] dark:text-zinc-100">
+                    <h2 className="text-sm font-semibold text-[var(--fg)]">
                       {editingId ? "Edit bot" : "New bot"}
                     </h2>
-                    <p className="text-[11px] text-[#71717a] dark:text-zinc-400">
+                    <p className="text-[11px] text-[var(--muted-foreground-2)]">
                       {editingId ? "Update your custom agent settings" : "Create a custom agent with standing instructions"}
                     </p>
                   </div>
@@ -780,6 +872,12 @@ function ScopedCustomAgentsView({
                 </p>
               ) : null}
 
+              <section aria-labelledby={stageRoleId} className="flex flex-col gap-4">
+              <div>
+                {!editingId ? <p className={OVERLINE}>Step 1 of 3</p> : null}
+                <h3 id={stageRoleId} className="text-base font-semibold text-[var(--fg)]">Define the role</h3>
+                <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">Start with a clear responsibility. The employee prepares work; people keep approval authority.</p>
+              </div>
               <fieldset disabled={busy || (editingId !== null && !canManage(editingId))} className="min-w-0">
               <AgentLookStyler
                 id={form.slug || form.name || "new-agent"}
@@ -794,6 +892,7 @@ function ScopedCustomAgentsView({
                 onCustomize={(next) => setForm((current) => ({ ...current, mascotPreset: "", lookShape: next.shape, lookColor: next.color, lookEyes: next.eyes, lookAcc: next.acc }))}
               />
               </fieldset>
+              {savedAvatar ? <p className="text-xs text-[var(--muted-foreground-2)]">This employee has a saved avatar, which takes precedence over the look above. Change it with Edit avatar on the saved profile.</p> : null}
 
               <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
                 Name
@@ -807,6 +906,23 @@ function ScopedCustomAgentsView({
                 />
               </label>
 
+              <div className="flex flex-col gap-1">
+                <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+                  Role
+                  <select
+                    value={form.roleTemplateId}
+                    disabled={busy}
+                    aria-describedby={roleHelpId}
+                    onChange={(e) => setForm((f) => ({ ...f, roleTemplateId: e.target.value }))}
+                    className={FIELD}
+                  >
+                    <option value="">Custom (role may be inferred from slug)</option>
+                    {EMPLOYEE_TEMPLATES.map((template) => <option key={template.id} value={template.id}>{template.label}</option>)}
+                  </select>
+                </label>
+                <p id={roleHelpId} className="text-xs text-[var(--muted-foreground-2)]">Role labels grant no tools or access. Recognized slugs may still receive a role label.</p>
+              </div>
+
               <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
                 Instructions
                 <textarea
@@ -819,42 +935,8 @@ function ScopedCustomAgentsView({
               </label>
 
               {workspaceId ? (
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
-                    Access
-                  </span>
-                  <div role="radiogroup" aria-label="Agent access" className="flex h-8 w-fit items-center gap-0.5 rounded-md bg-[#f4f4f5] p-0.5 dark:bg-zinc-800/80">
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={access === "only-me"}
-                      onClick={() => setAccess("only-me")}
-                      className={`flex h-7 items-center justify-center rounded px-3 text-[12px] font-medium transition-all ${
-                        access === "only-me"
-                          ? "bg-white text-[#0a0a0a] shadow-[0_1px_2px_rgba(0,0,0,0.06)] dark:bg-zinc-900 dark:text-zinc-100"
-                          : "text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-200"
-                      }`}
-                    >
-                      Only me
-                    </button>
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={access === "workspace"}
-                      onClick={() => setAccess("workspace")}
-                      className={`flex h-7 items-center justify-center rounded px-3 text-[12px] font-medium transition-all ${
-                        access === "workspace"
-                          ? "bg-white text-[#0a0a0a] shadow-[0_1px_2px_rgba(0,0,0,0.06)] dark:bg-zinc-900 dark:text-zinc-100"
-                          : "text-[#71717a] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:text-zinc-200"
-                      }`}
-                    >
-                      Everyone in this workspace
-                    </button>
-                  </div>
-                </div>
+                <p className="text-xs text-[var(--muted-foreground-2)]">After you save this employee, manage who can use it under Access on its saved profile.</p>
               ) : null}
-
-              <p className="text-xs text-[var(--muted-foreground-2)]">Create a profile first, then add a task. Creating a bot does not start a computer or a run; every task requires approval before execution.</p>
 
               {pendingTemplate ? (
                 <div role="alertdialog" aria-modal="false" aria-labelledby={templateTitleId} aria-describedby={templateDescriptionId}
@@ -869,7 +951,7 @@ function ScopedCustomAgentsView({
                 </div>
               ) : null}
 
-              <details className="border-t border-[#e4e4e7] pt-3 dark:border-zinc-800">
+              <details className="border-t border-[var(--border-1)] pt-3">
                 <summary className="cursor-pointer text-xs font-semibold text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)]">Use a role template</summary>
                 <div className="mt-3 flex flex-col gap-3">
                   <fieldset className="flex flex-col gap-2">
@@ -892,12 +974,28 @@ function ScopedCustomAgentsView({
                   </fieldset>
                 </div>
               </details>
+              </section>
 
-              <details key={editingId ?? "new"} open={editingId ? true : undefined} className="border-t border-[#e4e4e7] pt-3 dark:border-zinc-800">
+              <section aria-labelledby={stageBoundariesId} className={STAGE}>
+              <div>
+                {!editingId ? <p className={OVERLINE}>Step 2 of 3</p> : null}
+                <h3 id={stageBoundariesId} className="text-base font-semibold text-[var(--fg)]">Set boundaries</h3>
+              </div>
+              <div className="flex gap-3 rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--panel)] p-4">
+                <ShieldCheck className="mt-0.5 size-5 shrink-0 text-[var(--primary)]" aria-hidden="true" />
+                <div className="min-w-0 text-xs leading-relaxed text-[var(--muted-foreground-2)]">
+                  <p className="text-sm font-medium text-[var(--fg)]">Interactive task approval</p>
+                  <p className="mt-1">A profile grants no tool or app access. {INTERACTIVE_APPROVAL}</p>
+                  <p className="mt-1">{AUTOMATION_APPROVAL}</p>
+                  <div className="mt-1"><ToolPolicyNote workspaceId={workspaceId} onOpenToolPolicy={onOpenToolPolicy} /></div>
+                </div>
+              </div>
+
+              <details key={editingId ?? "new"} open={editingId ? true : undefined} className="border-t border-[var(--border-1)] pt-3">
                 <summary className="cursor-pointer text-xs font-semibold text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)] flex items-center justify-between">
                   <span>Advanced settings</span>
-                  <span className="text-[11px] font-normal text-[#71717a] dark:text-zinc-400">
-                    {form.codingModel ? `${form.codingModel} · All tools` : "Default model · All tools"}
+                  <span className="text-[11px] font-normal text-[var(--muted-foreground-2)]">
+                    {form.codingModel ? `${form.codingModel} · Default tool policy` : "Default model · Default tool policy"}
                   </span>
                 </summary>
                 <div className="mt-3 flex flex-col gap-3">
@@ -989,11 +1087,29 @@ function ScopedCustomAgentsView({
                 </div>
               </details>
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#e4e4e7] dark:border-zinc-800">
+              </section>
+
+              <section aria-labelledby={stageReviewId} className={STAGE}>
+              <div>
+                {!editingId ? <p className={OVERLINE}>Step 3 of 3</p> : null}
+                <h3 id={stageReviewId} className="text-base font-semibold text-[var(--fg)]">{editingId ? "Review changes" : "Review the hire"}</h3>
+              </div>
+              <dl className="grid grid-cols-[minmax(0,8.5rem)_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs">
+                <dt className="text-[var(--muted-foreground-2)]">Employee</dt><dd className="break-words">{form.name.trim() || "Not named yet"} · {reviewRole}</dd>
+                <dt className="text-[var(--muted-foreground-2)]">Runs on</dt><dd className="break-words font-mono">{form.harness.trim() || "opencode"} · {form.codingModel.trim() || "default model"}</dd>
+                <dt className="text-[var(--muted-foreground-2)]">Connection</dt><dd className="break-words">{reviewConnection || "Deployment default"}</dd>
+                <dt className="text-[var(--muted-foreground-2)]">Sandbox</dt><dd>{form.sandboxProvider || "Organization default"}</dd>
+                <dt className="text-[var(--muted-foreground-2)]">Repository</dt><dd className="break-all">{form.defaultRepoUrl.trim() || "Chosen when starting work"}</dd>
+                <dt className="text-[var(--muted-foreground-2)]">Deliverables</dt><dd>{reviewDeliverables ? `${reviewDeliverables} required path${reviewDeliverables === 1 ? "" : "s"}` : "None required"}</dd>
+                <dt className="text-[var(--muted-foreground-2)]">Approval</dt><dd>Interactive tasks and automated runs require human approval.</dd>
+              </dl>
+              <p className="text-xs text-[var(--muted-foreground-2)]">Creating a profile does not start a thread, computer, or run. Tool access is not granted by the profile.</p>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--border-1)]">
                 <button
                   type="button"
                   onClick={() => resetForm(!editingId)}
-                  className="rounded-md border border-[#e4e4e7] px-3 py-1.5 text-xs font-medium text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                  className={BTN}
                 >
                   Cancel
                 </button>
@@ -1001,11 +1117,12 @@ function ScopedCustomAgentsView({
                   type="submit"
                   disabled={busy || (editingId !== null && !canManage(editingId)) || pendingTemplate !== null || !form.name.trim() || !form.instructions.trim()}
                   aria-label={editingId ? "Save changes" : "Create bot"}
-                  className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-[var(--primary-text)] shadow-sm hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                  className={BTN_PRIMARY}
                 >
                   {busy ? "Saving…" : editingId ? "Save changes" : "Create bot"}
                 </button>
               </div>
+              </section>
               {conflict ? <button type="button" disabled={busy} onClick={() => void reloadEditingAgent()} className="self-start text-xs text-[var(--primary)]">Reload latest bot</button> : null}
             </form>
           ) : null}

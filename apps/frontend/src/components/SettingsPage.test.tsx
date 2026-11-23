@@ -212,6 +212,37 @@ describe("SettingsPage", () => {
   });
 });
 
+describe("Settings overview", () => {
+  it("shows supported settings categories and routes actions to existing views", () => {
+    const onSectionChange = vi.fn();
+    const onNavigate = vi.fn();
+    const fetcher = vi.fn(async () => Response.json({}));
+    vi.stubGlobal("fetch", fetcher);
+    render(<SettingsPage section="overview" onSectionChange={onSectionChange} onNavigate={onNavigate} />);
+
+    expect(screen.getByRole("heading", { name: "Settings overview" })).toBeTruthy();
+    for (const title of ["Account", "Repositories", "Providers & models", "Connected apps", "Employee access", "Workspace", "Appearance & notifications", "Skills"]) {
+      expect(screen.getByRole("heading", { name: title })).toBeTruthy();
+    }
+    expect(screen.queryByText(/plugin|marketplace|purchase|install/i)).toBeNull();
+    const note = screen.getByRole("note", { name: "Approval boundary" });
+    expect(note.textContent).toMatch(/Read grants allow only scoped reads you select/);
+    fireEvent.click(screen.getByRole("button", { name: "Manage employee access" }));
+    expect(onNavigate).toHaveBeenCalledWith("employee-tools");
+    fireEvent.click(screen.getByRole("button", { name: "Review connected apps" }));
+    expect(onSectionChange).toHaveBeenCalledWith("connected-apps");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("limits overview to Team while a team workspace is active", () => {
+    render(<SettingsPage section="overview" workspaceId="ws_123" onOpenPersonalWorkspace={vi.fn()} />);
+    expect(screen.getByRole("heading", { name: "Workspace" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Account" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Team settings" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Personal workspace setting" })).toBeTruthy();
+  });
+});
+
 describe("SettingsPage private data gate", () => {
   it("shows only the notice for personal sections when private data is blocked", () => {
     render(<SettingsPage section="account" personalDataBlocked />);

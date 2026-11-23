@@ -77,6 +77,20 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
 
+/**
+ * The Threads panel groups threads under their employee. A row holding the open thread is
+ * expanded; any other stays collapsed until its Expand control is used, as a person would.
+ */
+/** An employee's main row, not the Pin, New thread or Expand controls beside it (its status badge also joins the name). */
+const employeeRowName = (employee: string) => (name: string) => name.includes(employee) && !/^(Pin|Unpin|New thread|Expand|Collapse)\b/.test(name);
+
+async function openSidebarThread(thread: RegExp, employee: string) {
+  if (screen.queryAllByRole("button", { name: thread }).length === 0) {
+    fireEvent.click(await screen.findByRole("button", { name: `Expand ${employee}` }));
+  }
+  fireEvent.click(await screen.findByRole("button", { name: thread }));
+}
+
 describe("legacy shell URL preservation", () => {
   it("keeps callback query values and fragments while normalizing a legacy Settings link", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
@@ -186,6 +200,38 @@ describe("app employee onboarding", () => {
 });
 
 describe("app Work and Threads routing", () => {
+  it("shows employee threads in personal Chat and resumes the selected thread", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    const originalFetch = fetch;
+    const employee = {
+      id: "employee-1",
+      slug: "finance-auditor",
+      version: 1,
+      config: { name: "Finance Auditor", instructions: "Review supplied records.", harness: "opencode", roleTemplateId: "finance" },
+    };
+    const thread = {
+      id: "thread-budget",
+      name: "Budget review",
+      agentName: "web:test-operator:thread-budget",
+      updatedAt: 123,
+      metadata: { customAgentId: employee.id },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path.startsWith("/api/custom-agents")) return Response.json({ agents: [employee] });
+      if (path === "/api/sessions" && options?.method !== "POST") return Response.json({ sessions: [thread] });
+      if (path === "/api/sessions/thread-budget/resume") return Response.json({});
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await waitFor(() => expect(document.querySelector('aside[aria-label="Employees"]')).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Expand Finance Auditor" }));
+    fireEvent.click(screen.getByRole("button", { name: /Budget review/ }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions/thread-budget/resume", { method: "POST" }));
+    expect(fetch).not.toHaveBeenCalledWith("/api/runs", expect.objectContaining({ method: "POST" }));
+  });
+
   it("mounts the browser only in Chat and sends its tool marker only after opt-in", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", "/threads/");
@@ -356,6 +402,31 @@ describe("app Work and Threads routing", () => {
     await screen.findByRole("heading", { name: "Settings" });
     expect(new URLSearchParams(window.location.search).get("section")).toBe("appearance");
     expect(fetch).not.toHaveBeenCalledWith("/api/runs", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("lands a bare /settings/ on Overview, on first load and on history navigation, and keeps explicit sections", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const section = () => new URLSearchParams(window.location.search).get("section");
+    const travel = async (url: string) => {
+      await act(async () => {
+        window.history.pushState(null, "", url);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      });
+    };
+    window.history.replaceState(null, "", "/settings/");
+    render(<App />);
+    await screen.findByRole("heading", { name: "Settings" });
+    await waitFor(() => expect(section()).toBe("overview"));
+    await travel("/work/?view=timeline");
+    await screen.findByRole("region", { name: "Timeline view" });
+    await travel("/settings/?section=appearance");
+    await screen.findByRole("heading", { name: "Settings" });
+    expect(section()).toBe("appearance");
+    await travel("/work/?view=timeline");
+    await screen.findByRole("region", { name: "Timeline view" });
+    await travel("/settings/");
+    await screen.findByRole("heading", { name: "Settings" });
+    await waitFor(() => expect(section()).toBe("overview"));
   });
 
   it("preserves an explicit local artifact selection instead of silently switching to sandbox", async () => {
@@ -1582,6 +1653,65 @@ describe("bot page without a thread", () => {
     expect(screen.queryByRole("heading", { name: "Engineering bot has no thread yet" })).toBeNull();
   });
 
+  it("resumes an employee's newest thread from the Threads panel without creating one", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const OLDER_RESEARCH_THREAD = "33333333-3333-4333-8333-333333333333";
+    const olderResearchThread = { ...researchThread, id: OLDER_RESEARCH_THREAD, name: "Older brief", agentName: `web:test-operator:${OLDER_RESEARCH_THREAD}`, createdAt: 1, updatedAt: 1 };
+    window.history.replaceState(null, "", "/threads/");
+    mocks.chat.messages = [];
+    const bots = stubBots(undefined, true);
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) =>
+      String(url) === "/api/sessions" && options?.method !== "POST"
+        ? Response.json({ sessions: [olderResearchThread, researchThread, engineeringThreadRecord], defaultSessionId: "default" })
+        : bots(url, options)));
+    const urlSession = () => new URLSearchParams(window.location.search).get("session");
+    const created = () => bots.mock.calls.filter(([url, options]) => String(url) === "/api/sessions" && (options as RequestInit | undefined)?.method === "POST");
+    render(<App />);
+
+    // A ready personal registry lists employees in place of the flat chat list; their threads stay collapsed.
+    const employees = async () => within(await screen.findByRole("list", { name: "Employees" }));
+    expect((await employees()).queryByText("Older brief")).toBeNull();
+    fireEvent.click(await (await employees()).findByRole("button", { name: "Expand Research bot" }));
+    expect((await employees()).getByRole("group", { name: "Research bot threads" })).toBeTruthy();
+    expect((await employees()).getByText("Competitor brief")).toBeTruthy();
+    expect((await employees()).getByText("Older brief")).toBeTruthy();
+
+    // Choosing an employee resumes its newest thread, not an older one.
+    fireEvent.click(await (await employees()).findByRole("button", { name: employeeRowName("Research bot") }));
+    await waitFor(() => expect(urlSession()).toBe(RESEARCH_THREAD));
+    expect(bots).toHaveBeenCalledWith(`/api/sessions/${RESEARCH_THREAD}/resume`, expect.objectContaining({ method: "POST" }));
+    expect(bots).not.toHaveBeenCalledWith(`/api/sessions/${OLDER_RESEARCH_THREAD}/resume`, expect.anything());
+
+    fireEvent.click((await employees()).getByRole("button", { name: employeeRowName("Engineering bot") }));
+    await waitFor(() => expect(urlSession()).toBe(ENGINEERING_THREAD));
+    expect(bots).toHaveBeenCalledWith(`/api/sessions/${ENGINEERING_THREAD}/resume`, expect.objectContaining({ method: "POST" }));
+    expect(created()).toHaveLength(0);
+
+    // An older thread is still reachable directly from the same list.
+    fireEvent.click((await employees()).getByText("Older brief"));
+    await waitFor(() => expect(urlSession()).toBe(OLDER_RESEARCH_THREAD));
+    expect(created()).toHaveLength(0);
+
+    // New chat and global search stay in this panel.
+    expect(screen.getByRole("button", { name: "New chat" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Search all" }));
+    expect(await screen.findByRole("dialog", { name: "Search" })).toBeTruthy();
+  });
+
+  it("opens an employee with no thread on its own empty page instead of creating a thread", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    const request = stubBots();
+    render(<App />);
+    // The panel can re-mount while the registry settles, so look it up fresh each time.
+    const engineeringRow = await waitFor(() => within(screen.getByRole("list", { name: "Employees" })).getByRole("button", { name: employeeRowName("Engineering bot") }));
+    fireEvent.click(engineeringRow);
+    await screen.findByRole("heading", { name: "Engineering bot has no thread yet" });
+    expect(request.mock.calls.filter(([url, options]) => String(url) === "/api/sessions" && (options as RequestInit | undefined)?.method === "POST")).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Start a thread with Engineering bot" })).toBeTruthy();
+  });
+
   it("does not leave the previous bot's composer live when a bot's thread fails to resume", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
@@ -1678,7 +1808,7 @@ describe("bot page without a thread", () => {
     await openBotFromAgentsView(/Engineering bot/);
     await screen.findByRole("heading", { name: /Opening Engineering bot/ });
 
-    fireEvent.click(await screen.findByRole("button", { name: /Competitor brief/ }));
+    await openSidebarThread(/Competitor brief/, "Research bot");
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
     await act(async () => { release?.(); await held; });
     await act(async () => { await Promise.resolve(); });
@@ -1696,7 +1826,7 @@ describe("bot page without a thread", () => {
     const held = new Promise<void>((resolve) => { release = resolve; });
     stubBots(async () => { await held; return Response.json({ session: researchThread, resumed: true }); });
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: /Competitor brief/ }));
+    await openSidebarThread(/Competitor brief/, "Research bot");
     await openBotFromAgentsView(/Engineering bot/);
     await screen.findByRole("heading", { name: "Engineering bot has no thread yet" });
 
@@ -1868,7 +1998,7 @@ describe("bot thread links", () => {
     mocks.chat.messages = [];
     stubThreads();
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: /Flaky test triage/ }));
+    await openSidebarThread(/Flaky test triage/, "Engineering bot");
     await waitFor(() => expect(screen.getAllByText("Flaky test triage").length).toBeGreaterThan(1));
     const crumbs = screen.getAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent ?? "").join(" ");
     expect(crumbs).toContain("Engineering bot");
@@ -1908,9 +2038,9 @@ describe("bot thread links", () => {
     mocks.chat.messages = [];
     stubThreads();
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: /Flaky test triage/ }));
+    await openSidebarThread(/Flaky test triage/, "Engineering bot");
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(ENGINEERING_THREAD));
-    fireEvent.click(await screen.findByRole("button", { name: /Competitor brief/ }));
+    await openSidebarThread(/Competitor brief/, "Research bot");
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
 
     await act(async () => { window.history.back(); });

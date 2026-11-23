@@ -273,7 +273,7 @@ describe("Agents page", () => {
       agent("a2", "Reviewer", "pr-reviewer"),
       agent("a3", "Triage", "support-triage"),
     ]);
-    const list = screen.getByRole("list", { name: "Agents" });
+    const list = screen.getByRole("list", { name: "Employees" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(4);
     for (const name of ["Shiba", "Coder", "Reviewer", "Triage"])
       expect(within(list).getByText(name)).toBeTruthy();
@@ -322,10 +322,10 @@ describe("Agents page", () => {
   it("keeps built-in Shiba available without saved agents and supports hiring", () => {
     const onNewAgent = vi.fn();
     panel([], [], { onNewAgent });
-    const list = screen.getByRole("list", { name: "Agents" });
+    const list = screen.getByRole("list", { name: "Employees" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(1);
     expect(within(list).getByText("Shiba")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "New agent" }));
+    fireEvent.click(screen.getByRole("button", { name: "Hire employee" }));
     expect(onNewAgent).toHaveBeenCalledOnce();
   });
 });

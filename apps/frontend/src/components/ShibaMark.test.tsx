@@ -1,21 +1,23 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { SHIBA_BRAND_LOOK, ShibaMark } from "./ShibaMark";
 
 afterEach(cleanup);
 
 describe("Shiba brand mark", () => {
-  it("draws the public mark: sesame coat, resting face, no accessory", () => {
+  it("uses the real portrait with the brand mascot as a load-failure fallback", () => {
     render(<ShibaMark />);
     const logo = screen.getByRole("img", { name: "Shiba" });
+    const portrait = logo.querySelector('img[src="/assets/mascot/pet-logo.png"]');
+    expect(portrait).toBeTruthy();
+    fireEvent.error(portrait!);
     const svg = logo.querySelector("svg.shiba-agent-mascot");
     expect(svg?.getAttribute("data-shape")).toBe("pointed");
     expect(svg?.getAttribute("data-color")).toBe("#c4a574");
     expect(svg?.getAttribute("data-eyes")).toBe("happy");
     expect(svg?.getAttribute("data-acc")).toBe("none");
     expect(svg?.getAttribute("viewBox")).toBe("0 0 64 64");
-    expect(logo.querySelector("img")).toBeNull();
     expect(SHIBA_BRAND_LOOK).toEqual({ shape: "pointed", color: "#c4a574", eyes: "happy", acc: "none" });
   });
 

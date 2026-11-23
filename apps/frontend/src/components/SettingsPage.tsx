@@ -47,7 +47,7 @@ import { SharingSettings } from "./settings/Sharing";
 import { ArchivedSettings } from "./settings/Archived";
 import { AdminSettings } from "./settings/Admin";
 
-export type SettingsPageSectionId = SettingsSectionId | "team" | "remote" | "groups" | "sharing" | "archived" | "admin";
+export type SettingsPageSectionId = SettingsSectionId | "overview" | "team" | "remote" | "groups" | "sharing" | "archived" | "admin";
 
 export interface SettingsNavGroup {
   heading: string;
@@ -60,6 +60,10 @@ export interface SettingsNavGroup {
 }
 
 export const SETTINGS_PAGE_NAV_GROUPS: SettingsNavGroup[] = [
+  {
+    heading: "Start here",
+    items: [{ id: "overview", label: "Overview", blurb: "Settings areas & approval boundaries", icon: Sliders }],
+  },
   {
     heading: "Your account",
     items: [
@@ -132,7 +136,7 @@ export function SettingsPanel({
   onScopeChange,
   className = "",
 }: SettingsPanelProps): JSX.Element {
-  const currentActive = active ?? activeSection ?? "account";
+  const currentActive = active ?? activeSection ?? "overview";
   const handleSelect = useCallback(
     (id: string) => {
       onSelect?.(id);
@@ -265,7 +269,7 @@ function getSectionLabel(id: string): string {
  */
 export function SettingsPage({
   section,
-  initialSection = "account",
+  initialSection = "overview",
   onSectionChange,
   onBack,
   onNavigate,
@@ -300,6 +304,33 @@ export function SettingsPage({
   );
 
   const currentLabel = getSectionLabel(activeSection);
+  const guarded = Boolean(onOpenPersonalWorkspace || personalDataBlocked);
+  const sectionAction = (label: string, id: SettingsPageSectionId) => ({ label, onClick: () => handleSectionChange(id) });
+  const viewAction = (label: string, view: AppNavView) => onNavigate ? [{ label, onClick: () => onNavigate(view) }] : [];
+  const overviewCards: {
+    title: string;
+    description: string;
+    icon: ComponentType<{ className?: string; strokeWidth?: number; "aria-hidden"?: boolean | "true" }>;
+    actions: { label: string; onClick: () => void }[];
+    note?: string;
+  }[] = guarded
+    ? [{ title: "Workspace", description: "Members, invitations and roles for this workspace.", icon: Users, actions: [sectionAction("Team settings", "team")] }]
+    : [
+        { title: "Account", description: "Identity, sign-in methods and active sessions.", icon: User, actions: [sectionAction("Manage account", "account")] },
+        { title: "Repositories", description: "Saved GitHub repositories available to task setup.", icon: GitBranch, actions: [sectionAction("Manage repositories", "repositories")] },
+        {
+          title: "Providers & models",
+          description: "Provider accounts, default provider and per-role model routing.",
+          icon: Cpu,
+          note: providersBlocked ? "Provider setup needs an explicit account grant for invited accounts." : undefined,
+          actions: [...(providersBlocked ? [] : [sectionAction("Review providers", "providers")]), sectionAction("Review model routing", "models")],
+        },
+        { title: "Connected apps", description: "External apps authorized for this deployment.", icon: ShieldCheck, actions: [sectionAction("Review connected apps", "connected-apps")] },
+        ...viewAction("Manage employee access", "employee-tools").map((action) => ({ title: "Employee access", description: "Manage scoped tool grants for individual employees.", icon: ShieldCheck, actions: [action] })),
+        { title: "Workspace", description: "Workspace membership and sandbox configuration.", icon: Box, actions: [sectionAction("Team", "team"), sectionAction("Sandbox", "sandbox")] },
+        { title: "Appearance & notifications", description: "Theme and in-app alerts for mentions, replies and approvals.", icon: Palette, actions: [sectionAction("Appearance", "appearance"), sectionAction("Notifications", "notifications")] },
+        ...viewAction("Open skills", "skills").map((action) => ({ title: "Skills", description: "Review saved skills available to employees.", icon: Zap, actions: [action] })),
+      ];
 
   const mainCardContent = (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -337,7 +368,7 @@ export function SettingsPage({
           <span className="shrink-0">Section</span>
           <select
             aria-label="Settings section"
-            value={SETTINGS_PAGE_SECTION_IDS.includes(activeSection) ? activeSection : "account"}
+            value={SETTINGS_PAGE_SECTION_IDS.includes(activeSection) ? activeSection : "overview"}
             onChange={(event) => handleSectionChange(event.target.value)}
             className="min-h-11 min-w-0 flex-1 rounded-lg border border-[#e4e4e7] bg-white px-2 text-sm text-[#0a0a0a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
           >
@@ -354,7 +385,51 @@ export function SettingsPage({
 
       {/* Body content based on section */}
       <div className="flex-1 overflow-y-auto">
-        {(onOpenPersonalWorkspace || personalDataBlocked) && activeSection !== "team" ? (
+        {activeSection === "overview" ? (
+          <div className="mx-auto flex max-w-6xl flex-col gap-6 p-4 sm:p-6 lg:p-8">
+            <header>
+              <h2 className="text-xl font-semibold text-[var(--fg)]">Settings overview</h2>
+              <p className="mt-1.5 max-w-prose text-sm leading-relaxed text-[var(--muted-foreground-2)]">
+                {onOpenPersonalWorkspace
+                  ? "Team settings apply to this workspace; other settings belong to your personal workspace."
+                  : personalDataBlocked
+                    ? "Settings stay unavailable until your account and workspace access are verified."
+                    : "Manage your account, connections and employee access from one place."}
+              </p>
+            </header>
+            {guarded ? (
+              <section aria-label="Personal workspace setting" className="max-w-xl text-sm text-[var(--fg)]">
+                <p className="text-[var(--muted-foreground-2)]">Account, provider, repository and deployment settings apply to your account or this deployment, not to this team.</p>
+                {onOpenPersonalWorkspace ? <button type="button" onClick={onOpenPersonalWorkspace} className="mt-3 min-h-11 rounded-lg border border-[var(--border-1)] px-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]">Switch to personal workspace</button> : null}
+              </section>
+            ) : null}
+            <section aria-label="Settings categories">
+              <ul className="m-0 grid list-none grid-cols-[repeat(auto-fit,minmax(min(100%,17.5rem),1fr))] gap-3.5 p-0">
+                {overviewCards.map((card) => {
+                  const Icon = card.icon;
+                  const headingId = `settings-overview-${card.title.toLowerCase().replaceAll(" ", "-")}`;
+                  return (
+                    <li key={card.title} className="min-w-0">
+                      <article aria-labelledby={headingId} className="flex h-full flex-col gap-3 rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)] p-5 shadow-[var(--sh-card)]">
+                        <span aria-hidden="true" className="flex size-9 items-center justify-center rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)] text-[var(--fg)]"><Icon className="size-[18px]" strokeWidth={1.7} aria-hidden="true" /></span>
+                        <h3 id={headingId} className="text-sm font-semibold text-[var(--fg)]">{card.title}</h3>
+                        <p className="text-xs leading-relaxed text-[var(--muted-foreground-2)]">{card.description}</p>
+                        {card.note ? <p className="text-xs leading-relaxed text-[var(--muted-foreground-2)]">{card.note}</p> : null}
+                        <div className="mt-auto flex flex-wrap gap-2 pt-1">
+                          {card.actions.map((action) => <button key={action.label} type="button" onClick={action.onClick} className="inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--button)] px-3 text-xs font-semibold text-[var(--fg)] hover:bg-[var(--button-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]">{action.label}<span aria-hidden="true">→</span></button>)}
+                        </div>
+                      </article>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+            <section role="note" aria-label="Approval boundary" className="flex gap-3 rounded-[var(--radius-card)] border border-[color-mix(in_oklch,var(--warning)_40%,transparent)] bg-[var(--warning-subtle)] p-4 sm:p-5">
+              <ShieldCheck className="mt-0.5 size-4 shrink-0 text-[var(--warning-fg)]" aria-hidden="true" />
+              <p className="text-xs leading-relaxed text-[var(--muted-foreground-1)]">Connections do not grant employee access by themselves. Read grants allow only scoped reads you select. Interactive tasks and automated runs require human approval.</p>
+            </section>
+          </div>
+        ) : (onOpenPersonalWorkspace || personalDataBlocked) && activeSection !== "team" ? (
           <section aria-label="Personal workspace setting" className="m-6 max-w-xl text-sm text-[#0a0a0a] dark:text-zinc-100">
             <h2 className="text-base font-medium">Open this setting in your personal workspace</h2>
             <p className="mt-2 text-[#71717a] dark:text-zinc-400">{currentLabel} applies to your account or this deployment, not to the selected team.</p>

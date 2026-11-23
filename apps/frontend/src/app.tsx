@@ -40,7 +40,7 @@ import { EmployeeToolPolicyView } from "./components/EmployeeToolPolicyView";
 import { AgentDetailsPanel, BotThreadlessState, EmployeeOnboarding, ONBOARDING_DISMISSED_KEY, createEmployeeAgent, employeeExamples } from "./components/AgentExperience";
 import type { BotRunsScope } from "./components/bot/BotPanel";
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
-import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
+import { agentThreads, applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
 import { saveBotConfig, saveBotDeliverables, type BotConfigEdit } from "./bot-library";
 import { useProjectContexts } from "./project-contexts";
 import { buildExecutionTargetFields, hasComposerInput, parseArtifactDeliverables, type DashboardExecutionTargetFields } from "./execution-target-input";
@@ -364,6 +364,13 @@ function toolRunInput(run: ToolRunRecord): Record<string, unknown> {
 
 type MainView = AppNavView;
 const DEFAULT_VIEW: MainView = "tasks";
+/**
+ * A bare /settings/ lands on Overview; an explicit ?section= deep-link keeps its section.
+ * normalizeSettingsSection validates the requested section against the settings nav.
+ */
+function settingsSectionFromSearch(search: string): string {
+  return normalizeSettingsSection(new URLSearchParams(search).get("section") ?? "overview");
+}
 /** Views that work inside a team workspace; every other view is personal-only. */
 /** Views that render their own MainCard, so the shell must not add a second one. */
 const SELF_CARDED_VIEWS: readonly string[] = ["dashboard", "activity", "analytics", "diff", "approvals", "automations", "providers", "spaces", "integrations"];
@@ -535,7 +542,7 @@ export function App(): React.JSX.Element {
   const [automationList, setAutomationList] = useState<AutomationRecord[]>([]);
   // Settings is a full page; the section lives in ?section= and "Back to app" returns to the previous view.
   const [settingsSection, setSettingsSection] = useState<string>(() =>
-    typeof window === "undefined" ? "account" : normalizeSettingsSection(new URLSearchParams(window.location.search).get("section")));
+    settingsSectionFromSearch(typeof window === "undefined" ? "" : window.location.search));
   const previousViewRef = useRef<MainView>(DEFAULT_VIEW);
   const clearRoomIntentRef = useRef<() => void>(() => {});
   const openView = useCallback((view: AppNavView) => {
@@ -877,7 +884,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       const view = viewFromUrl();
       setWorkViewMode(workViewFromUrl());
       setMainView(view ?? DEFAULT_VIEW);
-      if (view === "settings") setSettingsSection(normalizeSettingsSection(new URLSearchParams(window.location.search).get("section")));
+      if (view === "settings") setSettingsSection(settingsSectionFromSearch(window.location.search));
       if (readRoomLink(window.location.search) !== null) return;
       const linked = readThreadLink(window.location.search);
       // A dead link — deleted, or never ours to open — restores the default
@@ -3305,24 +3312,48 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   let destinationPanel: React.ReactNode = null;
   if (personalOnlyNotice) {
     destinationPanel = null;
-  } else if (mainView === "custom-agents" || mainView === "employee-tools" || mainView === "swarm" || mainView === "tasks") {
+  } else if (mainView === "custom-agents" || mainView === "employee-tools" || mainView === "swarm" || mainView === "tasks" || (mainView === "threads" && !teamWorkspaceId && privateData)) {
     destinationPanel = (
       <AgentsPanel
         {...panelProps}
-        active={mainView === "custom-agents" ? customAgentId : mainView}
+        active={mainView === "custom-agents" ? customAgentId : mainView === "threads" ? selectedRunId ?? selectedSessionId : mainView}
         onSelect={(id) => { if (id === "employee-tools" || id === "swarm" || id === "tasks") openView(id); }}
         agents={signedIn && workspaceAuthorityReady && !teamDirectory.error ? customAgentRecords : []}
-        threads={visibleWebSessions}
+        threads={mainView === "threads" && privateData ? visibleWebSessions.filter((thread) => {
+          const employeeId = threadAgentId(thread);
+          return !employeeId || customAgentRecords.some((profile) => profile.id === employeeId);
+        }) : visibleWebSessions}
+        unavailableThreads={mainView === "threads" && privateData ? visibleWebSessions.filter((thread) => {
+          const employeeId = threadAgentId(thread);
+          return Boolean(employeeId) && !customAgentsLoading && !customAgentRecords.some((profile) => profile.id === employeeId);
+        }) : []}
+        threadsLoading={mainView === "threads" && threadsLoading}
+        runs={mainView === "threads" ? sessions.filter((session) => !session.webSession) : []}
+        onLoadMoreRuns={mainView === "threads" ? () => openView("work") : undefined}
         // Only the open thread has a live stream; the rest fall back to stored session metadata.
         threadStates={{ [selectedSessionId]: chat.isStreaming || chat.status === "streaming" || chat.status === "submitted" ? "working" : pendingApprovals.length > 0 ? "waiting" : "idle" }}
         ownerName={orchestratorName ?? undefined}
         workspaceName={teamWorkspace?.name}
         loading={customAgentsLoading}
         error={customAgentsError}
-        onSelectAgent={(id) => { setInitialEmployeeId(id); openView("custom-agents"); }}
-        onOpenAgent={openBotPanel}
+        onSelectAgent={(id) => {
+          if (mainView === "threads") {
+            const latest = agentThreads(visibleWebSessions, id)[0];
+            // A click resumes; it never creates. An employee with no thread opens its own
+            // empty page, where Start a thread is an explicit action.
+            if (latest) void handleSelectSession(latest.id);
+            else openBotPanel(id);
+            return;
+          }
+          setInitialEmployeeId(id);
+          openView("custom-agents");
+        }}
+        onOpenAgent={mainView === "threads" ? undefined : openBotPanel}
         onSelectThread={(id) => { void handleSelectSession(id); openView("threads"); }}
+        onSelectRun={(id) => { void handleSelectSession(id); openView("threads"); }}
         onNewThread={(agentId) => { void startSidebarAgentThread(customAgentRecords.find((profile) => profile.id === agentId)); }}
+        onNewChat={mainView === "threads" ? () => { void handleNewTask(); } : undefined}
+        onSearchAll={mainView === "threads" ? () => setCommandMenuOpen(true) : undefined}
         newThreadDisabledReason={taskCreationBlocker ?? undefined}
         onNewAgent={() => openView("custom-agents")}
       />
@@ -4666,6 +4697,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               threads={visibleWebSessions}
               threadsLoading={!sessionsLoaded}
               threadsUnavailable={sessionsLoaded && !sessionApiAvailable}
+              onOpenToolPolicy={() => openView("employee-tools")}
               onOpenThread={(id) => { void handleSelectSession(id); }}
             />
             </div>
@@ -4674,7 +4706,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ) : mainView === "agents" ? (
             <AgentsView />
           ) : mainView === "integrations" ? (
-            <IntegrationsView onNavigate={openView} onAdoptSlackTask={adoptSlackTask} onOpenSlackHandoff={openSlackHandoff} actorId={orchestratorName ?? undefined} nativeSession={authMode === "better-auth"} workspaceId={teamWorkspaceId || undefined} workspaceName={teamWorkspace?.name} workspaceRole={teamWorkspace?.membership.role} allowPersonalScope={!restrictedTeamMember} onPersonalScope={() => teamDirectory.selectWorkspace("")} onChooseWorkspace={() => openView("team")} />
+            <IntegrationsView onNavigate={openView} onOpenSettings={(section) => { setSettingsSection(section); openView("settings"); }} onAdoptSlackTask={adoptSlackTask} onOpenSlackHandoff={openSlackHandoff} actorId={orchestratorName ?? undefined} nativeSession={authMode === "better-auth"} workspaceId={teamWorkspaceId || undefined} workspaceName={teamWorkspace?.name} workspaceRole={teamWorkspace?.membership.role} allowPersonalScope={!restrictedTeamMember} onPersonalScope={() => teamDirectory.selectWorkspace("")} onChooseWorkspace={() => openView("team")} />
           ) : mainView === "remote" ? (
             <RemoteAccessView />
           ) : mainView === "settings" ? (
