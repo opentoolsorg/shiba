@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -81,6 +80,7 @@ let mainWindow: BrowserWindow | null = null;
 let localBrowserWindow: BrowserWindow | null = null;
 let localBrowserView: WebContentsView | null = null;
 let localBrowserSession: Session | null = null;
+let localActionQueue: Promise<unknown> = Promise.resolve();
 let quitting = false;
 let saveTimer: NodeJS.Timeout | undefined;
 let controller: Controller | null = null;
@@ -319,7 +319,9 @@ async function approveLocalBrowserSite(rawUrl: unknown): Promise<{ ok: boolean; 
   await disposeLocalBrowserView(owner);
   localControl.approve({ kind: "browser", origin: address.origin });
 
-  const browserSession = session.fromPartition(`shiba-local-${randomUUID()}`, { cache: false });
+  // Reuse one context and clear it on every stop/approval; creating a new
+  // partition per approval leaves native Chromium contexts alive until quit.
+  const browserSession = session.fromPartition("shiba-local-browser", { cache: false });
   localBrowserSession = browserSession;
   let view: WebContentsView;
   try {
@@ -330,8 +332,9 @@ async function approveLocalBrowserSite(rawUrl: unknown): Promise<{ ok: boolean; 
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
-        webSecurity: true,
-        webviewTag: false,
+      webSecurity: true,
+      webviewTag: false,
+      disableBlinkFeatures: "PeerConnection",
       },
     });
   } catch {
@@ -390,13 +393,20 @@ async function clickLocalBrowserButton(rawLabel: unknown): Promise<{ ok: boolean
     return { ok: false, error: "Shiba control is paused or stopped." };
   }
   const revision = state.revision;
-  const script = `(() => {
+  const action = localActionQueue.then(async () => {
+    const current = localControl.getState();
+    if (localBrowserView !== view || current.phase !== "approved" || current.revision !== revision ||
+      current.mode !== "control" || current.target.kind !== "browser" || current.target.origin !== target.origin) {
+      return { ok: false, error: "Control was revoked before the action started." };
+    }
+    const script = `(() => {
     const label = ${JSON.stringify(label)};
     const visible = (element) => {
       const rect = element.getBoundingClientRect();
+      const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
       return element.isConnected && element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
         rect.width > 0 && rect.height > 0 && rect.right > 0 && rect.bottom > 0 &&
-        rect.left < innerWidth && rect.top < innerHeight;
+        rect.left < innerWidth && rect.top < innerHeight && (top === element || element.contains(top));
     };
     const matches = [...document.querySelectorAll("button")].filter((button) =>
       !button.disabled && visible(button) && (button.innerText || button.getAttribute("aria-label") || "").trim() === label
@@ -404,18 +414,21 @@ async function clickLocalBrowserButton(rawLabel: unknown): Promise<{ ok: boolean
     if (matches.length !== 1) return false;
     matches[0].click();
     return true;
-  })()`;
-  try {
-    const clicked = await view.webContents.executeJavaScript(script, true);
-    const after = localControl.getState();
-    if (localBrowserView !== view || after.phase !== "approved" || after.revision !== revision ||
-      after.mode !== "control" || after.target.kind !== "browser" || after.target.origin !== target.origin) {
-      return { ok: false, error: "Control was revoked before the action completed." };
+    })()`;
+    try {
+      const clicked = await view.webContents.executeJavaScript(script, true);
+      const after = localControl.getState();
+      if (localBrowserView !== view || after.phase !== "approved" || after.revision !== revision ||
+        after.mode !== "control" || after.target.kind !== "browser" || after.target.origin !== target.origin) {
+        return { ok: false, error: "Control was revoked before the action completed." };
+      }
+      return { ok: true, clicked: clicked === true };
+    } catch {
+      return { ok: false, error: "The visible action could not be completed." };
     }
-    return { ok: true, clicked: clicked === true };
-  } catch {
-    return { ok: false, error: "The visible action could not be completed." };
-  }
+  });
+  localActionQueue = action.catch(() => undefined);
+  return action;
 }
 
 function openLocalBrowser(): void {

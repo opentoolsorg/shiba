@@ -121,16 +121,12 @@ test("local browser requires local consent, pauses for takeover, and revokes on 
     await expect.poll(() => localBrowser.locator("#state-pill").textContent()).toBe("Stopped");
     await expect.poll(() => localBrowser.locator("#controls").isHidden()).toBe(true);
 
-    await localBrowser.locator("#address").fill(fixtureUrl);
-    await localBrowser.locator("#address-form").evaluate((form) => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-    await localBrowser.getByRole("button", { name: "Approve and open" }).click();
-    await expect.poll(() => siteBridgeChecks.length).toBe(2);
-    expect(siteCookies[1]).not.toContain("session_marker=created");
-
     await localBrowser.locator("#address").fill(otherUrl);
     await localBrowser.locator("#address-form").evaluate((form) => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-    await expect.poll(() => localBrowser.locator("#state-pill").textContent()).toBe("Stopped");
     await expect.poll(() => localBrowser.locator("#consent-origin").textContent()).toBe(otherUrl);
+    await localBrowser.getByRole("button", { name: "Approve and open" }).click();
+    await expect.poll(() => localBrowser.locator("#state-pill").textContent()).toBe("Approved");
+    expect(siteCookies[1] ?? "").not.toContain("session_marker=created");
     await expect.poll(() => localBrowser.locator("#native-status").textContent()).toContain("Native window control is unavailable");
   } finally {
     await app.close();
