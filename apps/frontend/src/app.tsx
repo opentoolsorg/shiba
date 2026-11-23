@@ -3325,7 +3325,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         }) : visibleWebSessions}
         unavailableThreads={mainView === "threads" && privateData ? visibleWebSessions.filter((thread) => {
           const employeeId = threadAgentId(thread);
-          return Boolean(employeeId) && !customAgentsLoading && !customAgentRecords.some((profile) => profile.id === employeeId);
+          const directoryUnavailable = !signedIn || !workspaceAuthorityReady || Boolean(teamDirectory.error) || Boolean(customAgentsError);
+          return Boolean(employeeId) && !customAgentsLoading && (directoryUnavailable || !customAgentRecords.some((profile) => profile.id === employeeId));
         }) : []}
         threadsLoading={mainView === "threads" && threadsLoading}
         runs={mainView === "threads" ? sessions.filter((session) => !session.webSession) : []}
