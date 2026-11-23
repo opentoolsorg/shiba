@@ -1,8 +1,9 @@
 import fs from "node:fs";
+import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import type { MenuItemConstructorOptions, Rectangle } from "electron";
+import type { IpcMainInvokeEvent, MenuItemConstructorOptions, Rectangle, Session, WebContents } from "electron";
 import {
   app,
   BrowserWindow,
@@ -16,6 +17,7 @@ import {
   session,
   shell,
   systemPreferences,
+  WebContentsView,
 } from "electron";
 import type { ApprovalsPoller } from "./approvals-poller.js";
 import { createApprovalsPoller } from "./approvals-poller.js";
@@ -26,7 +28,10 @@ import { createController } from "./controller.js";
 import { dashboardCspReportOnly } from "./csp.js";
 import { parseDeepLink } from "./deep-link.js";
 import { createIpcBounds } from "./ipc-guard.js";
-import { createDashboardTrust, createSetupTrust } from "./ipc-trust.js";
+import { createDashboardTrust, createLocalBrowserTrust, createSetupTrust } from "./ipc-trust.js";
+import { LOCAL_BROWSER_CHANNELS } from "./local-browser-contract.js";
+import { nativeWindowAvailability, parseLocalBrowserAddress } from "./local-browser-policy.js";
+import { createLocalControlBoundary } from "./local-control.js";
 import { HOSTED_ORIGIN, dashboardPath, resolveConfiguredOrigin } from "./launch.js";
 import type { Logger } from "./logs.js";
 import { createLogger } from "./logs.js";
@@ -59,7 +64,7 @@ const isMac = process.platform === "darwin";
 // package.json keeps the scoped name, so pin the product name (docs promise
 // ~/Library/Application Support/Shiba).
 app.setName("Shiba");
-// Packaged, setup.html/setup.js ship in app.asar.unpacked/dist (asarUnpack in
+// Packaged setup and local-browser pages ship in app.asar.unpacked/dist (asarUnpack in
 // electron-builder.yml): file:// can't see inside app.asar on modern Electron,
 // so the page is loaded from its real path on disk. Dev keeps dist/.
 const SETUP_DIR = app.isPackaged
@@ -67,10 +72,15 @@ const SETUP_DIR = app.isPackaged
   : __dirname;
 const SETUP_FILE = path.join(SETUP_DIR, "setup.html");
 const SETUP_URL = pathToFileURL(SETUP_FILE).href;
+const LOCAL_BROWSER_FILE = path.join(SETUP_DIR, "local-browser.html");
+const LOCAL_BROWSER_URL = pathToFileURL(LOCAL_BROWSER_FILE).href;
 
 let config: DesktopConfig = {};
 let sessionOrigin: string | undefined;
 let mainWindow: BrowserWindow | null = null;
+let localBrowserWindow: BrowserWindow | null = null;
+let localBrowserView: WebContentsView | null = null;
+let localBrowserSession: Session | null = null;
 let quitting = false;
 let saveTimer: NodeJS.Timeout | undefined;
 let controller: Controller | null = null;
@@ -87,6 +97,13 @@ const pendingLinks: string[] = process.argv.filter((arg) => arg.startsWith("shib
 const logEvent = (fields: Parameters<NonNullable<Logger["event"]>>[0]) => mainLog?.event(fields);
 /** One bridge-wide concurrency ceiling; pairing and shell handlers share it. */
 const bounds = createIpcBounds();
+const localControl = createLocalControlBoundary();
+const nativeWindowStatus = nativeWindowAvailability({
+  platform: process.platform,
+  display: process.env.DISPLAY,
+  waylandDisplay: process.env.WAYLAND_DISPLAY,
+  sessionType: process.env.XDG_SESSION_TYPE,
+});
 const configPath = () => path.join(app.getPath("userData"), "config.json");
 
 function loadConfig(): DesktopConfig {
@@ -200,6 +217,239 @@ function saveBoundsSoon(win: BrowserWindow): void {
   }, 500);
 }
 
+function localBrowserUiState() {
+  return { control: localControl.getState(), nativeWindow: nativeWindowStatus };
+}
+
+function publishLocalBrowserState(): void {
+  if (localBrowserWindow && !localBrowserWindow.isDestroyed()) {
+    localBrowserWindow.webContents.send(LOCAL_BROWSER_CHANNELS.stateChanged, localBrowserUiState());
+  }
+}
+
+localControl.subscribe(publishLocalBrowserState);
+
+function layoutLocalBrowserView(): void {
+  if (!localBrowserWindow || !localBrowserView || localBrowserWindow.isDestroyed()) return;
+  const { width, height } = localBrowserWindow.getContentBounds();
+  const chromeHeight = 228;
+  localBrowserView.setBounds({
+    x: 0,
+    y: chromeHeight,
+    width: Math.max(0, width),
+    height: Math.max(0, height - chromeHeight),
+  });
+}
+
+async function disposeLocalBrowserView(owner = localBrowserWindow): Promise<void> {
+  const view = localBrowserView;
+  const browserSession = localBrowserSession;
+  localBrowserView = null;
+  localBrowserSession = null;
+  if (view) {
+    try {
+      owner?.contentView.removeChildView(view);
+    } catch {
+      // The window may already be closing; the session cleanup still runs.
+    }
+    try {
+      if (!view.webContents.isDestroyed()) view.webContents.close({ waitForBeforeUnload: false });
+    } catch {
+      // Destroyed renderers are already unable to act.
+    }
+  }
+  if (browserSession) {
+    await Promise.allSettled([
+      browserSession.clearStorageData(),
+      browserSession.clearCache(),
+      browserSession.clearAuthCache(),
+    ]);
+  }
+}
+
+async function stopLocalBrowser(reason: "user-stopped" | "target-changed" | "window-closed" | "unsupported" = "user-stopped") {
+  localControl.stop(reason);
+  await disposeLocalBrowserView();
+  return localBrowserUiState();
+}
+
+function guardLocalBrowserNavigation(contents: WebContents, approvedOrigin: string): void {
+  const refuse = (event: { preventDefault(): void }, rawUrl: string, isMainFrame: boolean) => {
+    const target = parseLocalBrowserAddress(rawUrl);
+    if (target && target.origin === approvedOrigin) return;
+    event.preventDefault();
+    if (isMainFrame) void stopLocalBrowser("target-changed");
+  };
+
+  contents.on("will-navigate", (event, url) => refuse(event, url, true));
+  contents.on("will-redirect", (event, url, _isInPlace, isMainFrame) => refuse(event, url, isMainFrame));
+  contents.on("will-frame-navigate", (event) => {
+    if (event.isMainFrame) return;
+    refuse(event, event.url, false);
+  });
+  contents.on("will-attach-webview", (event) => event.preventDefault());
+  contents.setWindowOpenHandler(() => ({ action: "deny" }));
+  contents.on("login", (event) => event.preventDefault());
+  contents.on("render-process-gone", () => void stopLocalBrowser("window-closed"));
+}
+
+function configureLocalBrowserSession(browserSession: Session, approvedOrigin: string): void {
+  browserSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+  browserSession.setPermissionCheckHandler(() => false);
+  browserSession.on("will-download", (event, item) => {
+    event.preventDefault();
+    item.cancel();
+  });
+  browserSession.webRequest.onBeforeRequest(
+    { urls: ["<all_urls>"] },
+    (details, callback) => {
+      const request = parseLocalBrowserAddress(details.url);
+      callback({ cancel: !request || request.origin !== approvedOrigin });
+    },
+  );
+}
+
+async function approveLocalBrowserSite(rawUrl: unknown): Promise<{ ok: boolean; error?: string; origin?: string }> {
+  const address = parseLocalBrowserAddress(rawUrl);
+  if (!address) return { ok: false, error: "Use an http or https address without embedded credentials." };
+  const owner = localBrowserWindow;
+  if (!owner || owner.isDestroyed()) return { ok: false, error: "Open the local browser from the Shiba Desktop menu first." };
+
+  localControl.stop("user-stopped");
+  await disposeLocalBrowserView(owner);
+  localControl.approve({ kind: "browser", origin: address.origin });
+
+  const browserSession = session.fromPartition(`shiba-local-${randomUUID()}`, { cache: false });
+  localBrowserSession = browserSession;
+  let view: WebContentsView;
+  try {
+    configureLocalBrowserSession(browserSession, address.origin);
+    view = new WebContentsView({
+      webPreferences: {
+        session: browserSession,
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        webSecurity: true,
+        webviewTag: false,
+      },
+    });
+  } catch {
+    localControl.stop("unsupported");
+    await disposeLocalBrowserView(owner);
+    return { ok: false, error: "This local browser could not be started safely." };
+  }
+  localBrowserView = view;
+  try {
+    owner.contentView.addChildView(view);
+    layoutLocalBrowserView();
+    guardLocalBrowserNavigation(view.webContents, address.origin);
+  } catch {
+    await stopLocalBrowser("unsupported");
+    return { ok: false, error: "This local browser could not be started safely." };
+  }
+
+  try {
+    await view.webContents.loadURL(address.href);
+    return { ok: true, origin: address.origin };
+  } catch {
+    await stopLocalBrowser("target-changed");
+    return { ok: false, error: "The approved site could not be opened." };
+  }
+}
+
+async function navigateLocalBrowser(rawUrl: unknown): Promise<{ ok: boolean; error?: string; origin?: string }> {
+  const address = parseLocalBrowserAddress(rawUrl);
+  if (!address) return { ok: false, error: "Use an http or https address without embedded credentials." };
+  const state = localControl.getState();
+  if (state.phase !== "approved" || state.target.kind !== "browser" || !localBrowserView) {
+    return { ok: false, error: "Approve a site in this local window first." };
+  }
+  if (address.origin !== state.target.origin) {
+    localControl.targetChanged({ kind: "browser", origin: address.origin });
+    await disposeLocalBrowserView();
+    return { ok: false, error: "The site changed; approval was revoked.", origin: address.origin };
+  }
+  try {
+    await localBrowserView.webContents.loadURL(address.href);
+    return { ok: true, origin: address.origin };
+  } catch {
+    return { ok: false, error: "The approved site could not be opened." };
+  }
+}
+
+async function clickLocalBrowserButton(rawLabel: unknown): Promise<{ ok: boolean; clicked?: boolean; error?: string }> {
+  const label = typeof rawLabel === "string" ? rawLabel.trim() : "";
+  if (label.length === 0 || label.length > 100 || /[\u0000-\u001f\u007f]/.test(label)) {
+    return { ok: false, error: "Enter an exact visible button label (up to 100 characters)." };
+  }
+  const state = localControl.getState();
+  const target = state.phase === "approved" ? state.target : null;
+  const view = localBrowserView;
+  if (!target || target.kind !== "browser" || !view || !localControl.canControl(target)) {
+    return { ok: false, error: "Shiba control is paused or stopped." };
+  }
+  const revision = state.revision;
+  const script = `(() => {
+    const label = ${JSON.stringify(label)};
+    const visible = (element) => {
+      const rect = element.getBoundingClientRect();
+      return element.isConnected && element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) &&
+        rect.width > 0 && rect.height > 0 && rect.right > 0 && rect.bottom > 0 &&
+        rect.left < innerWidth && rect.top < innerHeight;
+    };
+    const matches = [...document.querySelectorAll("button")].filter((button) =>
+      !button.disabled && visible(button) && (button.innerText || button.getAttribute("aria-label") || "").trim() === label
+    );
+    if (matches.length !== 1) return false;
+    matches[0].click();
+    return true;
+  })()`;
+  try {
+    const clicked = await view.webContents.executeJavaScript(script, true);
+    const after = localControl.getState();
+    if (localBrowserView !== view || after.phase !== "approved" || after.revision !== revision ||
+      after.mode !== "control" || after.target.kind !== "browser" || after.target.origin !== target.origin) {
+      return { ok: false, error: "Control was revoked before the action completed." };
+    }
+    return { ok: true, clicked: clicked === true };
+  } catch {
+    return { ok: false, error: "The visible action could not be completed." };
+  }
+}
+
+function openLocalBrowser(): void {
+  if (localBrowserWindow && !localBrowserWindow.isDestroyed()) {
+    localBrowserWindow.show();
+    localBrowserWindow.focus();
+    return;
+  }
+  const win = new BrowserWindow({
+    width: 1120,
+    height: 820,
+    minWidth: 760,
+    minHeight: 560,
+    show: false,
+    title: "Shiba Local Browser",
+    webPreferences: {
+      preload: path.join(__dirname, "local-browser-preload.js"),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webviewTag: false,
+    },
+  });
+  localBrowserWindow = win;
+  win.once("ready-to-show", () => win.show());
+  win.on("resize", layoutLocalBrowserView);
+  win.on("closed", () => {
+    if (localBrowserWindow === win) localBrowserWindow = null;
+    localControl.stop("window-closed");
+    void disposeLocalBrowserView(win);
+  });
+  void win.loadURL(LOCAL_BROWSER_URL);
+}
+
 function createWindow(): void {
   const bounds = restoredBounds();
   const win = new BrowserWindow({
@@ -279,6 +529,12 @@ function buildMenu(): void {
     {
       label: "File",
       submenu: [
+        {
+          label: "Open Local Browser",
+          id: "open-local-browser",
+          click: openLocalBrowser,
+        },
+        { type: "separator" },
         {
           label: "Change Shiba URL…",
           click: () => {
@@ -564,6 +820,10 @@ function registerIpc(): void {
     setupFileUrl: SETUP_URL,
     ownedContents,
   });
+  const isLocalBrowserEvent = createLocalBrowserTrust({
+    localBrowserFileUrl: LOCAL_BROWSER_URL,
+    ownedContents: () => localBrowserWindow?.webContents ?? null,
+  });
   desktopActions = registerDesktopIpc({
     ipcMain,
     isTrustedEvent,
@@ -593,6 +853,36 @@ function registerIpc(): void {
     bounds,
     startClaudeLogin: () => startClaudeLogin({ env: shellEnv }),
   });
+
+  const trustedLocalCall = (event: IpcMainInvokeEvent) => isLocalBrowserEvent(event);
+  ipcMain.handle(LOCAL_BROWSER_CHANNELS.getState, (event) =>
+    trustedLocalCall(event) ? localBrowserUiState() : {
+      control: { phase: "stopped", revision: 0, reason: "not-started" },
+      nativeWindow: nativeWindowStatus,
+    },
+  );
+  ipcMain.handle(LOCAL_BROWSER_CHANNELS.approve, (event, url: unknown) =>
+    trustedLocalCall(event) ? approveLocalBrowserSite(url) : { ok: false, error: "Untrusted sender." },
+  );
+  ipcMain.handle(LOCAL_BROWSER_CHANNELS.navigate, (event, url: unknown) =>
+    trustedLocalCall(event) ? navigateLocalBrowser(url) : { ok: false, error: "Untrusted sender." },
+  );
+  ipcMain.handle(LOCAL_BROWSER_CHANNELS.clickButton, (event, label: unknown) =>
+    trustedLocalCall(event) ? clickLocalBrowserButton(label) : { ok: false, error: "Untrusted sender." },
+  );
+  ipcMain.handle(LOCAL_BROWSER_CHANNELS.takeOver, (event) => {
+    if (!trustedLocalCall(event)) return { control: { phase: "stopped", revision: 0, reason: "not-started" }, nativeWindow: nativeWindowStatus };
+    localControl.takeOver();
+    return localBrowserUiState();
+  });
+  ipcMain.handle(LOCAL_BROWSER_CHANNELS.handBack, (event) => {
+    if (!trustedLocalCall(event)) return { control: { phase: "stopped", revision: 0, reason: "not-started" }, nativeWindow: nativeWindowStatus };
+    localControl.handBack();
+    return localBrowserUiState();
+  });
+  ipcMain.handle(LOCAL_BROWSER_CHANNELS.stop, (event) =>
+    trustedLocalCall(event) ? stopLocalBrowser("user-stopped") : { control: { phase: "stopped", revision: 0, reason: "not-started" }, nativeWindow: nativeWindowStatus },
+  );
 }
 
 // Reads the daemon's config.json so revoke still has a machineId when the live
@@ -675,7 +965,10 @@ function onBeforeQuit(event: Electron.Event): void {
   shutdownStarted = true;
   quitting = true;
   poller?.stop();
-  void (controller?.stop() ?? Promise.resolve()).finally(() => {
+  void Promise.all([
+    controller?.stop() ?? Promise.resolve(),
+    stopLocalBrowser("user-stopped"),
+  ]).finally(() => {
     controller?.dispose();
     tray?.destroy();
     // Finish Electron's normal shutdown so renderer storage and session cookies
@@ -713,6 +1006,7 @@ if (!app.requestSingleInstanceLock()) {
   // Every window webContents gets the same policy, including any the app opens later.
   app.on("web-contents-created", (_event, contents) => {
     if (contents.getType() !== "window") return;
+    if (contents.session === localBrowserSession) return;
     guardWebContents(contents, {
       configuredOrigin,
       authHosts,
@@ -720,7 +1014,7 @@ if (!app.requestSingleInstanceLock()) {
       onDecision: (decision) => {
         if (decision !== "allow") logEvent({ event: "navigation", action: decision });
       },
-    });
+    }, { allowFileUrls: [SETUP_URL, LOCAL_BROWSER_URL] });
   });
   void app.whenReady().then(() => {
     setDockIcon();

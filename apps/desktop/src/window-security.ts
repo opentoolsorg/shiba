@@ -54,6 +54,8 @@ export interface WindowGuardDeps {
 export interface WindowGuardOptions {
   /** A bundled `file:` page this window may load (the setup page). */
   allowFileUrl?: string;
+  /** Additional bundled local pages that may be loaded by their owning window. */
+  allowFileUrls?: readonly string[];
 }
 
 function sameBundledFile(target: string, fileUrl: string): boolean {
@@ -76,7 +78,8 @@ export function guardWebContents(
   options: WindowGuardOptions = {},
 ): void {
   const gate = (event: NavigationEvent) => {
-    if (options.allowFileUrl && sameBundledFile(event.url, options.allowFileUrl)) return;
+    const allowedFiles = [...(options.allowFileUrl ? [options.allowFileUrl] : []), ...(options.allowFileUrls ?? [])];
+    if (allowedFiles.some((fileUrl) => sameBundledFile(event.url, fileUrl))) return;
     const origin = deps.configuredOrigin();
     const hosts = deps.authHosts();
     const decision = decideNavigation(event.url, origin, hosts);
