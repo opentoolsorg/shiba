@@ -301,7 +301,9 @@ function guardLocalBrowserNavigation(contents: WebContents, approvedOrigin: stri
   contents.on("will-attach-webview", (event) => event.preventDefault());
   contents.setWindowOpenHandler(() => ({ action: "deny" }));
   contents.on("login", (event) => event.preventDefault());
-  contents.on("render-process-gone", () => void stopLocalBrowser("window-closed"));
+  contents.on("render-process-gone", () => {
+    if (localBrowserView?.webContents === contents) void stopLocalBrowser("window-closed");
+  });
 }
 
 function configureLocalBrowserSession(browserSession: Session, approvedOrigin: string): void {
@@ -329,6 +331,7 @@ async function approveLocalBrowserSiteNow(rawUrl: unknown): Promise<{ ok: boolea
   localControl.stop("user-stopped");
   await disposeLocalBrowserView(owner);
   localControl.approve({ kind: "browser", origin: address.origin });
+  const approvalRevision = localControl.getState().revision;
 
   // Reuse one context and clear it on every stop/approval; creating a new
   // partition per approval leaves native Chromium contexts alive until quit.
@@ -363,13 +366,16 @@ async function approveLocalBrowserSiteNow(rawUrl: unknown): Promise<{ ok: boolea
     return { ok: false, error: "This local browser could not be started safely." };
   }
 
-  try {
-    await view.webContents.loadURL(address.href);
-    return { ok: true, origin: address.origin };
-  } catch {
-    await stopLocalBrowser("target-changed");
-    return { ok: false, error: "The approved site could not be opened." };
-  }
+  void view.webContents.loadURL(address.href).catch(() => {
+    if (localBrowserView === view) {
+      void enqueueLocalBrowserLifecycle(async () => {
+        if (localBrowserView === view && localControl.getState().revision === approvalRevision) {
+          await stopLocalBrowserNow("target-changed");
+        }
+      });
+    }
+  });
+  return { ok: true, origin: address.origin };
 }
 
 function approveLocalBrowserSite(rawUrl: unknown) {

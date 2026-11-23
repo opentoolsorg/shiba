@@ -19,6 +19,10 @@ const userDataDirs: string[] = [];
 beforeAll(async () => {
   fixture = createServer((req, res) => {
     const url = new URL(req.url ?? "/", fixtureUrl || "http://127.0.0.1");
+    if (url.pathname === "/hang") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).flushHeaders();
+      return;
+    }
     if (url.pathname === "/clicked" && req.method === "POST") {
       actionCount += 1;
       actionCookies.push(req.headers.cookie ?? "");
@@ -53,6 +57,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  fixture.closeAllConnections();
+  otherOrigin.closeAllConnections();
   await Promise.all([
     new Promise<void>((resolve) => fixture.close(() => resolve())),
     new Promise<void>((resolve) => otherOrigin.close(() => resolve())),
@@ -127,6 +133,25 @@ test("local browser requires local consent, pauses for takeover, and revokes on 
     await localBrowser.getByRole("button", { name: "Approve and open" }).click();
     await expect.poll(() => localBrowser.locator("#state-pill").textContent()).toBe("Approved");
     expect(siteCookies[1] ?? "").not.toContain("session_marker=created");
+
+    await localBrowser.getByRole("button", { name: "Stop" }).click();
+    await expect.poll(() => localBrowser.locator("#state-pill").textContent()).toBe("Stopped");
+    await localBrowser.locator("#address").fill(`${fixtureUrl}/hang`);
+    await localBrowser.locator("#address-form").evaluate((form) => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await localBrowser.getByRole("button", { name: "Approve and open" }).click();
+    await expect.poll(() => localBrowser.locator("#state-pill").textContent()).toBe("Approved");
+    await localBrowser.getByRole("button", { name: "Stop" }).click();
+    await expect.poll(() => localBrowser.locator("#state-pill").textContent()).toBe("Stopped");
+
+    await localBrowser.locator("#address").fill("http://127.0.0.1:1");
+    await localBrowser.locator("#address-form").evaluate((form) => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await localBrowser.getByRole("button", { name: "Approve and open" }).click();
+    await expect.poll(() => localBrowser.locator("#state-pill").textContent()).toBe("Stopped");
+    await localBrowser.locator("#address").fill(fixtureUrl);
+    await localBrowser.locator("#address-form").evaluate((form) => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await localBrowser.getByRole("button", { name: "Approve and open" }).click();
+    await expect.poll(() => localBrowser.locator("#state-pill").textContent()).toBe("Approved");
+    await expect.poll(() => siteBridgeChecks.length).toBe(2);
     await expect.poll(() => localBrowser.locator("#native-status").textContent()).toContain("Native window control is unavailable");
   } finally {
     await app.close();
