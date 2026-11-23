@@ -81,6 +81,7 @@ let localBrowserWindow: BrowserWindow | null = null;
 let localBrowserView: WebContentsView | null = null;
 let localBrowserSession: Session | null = null;
 let localActionQueue: Promise<unknown> = Promise.resolve();
+let localBrowserLifecycleQueue: Promise<unknown> = Promise.resolve();
 let quitting = false;
 let saveTimer: NodeJS.Timeout | undefined;
 let controller: Controller | null = null;
@@ -267,10 +268,20 @@ async function disposeLocalBrowserView(owner = localBrowserWindow): Promise<void
   }
 }
 
-async function stopLocalBrowser(reason: "user-stopped" | "target-changed" | "window-closed" | "unsupported" = "user-stopped") {
+async function stopLocalBrowserNow(reason: "user-stopped" | "target-changed" | "window-closed" | "unsupported" = "user-stopped") {
   localControl.stop(reason);
   await disposeLocalBrowserView();
   return localBrowserUiState();
+}
+
+function enqueueLocalBrowserLifecycle<T>(operation: () => Promise<T>): Promise<T> {
+  const queued = localBrowserLifecycleQueue.then(operation);
+  localBrowserLifecycleQueue = queued.catch(() => undefined);
+  return queued;
+}
+
+function stopLocalBrowser(reason: "user-stopped" | "target-changed" | "window-closed" | "unsupported" = "user-stopped") {
+  return enqueueLocalBrowserLifecycle(() => stopLocalBrowserNow(reason));
 }
 
 function guardLocalBrowserNavigation(contents: WebContents, approvedOrigin: string): void {
@@ -309,7 +320,7 @@ function configureLocalBrowserSession(browserSession: Session, approvedOrigin: s
   );
 }
 
-async function approveLocalBrowserSite(rawUrl: unknown): Promise<{ ok: boolean; error?: string; origin?: string }> {
+async function approveLocalBrowserSiteNow(rawUrl: unknown): Promise<{ ok: boolean; error?: string; origin?: string }> {
   const address = parseLocalBrowserAddress(rawUrl);
   if (!address) return { ok: false, error: "Use an http or https address without embedded credentials." };
   const owner = localBrowserWindow;
@@ -348,7 +359,7 @@ async function approveLocalBrowserSite(rawUrl: unknown): Promise<{ ok: boolean; 
     layoutLocalBrowserView();
     guardLocalBrowserNavigation(view.webContents, address.origin);
   } catch {
-    await stopLocalBrowser("unsupported");
+    await stopLocalBrowserNow("unsupported");
     return { ok: false, error: "This local browser could not be started safely." };
   }
 
@@ -359,6 +370,10 @@ async function approveLocalBrowserSite(rawUrl: unknown): Promise<{ ok: boolean; 
     await stopLocalBrowser("target-changed");
     return { ok: false, error: "The approved site could not be opened." };
   }
+}
+
+function approveLocalBrowserSite(rawUrl: unknown) {
+  return enqueueLocalBrowserLifecycle(() => approveLocalBrowserSiteNow(rawUrl));
 }
 
 async function navigateLocalBrowser(rawUrl: unknown): Promise<{ ok: boolean; error?: string; origin?: string }> {
