@@ -424,9 +424,9 @@ async function clickLocalBrowserButton(rawLabel: unknown): Promise<{ ok: boolean
         rect.left < innerWidth && rect.top < innerHeight && (top === element || element.contains(top));
     };
     const matches = [...document.querySelectorAll("button")].filter((button) =>
-      !button.disabled && visible(button) && (button.innerText || button.getAttribute("aria-label") || "").trim() === label
+      !button.disabled && (button.innerText || button.getAttribute("aria-label") || "").trim() === label
     );
-    if (matches.length !== 1) return false;
+    if (matches.length !== 1 || !visible(matches[0])) return false;
     matches[0].click();
     return true;
     })()`;
