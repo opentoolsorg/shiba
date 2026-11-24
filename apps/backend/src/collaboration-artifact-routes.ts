@@ -1,10 +1,10 @@
-import { deliverableByteLimit, isSafeDeliverablePath, runInputHash, type DelegatedRun, type RunDeliverable } from "@shiba/shared";
+import { authorizeCollaborationAction, deliverableByteLimit, isSafeDeliverablePath, runInputHash, type CollaborationActor, type DelegatedRun, type RunDeliverable } from "@shiba/shared";
 import { authoritativeArtifactReview, parseArtifactReview } from "./artifact-metadata.js";
 import { getAgentByName } from "agents/routing";
 import { isCollaborationApprovalDispatchable } from "./collaboration-context.js";
 import { collaborationExecutorIdentity } from "./collaboration-executor.js";
 import { canReadCollaborationRoom } from "./collaboration-room-access.js";
-import { getCollaborationHandoff, type CollaborationHandoffRow, type CollaborationScope } from "./collaboration-store.js";
+import { getCollaborationHandoff, getCollaborationMembership, getCollaborationRoom, humanActorId, type CollaborationHandoffRow, type CollaborationScope } from "./collaboration-store.js";
 import { signInternalRequest } from "./edge-identity.js";
 import type { Env } from "./env.js";
 import { deliverableResponse, deliverableViewOptions } from "./deliverable-response.js";
@@ -79,6 +79,24 @@ async function hasSharedArtifactRef(
   } catch {
     return false;
   }
+}
+
+/** Review decisions are writes: read-level room access or a governance view grant is not enough —
+ *  the caller needs an active room membership carrying approval.decide. */
+async function canDecideArtifactReview(env: Env, scope: CollaborationScope, handoff: CollaborationHandoffRow): Promise<boolean> {
+  const room = await getCollaborationRoom(env, scope, handoff.roomId);
+  if (!room) return false;
+  const membership = await getCollaborationMembership(env, scope, handoff.roomId, humanActorId(scope.userId));
+  const actor: CollaborationActor = {
+    kind: membership?.actorKind ?? "human",
+    actorId: membership?.actorId ?? humanActorId(scope.userId),
+    tenantId: scope.tenantId,
+    workspaceId: scope.workspaceId,
+    userId: scope.userId,
+  };
+  return authorizeCollaborationAction(
+    { ...scope, actor }, room, membership ?? undefined, "approval.decide",
+  ).allowed === true;
 }
 
 async function currentAccess(request: Request, env: Env, scope: CollaborationScope, handoff: CollaborationHandoffRow, run: DelegatedRun): Promise<boolean> {
@@ -164,7 +182,12 @@ export async function handleCollaborationArtifact(request: Request, env: Env): P
       }
       const review = parseArtifactReview(await request.json().catch(() => null));
       if (!review) return failure(400);
-      // The shared-ref check above already binds this decision to the exact published revision.
+      // Membership may have ended while the body streamed: re-verify the shared ref, read access
+      // and the approval.decide grant right before the signed write.
+      if (!await hasSharedArtifactRef(env, scope, handoff, index, item) ||
+          !await currentAccess(request, env, scope, handoff, run) ||
+          !await canDecideArtifactReview(env, scope, handoff)) return failure();
+      // The shared-ref check binds this decision to the exact published revision.
       const decision = new Request(
         `https://internal/api/runs/${encodeURIComponent(handoff.runId)}/deliverables/${index}/review`,
         { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(review) },
