@@ -144,6 +144,7 @@ interface Handoff {
   handoffId: string;
   taskId: string;
   senderActorId: string;
+  senderUserId: string;
   recipientActorId: string;
   parentHandoffId: string | null;
   depth: number;
@@ -300,6 +301,92 @@ const DETAIL_TABS: Array<{ id: DetailTab; label: string }> = [
   { id: "slack", label: "Slack" },
   { id: "execution", label: "Execution" },
 ];
+
+interface ArtifactReviewState {
+  status: string;
+  revision: number;
+  note?: string;
+}
+
+function ArtifactReviewControls({ artifactUrl, workspaceId }: { artifactUrl: string; workspaceId?: string }) {
+  const reviewUrl = `${artifactUrl}/review${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`;
+  const [review, setReview] = useState<ArtifactReviewState | null>(null);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    const res = await fetch(reviewUrl, { credentials: "same-origin" }).catch(() => null);
+    if (!res?.ok) return;
+    const data = (await res.json().catch(() => null)) as { review?: ArtifactReviewState } | null;
+    if (data?.review) setReview(data.review);
+  }, [reviewUrl]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const decide = async (status: "approved" | "changes_requested") => {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(reviewUrl, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status,
+          expectedRevision: review?.revision ?? 0,
+          ...(status === "changes_requested" ? { note } : {}),
+        }),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        error?: string;
+        deliverable?: { review?: ArtifactReviewState };
+      } | null;
+      if (!res.ok) {
+        setError(data?.error ?? "Review could not be saved.");
+        await load();
+        return;
+      }
+      if (data?.deliverable?.review) setReview(data.deliverable.review);
+      if (status === "changes_requested") setNote("");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <span className="inline-flex items-center gap-1 align-middle">
+      {review && (
+        <span>
+          review: {review.status.replace(/_/g, " ")}
+          {review.note ? ` — ${review.note}` : ""}
+        </span>
+      )}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void decide("approved")}
+        className="min-h-6 border border-[var(--line)] bg-[var(--card)] px-1 underline disabled:opacity-50"
+      >
+        Approve revision
+      </button>
+      <input
+        aria-label="Requested change note"
+        value={note}
+        onChange={(event) => setNote(event.target.value)}
+        placeholder="change note"
+        className="min-h-6 w-28 border border-[var(--line)] bg-[var(--card)] px-1"
+      />
+      <button
+        type="button"
+        disabled={busy || !note.trim()}
+        onClick={() => void decide("changes_requested")}
+        className="min-h-6 border border-[var(--line)] bg-[var(--card)] px-1 underline disabled:opacity-50"
+      >
+        Request change
+      </button>
+      {error && <span>{error}</span>}
+    </span>
+  );
+}
 
 function handoffElementId(workspaceId: string | undefined, roomId: string, handoffId: string): string {
   return `collaboration-handoff-${encodeURIComponent(workspaceId ?? "personal")}-${encodeURIComponent(roomId)}-${encodeURIComponent(handoffId)}`;
@@ -855,7 +942,8 @@ function ScopedCollaborationView({
   const parentHandoffs = (detail?.handoffs ?? []).filter(
     (handoff) =>
       handoff.status === "active" &&
-      handoff.recipientActorId === effectiveActorId &&
+      (handoff.recipientActorId === effectiveActorId ||
+        handoff.senderUserId === detail?.currentUserId) &&
       handoff.taskId === taskId.trim(),
   );
   const canManageMembers = members.some(
@@ -1453,13 +1541,20 @@ function ScopedCollaborationView({
                               <p>Completed run: {item.sourceRunId}</p>
                               {item.sourceArtifactRefs?.map((artifact) =>
                                 item.sourceHandoffId ? (
-                                  <a
-                                    key={`${item.messageId}-${artifact.index}`}
-                                    href={`/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/handoffs/${encodeURIComponent(item.sourceHandoffId)}/artifacts/${artifact.index}${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`}
-                                    className="mr-2 underline"
-                                  >
-                                    {artifact.path}
-                                  </a>
+                                  <span key={`${item.messageId}-${artifact.index}`}>
+                                    <a
+                                      href={`/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/handoffs/${encodeURIComponent(item.sourceHandoffId)}/artifacts/${artifact.index}${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`}
+                                      className="mr-2 underline"
+                                    >
+                                      {artifact.path}
+                                    </a>
+                                    {artifact.artifactId && artifact.version && artifact.sha256 && (
+                                      <ArtifactReviewControls
+                                        artifactUrl={`/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/handoffs/${encodeURIComponent(item.sourceHandoffId)}/artifacts/${artifact.index}`}
+                                        workspaceId={workspaceId}
+                                      />
+                                    )}
+                                  </span>
                                 ) : (
                                   <span
                                     key={`${item.messageId}-${artifact.index}`}

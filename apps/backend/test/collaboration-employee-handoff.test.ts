@@ -1042,4 +1042,70 @@ describe("approval-gated employee handoffs", () => {
       expect(detail.messages).toEqual([]);
     }
   });
+
+  it("lets the assigning human continue an employee handoff to the next employee, and only that human", async () => {
+    const f = fixture();
+    const researcher = await createCustomAgent(f.env, "self-hosted", "researcher", {
+      name: "Researcher", instructions: "Gather evidence.", harness: "opencode",
+      defaultRepoUrl: "https://github.com/example/repo",
+    });
+    const drafter = await createCustomAgent(f.env, "self-hosted", "drafter", {
+      name: "Drafter", instructions: "Draft the brief.", harness: "opencode",
+      defaultRepoUrl: "https://github.com/example/repo",
+    });
+    const room = await json<{ room: { roomId: string } }>(
+      await f.send("/rooms", "POST", { title: "Comparison" }),
+    );
+    const roomId = room.room.roomId;
+    expect((await f.send(`/rooms/${roomId}/members`, "POST", { userId: "bob@example.test" }))?.status).toBe(201);
+    const researchMember = await json<{ member: { actorId: string } }>(
+      await f.send(`/rooms/${roomId}/agents`, "POST", { profileId: researcher.id, profileVersion: researcher.version }),
+    );
+    const draftMember = await json<{ member: { actorId: string } }>(
+      await f.send(`/rooms/${roomId}/agents`, "POST", { profileId: drafter.id, profileVersion: drafter.version }),
+    );
+    expect((await f.send(`/rooms/${roomId}/handoffs`, "POST", {
+      handoffId: "research-handoff",
+      taskId: "comparison-task",
+      recipientActorId: researchMember.member.actorId,
+      budget: 2,
+      task: "Collect the evidence.",
+    }))?.status).toBe(201);
+
+    // An uninvolved room member cannot continue the chain.
+    state.userId = "bob@example.test";
+    expect((await f.send(`/rooms/${roomId}/handoffs`, "POST", {
+      handoffId: "draft-handoff-denied",
+      taskId: "comparison-task",
+      parentHandoffId: "research-handoff",
+      recipientActorId: draftMember.member.actorId,
+      task: "Draft the brief.",
+    }))?.status).toBe(404);
+
+    // The assigning human continues the chain to the next employee.
+    state.userId = "owner@example.test";
+    const continued = await json<{
+      handoff: {
+        handoffId: string; senderActorId: string; recipientActorId: string;
+        parentHandoffId: string; rootHandoffId: string; depth: number;
+        remainingBudget: number; approvalId: string;
+      };
+    }>(await f.send(`/rooms/${roomId}/handoffs`, "POST", {
+      handoffId: "draft-handoff",
+      taskId: "comparison-task",
+      parentHandoffId: "research-handoff",
+      recipientActorId: draftMember.member.actorId,
+      task: "Draft the brief from the evidence.",
+    }));
+    expect(continued.handoff).toMatchObject({
+      senderActorId: "human:owner@example.test",
+      recipientActorId: draftMember.member.actorId,
+      parentHandoffId: "research-handoff",
+      rootHandoffId: "research-handoff",
+      depth: 1,
+      remainingBudget: 1,
+    });
+    expect(continued.handoff.approvalId).toBeTruthy();
+    expect(state.queued).toMatchObject({ profileVersion: drafter.version, customAgentId: drafter.id });
+  });
 });

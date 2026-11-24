@@ -1530,7 +1530,7 @@ export async function createChildCollaborationHandoff(
   const results = await commitCollaborationHandoff(db, [
     db
       .prepare(
-        `UPDATE collaboration_handoff_budgets SET remaining=remaining-1,last_spend_id=? WHERE tenant_id=? AND workspace_id=? AND room_id=? AND task_id=? AND root_handoff_id=? AND remaining>0 AND NOT EXISTS (SELECT 1 FROM collaboration_handoffs duplicate WHERE duplicate.handoff_id=?) AND EXISTS (SELECT 1 FROM collaboration_handoffs parent JOIN collaboration_memberships sender ON sender.tenant_id=parent.tenant_id AND sender.workspace_id=parent.workspace_id AND sender.room_id=parent.room_id AND sender.actor_id=parent.recipient_actor_id AND sender.user_id=? AND sender.status='active' AND ${teamMemberSql(scope, 'sender')} JOIN collaboration_memberships recipient ON recipient.tenant_id=parent.tenant_id AND recipient.workspace_id=parent.workspace_id AND recipient.room_id=parent.room_id AND recipient.actor_id=? AND recipient.user_id=? AND recipient.status='active' AND ${teamMemberSql(scope, 'recipient')} WHERE parent.tenant_id=? AND parent.workspace_id=? AND parent.handoff_id=? AND parent.status='active' AND parent.room_id=? AND parent.task_id=?)`,
+        `UPDATE collaboration_handoff_budgets SET remaining=remaining-1,last_spend_id=? WHERE tenant_id=? AND workspace_id=? AND room_id=? AND task_id=? AND root_handoff_id=? AND remaining>0 AND NOT EXISTS (SELECT 1 FROM collaboration_handoffs duplicate WHERE duplicate.handoff_id=?) AND EXISTS (SELECT 1 FROM collaboration_handoffs parent JOIN collaboration_memberships sender ON sender.tenant_id=parent.tenant_id AND sender.workspace_id=parent.workspace_id AND sender.room_id=parent.room_id AND sender.actor_id=? AND sender.user_id=? AND sender.status='active' AND ${teamMemberSql(scope, 'sender')} JOIN collaboration_memberships recipient ON recipient.tenant_id=parent.tenant_id AND recipient.workspace_id=parent.workspace_id AND recipient.room_id=parent.room_id AND recipient.actor_id=? AND recipient.user_id=? AND recipient.status='active' AND ${teamMemberSql(scope, 'recipient')} WHERE parent.tenant_id=? AND parent.workspace_id=? AND parent.handoff_id=? AND parent.status='active' AND parent.room_id=? AND parent.task_id=?)`,
       )
       .bind(
         input.handoffId,
@@ -1540,6 +1540,7 @@ export async function createChildCollaborationHandoff(
         input.taskId,
         input.rootHandoffId,
         input.handoffId,
+        input.senderActorId,
         scope.userId,
         input.recipientActorId,
         input.recipientUserId,
@@ -1551,7 +1552,7 @@ export async function createChildCollaborationHandoff(
       ),
     db
       .prepare(
-        `INSERT INTO collaboration_handoffs (handoff_id,tenant_id,workspace_id,room_id,task_id,sender_user_id,sender_actor_id,recipient_user_id,recipient_actor_id,parent_handoff_id,root_handoff_id,depth,ancestor_handoff_ids_json,remaining_budget,granted_capabilities_json,profile_version,status,created_at) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,(SELECT remaining FROM collaboration_handoff_budgets WHERE tenant_id=? AND workspace_id=? AND room_id=? AND task_id=? AND root_handoff_id=?),?,?,'active',? WHERE changes()=1 AND EXISTS (SELECT 1 FROM collaboration_handoff_budgets b WHERE b.tenant_id=? AND b.workspace_id=? AND b.room_id=? AND b.task_id=? AND b.root_handoff_id=? AND b.last_spend_id=?) AND EXISTS (SELECT 1 FROM collaboration_handoffs parent JOIN collaboration_memberships sender ON sender.tenant_id=parent.tenant_id AND sender.workspace_id=parent.workspace_id AND sender.room_id=parent.room_id AND sender.actor_id=parent.recipient_actor_id AND sender.user_id=? AND sender.status='active' AND ${teamMemberSql(scope, 'sender')} JOIN collaboration_memberships recipient ON recipient.tenant_id=parent.tenant_id AND recipient.workspace_id=parent.workspace_id AND recipient.room_id=parent.room_id AND recipient.actor_id=? AND recipient.user_id=? AND recipient.status='active' AND ${teamMemberSql(scope, 'recipient')} WHERE parent.tenant_id=? AND parent.workspace_id=? AND parent.handoff_id=? AND parent.status='active' AND parent.room_id=? AND parent.task_id=?) ON CONFLICT DO NOTHING`,
+        `INSERT INTO collaboration_handoffs (handoff_id,tenant_id,workspace_id,room_id,task_id,sender_user_id,sender_actor_id,recipient_user_id,recipient_actor_id,parent_handoff_id,root_handoff_id,depth,ancestor_handoff_ids_json,remaining_budget,granted_capabilities_json,profile_version,status,created_at) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,(SELECT remaining FROM collaboration_handoff_budgets WHERE tenant_id=? AND workspace_id=? AND room_id=? AND task_id=? AND root_handoff_id=?),?,?,'active',? WHERE changes()=1 AND EXISTS (SELECT 1 FROM collaboration_handoff_budgets b WHERE b.tenant_id=? AND b.workspace_id=? AND b.room_id=? AND b.task_id=? AND b.root_handoff_id=? AND b.last_spend_id=?) AND EXISTS (SELECT 1 FROM collaboration_handoffs parent JOIN collaboration_memberships sender ON sender.tenant_id=parent.tenant_id AND sender.workspace_id=parent.workspace_id AND sender.room_id=parent.room_id AND sender.actor_id=? AND sender.user_id=? AND sender.status='active' AND ${teamMemberSql(scope, 'sender')} JOIN collaboration_memberships recipient ON recipient.tenant_id=parent.tenant_id AND recipient.workspace_id=parent.workspace_id AND recipient.room_id=parent.room_id AND recipient.actor_id=? AND recipient.user_id=? AND recipient.status='active' AND ${teamMemberSql(scope, 'recipient')} WHERE parent.tenant_id=? AND parent.workspace_id=? AND parent.handoff_id=? AND parent.status='active' AND parent.room_id=? AND parent.task_id=?) ON CONFLICT DO NOTHING`,
       )
       .bind(
         input.handoffId,
@@ -1581,6 +1582,7 @@ export async function createChildCollaborationHandoff(
         input.taskId,
         input.rootHandoffId,
         input.handoffId,
+        input.senderActorId,
         scope.userId,
         input.recipientActorId,
         input.recipientUserId,

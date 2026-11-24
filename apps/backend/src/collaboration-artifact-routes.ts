@@ -1,4 +1,5 @@
 import { deliverableByteLimit, isSafeDeliverablePath, runInputHash, type DelegatedRun, type RunDeliverable } from "@shiba/shared";
+import { authoritativeArtifactReview, parseArtifactReview } from "./artifact-metadata.js";
 import { getAgentByName } from "agents/routing";
 import { isCollaborationApprovalDispatchable } from "./collaboration-context.js";
 import { collaborationExecutorIdentity } from "./collaboration-executor.js";
@@ -11,7 +12,7 @@ import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
 import { deliverableStorageKey } from "./run-deliverables.js";
 import { resolveTeamCollaborationScope } from "./team-collaboration-scope.js";
 
-const ROUTE = /^\/api\/collaboration\/rooms\/([^/]+)\/handoffs\/([^/]+)\/artifacts\/([^/]+)$/;
+const ROUTE = /^\/api\/collaboration\/rooms\/([^/]+)\/handoffs\/([^/]+)\/artifacts\/([^/]+)(\/review)?$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const ARTIFACT_ID = /^artifact_[a-f0-9]{32}$/;
 
@@ -119,7 +120,8 @@ export async function handleCollaborationArtifact(request: Request, env: Env): P
   const match = url.pathname.match(ROUTE);
   if (!match) return null;
   if (!await isAuthorizedRequest(request, env)) return failure(401);
-  if (request.method !== "GET") return failure(405);
+  const reviewPath = match[4] === "/review";
+  if ((reviewPath ? request.method !== "GET" && request.method !== "POST" : request.method !== "GET")) return failure(405);
   const origin = request.headers.get("Origin");
   if ((origin !== null && origin !== url.origin) || request.headers.get("Sec-Fetch-Site") === "cross-site") return failure(403);
   const userId = (await resolveUserId(request, env))?.trim().toLowerCase();
@@ -153,6 +155,27 @@ export async function handleCollaborationArtifact(request: Request, env: Env): P
     const item = validRun(run, handoff, index);
     if (!run || !item || !await hasSharedArtifactRef(env, scope, handoff, index, item) ||
         !await currentAccess(request, env, scope, handoff, run)) return failure();
+    if (reviewPath) {
+      if (request.method === "GET") {
+        return Response.json({
+          review: authoritativeArtifactReview(item.review),
+          artifact: { index, artifactId: item.artifactId, version: item.version ?? 1 },
+        }, { headers: { "Cache-Control": "private, no-store" } });
+      }
+      const review = parseArtifactReview(await request.json().catch(() => null));
+      if (!review) return failure(400);
+      // The shared-ref check above already binds this decision to the exact published revision.
+      const decision = new Request(
+        `https://internal/api/runs/${encodeURIComponent(handoff.runId)}/deliverables/${index}/review`,
+        { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(review) },
+      );
+      await signInternalRequest(decision, env);
+      const decided = await owner.fetch(decision);
+      return new Response(await decided.text(), {
+        status: decided.status,
+        headers: { "content-type": "application/json", "Cache-Control": "private, no-store" },
+      });
+    }
     const object = await env.ATTACHMENTS.get(deliverableStorageKey(run.sandboxId, item.sha256, index));
     if (!object) return failure();
     if (object.size !== item.bytes) {

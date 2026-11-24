@@ -55,7 +55,8 @@ describe("collaboration authorization contracts", () => {
     };
     const options = { expected: room, parent: root, senderCapabilities: root.grantedCapabilities, senderProfileVersion: 7 };
     expect(validateCollaborationHandoff(child, options)).toEqual({ valid: true });
-    expect(validateCollaborationHandoff({ ...child, sender: human }, options)).toEqual({ valid: false, reason: "parent-mismatch" });
+    expect(validateCollaborationHandoff({ ...child, sender: human }, options)).toEqual({ valid: true });
+    expect(validateCollaborationHandoff({ ...child, sender: { ...human, actorId: "human-9", userId: "user-9" } }, options)).toEqual({ valid: false, reason: "parent-mismatch" });
     expect(validateCollaborationHandoff({ ...child, remainingBudget: root.remainingBudget }, options)).toEqual({ valid: false, reason: "invalid-budget-propagation" });
     expect(validateCollaborationHandoff({ ...root, remainingBudget: MAX_HANDOFF_BUDGET + 1 }, { expected: room, senderCapabilities: root.grantedCapabilities })).toEqual({ valid: false, reason: "budget-exceeded" });
     expect(validateCollaborationHandoff({ ...child, lineage: { ...child.lineage, depth: MAX_HANDOFF_DEPTH + 1, ancestorHandoffIds: ["a", "b", "c", "d", "e"] } }, options)).toEqual({ valid: false, reason: "depth-exceeded" });

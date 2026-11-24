@@ -66,7 +66,6 @@ import { createCollaborationMemory, listCollaborationMemory, revokeCollaboration
 import { resolvePersonalExecutionOwner, resolvePersonalExecutionGrant } from "./personal-execution-store.js";
 import { parseAgentResult } from "./opencode-input.js";
 import { redactSecrets } from "./security.js";
-import { employeeCoordinationUnavailable } from "./employee-coordination.js";
 import {
   attachMessageV2Metadata,
 } from "./collaboration-mentions.js";
@@ -1313,13 +1312,12 @@ export async function handleCollaboration(
           parent.roomId !== roomId ||
           parent.taskId !== body.taskId ||
           parent.status !== "active" ||
-          parent.recipientActorId !== senderActor.actorId ||
-          parent.recipientUserId !== scope.userId
+          !(
+            (parent.recipientActorId === senderActor.actorId && parent.recipientUserId === scope.userId) ||
+            parent.senderUserId === scope.userId
+          )
         ) {
           return json({ error: "Active parent handoff not found for this participant." }, 404);
-        }
-        if (parent.recipientActorId.startsWith("agent:")) {
-          return employeeCoordinationUnavailable();
         }
         const parentEnvelope = envelopeForHandoff(parent);
         const lineage = childHandoffLineage(parentEnvelope);
