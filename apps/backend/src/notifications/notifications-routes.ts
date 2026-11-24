@@ -10,6 +10,7 @@ import {
   NotificationsStoreError,
   setWorkspaceNotificationPrefs,
 } from "./notifications-store.js";
+import { log } from "../obs/log.js";
 
 const PREFIX = "/api/workspace-notifications";
 
@@ -69,7 +70,7 @@ export async function handleNotifications(request: Request, env: Env): Promise<R
       return json({ error: error.message }, error.status);
     }
     if (error instanceof CollaborationStoreError) return json({ error: error.message }, error.status);
-    console.error("notification route failed", error instanceof Error ? error.message : String(error));
+    log.error("notification route failed", error instanceof Error ? error.message : String(error));
     return json({ error: "Notification operation failed." }, 503);
   }
 }

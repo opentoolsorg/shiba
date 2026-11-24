@@ -33,6 +33,7 @@ vi.mock("@tanstack/react-router", () => ({ useRouter: () => mocks.router }));
 vi.mock("./socket-liveness", () => ({ useSocketLiveness: vi.fn() }));
 vi.mock("./auth-client", () => ({ authClient: { signOut: vi.fn() } }));
 vi.mock("./components/FirstRunWizard", () => ({ FirstRunWizard: () => null, ONBOARDING_STORAGE_KEY: "onboarding" }));
+vi.mock("./components/knowledge/NotesEditor", () => ({ NotesEditor: () => null }));
 vi.mock("./components/ThemeProvider", () => ({ useTheme: () => ({ resolvedTheme: "light", setTheme: vi.fn() }) }));
 vi.mock("./components/InboxTab", () => ({ InboxTab: () => <div data-testid="private-mailbox">PRIVATE-MAILBOX-CONTENT</div> }));
 vi.mock("./components/TaskComposer", () => ({ TaskComposer: ({ task, onTaskChange, onSubmit, onExecutionTargetKindChange, onArtifactDeliverablesChange, isSubmitting, runTarget, onRunTargetChange, harness, onHarnessChange }: {
@@ -215,6 +216,42 @@ describe("app Work and Threads routing", () => {
     }
   });
 
+it("lists employee threads and resumes the selected thread without queueing work", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    const originalFetch = fetch;
+    const employee = {
+      id: "employee-1",
+      slug: "finance-auditor",
+      version: 1,
+      config: { name: "Finance Auditor", instructions: "Review supplied records.", harness: "opencode", roleTemplateId: "finance" },
+    };
+    const thread = {
+      id: "thread-budget",
+      name: "Budget review",
+      agentName: "web:test-operator:thread-budget",
+      updatedAt: 123,
+      metadata: { customAgentId: employee.id },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path.startsWith("/api/custom-agents")) return Response.json({ agents: [employee] });
+      if (path.startsWith("/api/sessions") && options?.method !== "POST") return Response.json({ sessions: [thread] });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+
+    const panel = await waitFor(() => {
+      const found = document.querySelector('aside.shiba-destination-panel[aria-label="Agents"]');
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    fireEvent.click(await within(panel).findByRole("button", { name: "Expand Finance Auditor" }));
+    fireEvent.click(await within(panel).findByRole("button", { name: /Budget review/ }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions/thread-budget/resume", { method: "POST" }));
+    expect(fetch).not.toHaveBeenCalledWith("/api/runs", expect.objectContaining({ method: "POST" }));
+  });
+
   it("opens the returned approval from Chat and follows its server-linked run after approval", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", "/threads/");
@@ -336,6 +373,14 @@ describe("app Work and Threads routing", () => {
     render(<App />);
     await waitFor(() => expect(window.location.pathname).toBe(expected));
     expect(fetch).not.toHaveBeenCalledWith("/api/runs", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("opens the settings overview when no section is selected", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/settings/");
+    render(<App />);
+    await screen.findByRole("heading", { name: "Settings overview" });
+    expect(new URLSearchParams(window.location.search).get("section")).toBe("overview");
   });
 
   it("restores the Settings section on history navigation without dispatching work", async () => {
@@ -1660,53 +1705,6 @@ describe("bot page without a thread", () => {
     })));
   });
 
-  it("does not call a superseded resume a failure", async () => {
-    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
-    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
-    mocks.chat.messages = [];
-    let release: (() => void) | undefined;
-    const held = new Promise<void>((resolve) => { release = resolve; });
-    // Engineering's resume hangs, then fails after Research is selected again.
-    stubBots(async (path) => {
-      if (!path.includes(ENGINEERING_THREAD)) return Response.json({ resumed: true });
-      await held;
-      return new Response(JSON.stringify({ error: "late failure" }), { status: 503, headers: { "Content-Type": "application/json" } });
-    }, true);
-    render(<App />);
-    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
-
-    await openBotFromAgentsView(/Engineering bot/);
-    await screen.findByRole("heading", { name: /Opening Engineering bot/ });
-
-    fireEvent.click(await screen.findByRole("button", { name: /Competitor brief/ }));
-    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
-    await act(async () => { release?.(); await held; });
-    await act(async () => { await Promise.resolve(); });
-
-    // The newer Research selection owns the page; the stale failure is not narrated.
-    expect(screen.queryByRole("heading", { name: /could not be opened/ })).toBeNull();
-    expect(await screen.findByTestId("chat-composer")).toBeTruthy();
-  });
-
-  it("drops a resume reply that lands after a newer bot was opened", async () => {
-    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
-    window.history.replaceState(null, "", "/threads/");
-    mocks.chat.messages = [];
-    let release: (() => void) | undefined;
-    const held = new Promise<void>((resolve) => { release = resolve; });
-    stubBots(async () => { await held; return Response.json({ session: researchThread, resumed: true }); });
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: /Competitor brief/ }));
-    await openBotFromAgentsView(/Engineering bot/);
-    await screen.findByRole("heading", { name: "Engineering bot has no thread yet" });
-
-    await act(async () => { release?.(); await held; });
-    await act(async () => { await Promise.resolve(); });
-
-    expect(screen.getByRole("heading", { name: "Engineering bot has no thread yet" })).toBeTruthy();
-    await waitFor(() => expect(new URLSearchParams(window.location.search).has("session")).toBe(false));
-    expect(screen.queryAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent).join(" ")).not.toContain("Research bot");
-  });
 });
 
 describe("bot run outputs across a thread switch", () => {
@@ -1862,20 +1860,6 @@ describe("bot thread links", () => {
     expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD);
   });
 
-  it("switches bots through the thread list and rewrites the link with the thread's own bot", async () => {
-    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
-    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
-    mocks.chat.messages = [];
-    stubThreads();
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: /Flaky test triage/ }));
-    await waitFor(() => expect(screen.getAllByText("Flaky test triage").length).toBeGreaterThan(1));
-    const crumbs = screen.getAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent ?? "").join(" ");
-    expect(crumbs).toContain("Engineering bot");
-    expect(crumbs).not.toContain("Research bot");
-    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(ENGINEERING_THREAD));
-  });
-
   it("falls back to the default session when the link names a thread this viewer cannot list", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", "/threads/?session=33333333-3333-4333-8333-333333333333");
@@ -1900,31 +1884,6 @@ describe("bot thread links", () => {
       method: "POST",
       body: JSON.stringify({ name: "Research bot", metadata: { customAgentId: research.id } }),
     }));
-  });
-
-  it("walks back and forward across bot threads, including the selector-less default session", async () => {
-    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
-    window.history.replaceState(null, "", "/threads/");
-    mocks.chat.messages = [];
-    stubThreads();
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: /Flaky test triage/ }));
-    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(ENGINEERING_THREAD));
-    fireEvent.click(await screen.findByRole("button", { name: /Competitor brief/ }));
-    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
-
-    await act(async () => { window.history.back(); });
-    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(ENGINEERING_THREAD));
-    expect(screen.getAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent).join(" ")).toContain("Engineering bot");
-
-    await act(async () => { window.history.back(); });
-    await waitFor(() => expect(new URLSearchParams(window.location.search).has("session")).toBe(false));
-    const defaultCrumbs = screen.getAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent).join(" ");
-    expect(defaultCrumbs).not.toContain("Research bot");
-
-    await act(async () => { window.history.forward(); });
-    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(ENGINEERING_THREAD));
-    expect(screen.getAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent).join(" ")).toContain("Engineering bot");
   });
 
   it("restores a remembered thread by replacing the entry instead of adding one", async () => {

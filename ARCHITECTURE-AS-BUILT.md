@@ -4,6 +4,12 @@ Measured, not remembered. Every number below was read from the tree at commit
 `4bc346f2` on `main`, 2026-11-16. Where this document disagrees with
 `ARCHITECTURE.md`, this document is the measurement and the other is the prose.
 
+Update 2026-11-24: §10 tenancy wording now reflects ADR-0002
+(`apps/web/docs/adr/0002-tenancy-one-organization-per-deployment.md`). The
+module-size figures remain the `980fa2c` measurement and have since drifted —
+`agents/orchestrator.ts` is now ~7.5k LOC and `index.ts` ~764 LOC; see
+`docs/proposals/target-architecture-2026-11.md` for the current baseline.
+
 Package name is `shiba`. Deploy name is `shiba-ai-coworker`. License AGPL-3.0-only.
 
 ---
@@ -278,8 +284,16 @@ findings — not a feature list:
   `apps/frontend/src/components/CollaborationView.tsx`.
 - GitHub is the only repo provider, by decision. The approval gate is already
   provider-agnostic, so adding one is a layer, not a redesign.
-- Single-tenant by contract. Reversing it is a product decision for
-  `spec/GOAL.md`. **Decision pending (Prince).**
+- Tenancy: **one organization per deployment, with many workspaces inside it**
+  (ADR-0002, `apps/web/docs/adr/0002-tenancy-one-organization-per-deployment.md`;
+  `docs/proposals/target-architecture-2026-11.md` §13). The deployment — its
+  container pool, egress proxy and vault key — is the security boundary and
+  belongs to a single buyer; workspaces are the authorization and
+  data-scoping boundary inside it. This is *not* hosted multi-tenant SaaS:
+  there is no hostile-tenant isolation, and the docs say so. Until the
+  migration lands, everything sits in the default workspace; `workspace_id`
+  on user-data tables, workspace-keyed DOs, `ws`-filtered Vectorize queries
+  and `ws/{id}/` R2 prefixes arrive with it.
 - **Monorepo vs prose docs.** The tree is a pnpm+turbo monorepo:
   `apps/{backend,frontend,web}`, `pnpm-workspace.yaml`, `alchemy.run.ts` —
   recorded in `spec/GOAL.md`. **Contradiction for Prince:** `ARCHITECTURE.md`

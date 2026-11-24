@@ -3,6 +3,7 @@
  * Refresh tokens enter the auth sandbox only for the request, never task sandboxes.
  */
 import type { Env } from "../env.js";
+import { flag } from "../config/flags.js";
 import { shellJoin } from "@shiba/shared";
 import type { OpenIdDiscovery } from "./siwc.js";
 import { ChatGptOAuthError, type TokenResponse } from "./siwc-oauth.js";
@@ -127,5 +128,5 @@ export function createSandboxOAuthRunner(env: Pick<Env, "Sandbox">): SandboxOAut
 }
 
 export function sandboxOAuthEnabled(env: Pick<Env, "SHIBA_CHATGPT_SIWC_SANDBOX_OAUTH">): boolean {
-  return env.SHIBA_CHATGPT_SIWC_SANDBOX_OAUTH === "1";
+  return flag(env, "SHIBA_CHATGPT_SIWC_SANDBOX_OAUTH") === "1";
 }

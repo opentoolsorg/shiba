@@ -38,6 +38,7 @@ import { WorkspaceEvents } from "./platform/workspace-events-do.js";
 import { DiscordGateway } from "./discord-gateway-do.js";
 import { SlackImportWorkflow, AutomationRunWorkflow, SlackMediaWorkflow } from "./platform/workflows.js";
 import { dispatchQueueBatch } from "./platform/queues.js";
+import { log, withLogContext } from "./obs/log.js";
 // Rarely-hit route and cron handlers (founder-*, report/slack coworker, v1,
 // collaboration, team-model, first-run seed, inbound email) are loaded with
 // `await import()` at their call sites: evaluating them at Worker startup
@@ -87,19 +88,23 @@ let claudeSubscriptionDeprecationWarned = false;
 
 export default {
   async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext): Promise<void> {
-    try {
-      if (/^shiba-jobs(?:-|$)/.test(batch.queue)) await consumeScheduledJobs(batch, env);
-      else await dispatchQueueBatch(batch, env, ctx);
-    } catch (error) {
-      ctx.waitUntil(reportError(env, "queue", error));
-      throw error;
-    }
+    await withLogContext({ requestId: `queue:${batch.queue}` }, async () => {
+      try {
+        if (/^shiba-jobs(?:-|$)/.test(batch.queue)) await consumeScheduledJobs(batch, env);
+        else await dispatchQueueBatch(batch, env, ctx);
+      } catch (error) {
+        ctx.waitUntil(reportError(env, "queue", error));
+        throw error;
+      }
+    });
   },
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(runScheduledJobs(controller.scheduledTime ?? Date.now(), env).catch(async (error) => {
-      await reportError(env, "scheduled", error);
-      throw error;
-    }));
+    await withLogContext({ requestId: `cron:${controller.cron}` }, async () => {
+      ctx.waitUntil(runScheduledJobs(controller.scheduledTime ?? Date.now(), env).catch(async (error) => {
+        await reportError(env, "scheduled", error);
+        throw error;
+      }));
+    });
   },
   // Email Routing delivery — registered-mailbox gate + store, see email-handler.ts.
   async email(message: ForwardableEmailMessage, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -110,7 +115,13 @@ export default {
     }
   },
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
-    return withRequestTiming(request, async () => {
+    const inbound = request.headers.get("x-request-id")?.trim() ?? "";
+    const requestId = /^[A-Za-z0-9._:-]{1,128}$/.test(inbound) ? inbound : crypto.randomUUID();
+    const startedAt = Date.now();
+    const method = request.method;
+    const path = new URL(request.url).pathname;
+    return withLogContext({ requestId }, async () => {
+      const response = await withRequestTiming(request, async () => {
     env = withTimingDatabase(env);
     try {
       // A one-purpose Worker capability, verified before any identity or D1 lookup.
@@ -122,7 +133,7 @@ export default {
       if (capabilityResponse) return capabilityResponse;
       if (!claudeSubscriptionDeprecationWarned && env.SHIBA_CLAUDE_SUBSCRIPTION === "1") {
         claudeSubscriptionDeprecationWarned = true;
-        console.warn(
+        log.warn(
           "SHIBA_CLAUDE_SUBSCRIPTION is enabled: the claude-subscription harness stores Claude.ai tokens at the Worker egress boundary, which may violate Anthropic's terms — prefer claude-login (https://code.claude.com/docs/en/legal-and-compliance).",
         );
       }
@@ -183,9 +194,17 @@ export default {
       const delivery = reportError(env, "worker", error);
       if (ctx) ctx.waitUntil(delivery);
       else await delivery;
-      console.error(redactSecrets(error instanceof Error ? error.message : String(error)));
+      log.error(redactSecrets(error instanceof Error ? error.message : String(error)));
       return Response.json({ error: "Internal error." }, { status: 500 });
     }
+      });
+      log.info("http.request", {
+        method,
+        path,
+        status: response.status,
+        durationMs: Date.now() - startedAt,
+      });
+      return response;
     });
   },
 } satisfies ExportedHandler<Env>;

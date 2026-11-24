@@ -5,6 +5,7 @@ import {
 } from "@shiba/sandbox";
 import { sandboxFeatureMatrix, type SandboxFeatureMatrix } from "@shiba/shared";
 import type { Env } from "../env.js";
+import { flag } from "../config/flags.js";
 import { resolveSandboxProviderForId } from "./provider.js";
 
 export interface SandboxProviderCatalogEntry {
@@ -60,8 +61,8 @@ export function listSandboxProviderCatalog(env: Env): SandboxProviderCatalogEntr
     const { provider } = resolved;
     let detail: string | undefined;
     if (id === "computesdk") {
-      const backend = env.SHIBA_COMPUTESDK_PROVIDER?.trim() || "e2b";
-      const runner = env.SHIBA_COMPUTESDK_RUNNER_URL?.trim();
+      const backend = flag(env, "SHIBA_COMPUTESDK_PROVIDER")?.trim() || "e2b";
+      const runner = flag(env, "SHIBA_COMPUTESDK_RUNNER_URL")?.trim();
       detail = runner
         ? `Remote runner; backend=${backend}`
         : `In-process backend=${backend} (Node/Bun host only)`;

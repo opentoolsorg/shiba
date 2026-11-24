@@ -534,8 +534,11 @@ export function App(): React.JSX.Element {
   const [repeatSource, setRepeatSource] = useState<RoutineSource | null>(null);
   const [automationList, setAutomationList] = useState<AutomationRecord[]>([]);
   // Settings is a full page; the section lives in ?section= and "Back to app" returns to the previous view.
-  const [settingsSection, setSettingsSection] = useState<string>(() =>
-    typeof window === "undefined" ? "account" : normalizeSettingsSection(new URLSearchParams(window.location.search).get("section")));
+  const [settingsSection, setSettingsSection] = useState<string>(() => {
+    if (typeof window === "undefined") return "overview";
+    const section = new URLSearchParams(window.location.search).get("section");
+    return section ? normalizeSettingsSection(section) : "overview";
+  });
   const previousViewRef = useRef<MainView>(DEFAULT_VIEW);
   const clearRoomIntentRef = useRef<() => void>(() => {});
   const openView = useCallback((view: AppNavView) => {
@@ -3305,29 +3308,50 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   let destinationPanel: React.ReactNode = null;
   if (personalOnlyNotice) {
     destinationPanel = null;
-  } else if (mainView === "custom-agents" || mainView === "employee-tools" || mainView === "swarm" || mainView === "tasks") {
+  } else if (
+    mainView === "custom-agents" ||
+    mainView === "employee-tools" ||
+    mainView === "swarm" ||
+    mainView === "tasks" ||
+    (mainView === "threads" && !teamWorkspaceId && privateData)
+  ) {
     destinationPanel = (
       <AgentsPanel
         {...panelProps}
-        active={mainView === "custom-agents" ? customAgentId : mainView}
+        active={mainView === "custom-agents" ? customAgentId : mainView === "threads" ? selectedRunId ?? selectedSessionId : mainView}
         onSelect={(id) => { if (id === "employee-tools" || id === "swarm" || id === "tasks") openView(id); }}
         agents={signedIn && workspaceAuthorityReady && !teamDirectory.error ? customAgentRecords : []}
         threads={visibleWebSessions}
+        runs={mainView === "threads" ? sessions.filter((session) => !session.webSession) : []}
         // Only the open thread has a live stream; the rest fall back to stored session metadata.
         threadStates={{ [selectedSessionId]: chat.isStreaming || chat.status === "streaming" || chat.status === "submitted" ? "working" : pendingApprovals.length > 0 ? "waiting" : "idle" }}
         ownerName={orchestratorName ?? undefined}
         workspaceName={teamWorkspace?.name}
         loading={customAgentsLoading}
         error={customAgentsError}
-        onSelectAgent={(id) => { setInitialEmployeeId(id); openView("custom-agents"); }}
+        onSelectAgent={(id) => {
+          if (mainView === "threads") {
+            const latest = visibleWebSessions
+              .filter((thread) => threadAgentId(thread) === id)
+              .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+            if (latest) void handleSelectSession(latest.id);
+            else void startSidebarAgentThread(customAgentRecords.find((profile) => profile.id === id));
+            return;
+          }
+          setInitialEmployeeId(id);
+          openView("custom-agents");
+        }}
         onOpenAgent={openBotPanel}
         onSelectThread={(id) => { void handleSelectSession(id); openView("threads"); }}
+        onSelectRun={(id) => { void handleSelectSession(id); openView("threads"); }}
         onNewThread={(agentId) => { void startSidebarAgentThread(customAgentRecords.find((profile) => profile.id === agentId)); }}
         newThreadDisabledReason={taskCreationBlocker ?? undefined}
+        onNewChat={mainView === "threads" ? () => { void handleNewTask(); } : undefined}
+        onSearchAll={mainView === "threads" ? () => setCommandMenuOpen(true) : undefined}
         onNewAgent={() => openView("custom-agents")}
       />
     );
-  } else if (mainView === "threads" || mainView === "collaboration") {
+  } else if (mainView === "collaboration" || mainView === "threads") {
     destinationPanel = (
       <ChatsPanel
         {...panelProps}

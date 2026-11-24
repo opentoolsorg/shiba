@@ -1,7 +1,13 @@
 /**
  * One JSON object per line. Callers pass ids and classified codes — never
  * raw errors, tokens, or stack traces.
+ *
+ * Emission lives in `obs/log.ts` so these lines share the structured
+ * envelope (`ts`/`level`/`service`) and pick up ambient `withLogContext`
+ * fields (requestId/threadId/runId) like every other `log.*` call.
  */
+import { emitLogRecord } from "./obs/log.js";
+
 export interface StructuredLog {
   event: string;
   runId?: string;
@@ -14,13 +20,5 @@ export interface StructuredLog {
 }
 
 export function logStructured(level: "info" | "warn" | "error", fields: StructuredLog): void {
-  const line = JSON.stringify({
-    ts: new Date().toISOString(),
-    level,
-    service: "shiba",
-    ...fields,
-  });
-  if (level === "error") console.error(line);
-  else if (level === "warn") console.warn(line);
-  else console.log(line);
+  emitLogRecord(level, { ...fields });
 }

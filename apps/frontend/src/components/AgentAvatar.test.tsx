@@ -9,31 +9,27 @@ import { AgentAvatar } from "./AgentAvatar";
 afterEach(cleanup);
 
 function face(name: string): HTMLElement {
-  const node = screen.getByRole("img", { name }).querySelector(".shiba-agent-mascot") ?? screen.getByRole("img", { name });
+  const node = screen.getByRole("img", { name }).closest(".agent-avatar")?.querySelector(".shiba-agent-mascot");
   return node as HTMLElement;
 }
 
 describe("AgentAvatar", () => {
-  it("renders a deterministic visor mascot for a catalog teammate", () => {
-    const { rerender } = render(<AgentAvatar id="coding-coworker" name="Coder" />);
-    const first = face("Coder");
-    expect(first.getAttribute("data-shape")).toBe("pointed");
-    expect(first.getAttribute("data-eyes")).toBe("happy");
-    expect(first.getAttribute("data-expression")).toBe("happy");
-    expect(first.getAttribute("data-live")).toBe("true");
-    rerender(<AgentAvatar id="coding-coworker" name="Coder" />);
-    expect(face("Coder").getAttribute("data-color")).toBe(first.getAttribute("data-color"));
+  it("uses the real Shiba portrait by default", () => {
+    render(<AgentAvatar id="coding-coworker" name="Coder" />);
+    expect(document.querySelector(".agent-avatar img")?.getAttribute("src")).toBe("/assets/mascot/pet-logo.png");
   });
 
-  it("gives unknown ids a stable hashed face", () => {
-    const { rerender, unmount } = render(<AgentAvatar id="zzz-unknown" name="Zed" />);
-    const first = ["data-shape", "data-color", "data-eyes", "data-acc"].map((attr) => face("Zed").getAttribute(attr)).join("|");
-    rerender(<AgentAvatar id="zzz-unknown" name="Zed" />);
-    expect(["data-shape", "data-color", "data-eyes", "data-acc"].map((attr) => face("Zed").getAttribute(attr)).join("|")).toBe(first);
-    unmount();
-    render(<AgentAvatar id="yyy-unknown" name="Yan" />);
-    const second = ["data-shape", "data-color", "data-eyes", "data-acc"].map((attr) => face("Yan").getAttribute(attr)).join("|");
-    expect(second).not.toBe(first);
+  it("preserves uploaded portraits over the default Shiba", () => {
+    render(<AgentAvatar id="coding-coworker" name="Coder" imageSrc="/custom.png" />);
+    expect(document.querySelector(".agent-avatar img")?.getAttribute("src")).toBe("/custom.png");
+  });
+
+  it("keeps an explicitly customized mascot preset or look", () => {
+    const { rerender } = render(<AgentAvatar id="coding-coworker" name="Coder" mascotPreset="sleeping" />);
+    expect(face("Coder").getAttribute("data-eyes")).toBe("sleepy");
+    rerender(<AgentAvatar id="coding-coworker" name="Coder" look={{ shape: "bean", color: "#6e8b6a", eyes: "wink", acc: "headset" }} />);
+    expect(face("Coder").getAttribute("data-shape")).toBe("bean");
+    expect(face("Coder").getAttribute("data-eyes")).toBe("wink");
   });
 
   it("maps a role to its default look and exposes the role", () => {
@@ -62,24 +58,23 @@ describe("AgentAvatar", () => {
   });
 
   it("maps status onto the live expression and keeps the status dot", () => {
-    const { container, rerender } = render(<AgentAvatar id="x" name="Zed" size={64} status="working" />);
+    const { container, rerender } = render(<AgentAvatar id="x" name="Zed" size={64} status="working" look={{ shape: "round", color: "#ab7654", eyes: "happy", acc: "none" }} />);
     expect(screen.getByRole("img", { name: "working" })).toBeTruthy();
     expect(face("Zed").getAttribute("data-expression")).toBe("code");
     expect(face("Zed").getAttribute("data-live")).toBe("true");
     expect((container.firstChild as HTMLElement).style.width).toBe("64px");
-    rerender(<AgentAvatar id="x" name="Zed" size={64} status="waiting" />);
+    rerender(<AgentAvatar id="x" name="Zed" size={64} status="waiting" look={{ shape: "round", color: "#ab7654", eyes: "happy", acc: "none" }} />);
     expect(face("Zed").getAttribute("data-expression")).toBe("sleepy");
-    rerender(<AgentAvatar id="x" name="Zed" size={64} status="needs-approval" />);
+    rerender(<AgentAvatar id="x" name="Zed" size={64} status="needs-approval" look={{ shape: "round", color: "#ab7654", eyes: "happy", acc: "none" }} />);
     expect(face("Zed").getAttribute("data-expression")).toBe("surprised");
-    rerender(<AgentAvatar id="x" name="Zed" size={64} status="idle" live={false} />);
+    rerender(<AgentAvatar id="x" name="Zed" size={64} status="idle" live={false} look={{ shape: "round", color: "#ab7654", eyes: "happy", acc: "none" }} />);
     expect(face("Zed").getAttribute("data-live")).toBe("false");
   });
 
-  it("is decorative when requested", () => {
+  it("keeps the default portrait decorative when requested", () => {
     const { container } = render(<AgentAvatar id="x" name="Zed" decorative />);
-    const mascot = container.querySelector(".shiba-agent-mascot");
-    expect(mascot?.getAttribute("aria-hidden")).toBe("true");
-    expect(mascot?.getAttribute("role")).toBeNull();
+    expect(container.querySelector(".agent-avatar img")?.getAttribute("aria-hidden")).toBe("true");
+    expect(container.querySelector(".agent-avatar img")?.getAttribute("alt")).toBe("");
   });
 
   it("gates blink motion on prefers-reduced-motion", () => {

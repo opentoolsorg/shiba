@@ -4,7 +4,8 @@ import {
   isTeamModelMoneyContract, teamModelFundingContractSchema,
 } from "@shiba/shared";
 import type { Env } from "./env.js";
-import { COLLAB_TENANT_ID, getCollaborationMembership, getCollaborationRoom, humanActorId, listCollaborationMessages } from "./collaboration-store.js";
+import { COLLAB_TENANT_ID, ensureCollaborationSchema, getCollaborationMembership, getCollaborationRoom, humanActorId, listCollaborationMessages } from "./collaboration-store.js";
+import { flag } from "./config/flags.js";
 import { snapshotCollaborationMemory, type CollaborationMemoryNote } from "./collaboration-memory.js";
 import { getCustomAgentById, listCustomAgents } from "./custom-agents-store.js";
 import { filterEmployeesByAccess, visibleEmployees as filterVisibleEmployees } from "./governance/employee-access.js";
@@ -40,10 +41,10 @@ function lifetimeFitsSql(grant: string) {
   return `${debit.requester}+?<=${TEAM_MODEL_ACTOR_LIMIT_MICRO_USD} AND ${debit.workspace}+?<=${TEAM_MODEL_WORKSPACE_LIMIT_MICRO_USD}`;
 }
 export function teamModelPolicy(env: Env) {
-  const model = env.SHIBA_TEAM_MODEL_MODEL ?? TEAM_MODEL_TEXT_MODEL;
-  const enabled = env.SHIBA_TEAM_MODEL_SESSIONS === "1" && (model === TEAM_MODEL_TEXT_MODEL || model === TEAM_MODEL_LLAMA_MODEL);
+  const model = flag(env, "SHIBA_TEAM_MODEL_MODEL") ?? TEAM_MODEL_TEXT_MODEL;
+  const enabled = flag(env, "SHIBA_TEAM_MODEL_SESSIONS") === "1" && (model === TEAM_MODEL_TEXT_MODEL || model === TEAM_MODEL_LLAMA_MODEL);
   return { enabled, model, key: JSON.stringify({ version: POLICY_VERSION, model, enabled, actorLimitMicroUsd: TEAM_MODEL_ACTOR_LIMIT_MICRO_USD, workspaceLimitMicroUsd: TEAM_MODEL_WORKSPACE_LIMIT_MICRO_USD }),
-    reason: enabled ? null : env.SHIBA_TEAM_MODEL_SESSIONS !== "1" ? "team_model_disabled" : "team_model_policy_unsupported" };
+    reason: enabled ? null : flag(env, "SHIBA_TEAM_MODEL_SESSIONS") !== "1" ? "team_model_disabled" : "team_model_policy_unsupported" };
 }
 export function requireTeamModelPolicy(env: Env, expected?: string) {
   if (isHostedProviderAccessStopped(env)) throw new TeamModelError("hosted_provider_access_disabled", 503);

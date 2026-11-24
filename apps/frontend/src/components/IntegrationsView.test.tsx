@@ -149,6 +149,21 @@ describe("IntegrationsView native catalog", () => {
     await screen.findByRole("heading", { name: "Configured connections" });
     expect(screen.queryByRole("heading", { name: "Set up integrations" })).toBeNull();
   });
+
+it("presents connection management separately from app status and routes to real settings", async () => {
+    stubIntegrationsFetch();
+    const onNavigate = vi.fn();
+    render(<IntegrationsView onNavigate={onNavigate} />);
+    expect(await screen.findByRole("heading", { name: "Connection management" })).toBeTruthy();
+    expect(screen.getByText(/Connecting an app does not grant any employee access/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Review app setup" }));
+    expect(onNavigate).toHaveBeenCalledWith("settings");
+    fireEvent.click(screen.getAllByRole("button", { name: "Review employee permissions" })[0]!);
+    expect(onNavigate).toHaveBeenCalledWith("employee-tools");
+    expect(screen.getByRole("heading", { name: "Configured connections" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Discover and set up" })).toBeTruthy();
+  });
+
   it("focuses discovery rather than account filtering from Search connectors", async () => {
     stubIntegrationsFetch();
     render(<IntegrationsView />);

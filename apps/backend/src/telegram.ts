@@ -38,6 +38,8 @@ import type { Env } from "./env.js";
 import { tryAnswerUiBlockFallback } from "./ui-block-fallback.js";
 import { redactSecrets } from "./security.js";
 import { isApprover, parseApproverAllowlist, type ExecutionContextLike } from "./slack-approval.js";
+import { timingSafeEqual } from "./slack.js";
+import { log } from "./obs/log.js";
 
 export const TELEGRAM_WEBHOOK_PATH = "/api/telegram/webhook";
 export { TELEGRAM_SECRET_HEADER };
@@ -176,7 +178,7 @@ async function handleCallback(
     ref: { placeId: chatId, messageId },
     text: `${query.messageText ?? "Approval"}\n\n${decisionLine(approved, who)}`,
   }).catch((error: unknown) => {
-    console.error("Telegram approval card update failed", redactSecrets(String(error)));
+    log.error("Telegram approval card update failed", redactSecrets(String(error)));
   });
 }
 
@@ -235,7 +237,7 @@ export async function handleTelegramWebhook(
       ? handleMessage(inbound, env, adapter, deps)
       : Promise.resolve()
   ).catch((error: unknown) => {
-    console.error("Telegram update failed", redactSecrets(String(error)));
+    log.error("Telegram update failed", redactSecrets(String(error)));
   });
   if (ctx) {
     ctx.waitUntil(work);

@@ -9,6 +9,7 @@ import {
   getSlackImportJob,
   SlackImportStoreError,
 } from "./store.js";
+import { log } from "../obs/log.js";
 
 const PREFIX = "/api/slack-import";
 
@@ -91,7 +92,7 @@ export async function handleSlackImport(request: Request, env: Env): Promise<Res
       return json({ error: error.message }, error.status);
     }
     if (error instanceof CollaborationStoreError) return json({ error: error.message }, error.status);
-    console.error("slack import route failed", error instanceof Error ? error.message : String(error));
+    log.error("slack import route failed", error instanceof Error ? error.message : String(error));
     return json({ error: "Slack import operation failed." }, 503);
   }
 }

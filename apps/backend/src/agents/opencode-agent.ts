@@ -16,6 +16,7 @@ import {
 } from "ai";
 import type { Env } from "../env.js";
 import { recordRunOutcome } from "../observability.js";
+import { flag } from "../config/flags.js";
 import { publishFilesAsPullRequest } from "../github.js";
 import {
   addPullToProject,
@@ -75,6 +76,7 @@ import { prepareRunOutputArchive } from "../run-output-archive-admission.js";
 import { isQuietRoutine } from "../routine-outcome.js";
 import { DASHBOARD_ORG_ID } from "../org-request-auth.js";
 import { saveRunComputerScreenshot } from "../run-computer-output.js";
+import { log } from "../obs/log.js";
 
 export async function pinSandboxEgress(
   env: Env,
@@ -87,7 +89,7 @@ export async function pinSandboxEgress(
   const instance = await getSandboxInstance(env, sandboxId, selection);
   if (!instance.pinEgress) {
     throw new Error(
-      `Sandbox provider "${env.SHIBA_SANDBOX_PROVIDER ?? "cloudflare"}" cannot pin egress at the edge.`,
+      `Sandbox provider "${flag(env, "SHIBA_SANDBOX_PROVIDER") ?? "cloudflare"}" cannot pin egress at the edge.`,
     );
   }
   const outboundByHost =
@@ -814,7 +816,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
       const itemId = await addPullToProject(board.projectId, nodeId, token);
       await setItemStatus(board.projectId, itemId, "In review", token);
     } catch (error) {
-      console.warn(`project board sync failed: ${error instanceof Error ? error.message : String(error)}`);
+      log.warn(`project board sync failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }

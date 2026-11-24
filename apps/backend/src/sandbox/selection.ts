@@ -1,5 +1,6 @@
 import { parseSandboxProviderId, type SandboxProviderId } from "@shiba/sandbox";
 import type { Env } from "../env.js";
+import { flag } from "../config/flags.js";
 import { getOrgSandboxProvider, type OrgSandboxSettings } from "../org-sandbox-store.js";
 
 export interface SandboxSelectionContext {
@@ -43,7 +44,7 @@ export async function resolveSandboxSelection(
     if (fromOrg) return fromOrg;
   }
 
-  const fromDeploy = tryId(env.SHIBA_SANDBOX_PROVIDER, "deployment");
+  const fromDeploy = tryId(flag(env, "SHIBA_SANDBOX_PROVIDER"), "deployment");
   if (fromDeploy) return fromDeploy;
 
   return { providerId: "cloudflare", source: "deployment" };

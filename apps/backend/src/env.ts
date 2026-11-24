@@ -279,6 +279,8 @@ export interface Env {
   SHIBA_SANDBOX_EGRESS_ALLOWLIST?: string;
   /** Comma-separated KEY=value pairs forwarded into sandbox exec (non-secret). */
   SHIBA_SANDBOX_ENV_PASSTHROUGH?: string;
+  /** Custom sandbox provider plugin module (registerSandboxProvider from @shiba/sandbox). */
+  SHIBA_SANDBOX_PLUGIN?: string;
   /** When `SHIBA_SANDBOX_PROVIDER=e2b` stub: `1` = mock instance (tests). */
   SHIBA_E2B_MOCK?: string;
   /** Opt-in for docker-local / hosted sandboxes that cannot enforce Worker egress. */

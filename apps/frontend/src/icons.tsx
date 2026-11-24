@@ -40,6 +40,7 @@ import {
   Clock01Icon,
   Clock03Icon,
   CloudIcon,
+  CommandIcon,
   ComputerTerminal01Icon,
   ContainerIcon,
   Copy01Icon,
@@ -255,6 +256,7 @@ export const CheckCircle2 = defineIcon("CheckCircle2", CheckmarkCircle02Icon);
 export const CircleCheck = CheckCircle2;
 export const Circle = defineIcon("Circle", CircleIcon);
 export const Cloud = defineIcon("Cloud", CloudIcon);
+export const Command = defineIcon("Command", CommandIcon);
 export const Clock3 = defineIcon("Clock3", Clock03Icon);
 export const Container = defineIcon("Container", ContainerIcon);
 export const CornerLeftUp = defineIcon("CornerLeftUp", CornerLeftUpIcon);

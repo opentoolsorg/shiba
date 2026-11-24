@@ -40,6 +40,7 @@ export const ROUTES: readonly RouteEntry[] = [
   route("share-read", "ingress", "GET", "^(?:/share/[cf]/[^/]+|/api/share/file/[^/]+)$", "public", handlers.publicShareResponse, "Token capability read; unknown/expired tokens fail closed."),
   route("share-early-management", "ingress", "*", "^/api/share$", "session", handlers.publicShareResponse, "Management retains its own session verification."),
   route("employeeAccessResponse", "authenticated", "*", "^/api/governance/employees/[^/]+/access/?$", "session", handlers.employeeAccessResponse),
+  route("adminFlagsResponse", "authenticated", "GET", "^/api/admin/flags$", "session", handlers.adminFlagsResponse, "Deployment-operator read of the runtime flag registry; secret values are never exposed."),
   route("observabilityResponse", "authenticated", "*", "^/api/observability$", "session", handlers.observabilityResponse),
   route("outputArchiveResponse", "authenticated", "*", "^/api/run-output-archives(?:/|$)", "session", handlers.outputArchiveResponse),
   route("slackInstallationResponse", "authenticated", "*", "^/api/slack/installations(?:/|$)", "session", handlers.slackInstallationResponse),

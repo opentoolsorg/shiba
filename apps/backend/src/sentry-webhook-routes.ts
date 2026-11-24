@@ -13,6 +13,7 @@
 import { automationsStub } from "./automations-stub.js";
 import type { Env } from "./env.js";
 import { parseGitHubRepoUrl, redactSecrets, timingSafeEqualString } from "./security.js";
+import { log } from "./obs/log.js";
 
 export const SENTRY_WEBHOOK_PATH = "/api/sentry/webhook";
 
@@ -176,7 +177,7 @@ export async function handleSentryWebhook(request: Request, env: Env): Promise<R
   }
   const secret = env.SENTRY_WEBHOOK_SECRET ?? "";
   if (!secret) {
-    console.warn("Webhook disabled: SENTRY_WEBHOOK_SECRET is unset.");
+    log.warn("Webhook disabled: SENTRY_WEBHOOK_SECRET is unset.");
     return Response.json(
       { error: "Webhook is disabled." },
       { status: 503 },
@@ -234,7 +235,7 @@ export async function handleSentryWebhook(request: Request, env: Env): Promise<R
       return Response.json({ ok: true, deduped: true });
     }
   } catch (error: unknown) {
-    console.error(
+    log.error(
       `sentry delivery dedupe failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
     );
     return Response.json({ error: "Delivery dedupe unavailable; retry." }, { status: 503 });
@@ -259,7 +260,7 @@ export async function handleSentryWebhook(request: Request, env: Env): Promise<R
   );
   if (!queued.ok) {
     const detail = await queued.text().catch(() => "");
-    console.error(`sentry queue failed: ${queued.status} ${redactSecrets(detail.slice(0, 300))}`);
+    log.error(`sentry queue failed: ${queued.status} ${redactSecrets(detail.slice(0, 300))}`);
     return Response.json({ error: "Could not queue the fix run; retry." }, { status: 502 });
   }
   const queuedBody = (await queued.json().catch(() => ({}))) as { approvalId?: string };

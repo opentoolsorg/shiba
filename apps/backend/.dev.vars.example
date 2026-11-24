@@ -76,6 +76,7 @@
 # One-release legacy verification grace; set 0 after migration.
 # SHIBA_LEGACY_SIGNING_FALLBACK=1
 # ARTIFACT_SIGNING_KEY=
+# Credential vault (M05): JSON {kid: hex64} keyring for v1. ciphertext rows.
 
 # Optional bearer token for POST /api/trigger (e.g. iPhone Apple Shortcuts).
 # TRIGGER_TOKEN=
@@ -147,6 +148,8 @@
 # --- Optional sandbox providers (@shiba/sandbox) -----------------------------
 
 # E2B_API_KEY=
+# ComputeSDK runner bearer token (only with SHIBA_COMPUTESDK_RUNNER_URL).
+# SHIBA_COMPUTESDK_RUNNER_TOKEN=
 
 # --- Providers (per-user OAuth — opencodex-style local dev) ---------------
 

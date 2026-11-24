@@ -3,6 +3,7 @@ import { capabilitiesForComputesdkBackend } from "@shiba/sandbox/adapters/comput
 import { loadComputesdkClient, isComputesdkHostRuntime } from "@shiba/sandbox/adapters/computesdk-load";
 import { SandboxError, type SandboxProvider } from "@shiba/sandbox";
 import type { Env } from "../env.js";
+import { flag } from "../config/flags.js";
 
 /** Loads a fully wired ComputeSDK provider on Node/Bun hosts. */
 export async function buildComputesdkHostLoader(env: Env): Promise<SandboxProvider> {
@@ -14,9 +15,9 @@ export async function buildComputesdkHostLoader(env: Env): Promise<SandboxProvid
       { provider: "computesdk" },
     );
   }
-  const backend = env.SHIBA_COMPUTESDK_PROVIDER?.trim().toLowerCase() ?? "";
+  const backend = flag(env, "SHIBA_COMPUTESDK_PROVIDER")?.trim().toLowerCase() ?? "";
   const client = await loadComputesdkClient({
-    SHIBA_COMPUTESDK_PROVIDER: env.SHIBA_COMPUTESDK_PROVIDER,
+    SHIBA_COMPUTESDK_PROVIDER: flag(env, "SHIBA_COMPUTESDK_PROVIDER"),
     E2B_API_KEY: env.E2B_API_KEY,
     MODAL_TOKEN_ID: env.MODAL_TOKEN_ID,
     MODAL_TOKEN_SECRET: env.MODAL_TOKEN_SECRET,
@@ -26,8 +27,9 @@ export async function buildComputesdkHostLoader(env: Env): Promise<SandboxProvid
     CLOUDFLARE_SANDBOX_URL: env.CLOUDFLARE_SANDBOX_URL,
     CLOUDFLARE_SANDBOX_API_KEY: env.CLOUDFLARE_SANDBOX_API_KEY,
   });
-  const timeoutMs = env.SHIBA_SANDBOX_TIMEOUT_MS
-    ? Number.parseInt(env.SHIBA_SANDBOX_TIMEOUT_MS, 10)
+  const timeoutRaw = flag(env, "SHIBA_SANDBOX_TIMEOUT_MS");
+  const timeoutMs = timeoutRaw
+    ? Number.parseInt(timeoutRaw, 10)
     : undefined;
   return createComputesdkSandboxProvider({
     client,

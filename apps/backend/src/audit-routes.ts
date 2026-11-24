@@ -3,6 +3,7 @@ import type { Env } from "./env.js";
 import { isAuthorizedRequest } from "./request-auth.js";
 import { clampedLimit, MAX_LIST_LIMIT, methodNotAllowed } from "./route-utils.js";
 import { redactSecrets } from "./security.js";
+import { log } from "./obs/log.js";
 
 /**
  * `GET /api/audit` — the dashboard's read on the D1 audit log (megaplan
@@ -36,7 +37,7 @@ export async function handleAudit(request: Request, env: Env): Promise<Response 
   } catch (error) {
     // The placeholder-id binding throws until `wrangler d1 create` runs —
     // the same 503 the mailbox/memory routes answer while unprovisioned.
-    console.warn(
+    log.warn(
       `audit read failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
     );
     return Response.json({ error: "Audit log is unavailable." }, { status: 503 });

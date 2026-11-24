@@ -47,6 +47,7 @@ import {
   type OwnerMemorySourceInput,
   type OwnerMemorySourcePatch,
 } from "./owner-memory-store.js";
+import { log } from "./obs/log.js";
 
 /** Reserved DO name for the shared registry + sessions instance. */
 export const MEMORY_REGISTRY_NAME = "global";
@@ -157,9 +158,7 @@ function factMetadata(agent: string, fact: FactRecord): FactMetadata {
   if (metadataBytes(m) <= MAX_METADATA_BYTES) {
     return m;
   }
-  console.warn(
-    `memory_metadata_fallback ${JSON.stringify({ agent, factId: fact.id })}`,
-  );
+  log.warn("memory_metadata_fallback", { agent, factId: fact.id });
   // Still oversized (a pathological source/agent): degrade to the filter
   // field — the hit stops being recallable-from-metadata and joins back to
   // the fact row like a pre-metadata vector.
@@ -388,12 +387,10 @@ export class Memory {
     try {
       await this.sweep();
     } catch (error) {
-      console.warn(
-        `memory_sweep_failed ${JSON.stringify({
-          instance: this.agent,
-          error: error instanceof Error ? error.message : String(error),
-        })}`,
-      );
+      log.warn("memory_sweep_failed", {
+        instance: this.agent,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
     if (memoryEnabled(this.env.MEMORY_ENABLED)) {
       await this.ctx.storage.setAlarm(this.nextSweepAt());
@@ -472,12 +469,10 @@ export class Memory {
     try {
       await this.deleteVectorStrict(factId);
     } catch (error) {
-      console.warn(
-        `memory_vector_delete_failed ${JSON.stringify({
-          factId,
-          error: error instanceof Error ? error.message : String(error),
-        })}`,
-      );
+      log.warn("memory_vector_delete_failed", {
+        factId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -517,12 +512,10 @@ export class Memory {
     try {
       await this.dropRegistryEntryStrict(factId);
     } catch (error) {
-      console.warn(
-        `memory_registry_unregister_failed ${JSON.stringify({
-          factId,
-          error: error instanceof Error ? error.message : String(error),
-        })}`,
-      );
+      log.warn("memory_registry_unregister_failed", {
+        factId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -554,12 +547,10 @@ export class Memory {
     try {
       await this.env.MEMORY_VECTORS.deleteByIds(ids);
     } catch (error) {
-      console.warn(
-        `memory_vector_delete_failed ${JSON.stringify({
-          count: ids.length,
-          error: error instanceof Error ? error.message : String(error),
-        })}`,
-      );
+      log.warn("memory_vector_delete_failed", {
+        count: ids.length,
+        error: error instanceof Error ? error.message : String(error),
+      });
       return;
     }
     for (const id of ids) {
@@ -716,7 +707,7 @@ export class Memory {
           filter: { agent: this.agent },
         });
       } catch (error) {
-        console.warn("bank dedupe probe failed; banking without dedupe", error);
+        log.warn("bank dedupe probe failed; banking without dedupe", error);
       }
       const nearest = matches?.matches[0];
       if (nearest !== undefined && nearest.score >= DEDUPE_THRESHOLD) {
@@ -745,12 +736,10 @@ export class Memory {
               // Metadata refresh is best-effort: worst case is an expired
               // hit collected early in stored-metadata recall, which the
               // owning stub's own expiry path already tolerates.
-              console.warn(
-                `memory_dedupe_ttl_metadata_refresh_failed ${JSON.stringify({
-                  factId: existing.id,
-                  error: error instanceof Error ? error.message : String(error),
-                })}`,
-              );
+              log.warn("memory_dedupe_ttl_metadata_refresh_failed", {
+                factId: existing.id,
+                error: error instanceof Error ? error.message : String(error),
+              });
             }
           }
           return json(
@@ -873,9 +862,9 @@ export class Memory {
         try {
           live = await this.fetchFact(agent, factId);
         } catch (error) {
-          console.warn(`memory_recall_fetch_failed ${JSON.stringify({
+          log.warn("memory_recall_fetch_failed", {
             factId, agent, error: error instanceof Error ? error.message : String(error),
-          })}`);
+          });
           continue;
         }
         if (live === null) {
@@ -910,13 +899,11 @@ export class Memory {
       } catch (error) {
         // Same skip policy as the orphan above: one unresponsive agent
         // stub must not turn the whole cross-agent recall into a 500.
-        console.warn(
-          `memory_recall_fetch_failed ${JSON.stringify({
-            factId,
-            agent,
-            error: error instanceof Error ? error.message : String(error),
-          })}`,
-        );
+        log.warn("memory_recall_fetch_failed", {
+          factId,
+          agent,
+          error: error instanceof Error ? error.message : String(error),
+        });
         continue;
       }
       if (fact === null) {
@@ -1054,9 +1041,9 @@ export class Memory {
         }
         this.store.clearIndexRepair(id);
       } catch (error) {
-        console.warn(`memory_index_repair_failed ${JSON.stringify({
+        log.warn("memory_index_repair_failed", {
           id, error: error instanceof Error ? error.message : String(error),
-        })}`);
+        });
       }
     }
   }
@@ -1078,12 +1065,10 @@ export class Memory {
         await this.deleteVectorStrict(id);
         await this.dropRegistryEntryStrict(id);
       } catch (error) {
-        console.error(
-          `memory_forget_incomplete ${JSON.stringify({
-            id,
-            error: error instanceof Error ? error.message : String(error),
-          })}`,
-        );
+        log.error("memory_forget_incomplete", {
+          id,
+          error: error instanceof Error ? error.message : String(error),
+        });
         await this.repairFactIndexes();
         return json({ error: "Could not fully delete this fact; try again." }, { status: 503 });
       }

@@ -14,6 +14,7 @@ import {
 } from "@shiba/sandbox";
 import { createComputesdkRemoteSandboxProvider } from "@shiba/sandbox/adapters/computesdk-remote";
 import type { Env } from "../env.js";
+import { flag } from "../config/flags.js";
 import { getSandbox, type SandboxRpcFacade } from "./client.js";
 import { buildComputesdkHostLoader } from "./computesdk-lazy.js";
 import { resolveSandboxSelection, type SandboxSelectionContext } from "./selection.js";
@@ -31,16 +32,16 @@ function truthyFlag(raw: string | undefined): boolean {
 
 function sandboxEnvSlice(env: Env): Record<string, string | undefined> {
   return {
-    SHIBA_SANDBOX_PROVIDER: env.SHIBA_SANDBOX_PROVIDER,
-    SHIBA_SANDBOX_TIMEOUT_MS: env.SHIBA_SANDBOX_TIMEOUT_MS,
-    SHIBA_SANDBOX_REGION: env.SHIBA_SANDBOX_REGION,
-    SHIBA_SANDBOX_EGRESS_ALLOWLIST: env.SHIBA_SANDBOX_EGRESS_ALLOWLIST,
-    SHIBA_SANDBOX_ENV_PASSTHROUGH: env.SHIBA_SANDBOX_ENV_PASSTHROUGH,
+    SHIBA_SANDBOX_PROVIDER: flag(env, "SHIBA_SANDBOX_PROVIDER"),
+    SHIBA_SANDBOX_TIMEOUT_MS: flag(env, "SHIBA_SANDBOX_TIMEOUT_MS"),
+    SHIBA_SANDBOX_REGION: flag(env, "SHIBA_SANDBOX_REGION"),
+    SHIBA_SANDBOX_EGRESS_ALLOWLIST: flag(env, "SHIBA_SANDBOX_EGRESS_ALLOWLIST"),
+    SHIBA_SANDBOX_ENV_PASSTHROUGH: flag(env, "SHIBA_SANDBOX_ENV_PASSTHROUGH"),
     INSTANCE_TYPE: env.INSTANCE_TYPE,
-    SHIBA_DOCKER_SANDBOX_IMAGE: env.SHIBA_DOCKER_SANDBOX_IMAGE,
-    SHIBA_DOCKER_PREVIEW_HOST: env.SHIBA_DOCKER_PREVIEW_HOST,
-    SHIBA_COMPUTESDK_PROVIDER: env.SHIBA_COMPUTESDK_PROVIDER,
-    SHIBA_E2B_MOCK: env.SHIBA_E2B_MOCK,
+    SHIBA_DOCKER_SANDBOX_IMAGE: flag(env, "SHIBA_DOCKER_SANDBOX_IMAGE"),
+    SHIBA_DOCKER_PREVIEW_HOST: flag(env, "SHIBA_DOCKER_PREVIEW_HOST"),
+    SHIBA_COMPUTESDK_PROVIDER: flag(env, "SHIBA_COMPUTESDK_PROVIDER"),
+    SHIBA_E2B_MOCK: flag(env, "SHIBA_E2B_MOCK"),
     E2B_API_KEY: env.E2B_API_KEY,
     MODAL_TOKEN_ID: env.MODAL_TOKEN_ID,
     MODAL_TOKEN_SECRET: env.MODAL_TOKEN_SECRET,
@@ -63,10 +64,10 @@ function buildProvider(
 
   // An org-supplied URL must never be paired with the deployment token.
   const orgRunnerUrl = remoteOverrides?.runnerUrl?.trim();
-  const runnerUrl = orgRunnerUrl || env.SHIBA_COMPUTESDK_RUNNER_URL?.trim();
+  const runnerUrl = orgRunnerUrl || flag(env, "SHIBA_COMPUTESDK_RUNNER_URL")?.trim();
   const runnerToken = orgRunnerUrl
     ? remoteOverrides?.runnerToken?.trim()
-    : env.SHIBA_COMPUTESDK_RUNNER_TOKEN?.trim();
+    : flag(env, "SHIBA_COMPUTESDK_RUNNER_TOKEN")?.trim();
   if (id === "computesdk" && orgRunnerUrl && !runnerToken) {
     throw new SandboxError(
       "provider_misconfigured",
@@ -76,7 +77,7 @@ function buildProvider(
   }
   const backendProvider =
     remoteOverrides?.backendProvider?.trim().toLowerCase() ||
-    env.SHIBA_COMPUTESDK_PROVIDER?.trim().toLowerCase() ||
+    flag(env, "SHIBA_COMPUTESDK_PROVIDER")?.trim().toLowerCase() ||
     "e2b";
 
   const config = parseSandboxProviderConfig(
@@ -87,7 +88,7 @@ function buildProvider(
     },
     id,
   );
-  const allowUnenforcedEgress = truthyFlag(env.SHIBA_SANDBOX_ALLOW_UNENFORCED_EGRESS);
+  const allowUnenforcedEgress = truthyFlag(flag(env, "SHIBA_SANDBOX_ALLOW_UNENFORCED_EGRESS"));
 
   const computesdkRemoteClient =
     id === "computesdk" && runnerUrl && runnerToken
@@ -122,7 +123,7 @@ export function resolveSandboxProviderForId(env: Env, providerId: SandboxProvide
 
 /** @deprecated Prefer {@link resolveSandboxProviderForSelection}. */
 export function resolveSandboxProvider(env: Env): SandboxProvider {
-  const id = parseSandboxProviderId(env.SHIBA_SANDBOX_PROVIDER);
+  const id = parseSandboxProviderId(flag(env, "SHIBA_SANDBOX_PROVIDER"));
   return resolveSandboxProviderForId(env, id);
 }
 

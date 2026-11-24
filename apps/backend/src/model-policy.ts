@@ -28,6 +28,7 @@ import {
 import { soleReadyConnection } from "./model-defaults.js";
 import { assertConnectionEligibleForRun, type RunInitiatorContext } from "./subscription-routing.js";
 import { DEFAULT_ORCHESTRATOR_MODEL } from "./session-distill.js";
+import { log } from "./obs/log.js";
 
 export interface ModelConfigSnapshot {
   connections: Connection[];
@@ -72,7 +73,7 @@ export async function readModelConfig(env: Pick<Env, "ModelConfig">): Promise<Mo
       connectionOrder,
     };
   } catch (error) {
-    console.warn(
+    log.warn(
       `model config read failed: ${error instanceof Error ? error.message : String(error)}`,
     );
     return EMPTY_SNAPSHOT;

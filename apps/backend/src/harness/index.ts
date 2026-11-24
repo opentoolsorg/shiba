@@ -16,6 +16,7 @@ import { grokHarness } from "./grok.js";
 import { piHarness } from "./pi.js";
 import { buildOpencodeConfig, OPENCODE_PROVIDERS, opencodeHarness } from "./opencode.js";
 import type { Env } from "../env.js";
+import { flag } from "../config/flags.js";
 import { modelCredentialKeyConfigured } from "../subscription-credentials.js";
 import { userProviderOAuthReady } from "../user-provider-oauth-store.js";
 import { GIT_EGRESS_HOSTS, type AgentHarness, type AgentHarnessName, type RuntimeName } from "./types.js";
@@ -139,14 +140,14 @@ type HarnessGateEnv = {
 /** Personal subscription lanes are available with storage unless explicitly disabled. */
 const HARNESS_GATES: Partial<Record<AgentHarnessName, (env: HarnessGateEnv) => boolean>> = {
   "claude-subscription": (env) =>
-    env?.SHIBA_CLAUDE_SUBSCRIPTION === "1" &&
+    flag(env, "SHIBA_CLAUDE_SUBSCRIPTION") === "1" &&
     (modelCredentialKeyConfigured(env as Env) || Boolean(env?.CLAUDE_SUBSCRIPTION_TOKEN)),
-  "codex-subscription": (env) => env?.SHIBA_CODEX_SUBSCRIPTION !== "0" &&
-    (env?.SHIBA_CODEX_SUBSCRIPTION === "1" || modelCredentialKeyConfigured(env as Env)),
-  "antigravity-subscription": (env) => env?.SHIBA_ANTIGRAVITY_SUBSCRIPTION !== "0" &&
-    (env?.SHIBA_ANTIGRAVITY_SUBSCRIPTION === "1" || userProviderOAuthReady(env as Env)),
-  "cursor-subscription": (env) => env?.SHIBA_CURSOR_SUBSCRIPTION !== "0" &&
-    (env?.SHIBA_CURSOR_SUBSCRIPTION === "1" || userProviderOAuthReady(env as Env)),
+  "codex-subscription": (env) => flag(env, "SHIBA_CODEX_SUBSCRIPTION") !== "0" &&
+    (flag(env, "SHIBA_CODEX_SUBSCRIPTION") === "1" || modelCredentialKeyConfigured(env as Env)),
+  "antigravity-subscription": (env) => flag(env, "SHIBA_ANTIGRAVITY_SUBSCRIPTION") !== "0" &&
+    (flag(env, "SHIBA_ANTIGRAVITY_SUBSCRIPTION") === "1" || userProviderOAuthReady(env as Env)),
+  "cursor-subscription": (env) => flag(env, "SHIBA_CURSOR_SUBSCRIPTION") !== "0" &&
+    (flag(env, "SHIBA_CURSOR_SUBSCRIPTION") === "1" || userProviderOAuthReady(env as Env)),
   // Registry agents are arbitrary binaries — the lane stays dark until an
   // operator pins a snapshot (ACP_REGISTRY_JSON) AND names allowed ids.
   acp: (env) => acpRegistryEnabled(env),
