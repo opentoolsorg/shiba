@@ -150,6 +150,7 @@ interface Handoff {
   depth: number;
   remainingBudget: number;
   status: "active" | "cancelled";
+  grantedCapabilities: string[];
   createdAt: number;
   approvalId?: string;
   runId?: string;
@@ -939,9 +940,17 @@ function ScopedCollaborationView({
     onTaskDraftConsumed?.(incomingTaskDraft.id);
   };
   const recipients = members.filter((member) => member.actorId !== effectiveActorId);
+  // Mirrors the request body sent below: grantedCapabilities is never set, so the
+  // backend applies this default — a parent can only be continued when its own
+  // grants cover it and it still has depth budget left.
+  const requestedCapabilities = ["room.read", "message.send", "handoff.create", "task.cancel"];
   const parentHandoffs = (detail?.handoffs ?? []).filter(
     (handoff) =>
       handoff.status === "active" &&
+      handoff.remainingBudget > 0 &&
+      requestedCapabilities.every((capability) =>
+        (handoff.grantedCapabilities ?? []).includes(capability),
+      ) &&
       (handoff.recipientActorId === effectiveActorId ||
         handoff.senderUserId === detail?.currentUserId) &&
       handoff.taskId === taskId.trim(),
