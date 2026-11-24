@@ -1638,6 +1638,25 @@ export async function cancelCollaborationHandoff(
   return Number(result.meta?.changes ?? 0) > 0;
 }
 
+/** Cancels only the given row. Used for a row this request just created and is
+ *  rejecting — chain cancellation would take the still-active ancestors with it. */
+export async function cancelCreatedCollaborationHandoff(
+  env: Pick<Env, "AGENT_AUDIT">,
+  scope: CollaborationScope,
+  handoffId: string,
+  cancelledAt: number,
+): Promise<boolean> {
+  await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
+  const result = await env.AGENT_AUDIT.prepare(
+    `UPDATE collaboration_handoffs SET status='cancelled',cancelled_at=?
+     WHERE tenant_id=? AND workspace_id=? AND handoff_id=? AND status='active'`,
+  )
+    .bind(cancelledAt, scope.tenantId, scope.workspaceId, handoffId)
+    .run();
+  return Number(result.meta?.changes ?? 0) > 0;
+}
+
 export async function ensureCollaborationSchema(env: Pick<Env, "AGENT_AUDIT">): Promise<void> {
   if (!env.AGENT_AUDIT) throw new CollaborationStoreError("Collaboration storage is unavailable.", 503);
 }

@@ -25,6 +25,7 @@ import {
   CollaborationStoreError,
   approveCollaborationSlackDeliveryIntent,
   cancelCollaborationHandoff,
+  cancelCreatedCollaborationHandoff,
   createCollaborationSlackDeliveryIntent,
   createCollaborationSlackLink,
   createChildCollaborationHandoff,
@@ -1405,7 +1406,7 @@ export async function handleCollaboration(
       if (recipient.actorKind === "agent" && !saved.approvalId) {
         let task = typeof body.task === "string" ? body.task.trim() : "";
         if (!task || task.length > 4_000) {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          await cancelCreatedCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody(
             "An employee request must contain 1–4000 characters of task instructions.",
           );
@@ -1421,7 +1422,7 @@ export async function handleCollaboration(
                 recipient.profileVersion,
               );
         if (!profile) {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          await cancelCreatedCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return json({ error: "Pinned employee profile is no longer available." }, 409);
         }
         let personalExecution: PersonalExecutionSnapshot | undefined;
@@ -1432,25 +1433,25 @@ export async function handleCollaboration(
             typeof (selection as Record<string, unknown>).grantId !== "string" ||
             !Number.isSafeInteger((selection as Record<string, unknown>).expectedVersion) ||
             ["runtime", "targetMachineId", "executionTarget", "repoUrl", "harness", "codingModel", "model", "connectionId", "publishPullRequest", "runSetup", "env", "authAccount", "reasoningEffort", "testCommand"].some((key) => body[key] !== undefined)) {
-            await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+            await cancelCreatedCollaborationHandoff(env, scope, saved.handoffId, Date.now());
             return invalidBody("Select one current personal execution grant without overriding its account, machine, model or repository.");
           }
           const owner = await resolvePersonalExecutionOwner(request, env);
           const grant = owner && owner.actorId === scope.userId && owner.workspaceId === scope.workspaceId
             ? await resolvePersonalExecutionGrant(env, owner, (selection as { grantId: string }).grantId) : null;
           if (!grant || grant.grantVersion !== (selection as { expectedVersion: number }).expectedVersion) {
-            await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+            await cancelCreatedCollaborationHandoff(env, scope, saved.handoffId, Date.now());
             return json({ error: "Your personal account grant expired, changed or is unavailable. Review it before requesting work." }, 409);
           }
           personalExecution = grant;
           if (profile.config.toolScopes?.length) {
-            await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+            await cancelCreatedCollaborationHandoff(env, scope, saved.handoffId, Date.now());
             return json({ error: "Personal local work requires an employee without Worker app tools. Local account consent does not fund or grant those tools." }, 403);
           }
         }
         const configuredScopes = profile.config.toolScopes ?? [];
         if (configuredScopes.some((toolScope) => !isSupportedEmployeeToolScope(toolScope))) {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          await cancelCreatedCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return json({ error: "This employee has an unsupported app-tool scope. Update its policy before requesting work." }, 409);
         }
         if (configuredScopes.length > 0) {
@@ -1461,29 +1462,29 @@ export async function handleCollaboration(
             scope.userId,
           );
           if (!toolPolicy || configuredScopes.some((toolScope) => !toolPolicy.allowed.includes(toolScope))) {
-            await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+            await cancelCreatedCollaborationHandoff(env, scope, saved.handoffId, Date.now());
             return json({ error: "The requesting room member does not have the employee's active app-tool grants. Update policy before requesting work." }, 403);
           }
         }
         if (body.runtime !== undefined && body.runtime !== "sandbox" && body.runtime !== "local") {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          await cancelCreatedCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Employee execution target must be cloud sandbox or a paired computer.");
         }
         const targetResult = body.executionTarget === undefined
           ? null
           : executionTargetSchema.safeParse(body.executionTarget);
         if (body.executionTarget !== undefined && !targetResult?.success) {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          await cancelCreatedCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Employee work destination is invalid.");
         }
         const requestedTarget = targetResult?.success ? targetResult.data : undefined;
         if (requestedTarget?.kind === "connected-app") {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          await cancelCreatedCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Connected-app room work is not supported yet.");
         }
         const runtime = personalExecution || body.runtime === "local" ? "local" : "sandbox";
         if (requestedTarget?.kind === "artifact-workspace" && runtime === "local" && (personalExecution || !requestedTarget.expectedDeliverables.length)) {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          await cancelCreatedCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Local artifact work requires nonempty approved deliverables and cannot use a personal repository grant.");
         }
         const repoUrl = personalExecution ? personalExecution.repoUrl : requestedTarget?.kind === "artifact-workspace"
@@ -1494,20 +1495,20 @@ export async function handleCollaboration(
               ? body.repoUrl.trim()
               : (profile.config.defaultRepoUrl ?? "");
         if (requestedTarget?.kind === "artifact-workspace" && (typeof body.repoUrl === "string" && body.repoUrl.trim())) {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          await cancelCreatedCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Choose either a repository or an artifact workspace, not both.");
         }
         if (requestedTarget?.kind !== "artifact-workspace" && !repoUrl) {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          await cancelCreatedCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Choose a repository, an artifact workspace, or configure a default repository on the employee profile.");
         }
         if (requestedTarget?.kind === "repository" && typeof body.repoUrl === "string" && body.repoUrl.trim() && body.repoUrl.trim() !== requestedTarget.repoUrl) {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          await cancelCreatedCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Repository URL must match the explicit repository destination.");
         }
         const targetMachineId = personalExecution?.machineId ?? (typeof body.targetMachineId === "string" ? body.targetMachineId.trim() : "");
         if (runtime === "local" && !targetMachineId) {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          await cancelCreatedCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Choose a paired computer for local employee work.");
         }
         let executorAgentName = saved.executorAgentName ?? mintCollaborationExecutor(scope, resolvedUserId);
@@ -1558,7 +1559,7 @@ export async function handleCollaboration(
         const runId = `agent-tool:${approval.approvalId}`;
         // A pending approval cannot dispatch until both this binding and the handoff link exist.
         if (!await bindSlackCoworkerApproval(env, saved.handoffId, approval.approvalId, approval.task)) {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          await cancelCreatedCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return json({ error: "Slack coworker approval source changed.", handoffId: saved.handoffId, retryable: false }, 409);
         }
         await bindCollaborationContextApproval(env, saved.handoffId, approval.approvalId, approval.task);
@@ -1576,7 +1577,7 @@ export async function handleCollaboration(
           // approval/run identity was not available when the cancellation
           // callback first ran. Now that it is known, propagate cancellation
           // directly so the durable pending approval cannot be stranded.
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now()).catch(() => false);
+          await cancelCreatedCollaborationHandoff(env, scope, saved.handoffId, Date.now()).catch(() => false);
           const cleanup = await cancelLinkedHandoffExecutors(env, [{
             ...saved,
             status: "cancelled",
