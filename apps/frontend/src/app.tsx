@@ -695,9 +695,14 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       mobileNavTriggerRef.current?.focus();
     }
   }, [mobileNavOpen]);
-  const [sessionsCollapsed, setSessionsCollapsed] = useState(() =>
+  const [globalSessionsCollapsed, setGlobalSessionsCollapsed] = useState(() =>
     typeof window !== "undefined"
       ? localStorage.getItem("shiba:sidebar-collapsed") === "true"
+      : false,
+  );
+  const [personalThreadsCollapsed, setPersonalThreadsCollapsed] = useState(() =>
+    typeof window !== "undefined"
+      ? localStorage.getItem("shiba:personal-threads-sidebar-collapsed") === "true"
       : false,
   );
   const [workPanelCollapsed, setWorkPanelCollapsed] = useState(() =>
@@ -710,20 +715,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   useEffect(() => {
     if (mainView !== "work") setWorkInspectionRequest(undefined);
   }, [mainView]);
-
-  const toggleSessionsCollapsed = useCallback(() => {
-    setSessionsCollapsed((current) => {
-      const next = !current;
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("shiba:sidebar-collapsed", String(next));
-        } catch {
-          // Ignore storage quota or access errors in private mode
-        }
-      }
-      return next;
-    });
-  }, []);
 
   const toggleWorkPanelCollapsed = useCallback(() => {
     setWorkPanelCollapsed((current) => {
@@ -738,9 +729,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       return next;
     });
   }, []);
-
-  // The rail toggle and the keyboard shortcut collapse whichever sidebar the current view shows.
-  const toggleActiveSidebar = mainView === "work" ? toggleWorkPanelCollapsed : toggleSessionsCollapsed;
 
   // The view itself is read in the useState initializers; only the run pick needs an effect.
   useEffect(() => {
@@ -820,6 +808,24 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }, [roomRoute.clearIntent]);
   const workspaceAuthorityReady = roomRoute.ready && (!teamIdentityAvailable || teamDirectory.verified);
   const teamWorkspaceId = teamDirectory.selectedWorkspaceId;
+  const personalThreads = mainView === "threads" && !teamWorkspaceId;
+  const sessionsCollapsed = personalThreads ? personalThreadsCollapsed : globalSessionsCollapsed;
+  const toggleSessionsCollapsed = useCallback(() => {
+    const setCollapsed = personalThreads ? setPersonalThreadsCollapsed : setGlobalSessionsCollapsed;
+    setCollapsed((current) => {
+      const next = !current;
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(personalThreads ? "shiba:personal-threads-sidebar-collapsed" : "shiba:sidebar-collapsed", String(next));
+        } catch {
+          // Ignore storage quota or access errors in private mode
+        }
+      }
+      return next;
+    });
+  }, [personalThreads]);
+  // The rail toggle and the keyboard shortcut collapse whichever sidebar the current view shows.
+  const toggleActiveSidebar = mainView === "work" ? toggleWorkPanelCollapsed : toggleSessionsCollapsed;
   const urlSynced = useRef(false);
   const syncedView = useRef<MainView | null>(null);
   const historyTraversal = useRef(false);

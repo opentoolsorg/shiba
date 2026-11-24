@@ -200,8 +200,10 @@ describe("app employee onboarding", () => {
 });
 
 describe("app Work and Threads routing", () => {
-  it("shows employee threads in personal Chat and resumes the selected thread", async () => {
+  it("shows employee threads in personal Chat despite a legacy collapsed sidebar preference", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    localStorage.setItem("shiba:sidebar-collapsed", "true");
+    localStorage.removeItem("shiba:personal-threads-sidebar-collapsed");
     window.history.replaceState(null, "", "/threads/");
     const originalFetch = fetch;
     const employee = {
