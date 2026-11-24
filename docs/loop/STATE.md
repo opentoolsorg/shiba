@@ -38,15 +38,24 @@ Method: five pairs from `shiba-ai-employee-reference-plan.md`; verdicts logged t
     collaboration-artifact-routes.ts,
     apps/frontend/src/components/CollaborationView.tsx (+ new tests).
 
+## Pair 5 result (recorded)
+
+- Two-profile recording VERIFIED on wrangler dev (local): owner + reviewer
+  Chrome profiles, room deep link, both views, review:approved on both
+  deliverables, owner removed reviewer via UI, reviewer reload →
+  "Access to this room ended." Videos + screenshots in .audit evidence set.
+- Member-removal denial re-verified at API (room 404, artifact review 404).
+- Citation check: fixture brief claims → named sources + [conflict] row,
+  consistent with evidence.md v2 labels (model lane blocked → fixtures).
+- Regressions: full gate green on branch; only failure is unrelated
+  Docker Hub 429 sandbox test.
+- Blocked checks recorded: model unconfigured (deliverables are fixtures),
+  enrollment adapter off (reviewer identity seeded in D1), containers off.
+
 ## Next queue
 
-1. Pair 5: full gate (typecheck done; backend suite running), commit, push,
-   PR via $GITHUB_PAT REST on opentoolsorg/shiba.
-2. Two-browser-profile live recording of the acceptance journey on wrangler dev
-   (DASHBOARD_APPROVERS=default, --local-upstream localhost) — needs a real
-   employee model on a verified SWE-2 Free session; unconfigured = blocked.
-3. Citation check: verify brief claims against source passages in evidence doc.
-4. Attach recording + evidence to PR before merge.
+1. Open PR on opentoolsorg/shiba with recording + screenshots attached
+   (do not merge).
 
 ## Triage (needs human decision)
 
