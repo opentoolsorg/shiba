@@ -491,6 +491,7 @@ export function App(): React.JSX.Element {
   };
   const [projectContextId, setProjectContextId] = useState("");
   const [initialEmployeeId, setInitialEmployeeId] = useState<string | null>(null);
+  const [toolPolicyIntent, setToolPolicyIntent] = useState<{ scope: string; employeeId: string } | null>(null);
   const [initialEmployeeTemplateId, setInitialEmployeeTemplateId] = useState<EmployeeTemplate["id"] | null>(null);
   const [codingModel, setCodingModel] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | "">("");
@@ -808,6 +809,14 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }, [roomRoute.clearIntent]);
   const workspaceAuthorityReady = roomRoute.ready && (!teamIdentityAvailable || teamDirectory.verified);
   const teamWorkspaceId = teamDirectory.selectedWorkspaceId;
+  const toolPolicyScope = JSON.stringify([orchestratorName, teamWorkspaceId]);
+  useEffect(() => {
+    setToolPolicyIntent((intent) => mainView === "employee-tools" && intent?.scope === toolPolicyScope ? intent : null);
+  }, [mainView, toolPolicyScope]);
+  const openEmployeeToolPolicy = (employeeId?: string) => {
+    setToolPolicyIntent(employeeId ? { scope: toolPolicyScope, employeeId } : null);
+    openView("employee-tools");
+  };
   const personalThreads = mainView === "threads" && !teamWorkspaceId;
   const sessionsCollapsed = personalThreads ? personalThreadsCollapsed : globalSessionsCollapsed;
   const toggleSessionsCollapsed = useCallback(() => {
@@ -2745,20 +2754,23 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     return Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
   }, [retainedRuns, toolRuns, seenAt]);
 
-  const reviewThreadId = useMemo(() => {
-    if (selectedRunId && allRuns.some((run) => run.runId === selectedRunId)) return selectedRunId;
+  const chatDetailsRunId = useMemo(() => {
+    const displayedRunIds = new Set(allRuns.map((run) => run.runId));
+    const sessionRuns = retainedRuns.filter((run) => displayedRunIds.has(run.runId));
+    if (selectedRunId && sessionRuns.some((run) => run.runId === selectedRunId)) return selectedRunId;
     // Retained runs are already scoped to the selected conversation. Their
     // update timestamps are authoritative; delegated tool runs from other
     // conversations receive a local first-seen timestamp and must not steal
     // the task screen's review panels from the active thread.
-    const selectedSessionRuns = retainedRuns
-      .map((run) => allRuns.find((candidate) => candidate.runId === run.runId))
-      .filter((run): run is VMRun => run !== undefined)
-      .sort((left, right) => right.updatedAt - left.updatedAt);
-    if (selectedSessionRuns[0]) return selectedSessionRuns[0].runId;
+    return sessionRuns.sort((left, right) => right.updatedAt - left.updatedAt)[0]?.runId ?? null;
+  }, [allRuns, retainedRuns, selectedRunId]);
+
+  const reviewThreadId = useMemo(() => {
+    if (selectedRunId && allRuns.some((run) => run.runId === selectedRunId)) return selectedRunId;
+    if (chatDetailsRunId) return chatDetailsRunId;
     const newest = [...allRuns].sort((a, b) => b.updatedAt - a.updatedAt);
     return newest.find((run) => run.pullUrl)?.runId ?? newest[0]?.runId ?? null;
-  }, [allRuns, retainedRuns, selectedRunId]);
+  }, [allRuns, chatDetailsRunId, selectedRunId]);
 
   const reviewRun = useMemo(() => {
     if (!reviewThreadId) return undefined;
@@ -4018,8 +4030,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   panelOpen={agentDetailsOpen}
                   onTogglePanel={() => setAgentDetailsOpen((open) => !open)}
                   // Only offer task details when this thread is backed by a real run.
-                  onOpenTaskDetails={allRuns.some((run) => run.runId === selectedSessionId) ? () => {
-                    applyWorkSelection({ view: "board", task: selectedSessionId, taskKind: "run", tab: "steps" }, "push");
+                  onOpenTaskDetails={chatDetailsRunId ? () => {
+                    applyWorkSelection({ view: "board", task: chatDetailsRunId, taskKind: "run", tab: "steps" }, "push");
                     setMainView("work");
                   } : undefined}
                   workspaceLabel={teamWorkspace?.name ?? "Personal"}
@@ -4564,7 +4576,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   runsScope={botRunsScope}
                   onOpenRun={(runId) => { setSelectedRunId(runId); setMainView("analytics"); }}
                   onOpenApprovals={() => setMainView("approvals")}
-                  onManageTools={activeEmployee ? () => { setInitialEmployeeId(activeEmployee.id); openView("employee-tools"); } : undefined}
+                  onManageTools={activeEmployee ? () => openEmployeeToolPolicy(activeEmployee.id) : undefined}
                   onConfigSave={activeEmployee ? (edit) => saveBotConfigEdit(activeEmployee.id, edit) : undefined}
                   onLibrarySave={activeEmployee ? (deliverables) => saveBotLibrary(activeEmployee.id, deliverables) : undefined}
                   onClose={() => setAgentDetailsOpen(false)}
@@ -4741,12 +4753,12 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               threads={visibleWebSessions}
               threadsLoading={!sessionsLoaded}
               threadsUnavailable={sessionsLoaded && !sessionApiAvailable}
-              onOpenToolPolicy={(employeeId) => { if (employeeId) setInitialEmployeeId(employeeId); openView("employee-tools"); }}
+              onOpenToolPolicy={openEmployeeToolPolicy}
               onOpenThread={(id) => { void handleSelectSession(id); }}
             />
             </div>
           ) : mainView === "employee-tools" ? (
-            <EmployeeToolPolicyView />
+            <EmployeeToolPolicyView initialEmployeeId={toolPolicyIntent?.scope === toolPolicyScope ? toolPolicyIntent.employeeId : null} />
           ) : mainView === "agents" ? (
             <AgentsView />
           ) : mainView === "integrations" ? (

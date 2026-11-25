@@ -177,8 +177,9 @@ describe("WorkTimelineView", () => {
   it("offers Schedule a task only on undated rows and only with a handler", () => {
     const onSchedule = vi.fn();
     const tasks = [
-      { id: "u1", title: "Plan launch", status: "todo" },
-      { id: "d1", title: "Build", status: "running", startDate: "2026-08-04" },
+      { id: "u1", title: "Plan launch", status: "todo", canSchedule: true },
+      { id: "d1", title: "Build", status: "running", startDate: "2026-08-04", canSchedule: true },
+      { id: "u2", title: "Room handoff", status: "queued" },
     ];
     const { rerender } = render(<WorkTimelineView tasks={tasks} onOpen={vi.fn()} />);
     expect(screen.queryByRole("button", { name: /Schedule a task/ })).toBeNull();

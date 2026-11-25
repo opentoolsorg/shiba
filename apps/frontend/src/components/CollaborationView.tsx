@@ -306,6 +306,10 @@ function handoffElementId(workspaceId: string | undefined, roomId: string, hando
   return `collaboration-handoff-${encodeURIComponent(workspaceId ?? "personal")}-${encodeURIComponent(roomId)}-${encodeURIComponent(handoffId)}`;
 }
 
+function messageElementId(workspaceId: string | undefined, roomId: string, messageId: string, reply = false): string {
+  return `collaboration-${reply ? "reply" : "message"}-${encodeURIComponent(workspaceId ?? "personal")}-${encodeURIComponent(roomId)}-${encodeURIComponent(messageId)}`;
+}
+
 /** A workspace switch remounts all drafts, reads, and sockets before old content can paint. */
 export function CollaborationView(props: CollaborationViewProps = {}): JSX.Element {
   const workspaceId = props.workspaceId?.startsWith("ws_") ? props.workspaceId : undefined;
@@ -346,6 +350,7 @@ function ScopedCollaborationView({
   const [savedItems, setSavedItems] = useState<SavedMessageRef[]>([]);
   const [activeRoomId, setActiveRoomId] = useState(initialRoomId ?? "");
   const [detail, setDetail] = useState<RoomDetail | null>(null);
+  const [messageSource, setMessageSource] = useState<{ roomId: string; messageId: string } | null>(null);
   const [pendingMessages, setPendingMessages] = useState<Array<Message & { roomId: string }>>([]);
   const roomPatches = useRef(new Map<string, Room>());
   const messagePatches = useRef(new Map<string, Map<string, Message>>());
@@ -475,6 +480,7 @@ function ScopedCollaborationView({
       setPendingMessages((current) => current.filter((message) => message.roomId !== roomId));
       activeRoomRef.current = "";
       clearRoomDrafts();
+      setMessageSource(null);
       setDetail(null);
       setActiveRoomId("");
       setRooms((current) => current.filter((room) => room.roomId !== roomId));
@@ -786,6 +792,7 @@ function ScopedCollaborationView({
     roomReadEpoch.current++;
     activeRoomRef.current = initialRoomId;
     clearRoomDrafts();
+    setMessageSource(null);
     setDetail(null);
     setActiveRoomId(initialRoomId);
   }, [initialRoomId, clearRoomDrafts]);
@@ -819,6 +826,24 @@ function ScopedCollaborationView({
     target.focus({ preventScroll: true });
     target.scrollIntoView?.({ block: "nearest" });
   }, [initialRoomId, initialHandoffId, activeRoomId, detail, detailTab, workspaceId]);
+
+  const linkedMessage = messageSource && detail?.room.roomId === messageSource.roomId
+    ? detail.messages.find((item) => item.messageId === messageSource.messageId)
+    : undefined;
+  useEffect(() => {
+    if (!messageSource || !linkedMessage || activeRoomId !== messageSource.roomId ||
+      activeRoomRef.current !== messageSource.roomId || revokedRooms.current.has(messageSource.roomId)) return;
+    const threadRootId = linkedMessage.threadRootId ?? "";
+    if (openThreadId !== threadRootId) {
+      setOpenThreadId(threadRootId);
+      return;
+    }
+    const target = document.getElementById(messageElementId(workspaceId, messageSource.roomId, linkedMessage.messageId, Boolean(threadRootId)));
+    if (!target) return;
+    target.focus({ preventScroll: true });
+    target.scrollIntoView?.({ block: "nearest" });
+    setMessageSource(null);
+  }, [messageSource, linkedMessage, activeRoomId, openThreadId, workspaceId]);
 
   const members = useMemo(() => detail?.members ?? [], [detail]);
   const mentions = useMentionAutocomplete({ members, selfUserId: detail?.currentUserId ?? "", value: message, setValue: setMessage, input: messageInput });
@@ -1034,11 +1059,13 @@ function ScopedCollaborationView({
     });
   };
 
-  const openSavedMessage = (roomId: string) => {
+  const openRoomMessage = (roomId: string, messageId: string) => {
     if (revokedRooms.current.has(roomId)) return;
+    setRoomListTab("room");
+    setMessageSource({ roomId, messageId });
+    if (activeRoomRef.current === roomId) return;
     roomReadEpoch.current++;
     activeRoomRef.current = roomId;
-    setRoomListTab("room");
     setDetail(null);
     setActiveRoomId(roomId);
   };
@@ -1195,7 +1222,7 @@ function ScopedCollaborationView({
             </p>
             <NotificationsPanel
               workspaceId={workspaceId}
-              onOpenSource={(item) => { if (item.roomId) openSavedMessage(item.roomId); }}
+              onOpenSource={(item) => { if (item.roomId && item.messageId) openRoomMessage(item.roomId, item.messageId); }}
               onOpenPreferences={onOpenNotificationPreferences}
             />
           </div>
@@ -1233,6 +1260,7 @@ function ScopedCollaborationView({
             onTab={(tab) => {
               setRoomListTab(tab);
               if (tab === "saved") {
+                setMessageSource(null);
                 setDetail(null);
                 activeRoomRef.current = "";
                 setActiveRoomId("");
@@ -1241,11 +1269,12 @@ function ScopedCollaborationView({
             onCreate={createRoom}
             onTitle={setRoomTitle}
             onVisibility={setRoomVisibility}
-            onOpenSaved={openSavedMessage}
+            onOpenSaved={openRoomMessage}
             onSelectRoom={(roomId) => {
               if (activeRoomRef.current === roomId) return;
               roomReadEpoch.current++;
               activeRoomRef.current = roomId;
+              setMessageSource(null);
               setDetail(null);
               setActiveRoomId(roomId);
             }}
@@ -1338,9 +1367,12 @@ function ScopedCollaborationView({
                         return <div key={viewer.viewerId} data-room-cursor-viewer={viewer.viewerId} className="absolute text-[var(--navy)]" style={{ left: `${cursor.x * 100}%`, top: `${cursor.y * 100}%` }}><svg aria-hidden="true" width="16" height="19" viewBox="0 0 16 19" className="block"><path d="M1 1V14L5 10L8 17L11 15L7 9H14Z" fill="currentColor" stroke="var(--paper)" strokeWidth="1" /></svg><span className="ml-3 block max-w-40 truncate border border-[var(--line)] bg-[var(--card)] px-1 py-0.5 font-mono text-[9px]">{viewer.label}</span></div>;
                       })}
                     </div>
+                    {messageSource?.roomId === detail.room.roomId && !linkedMessage ? (
+                      <p role="status" className="px-3 py-2 text-sm text-[var(--ink-2)]">This message isn't in the available conversation history.</p>
+                    ) : null}
                     <MessageList>
                       {[...detail.messages, ...pendingMessages.filter((item) => item.roomId === activeRoomId && !detail.messages.some((saved) => saved.messageId === item.messageId))].map((item) => (
-                        <MessageRow key={item.messageId} agent={item.senderKind === "agent"}>
+                        <MessageRow key={item.messageId} id={messageElementId(workspaceId, detail.room.roomId, item.messageId)} agent={item.senderKind === "agent"}>
                           {pendingMessages.some((pending) => pending.messageId === item.messageId) ? <span role="status" className="text-xs text-[var(--ink-2)]">Sending…</span> : null}
                           <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] text-[var(--ink-2)]">
                             <span className="font-semibold text-[var(--ink)]">
@@ -1527,7 +1559,7 @@ function ScopedCollaborationView({
                       <ThreadPane title="Thread">
                         <button type="button" className="min-h-11 self-start text-xs underline" onClick={() => setOpenThreadId("")}>Close thread</button>
                         {detail.messages.filter((item) => item.threadRootId === openThreadId).map((item) => (
-                          <p key={item.messageId} className="text-sm">{item.body}</p>
+                          <p key={item.messageId} id={messageElementId(workspaceId, detail.room.roomId, item.messageId, true)} tabIndex={-1} className="text-sm">{item.body}</p>
                         ))}
                         {detail.messages.every((item) => item.threadRootId !== openThreadId) ? (
                           <p className="text-xs text-[var(--ink-2)]">No replies yet.</p>

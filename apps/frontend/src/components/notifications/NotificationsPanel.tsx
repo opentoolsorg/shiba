@@ -168,7 +168,7 @@ export function NotificationsPanel({ workspaceId, className = "", onOpenSource, 
                       </div>
                     </div>
                     </button>
-                    {onOpenSource && item.roomId && item.messageId ? <button type="button" className="mt-1 min-h-11 text-xs underline" onClick={() => onOpenSource(item)}>Open source</button> : null}
+                    {onOpenSource && item.roomId && item.messageId ? <button type="button" className="mt-1 min-h-11 text-xs underline" onClick={() => { setOpen(false); onOpenSource(item); }}>Open source</button> : null}
                   </div>
                 </li>
               ))

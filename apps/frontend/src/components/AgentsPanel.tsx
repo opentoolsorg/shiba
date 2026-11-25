@@ -283,11 +283,12 @@ export function AgentsPanel({
             const showChiefHeading = isDefault;
             const identityMatches = matchesIdentity(row);
             const threadMatches = matchingThreads(row);
-            const isExpanded = expanded[row.id] ?? (
+            const revealMatches = Boolean(query) && threadMatches.length > 0;
+            const isExpanded = revealMatches || (expanded[row.id] ?? (
               isDefault ||
               row.threads.some((thread) => thread.id === active) ||
               (Boolean(query) && row.threads.length > 0)
-            );
+            ));
             const visibleThreads = query && !identityMatches ? threadMatches : row.threads;
             const status = agentRunState(row.threads, threadStates);
             const threadsId = `${listId}-${row.id}`;
@@ -385,6 +386,7 @@ export function AgentsPanel({
                     title={`${isExpanded ? "Collapse" : "Expand"} ${row.name}`}
                     aria-expanded={isExpanded}
                     aria-controls={isExpanded ? threadsId : undefined}
+                    disabled={revealMatches}
                     onClick={() => setExpanded((prev) => ({ ...prev, [row.id]: !isExpanded }))}
                     className={rowAction}
                   >

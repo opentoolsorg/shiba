@@ -219,6 +219,24 @@ describe("AgentsPanel", () => {
     expect(screen.queryByText("Literature review")).toBeNull();
   });
 
+  it("reveals a matching thread without overwriting the employee's collapsed state", () => {
+    render(<AgentsPanel scope="personal" onScopeChange={vi.fn()} active="" onSelect={vi.fn()} agents={mockAgents} threads={mockThreads} />);
+    const employee = screen.getByRole("button", { name: /^Expand .*Research/ });
+    fireEvent.click(employee);
+    fireEvent.click(screen.getByRole("button", { name: /^Collapse .*Research/ }));
+    expect(screen.queryByText("Competitor analysis")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Search employees" }));
+    const search = screen.getByPlaceholderText("Search employees…");
+    fireEvent.change(search, { target: { value: "Competitor analysis" } });
+    expect(screen.getByText("Competitor analysis")).toBeTruthy();
+    expect(screen.queryByText("Literature review")).toBeNull();
+
+    fireEvent.change(search, { target: { value: "" } });
+    expect(screen.queryByText("Competitor analysis")).toBeNull();
+    expect(screen.getByRole("button", { name: /^Expand .*Research/ })).toBeTruthy();
+  });
+
   it("keeps the selected older run available and sorts recent runs by update time", () => {
     const onSelectRun = vi.fn();
     const runs = Array.from({ length: 10 }, (_, index) => ({

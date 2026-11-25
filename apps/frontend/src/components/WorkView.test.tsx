@@ -460,8 +460,10 @@ describe("WorkView", () => {
     expect(onCreateTask).toHaveBeenCalledWith("Plan the launch", { ownerId: "agent:coder" });
     rerender(<WorkView workspaceId="workspace-1" view="board" sharedTasks={[sharedTask]} onUpdateTask={onUpdateTask} />);
     expect(screen.getByText("Moving a card changes planning status only; execution approval stays separate.")).toBeTruthy();
-    rerender(<WorkView workspaceId="workspace-1" view="timeline" sharedTasks={[sharedTask]} onUpdateTask={onUpdateTask} />);
-    fireEvent.click(screen.getByRole("button", { name: `Schedule a task: ${sharedTask.title}` }));
+    const planningTask = { ...sharedTask, id: `task_${"1".repeat(24)}`, title: "Plan the release", roomId: "", roomTitle: "" };
+    rerender(<WorkView workspaceId="workspace-1" view="timeline" sharedTasks={[sharedTask, planningTask]} onUpdateTask={onUpdateTask} />);
+    expect(screen.queryByRole("button", { name: `Schedule a task: ${sharedTask.title}` })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: `Schedule a task: ${planningTask.title}` }));
     expect(within(screen.getByLabelText("Task details")).getByLabelText("Start date")).toBeTruthy();
   });
 

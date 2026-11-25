@@ -284,7 +284,8 @@ describe("Settings overview", () => {
     expect(onNavigate).toHaveBeenCalledWith("employee-tools");
     fireEvent.click(screen.getByRole("button", { name: "Review connected apps" }));
     expect(onSectionChange).toHaveBeenCalledWith("connected-apps");
-    for (const [name, view] of [["Review connections", "integrations"], ["Open MCP servers", "agents"], ["Open agents", "custom-agents"], ["Open skills", "skills"]] as const) {
+    expect(screen.getByRole("link", { name: "Open MCP servers" }).getAttribute("href")).toBe("/integrations/?tab=mcp");
+    for (const [name, view] of [["Review connections", "integrations"], ["Open agents", "custom-agents"], ["Open skills", "skills"]] as const) {
       fireEvent.click(screen.getByRole("button", { name }));
       expect(onNavigate).toHaveBeenLastCalledWith(view);
     }
@@ -337,4 +338,3 @@ describe("hosted models kill switch notice", () => {
     expect(await screen.findByText("Hosted models are paused")).toBeTruthy();
   });
 });
-

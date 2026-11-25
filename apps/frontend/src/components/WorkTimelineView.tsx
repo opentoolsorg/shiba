@@ -12,6 +12,7 @@ export interface WorkTimelineTask {
   startDate?: string;
   endDate?: string;
   assigneeName?: string;
+  canSchedule?: boolean;
 }
 
 export interface WorkTimelineViewProps {
@@ -19,7 +20,7 @@ export interface WorkTimelineViewProps {
   onOpen(id: string): void;
   /** Opens the approval review for rows that are waiting on approval. */
   onReview?(id: string): void;
-  /** Offered on undated rows; opens the task where its start and end dates are edited. */
+  /** Opens an editable, undated task where its start and end dates are edited. */
   onSchedule?(id: string): void;
   className?: string;
   emptyTitle?: string;
@@ -317,7 +318,7 @@ export function WorkTimelineView({
                   ) : (
                     <span className="sticky left-[var(--tl-left)] inline-flex h-full items-center gap-3 px-3 text-xs text-[var(--muted-foreground-3)]">
                       No dates recorded
-                      {onSchedule ? (
+                      {onSchedule && task.canSchedule ? (
                         <button
                           type="button"
                           onClick={() => onSchedule(task.id)}

@@ -27,7 +27,7 @@ import {
   Users,
   Zap,
 } from "lucide-react";
-import type { AppNavView } from "./AppNavRail";
+import { pathForView, type AppNavView } from "../app-navigation";
 import {
   ContextPanel,
   MainCard,
@@ -310,11 +310,12 @@ export function SettingsPage({
   const guarded = Boolean(onOpenPersonalWorkspace || personalDataBlocked);
   const sectionAction = (label: string, id: SettingsPageSectionId) => ({ label, onClick: () => handleSectionChange(id) });
   const viewAction = (label: string, view: AppNavView) => onNavigate ? [{ label, onClick: () => onNavigate(view) }] : [];
+  const overviewActionClass = "inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--button)] px-3 text-xs font-semibold text-[var(--fg)] hover:bg-[var(--button-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
   const overviewCards: {
     title: string;
     description: string;
     icon: ComponentType<{ className?: string; strokeWidth?: number; "aria-hidden"?: boolean | "true" }>;
-    actions: { label: string; onClick: () => void }[];
+    actions: ({ label: string; onClick: () => void } | { label: string; href: string })[];
     note?: string;
   }[] = guarded
     ? [{ title: "Workspace", description: "Members, invitations and roles for this workspace.", icon: Users, actions: [sectionAction("Team settings", "team")] }]
@@ -329,7 +330,10 @@ export function SettingsPage({
           actions: [...(providersBlocked ? [] : [sectionAction("Review providers", "providers")]), sectionAction("Review model routing", "models")],
         },
         { title: "Connected apps", description: "External apps authorized for this deployment.", icon: ShieldCheck, actions: [sectionAction("Review connected apps", "connected-apps")] },
-        ...viewAction("Review connections", "integrations").map((action) => ({ title: "Connections", description: "GitHub repositories, app connectors, Slack and MCP servers.", icon: Webhook, actions: [action, ...viewAction("Open MCP servers", "agents")] })),
+        ...viewAction("Review connections", "integrations").map((action) => ({
+          title: "Connections", description: "GitHub repositories, app connectors, Slack and MCP servers.", icon: Webhook,
+          actions: [action, { label: "Open MCP servers", href: `${pathForView("integrations")}?tab=mcp` }],
+        })),
         ...viewAction("Manage employee access", "employee-tools").map((action) => ({ title: "Employee access", description: "Manage scoped tool grants for individual employees.", icon: ShieldCheck, actions: [action] })),
         { title: "Workspace", description: "Workspace membership and sandbox configuration.", icon: Box, actions: [sectionAction("Team", "team"), sectionAction("Sandbox", "sandbox")] },
         { title: "Appearance & notifications", description: "Theme and in-app alerts for mentions, replies and approvals.", icon: Palette, actions: [sectionAction("Appearance", "appearance"), sectionAction("Notifications", "notifications")] },
@@ -424,7 +428,9 @@ export function SettingsPage({
                         <p className="text-xs leading-relaxed text-[var(--muted-foreground-2)]">{card.description}</p>
                         {card.note ? <p className="text-xs leading-relaxed text-[var(--muted-foreground-2)]">{card.note}</p> : null}
                         <div className="mt-auto flex flex-wrap gap-2 pt-1">
-                          {card.actions.map((action) => <button key={action.label} type="button" onClick={action.onClick} className="inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--button)] px-3 text-xs font-semibold text-[var(--fg)] hover:bg-[var(--button-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]">{action.label}<span aria-hidden="true">→</span></button>)}
+                          {card.actions.map((action) => "href" in action
+                            ? <a key={action.label} href={action.href} className={overviewActionClass}>{action.label}<span aria-hidden="true">→</span></a>
+                            : <button key={action.label} type="button" onClick={action.onClick} className={overviewActionClass}>{action.label}<span aria-hidden="true">→</span></button>)}
                         </div>
                       </article>
                     </li>

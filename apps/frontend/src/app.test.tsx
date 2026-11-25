@@ -1073,6 +1073,40 @@ describe("app Work and Threads routing", () => {
     expect(window.location.search).toContain("section=");
   });
 
+  it("preselects the new hire in Tool policy and clears the selection for later visits", async () => {
+    window.history.replaceState(null, "", "/custom-agents/");
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const builder = { id: "cag-builder", slug: "builder", version: 1, config: { name: "Builder", instructions: "Build.", harness: "opencode" } };
+    const scout = { id: "cag-scout", slug: "scout", version: 1, config: { name: "Scout", instructions: "Review the supplied data.", harness: "opencode" } };
+    let hired = false;
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (/^\/api\/employee-tools\/[^/]+\/policy$/.test(path)) return Response.json({ grants: [], toolScopes: [] });
+      if (path !== "/api/custom-agents") return originalFetch(url, options);
+      if (options?.method === "POST") {
+        hired = true;
+        return Response.json({ agent: scout }, { status: 201 });
+      }
+      return Response.json({ agents: hired ? [builder, scout] : [builder] });
+    }));
+    render(<App />);
+    await screen.findByRole("heading", { name: "Your employee roster" });
+    fireEvent.click(screen.getByRole("button", { name: "Hire employee" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: scout.config.name } });
+    fireEvent.change(screen.getByLabelText("Instructions"), { target: { value: scout.config.instructions } });
+    fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Set up tool access" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Employee" })).toHaveProperty("value", scout.id));
+
+    await act(async () => {
+      window.history.pushState(null, "", "/settings/?section=overview");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Manage employee access" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Employee" })).toHaveProperty("value", builder.id));
+  });
+
   it("switches destinations with Alt+number shortcuts", async () => {
     window.history.replaceState(null, "", "/");
     render(<App />);
@@ -1814,6 +1848,28 @@ describe("bot page without a thread", () => {
     await screen.findByRole("heading", { name: "Usage" });
     await waitFor(() => expect(window.location.pathname).toBe("/analytics/"));
     expect(bots.mock.calls.some(([url]) => String(url).endsWith("/resume"))).toBe(false);
+  });
+
+  it("opens Work details for the run shown in a conversation with a different ID", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    const bots = stubBots();
+    const run = { runId: "retained-review-run", task: "Compile the weekly brief", status: "completed", repoUrl: "", sandboxId: "s", baseBranch: "main", publishPullRequest: false, generation: 1, createdAt: 1, updatedAt: 2 };
+    vi.stubGlobal("fetch", vi.fn((url: string | URL | Request, options?: RequestInit) => {
+      const path = new URL(String(url), window.location.origin);
+      if (path.pathname !== "/api/runs") return bots(url, options);
+      return Promise.resolve(Response.json({ runs: path.searchParams.get("session") === RESEARCH_THREAD ? [run] : [] }));
+    }));
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Task details" }));
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/work/");
+      const params = new URLSearchParams(window.location.search);
+      expect(params.get("task")).toBe(run.runId);
+      expect(params.get("taskKind")).toBe("run");
+    });
   });
 
   it("keeps an employee's thread reachable from Tasks when the directory fails", async () => {

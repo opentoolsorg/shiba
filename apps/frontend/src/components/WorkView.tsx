@@ -775,7 +775,12 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
             </section>
           ) : view === "timeline" ? (
             <section aria-label="Timeline view" className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-4">
-              <WorkTimelineView tasks={tasks} onOpen={onTaskChange} onSchedule={onUpdateTask ? onTaskChange : undefined} className="h-full" />
+              <WorkTimelineView
+                tasks={tasks.map((task) => ({ ...task, canSchedule: task.roomId === "" && !task.archived }))}
+                onOpen={onTaskChange}
+                onSchedule={onUpdateTask ? onTaskChange : undefined}
+                className="h-full"
+              />
             </section>
           ) : (
             <section aria-label="Organization view" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
