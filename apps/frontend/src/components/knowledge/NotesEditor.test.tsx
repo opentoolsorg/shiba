@@ -13,9 +13,16 @@ vi.mock("@tiptap/react", async (original) => {
   } };
 });
 vi.mock("../../state/workspace-events", () => ({ useWorkspaceEvents: (options: UseWorkspaceEventsOptions) => { current.options = options; return false; } }));
-vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), info: vi.fn() } }));
 
 const note = { id: "note-1", title: "Plan", version: 1, updatedAt: 1 };
+const noteMarkdown = "## Existing heading\r\n\r\nA **bold** plan for C:\\Users\\Ada.\r\n\r\n";
+async function defaultFetch(url: string, init?: RequestInit) {
+  if (url.endsWith("/body")) return new Response(noteMarkdown);
+  if (init?.method === "PATCH") return Response.json({ note: { ...note, ...JSON.parse(String(init.body)), version: 2 } });
+  if (init?.method === "POST") return Response.json({ note: { ...note, id: "new-note", title: "Untitled" } });
+  return Response.json({ notes: [note, { ...note, id: "note-2", title: "Research" }] });
+}
 let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   const rect = { top: 20, bottom: 40, left: 20, right: 40, width: 20, height: 20, x: 20, y: 20, toJSON: () => ({}) };
@@ -23,12 +30,7 @@ beforeEach(() => {
   Range.prototype.getClientRects = () => [rect] as unknown as DOMRectList;
   HTMLElement.prototype.getClientRects = () => [rect] as unknown as DOMRectList;
   HTMLElement.prototype.scrollIntoView = vi.fn();
-  fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url.endsWith("/body")) return new Response("## Existing heading\n\nA **bold** plan.\n");
-    if (init?.method === "PATCH") return Response.json({ note: { ...note, ...JSON.parse(String(init.body)), version: 2 } });
-    if (init?.method === "POST") return Response.json({ note: { ...note, id: "new-note", title: "Untitled" } });
-    return Response.json({ notes: [note, { ...note, id: "note-2", title: "Research" }] });
-  });
+  fetchMock = vi.fn(defaultFetch);
   vi.stubGlobal("fetch", fetchMock);
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); current.editor = null; });
@@ -63,9 +65,10 @@ describe("NotesEditor", () => {
     await screen.findByRole("textbox", { name: "Note title" });
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true);
   });
-  it("loads saved formatting and autosaves a title using the current version", async () => {
+  it("renames a note using the current version and preserves its stored Markdown", async () => {
     await openNote();
     expect(screen.getByRole("heading", { name: "Existing heading" })).toBeTruthy();
+    expect(current.editor?.getText()).toContain("C:\\Users\\Ada");
     fireEvent.change(screen.getByRole("textbox", { name: "Note title" }), { target: { value: "New plan" } });
     await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(true), { timeout: 2000 });
     await screen.findByText("Saved");
@@ -73,12 +76,12 @@ describe("NotesEditor", () => {
     const payload = JSON.parse(String(call?.[1]?.body));
     expect(payload.title).toBe("New plan");
     expect(payload.expectedVersion).toBe(1);
-    expect(payload.markdown).toContain("**bold**");
+    expect(payload.markdown).toBe(noteMarkdown);
     expect(screen.getByRole("toolbar", { name: "Note formatting" })).toBeTruthy();
   });
   it("keeps a draft and reports failed saves", async () => {
     await openNote();
-    fetchMock.mockImplementation(async () => Response.json({ error: "Version conflict" }, { status: 409 }));
+    fetchMock.mockImplementation(async () => Response.json({ error: "Service unavailable" }, { status: 503 }));
     fireEvent.change(screen.getByRole("textbox", { name: "Note title" }), { target: { value: "Keep draft" } });
     fireEvent.blur(screen.getByRole("textbox", { name: "Note title" }));
     await screen.findByText("Save failed");
@@ -93,11 +96,83 @@ describe("NotesEditor", () => {
     await screen.findByRole("textbox", { name: "Note title" });
     await waitFor(() => expect(current.editor?.isEditable).toBe(true));
     fireEvent.change(screen.getByRole("textbox", { name: "Note title" }), { target: { value: "Unsaveable" } });
-    fetchMock.mockImplementation(async () => Response.json({ error: "Version conflict" }, { status: 409 }));
+    fetchMock.mockImplementation(async () => Response.json({ error: "Service unavailable" }, { status: 503 }));
     fireEvent.click(screen.getByRole("button", { name: "Edited" }));
     await screen.findByText("Save failed");
     expect(screen.getByRole("button", { name: "Research" }).getAttribute("aria-current")).toBe("page");
     expect((screen.getByRole("textbox", { name: "Note title" }) as HTMLTextAreaElement).value).toBe("Unsaveable");
+  });
+  it("stops stale retries after a conflict and can save the intact draft as a copy", async () => {
+    await openNote();
+    let copyFails = true;
+    const copy = { ...note, id: "note-copy", title: "Local title (copy)" };
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") return Response.json({}, { status: 409 });
+      if (init?.method === "POST") return copyFails
+        ? Response.json({}, { status: 503 })
+        : Response.json({ note: copy });
+      if (url === "/api/notes/note-copy/body") return new Response("Local body\n");
+      return defaultFetch(url, init);
+    });
+    await typeTrigger("Local body");
+    const title = screen.getByRole("textbox", { name: "Note title" }) as HTMLTextAreaElement;
+    fireEvent.change(title, { target: { value: "Local title" } });
+    fireEvent.blur(title);
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "This note changed elsewhere. Your draft is still here.");
+    fireEvent.click(screen.getByRole("button", { name: "Research" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Scope" }), { target: { value: "workspace" } });
+    fireEvent.blur(title);
+    const copyButton = screen.getByRole<HTMLButtonElement>("button", { name: "Save draft as a copy" });
+    fireEvent.click(copyButton);
+    await waitFor(() => expect(copyButton.disabled).toBe(false));
+    expect(title.value).toBe("Local title");
+    expect(current.editor?.getText()).toBe("Local body");
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
+
+    copyFails = false;
+    fireEvent.click(copyButton);
+    await waitFor(() => expect(screen.getByRole("button", { name: copy.title }).getAttribute("aria-current")).toBe("page"));
+    await waitFor(() => expect(current.editor?.isEditable).toBe(true));
+    expect(current.editor?.getText()).toBe("Local body");
+    const lastCopy = fetchMock.mock.calls.filter(([, init]) => init?.method === "POST").at(-1);
+    expect(lastCopy?.[0]).toBe("/api/notes?scope=personal");
+    expect(JSON.parse(String(lastCopy?.[1]?.body))).toEqual({ title: copy.title, markdown: "Local body\n" });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+  it("keeps the draft if reloading fails and uses the latest version after a successful reload", async () => {
+    await openNote();
+    let stale = true;
+    let bodyAvailable = false;
+    const latest = { ...note, title: "Server title", version: 2 };
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") return stale
+        ? Response.json({}, { status: 409 })
+        : Response.json({ note: { ...latest, title: "Renamed after reloading", version: 3 } });
+      if (url === "/api/notes/note-1") return Response.json({ note: latest });
+      if (url === "/api/notes/note-1/body") return bodyAvailable
+        ? new Response("Latest Markdown\n")
+        : new Response(null, { status: 503 });
+      return defaultFetch(url, init);
+    });
+    const title = screen.getByRole("textbox", { name: "Note title" }) as HTMLTextAreaElement;
+    fireEvent.change(title, { target: { value: "Local title" } });
+    fireEvent.blur(title);
+    const reloadButton = await screen.findByRole<HTMLButtonElement>("button", { name: "Discard draft and reload" });
+    fireEvent.click(reloadButton);
+    await waitFor(() => expect(reloadButton.disabled).toBe(false));
+    expect(title.value).toBe("Local title");
+
+    bodyAvailable = true;
+    fireEvent.click(reloadButton);
+    await waitFor(() => expect(title.value).toBe(latest.title));
+    expect(current.editor?.getText()).toBe("Latest Markdown");
+    expect(screen.queryByRole("alert")).toBeNull();
+    stale = false;
+    fireEvent.change(title, { target: { value: "Renamed after reloading" } });
+    fireEvent.blur(title);
+    await screen.findByText("Saved");
+    const lastPatch = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH").at(-1);
+    expect(JSON.parse(String(lastPatch?.[1]?.body))).toEqual({ title: "Renamed after reloading", markdown: "Latest Markdown\n", expectedVersion: 2 });
   });
   it("moves from the title into the body with Enter", async () => {
     await openNote();

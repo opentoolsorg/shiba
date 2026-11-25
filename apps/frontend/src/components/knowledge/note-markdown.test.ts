@@ -17,10 +17,17 @@ describe("note Markdown", () => {
   });
 
   it("preserves hard breaks and empty input", () => {
-    const doc = parseNoteMarkdown("first  \nsecond");
+    const doc = parseNoteMarkdown("first  \nsecond\\\nthird");
     expect(doc.content?.[0]?.content?.[1]).toEqual({ type: "hardBreak" });
+    expect(doc.content?.[0]?.content?.[3]).toEqual({ type: "hardBreak" });
     expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
     expect(parseNoteMarkdown("")).toEqual({ type: "doc", content: [{ type: "paragraph" }] });
+  });
+
+  it("preserves literal backslashes while decoding Markdown punctuation escapes", () => {
+    const doc = parseNoteMarkdown("C:\\Users\\Ada \\*literal\\* \\\\ \\+ \\");
+    expect(doc.content?.[0]?.content?.[0]?.text).toBe("C:\\Users\\Ada *literal* \\ + \\");
+    expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
   });
 
   it("round trips combined bold and italic marks", () => {

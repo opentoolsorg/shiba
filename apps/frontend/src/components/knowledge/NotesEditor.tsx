@@ -1,4 +1,5 @@
 import { useEditor } from "@tiptap/react";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
@@ -17,6 +18,19 @@ function editorMarkdown(editor: NonNullable<ReturnType<typeof useEditor>>): stri
   return serializeNoteMarkdown(editor.getJSON());
 }
 
+function loadEditorBody(editor: NonNullable<ReturnType<typeof useEditor>>, markdown: string) {
+  editor.commands.setContent(parseNoteMarkdown(markdown), false);
+  return { markdown, doc: editor.state.doc };
+}
+
+async function readNoteBody(id: string, workspaceId: string | null) {
+  const response = await fetch(`/api/notes/${encodeURIComponent(id)}/body`, { credentials: "same-origin", cache: "no-store", headers: teamWorkspaceHeaders(workspaceId ?? undefined) });
+  if (!response.ok) throw new Error("Note body unavailable.");
+  return response.text();
+}
+
+class NoteVersionConflict extends Error {}
+
 export function NotesEditor({ workspaceId = null }: { workspaceId?: string | null }): JSX.Element {
   const [scope, setScope] = useState<KnowledgeScope>("personal");
   const [notes, setNotes] = useState<KnowledgeNote[]>([]);
@@ -32,6 +46,7 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
   const [loading, setLoading] = useState(true);
   const [bodyLoading, setBodyLoading] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [recovering, setRecovering] = useState(false);
   const [saveStatus, setSaveStatus] = useState("Saved");
   const [error, setError] = useState<string | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
@@ -39,8 +54,10 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
   const bodyReady = useRef(false);
+  const savedBody = useRef<{ markdown: string; doc: ProseMirrorNode } | null>(null);
   const [bodyRevision, setBodyRevision] = useState(0);
   const dirty = useRef(false);
+  const conflicted = useRef(false);
   const draftRevision = useRef(0);
   const inFlight = useRef<Promise<void> | null>(null);
   const latestSave = useRef<() => Promise<void>>(async () => {});
@@ -60,6 +77,7 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
   function markDirty() {
     dirty.current = true;
     draftRevision.current++;
+    if (conflicted.current) return;
     setSaveStatus("Unsaved changes");
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => { void latestSave.current(); }, 600);
@@ -118,19 +136,19 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
 
   useEffect(() => {
     bodyReady.current = false;
+    savedBody.current = null;
     dirty.current = false;
+    conflicted.current = false;
     if (!editor) return;
     editor.setEditable(false, false);
     if (!activeId) { setBodyLoading(false); return; }
     setBodyLoading(true);
     setSaveStatus("Saved");
     let stopped = false;
-    void fetch(`/api/notes/${encodeURIComponent(activeId)}/body`, { credentials: "same-origin", cache: "no-store", headers: teamWorkspaceHeaders(workspaceId ?? undefined) })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Note body unavailable.");
-        const markdown = await response.text();
+    void readNoteBody(activeId, workspaceId)
+      .then((markdown) => {
         if (stopped) return;
-        editor.commands.setContent(parseNoteMarkdown(markdown), false);
+        savedBody.current = loadEditorBody(editor, markdown);
         bodyReady.current = true;
         editor.setEditable(true, false);
         setBodyLoading(false);
@@ -153,12 +171,18 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
     });
   }
 
+  function draftMarkdown(ed: NonNullable<typeof editor>) {
+    const saved = savedBody.current;
+    return saved?.doc.eq(ed.state.doc) ? saved.markdown : editorMarkdown(ed);
+  }
+
   // Reads everything it needs from refs so a call queued behind an in-flight save never sends a stale version or title.
   async function persist(ed: NonNullable<typeof editor>) {
     const id = activeIdRef.current;
-    if (!id || !bodyReady.current || !dirty.current || id.startsWith("pending:") || saving.current) return;
+    if (!id || !bodyReady.current || !dirty.current || conflicted.current || id.startsWith("pending:") || saving.current) return;
     const previous = notesRef.current.find((note) => note.id === id);
-    const markdown = editorMarkdown(ed);
+    const doc = ed.state.doc;
+    const markdown = draftMarkdown(ed);
     const draftTitle = titleRef.current;
     const expectedVersion = activeVersionRef.current;
     const savedRevision = draftRevision.current;
@@ -173,6 +197,7 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
           method: "PATCH", credentials: "same-origin", headers: { ...teamWorkspaceHeaders(workspaceId ?? undefined), "Content-Type": "application/json" },
           body: JSON.stringify({ title: draftTitle, markdown, expectedVersion }),
         });
+        if (response.status === 409) throw new NoteVersionConflict();
         const body = await response.json() as { note?: KnowledgeNote; error?: string };
         if (!response.ok || !body.note) throw new Error(body.error ?? "Autosave failed.");
         return body.note;
@@ -180,6 +205,7 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
       reconcile: (note) => {
         if (contextRef.current !== savedContext) return;
         if (activeIdRef.current === id) {
+          savedBody.current = { markdown, doc };
           activeVersionRef.current = note.version;
           setVersion(note.version);
           if (draftRevision.current === savedRevision) dirty.current = false;
@@ -189,11 +215,20 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
       rollback: () => {
         if (previous) setNotes((current) => current.map((note) => note.id === id ? previous : note));
       },
-      onError: () => toast.error("Note could not be saved. Your draft is still in the editor."),
+      onError: (cause) => {
+        if (contextRef.current !== savedContext || activeIdRef.current !== id) return;
+        if (cause instanceof NoteVersionConflict) {
+          conflicted.current = true;
+          if (saveTimer.current) clearTimeout(saveTimer.current);
+        } else {
+          toast.error("Note could not be saved. Your draft is still in the editor.");
+        }
+      },
     });
     pending(id, false);
     saving.current = false;
-    if (!saved) { setSaveStatus("Save failed"); return; }
+    if (contextRef.current !== savedContext || activeIdRef.current !== id) return;
+    if (!saved) { setSaveStatus(conflicted.current ? "Version conflict" : "Save failed"); return; }
     setSaveStatus(dirty.current ? "Unsaved changes" : "Saved");
     if (dirty.current && activeIdRef.current === id) saveTimer.current = setTimeout(() => { void latestSave.current(); }, 600);
   }
@@ -213,20 +248,20 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
     return !dirty.current;
   }
 
-  async function createNote() {
+  async function createNote(draft = { title: "Untitled", markdown: "" }) {
     const id = `pending:${crypto.randomUUID()}`;
     const now = Date.now();
     const optimistic: KnowledgeNote = {
-      id, workspaceId: workspaceId ?? "", scope, title: "Untitled", sha256: "", projectId: null,
+      id, workspaceId: workspaceId ?? "", scope, title: draft.title, sha256: "", projectId: null,
       version: 1, createdBy: "", createdAt: now, updatedAt: now, ingestion: { state: "pending" },
     };
     pending(id, true);
-    await optimisticMutation({
+    const created = await optimisticMutation({
       apply: () => setNotes((current) => [optimistic, ...current]),
       commit: async () => {
         const response = await fetch(`/api/notes?scope=${scope}`, {
           method: "POST", credentials: "same-origin", headers: { ...teamWorkspaceHeaders(workspaceId ?? undefined), "Content-Type": "application/json" },
-          body: JSON.stringify({ title: "Untitled", markdown: "" }),
+          body: JSON.stringify(draft),
         });
         const body = await response.json() as { note?: KnowledgeNote; error?: string };
         if (!response.ok || !body.note) throw new Error(body.error ?? "Create note failed.");
@@ -235,25 +270,75 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
       reconcile: (note) => {
         if (contextRef.current !== context) return;
         setNotes((current) => [note, ...current.filter((item) => item.id !== id && item.id !== note.id)]);
-        setActiveId(note.id); setTitle(note.title); setVersion(note.version);
-        editor?.commands.setContent("<p></p>");
       },
       rollback: () => setNotes((current) => current.filter((note) => note.id !== id)),
       onError: () => toast.error("Note could not be created."),
     });
     pending(id, false);
+    return created;
+  }
+
+  function selectNote(note: KnowledgeNote) {
+    setActiveId(note.id); setTitle(note.title); setVersion(note.version);
   }
 
   async function openNote(note: KnowledgeNote) {
+    if (activeIdRef.current === note.id) return;
     if (dirty.current && !await saveDraft()) return;
-    setActiveId(note.id); setTitle(note.title); setVersion(note.version);
+    selectNote(note);
   }
 
   async function newNote() {
     if (creating || (dirty.current && !await saveDraft())) return;
     setCreating(true);
-    try { await createNote(); }
+    try {
+      const note = await createNote();
+      if (note && contextRef.current === context) selectNote(note);
+    }
     finally { setCreating(false); }
+  }
+
+  async function recoverConflict(action: "copy" | "reload") {
+    const id = activeIdRef.current;
+    if (!editor || !id || !conflicted.current || recovering) return;
+    const revision = draftRevision.current;
+    const isCurrent = () => contextRef.current === context && activeIdRef.current === id;
+    setRecovering(true);
+    try {
+      if (action === "copy") {
+        const note = await createNote({ title: `${titleRef.current.trim() || "Untitled"} (copy)`, markdown: draftMarkdown(editor) });
+        if (note && isCurrent()) {
+          if (draftRevision.current === revision) selectNote(note);
+          else toast.info("Draft copied. Your newer changes are still in the editor.");
+        }
+        return;
+      }
+      const response = await fetch(`/api/notes/${encodeURIComponent(id)}`, {
+        credentials: "same-origin", cache: "no-store", headers: teamWorkspaceHeaders(workspaceId ?? undefined),
+      });
+      if (!response.ok) throw new Error("Note unavailable.");
+      const { note } = await response.json() as { note?: KnowledgeNote };
+      if (note?.id !== id) throw new Error("Note unavailable.");
+      const markdown = await readNoteBody(id, workspaceId);
+      if (!isCurrent()) return;
+      if (draftRevision.current !== revision) {
+        toast.info("The draft changed while reloading and was kept.");
+        return;
+      }
+      savedBody.current = loadEditorBody(editor, markdown);
+      titleRef.current = note.title;
+      activeVersionRef.current = note.version;
+      setTitle(note.title);
+      setVersion(note.version);
+      setNotes((current) => current.map((item) => item.id === id && item.version <= note.version ? note : item));
+      conflicted.current = false;
+      dirty.current = false;
+      setSaveStatus("Saved");
+    } catch {
+      if (isCurrent()) toast.error("Could not reload the latest note. Your draft is still in the editor.");
+    } finally {
+      setRecovering(false);
+    }
   }
 
   return (
@@ -277,6 +362,13 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
           </div>
         </aside>
         <section data-testid="note-editor" aria-label="Note editor" className="flex min-h-[28rem] min-w-0 flex-1 flex-col">
+          {saveStatus === "Version conflict" && <div className="border-b border-[var(--border-1)] px-5 py-2 text-sm">
+            <p role="alert">This note changed elsewhere. Your draft is still here.</p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" disabled={recovering} className="min-h-11 px-2 underline disabled:opacity-50" onClick={() => void recoverConflict("copy")}>Save draft as a copy</button>
+              <button type="button" disabled={recovering} className="min-h-11 px-2 underline disabled:opacity-50" onClick={() => void recoverConflict("reload")}>Discard draft and reload</button>
+            </div>
+          </div>}
           {error && <LoadErrorState message={error} onRetry={() => {
             setError(null);
             if (!dirty.current) setBodyRevision((value) => value + 1);

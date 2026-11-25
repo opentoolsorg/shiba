@@ -1,6 +1,7 @@
 import type { JSONContent } from "@tiptap/react";
 
 const delimiters = [["**", "bold"], ["~~", "strike"], ["*", "italic"]] as const;
+const escapablePunctuation = /[!-/:-@\[-\x60{-~]/;
 
 function delimiterEnd(text: string, delimiter: string, from: number): number {
   for (let end = text.indexOf(delimiter, from); end !== -1; end = text.indexOf(delimiter, end + 1)) {
@@ -19,8 +20,10 @@ function inline(text: string, marks: NonNullable<JSONContent["marks"]> = []): JS
     plain = "";
   };
   for (let i = 0; i < text.length;) {
-    if (text[i] === "\\" && i + 1 < text.length) {
-      plain += text[i + 1]; i += 2; continue;
+    if (text[i] === "\\") {
+      const next = text[i + 1];
+      if (next === "\n") { flush(); result.push({ type: "hardBreak" }); i += 2; continue; }
+      if (next && escapablePunctuation.test(next)) { plain += next; i += 2; continue; }
     }
     if (text[i] === "\n") {
       if (plain.endsWith("  ")) { plain = plain.slice(0, -2); flush(); result.push({ type: "hardBreak" }); }
