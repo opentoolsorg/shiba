@@ -49,11 +49,19 @@ const EMPTY_FORM = {
   defaultRepoUrl: "",
   expectedDeliverables: "",
   title: "",
-  reportsToAgentId: "",
+  managerSelection: "",
   slackIdentity: "",
   discordIdentity: "",
   emailIdentity: "",
 };
+
+const employeeManagerValue = (id: string) => `agent:${id}`;
+
+function managerSelectionFor(reportsTo: CustomAgentConfig["reportsTo"], actorId?: string): string {
+  if (reportsTo?.kind === "agent") return employeeManagerValue(reportsTo.agentId);
+  if (reportsTo?.kind === "user") return reportsTo.userId === actorId ? "self" : "saved";
+  return "";
+}
 
 function readRoleDraft(scope?: string): typeof EMPTY_FORM {
   if (!scope) return EMPTY_FORM;
@@ -62,6 +70,7 @@ function readRoleDraft(scope?: string): typeof EMPTY_FORM {
     if (draft && Object.keys(EMPTY_FORM).every((key) => key === "roleTemplateId" || key === "mascotPreset" || key.startsWith("look") || draft[key] === undefined || typeof draft[key] === "string")) {
       return {
         ...Object.fromEntries(Object.keys(EMPTY_FORM).map((key) => [key, typeof draft[key] === "string" ? draft[key] : ""])),
+        managerSelection: draft.managerSelection ?? (typeof draft.reportsToAgentId === "string" && draft.reportsToAgentId ? employeeManagerValue(draft.reportsToAgentId) : ""),
         mascotPreset: CUSTOM_AGENT_MASCOT_PRESETS.includes(draft.mascotPreset) ? draft.mascotPreset : "",
         lookShape: (AGENT_MASCOT_SHAPES as readonly string[]).includes(draft.lookShape) ? draft.lookShape : "",
         lookColor: normalizeMascotColor(draft.lookColor) ?? "",
@@ -183,6 +192,28 @@ function ScopedCustomAgentsView({
   const [startingAgentId, setStartingAgentId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [editingConfig, setEditingConfig] = useState<CustomAgentConfig | null>(null);
+  const managerOptions = new Map<string, { label: string; reportsTo?: CustomAgentConfig["reportsTo"] }>();
+  managerOptions.set("", { label: "No manager" });
+  if (actorId) {
+    managerOptions.set("self", { label: "Directly to you", reportsTo: { kind: "user", userId: actorId } });
+  }
+  for (const agent of agents ?? []) {
+    if (agent.id !== editingId) {
+      managerOptions.set(employeeManagerValue(agent.id), {
+        label: `${agent.config.name} (${agent.config.department ?? departmentForRoleTemplate(agent.config.roleTemplateId)})`,
+        reportsTo: { kind: "agent", agentId: agent.id },
+      });
+    }
+  }
+  const savedManager = editingConfig?.reportsTo;
+  const savedManagerSelection = managerSelectionFor(savedManager, actorId);
+  if (savedManager && !managerOptions.has(savedManagerSelection)) {
+    managerOptions.set(savedManagerSelection, {
+      label: savedManager.kind === "user" ? `Keep saved manager (${savedManager.userId})` : "Keep saved manager (unavailable employee)",
+      reportsTo: savedManager,
+    });
+  }
+  const selectedManager = managerOptions.get(form.managerSelection);
   const [access, setAccess] = useState<"only-me" | "workspace">("workspace");
   const [conflict, setConflict] = useState(false);
   const directoryRequest = useRef(0);
@@ -335,7 +366,7 @@ function ScopedCustomAgentsView({
       defaultRepoUrl: agent.config.defaultRepoUrl ?? "",
       expectedDeliverables: agent.config.expectedDeliverables?.join("\n") ?? "",
       title: agent.config.title ?? "",
-      reportsToAgentId: agent.config.reportsTo?.kind === "agent" ? agent.config.reportsTo.agentId : "",
+      managerSelection: managerSelectionFor(agent.config.reportsTo, actorId),
       slackIdentity: agent.config.channelIdentities?.slack ?? "",
       discordIdentity: agent.config.channelIdentities?.discord ?? "",
       emailIdentity: agent.config.channelIdentities?.email ?? "",
@@ -418,6 +449,10 @@ function ScopedCustomAgentsView({
       setNotice({ tone: "err", text: "Use at most 8 required deliverable paths, one per line." });
       return;
     }
+    if (!selectedManager) {
+      setNotice({ tone: "err", text: "The selected manager is unavailable. Choose another manager or No manager." });
+      return;
+    }
     savingAgent.current = true;
     setBusy(true);
     setNotice(null);
@@ -454,15 +489,9 @@ function ScopedCustomAgentsView({
         config.department = editingConfig.department;
       }
     }
-    if (form.reportsToAgentId) {
-      // A selection the directory still lists becomes the manager; a saved value
-      // the visibility filter hides stays as loaded.
-      if ((agents ?? []).some((agent) => agent.id === form.reportsToAgentId && agent.id !== editingId)) {
-        config.reportsTo = { kind: "agent", agentId: form.reportsToAgentId };
-      }
-    } else if (editingConfig?.reportsTo?.kind === "agent" && (agents ?? []).some((agent) => agent.id === (editingConfig.reportsTo as { agentId: string }).agentId)) {
-      // Empty select with a visible saved manager means the user cleared it;
-      // a user-kind manager or one outside the directory is preserved.
+    if (selectedManager.reportsTo) {
+      config.reportsTo = selectedManager.reportsTo;
+    } else {
       delete config.reportsTo;
     }
     const channelIdentities = {
@@ -710,7 +739,7 @@ function ScopedCustomAgentsView({
                 >
                   <div className="min-w-0">
                     <div className="mb-3 flex items-center gap-3"><AgentAvatar agentId={agent.id} name={agent.config.name} mascotPreset={agent.config.mascotPreset} look={agent.config.look} avatar={agent.config.avatar} slug={agent.slug} role={employeeRole(agent.slug, agent.config.roleTemplateId)} /><span className="text-xs font-medium text-[var(--muted-foreground-2)]">{[agent.config.title, employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))].filter(Boolean).join(" · ")}</span>{agent.config.channelIdentities && (agent.config.channelIdentities.slack || agent.config.channelIdentities.discord || agent.config.channelIdentities.email) ? (
-                      <span className="ml-auto flex gap-1" aria-label="Employee channels">
+                      <span className="ml-auto flex gap-1" role="group" aria-label="Employee channels">
                         {agent.config.channelIdentities.slack ? <span title={`slack: ${agent.config.channelIdentities.slack}`} className="border border-[var(--line)] px-1 font-mono text-[9px] text-[var(--ink-2)]">S</span> : null}
                         {agent.config.channelIdentities.discord ? <span title={`discord: ${agent.config.channelIdentities.discord}`} className="border border-[var(--line)] px-1 font-mono text-[9px] text-[var(--ink-2)]">D</span> : null}
                         {agent.config.channelIdentities.email ? <span title={`email: ${agent.config.channelIdentities.email}`} className="border border-[var(--line)] px-1 font-mono text-[9px] text-[var(--ink-2)]">@</span> : null}
@@ -904,13 +933,13 @@ function ScopedCustomAgentsView({
               <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
                 Reports to
                 <select
-                  value={form.reportsToAgentId}
-                  onChange={(e) => setForm((f) => ({ ...f, reportsToAgentId: e.target.value }))}
+                  value={form.managerSelection}
+                  onChange={(e) => setForm((f) => ({ ...f, managerSelection: e.target.value }))}
                   className={FIELD}
                 >
-                  <option value="">Directly to you</option>
-                  {(agents ?? []).filter((agent) => agent.id !== editingId).map((agent) => (
-                    <option key={agent.id} value={agent.id}>{agent.config.name} ({agent.config.department ?? departmentForRoleTemplate(agent.config.roleTemplateId)})</option>
+                  {!selectedManager && <option value={form.managerSelection} disabled>Selected manager unavailable</option>}
+                  {[...managerOptions].map(([value, { label }]) => (
+                    <option key={value} value={value}>{label}</option>
                   ))}
                 </select>
               </label>

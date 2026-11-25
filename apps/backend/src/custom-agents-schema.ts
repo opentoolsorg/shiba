@@ -23,7 +23,7 @@ export const CustomAgentConfigSchema = Schema.Struct({
   title: Schema.optional(Bounded(120)),
   department: Schema.optional(Schema.Literals(CUSTOM_AGENT_DEPARTMENTS)),
   reportsTo: Schema.optional(Schema.Union([
-    Schema.Struct({ kind: Schema.Literal("user"), userId: Bounded(120) }),
+    Schema.Struct({ kind: Schema.Literal("user"), userId: Bounded(254) }),
     Schema.Struct({ kind: Schema.Literal("agent"), agentId: Bounded(120) }),
   ])),
   channelIdentities: Schema.optional(Schema.Struct({
