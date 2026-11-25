@@ -119,7 +119,8 @@ export default {
     const requestId = /^[A-Za-z0-9._:-]{1,128}$/.test(inbound) ? inbound : crypto.randomUUID();
     const startedAt = Date.now();
     const method = request.method;
-    const path = new URL(request.url).pathname;
+    let route = "unmatched";
+    const recordRoute = (id: string) => { route = id; };
     return withLogContext({ requestId }, async () => {
       const response = await withRequestTiming(request, async () => {
     env = withTimingDatabase(env);
@@ -129,6 +130,7 @@ export default {
       const capabilityResponse = await dispatchRoutes(
         "capability",
         createRequestContext(request, env, ctx),
+        recordRoute,
       );
       if (capabilityResponse) return capabilityResponse;
       if (!claudeSubscriptionDeprecationWarned && env.SHIBA_CLAUDE_SUBSCRIPTION === "1") {
@@ -148,7 +150,7 @@ export default {
       }
       const url = new URL(request.url);
       const context = createRequestContext(request, env, ctx);
-      const ingressResponse = await dispatchRoutes("ingress", context);
+      const ingressResponse = await dispatchRoutes("ingress", context, recordRoute);
       if (ingressResponse) return ingressResponse;
       if (
         !isPublicRequest(request) &&
@@ -183,10 +185,10 @@ export default {
       if (memberPolicyResponse) return memberPolicyResponse;
       const employeeAccessResponse = await enforceEmployeeRouteAccess(request, env);
       if (employeeAccessResponse) return employeeAccessResponse;
-      const authenticatedResponse = await dispatchRoutes("authenticated", context);
+      const authenticatedResponse = await dispatchRoutes("authenticated", context, recordRoute);
       if (authenticatedResponse) return authenticatedResponse;
       ensureLiveCodingModel(env);
-      const response = await dispatchRoutes("model", context);
+      const response = await dispatchRoutes("model", context, recordRoute);
       if (response) return response;
       throw new Error("Route table has no final response.");
     } catch (error) {
@@ -200,7 +202,7 @@ export default {
       });
       log.info("http.request", {
         method,
-        path,
+        route,
         status: response.status,
         durationMs: Date.now() - startedAt,
       });

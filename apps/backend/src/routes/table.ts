@@ -170,11 +170,15 @@ export function matchesRoute(route: RouteEntry, request: Request): boolean {
 export async function dispatchRoutes(
   phase: RoutePhase,
   context: RequestContext,
+  onResponse?: (routeId: string) => void,
 ): Promise<Response | null> {
   for (const entry of ROUTES) {
     if (entry.phase !== phase || !matchesRoute(entry, context.request)) continue;
     const response = await entry.handler(context);
-    if (response) return response;
+    if (response) {
+      onResponse?.(entry.id);
+      return response;
+    }
   }
   return null;
 }

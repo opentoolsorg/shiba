@@ -35,6 +35,33 @@ function fixture() {
 }
 
 describe("Worker path and explicit-credential isolation", () => {
+  it.each([
+    ["/share/c/", "shell"],
+    ["/share/f/", "shell"],
+    ["/api/share/file/", "share-read"],
+    ["/api/unknown/", "unmatched"],
+  ])("logs only the route ID for requests under %s", async (prefix, route) => {
+    const { env, prepare } = fixture();
+    prepare.mockReturnValue({ bind: () => ({ first: async () => null }) });
+    env.ASSETS = { fetch: vi.fn().mockResolvedValue(new Response("shell")) } as unknown as Fetcher;
+    const token = "ab".repeat(32);
+    const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const response = await worker.fetch(new Request(`https://worker.test${prefix}${token}`), env);
+      const requestLogs = logs.mock.calls
+        .map(([line]) => String(line))
+        .filter((line) => line.includes('"msg":"http.request"'));
+      expect(requestLogs).toHaveLength(1);
+      const [line = ""] = requestLogs;
+      expect(line).not.toContain(token);
+      const record = JSON.parse(line);
+      expect(record).toMatchObject({ route, method: "GET", status: response.status });
+      expect(record).not.toHaveProperty("path");
+    } finally {
+      logs.mockRestore();
+    }
+  });
+
   it("forwards authenticated automation item updates to the Automations DO", async () => {
     const f = fixture();
     const forwarded = vi.fn(async (request: Request) => {
