@@ -387,6 +387,7 @@ function workViewFromUrl(): WorkViewMode {
 }
 
 const SETUP_TOTAL_STEPS = 6;
+const ANALYTICS_RUN_PARAM = "run";
 
 const STARTER_TEMPLATES = [
   {
@@ -541,7 +542,11 @@ export function App(): React.JSX.Element {
   });
   const previousViewRef = useRef<MainView>(DEFAULT_VIEW);
   const clearRoomIntentRef = useRef<() => void>(() => {});
-  const [analyticsRunId, setAnalyticsRunId] = useState<string | null>(null);
+  const [analyticsRunId, setAnalyticsRunId] = useState<string | null>(() =>
+    mainView === "analytics" && typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get(ANALYTICS_RUN_PARAM)
+      : null,
+  );
   const openView = useCallback((view: AppNavView) => {
     if (view !== "threads") clearRoomIntentRef.current();
     setShowFirstRun(false);
@@ -874,11 +879,25 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       else router.history.replace(path + window.location.hash);
       return;
     }
+    if (mainView === "analytics") {
+      urlSynced.current = true;
+      if (traversing) return;
+      const keep = first || !viewChanged;
+      const params = new URLSearchParams(keep ? window.location.search : "");
+      if (analyticsRunId) params.set(ANALYTICS_RUN_PARAM, analyticsRunId);
+      else params.delete(ANALYTICS_RUN_PARAM);
+      const query = params.toString();
+      const target = `${base}${query ? `?${query}` : ""}${keep ? window.location.hash : ""}`;
+      if (window.location.pathname + window.location.search + window.location.hash === target) return;
+      if (first) router.history.replace(target);
+      else router.history.push(target);
+      return;
+    }
     urlSynced.current = true;
     if (window.location.pathname === base) return;
     if (first) router.history.replace(base + window.location.search + window.location.hash);
     else router.history.push(base);
-  }, [mainView, settingsSection, selectedSessionId, botPage, teamWorkspaceId, threadLinkPending, router]);
+  }, [mainView, settingsSection, selectedSessionId, analyticsRunId, botPage, teamWorkspaceId, threadLinkPending, router]);
 
   useEffect(() => {
     const onPop = () => {
@@ -886,8 +905,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setWorkLocationTick((tick) => tick + 1);
       const view = viewFromUrl();
       setWorkViewMode(workViewFromUrl());
-      setAnalyticsRunId(null);
+      setAnalyticsRunId(view === "analytics" ? new URLSearchParams(window.location.search).get(ANALYTICS_RUN_PARAM) : null);
       setMainView(view ?? DEFAULT_VIEW);
+      if (view === "analytics") return;
       if (view === "settings") setSettingsSection(normalizeSettingsSection(new URLSearchParams(window.location.search).get("section")));
       if (readRoomLink(window.location.search) !== null) return;
       const linked = readThreadLink(window.location.search);

@@ -283,6 +283,9 @@ it("lists employee threads and resumes the selected thread without queueing work
       if (path.startsWith("/api/runs?") || path === "/api/runs") {
         return Response.json({ runs: [otherRun, run] });
       }
+      if (path.startsWith("/api/usage?") || path === "/api/usage") {
+        return Response.json({ generatedAt: 1, timezone: "UTC", budgetUsd: null, days: [] });
+      }
       return originalFetch(url, options);
     }));
     render(<App />);
@@ -296,9 +299,11 @@ it("lists employee threads and resumes the selected thread without queueing work
     const recent = await screen.findByRole("region", { name: "Recent runs" });
     fireEvent.click(within(recent).getByRole("button", { name: new RegExp(run.task) }));
     expect(await screen.findByRole("heading", { name: "Usage" })).toBeTruthy();
+    await screen.findByText("No token usage reported yet");
     const selected = await screen.findByRole("row", { name: new RegExp(run.task) });
     expect(selected.getAttribute("aria-current")).toBe("true");
     expect(document.activeElement).toBe(selected);
+    expect(window.location.search).toBe(`?run=${run.runId}`);
     expect(screen.getByRole("row", { name: new RegExp(otherRun.task) }).hasAttribute("aria-current")).toBe(false);
     expect(screen.queryByRole("region", { name: "Guided onboarding" })).toBeNull();
     expect(fetch).not.toHaveBeenCalledWith("/api/sessions/recent-run/resume", { method: "POST" });
@@ -311,6 +316,14 @@ it("lists employee threads and resumes the selected thread without queueing work
     const usageRow = await screen.findByRole("row", { name: new RegExp(otherRun.task) });
     expect(usageRow.hasAttribute("aria-current")).toBe(false);
     expect(document.activeElement).not.toBe(usageRow);
+    expect(window.location.search).toBe("");
+
+    await act(async () => { window.history.back(); });
+    await screen.findByRole("combobox", { name: "Select run for diff inspection" });
+    await act(async () => { window.history.back(); });
+    const restored = await screen.findByRole("row", { name: new RegExp(run.task) });
+    expect(restored.getAttribute("aria-current")).toBe("true");
+    expect(window.location.search).toBe(`?run=${run.runId}`);
   });
 
   it("opens the returned approval from Chat and follows its server-linked run after approval", async () => {
