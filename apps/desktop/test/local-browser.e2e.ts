@@ -50,6 +50,7 @@ beforeAll(async () => {
     res.setHeader("set-cookie", "shiba_local_test=temporary; Path=/; SameSite=Lax");
     res.end(`<!doctype html><meta charset="utf-8"><title>Local fixture</title>
       <button id="task" type="button">Increase counter</button>
+      <fieldset disabled><button type="button">Disabled by fieldset</button></fieldset>
       <script>
         fetch('/bridge-check?value=' + encodeURIComponent(typeof window.shibaLocalBrowser));
         document.querySelector('#task').addEventListener('click', () => { document.cookie = 'session_marker=created; Path=/'; fetch('/clicked', { method: 'POST' }); });
@@ -120,6 +121,11 @@ test("local browser requires local consent, pauses for takeover, and revokes on 
     await expect.poll(() => siteBridgeChecks.length).toBe(1);
     expect(siteBridgeChecks[0]).toBe("undefined");
     expect(siteCookies[0]).not.toContain("session_marker=created");
+
+    await expect.poll(() => localBrowser.evaluate(() => {
+      const bridge = (window as Window & { shibaLocalBrowser?: { clickButton(label: string): Promise<unknown> } }).shibaLocalBrowser;
+      return bridge?.clickButton("Disabled by fieldset");
+    })).toEqual({ ok: true, clicked: false });
 
     await localBrowser.locator("#button-label").fill("Increase counter");
     await localBrowser.getByRole("button", { name: "Click button" }).click();
