@@ -35,12 +35,13 @@ export class Sandbox extends ShibaSandbox {
 }
 
 export default {
-  async fetch(_request, env) {
+  async fetch(request, env) {
     const sandbox = getSandbox(env.Sandbox, "sandbox-container-test");
     try {
-      const startup = await sandbox.probeContainer();
-      const clone = await sandbox.cloneApprovedRepo();
-      return Response.json({ startup, clone });
+      const result = new URL(request.url).pathname === "/clone"
+        ? await sandbox.cloneApprovedRepo()
+        : await sandbox.probeContainer();
+      return Response.json(result);
     } catch (error) {
       return Response.json({ error: error.message }, { status: 500 });
     } finally {
