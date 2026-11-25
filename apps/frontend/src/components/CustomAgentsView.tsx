@@ -673,7 +673,7 @@ function ScopedCustomAgentsView({
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="flex min-w-0 items-center gap-3">
                   <AgentAvatar agentId={selectedAgent.id} name={selectedAgent.config.name} mascotPreset={selectedAgent.config.mascotPreset} look={selectedAgent.config.look} avatar={selectedAgent.config.avatar} slug={selectedAgent.slug} role={employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId)} large />
-                  <div className="min-w-0"><p className={OVERLINE}>Saved profile · v{selectedAgent.version}</p><h2 className="break-words font-[family-name:var(--font-display)] text-xl font-semibold tracking-tight">{selectedAgent.config.name}</h2><p className="text-xs text-[var(--muted-foreground-2)]">{employeeRoleLabel(employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId))}</p><button type="button" disabled={!canManage(selectedAgent.id)} onClick={() => { setAvatarError(null); setAvatarEditorFor(selectedAgent); }} className="mt-1 min-h-9 rounded-[var(--radius-button)] border border-[var(--border-1)] px-2 text-[11px] hover:bg-[var(--card-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] disabled:opacity-50">Edit avatar</button></div>
+                  <div className="min-w-0"><p className={OVERLINE}>Saved profile · v{selectedAgent.version}</p><h2 className="break-words font-[family-name:var(--font-display)] text-xl font-semibold tracking-tight">{selectedAgent.config.name}</h2><p className="text-xs text-[var(--muted-foreground-2)]">{employeeRoleLabel(employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId))}</p><button type="button" disabled={!canManage(selectedAgent.id)} onClick={() => { setAvatarError(null); setAvatarEditorFor(selectedAgent); }} className="mt-1 min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] px-2 text-[11px] hover:bg-[var(--card-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] disabled:opacity-50">Edit avatar</button></div>
                 </div>
                 <button type="button" className={BTN} onClick={() => { setSelectedAgentId(null); profileTrigger.current?.focus(); }}>Close profile</button>
               </div>
@@ -953,7 +953,7 @@ function ScopedCustomAgentsView({
                     disabled={busy}
                     aria-describedby={roleHelpId}
                     onChange={(e) => setForm((f) => ({ ...f, roleTemplateId: e.target.value }))}
-                    className={FIELD}
+                    className={`${FIELD} min-h-11`}
                   >
                     <option value="">Custom (role may be inferred from slug)</option>
                     {EMPLOYEE_TEMPLATES.map((template) => <option key={template.id} value={template.id}>{template.label}</option>)}
@@ -1026,7 +1026,7 @@ function ScopedCustomAgentsView({
                   <p className="text-sm font-medium text-[var(--fg)]">Interactive task approval</p>
                   <p className="mt-1">A profile grants no tool or app access. {INTERACTIVE_APPROVAL}</p>
                   <p className="mt-1">{AUTOMATION_APPROVAL}</p>
-                  <div className="mt-1"><ToolPolicyNote workspaceId={workspaceId} onOpenToolPolicy={onOpenToolPolicy} /></div>
+                  <div className="mt-1"><ToolPolicyNote workspaceId={workspaceId} onOpenToolPolicy={editingId ? undefined : onOpenToolPolicy} /></div>
                 </div>
               </div>
 

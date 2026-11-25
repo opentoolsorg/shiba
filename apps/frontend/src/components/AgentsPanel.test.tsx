@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { threadAgentId, type WebThread } from "../agent-threads";
+import type { WebThread } from "../agent-threads";
 import { AgentsPanel } from "./AgentsPanel";
 import type { CustomAgentWire } from "./CustomAgentsView";
 
@@ -312,10 +312,9 @@ describe("AgentsPanel", () => {
         onNewThread={onNewThread}
         agents={mockAgents}
         threads={[
-          ...mockThreads.filter((thread) => threadAgentId(thread) !== "agent-2"),
+          ...mockThreads,
           { id: "loose", name: "Quick question", agentName: "web:user:4", updatedAt: 400 },
         ]}
-        unavailableThreads={mockThreads.filter((thread) => threadAgentId(thread) === "agent-2")}
       />,
     );
 
@@ -444,8 +443,7 @@ describe("AgentsPanel", () => {
         onSelect={onSelectThread}
         onSelectThread={onSelectThread}
         agents={mockAgents}
-        threads={[]}
-        unavailableThreads={[{ id: "orphan", name: "Archived employee thread", agentName: "web:user:orphan", updatedAt: 500, metadata: { customAgentId: "archived-agent" } }]}
+        threads={[{ id: "orphan", name: "Archived employee thread", agentName: "web:user:orphan", updatedAt: 500, metadata: { customAgentId: "archived-agent" } }]}
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Expand Unavailable employee" }));

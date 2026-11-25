@@ -3036,6 +3036,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       ]);
       setSelectedSessionId(body.session.id);
       writeRememberedSessionId(body.session.id);
+      setSelectedRunId(null);
+      setBotPage("chat");
+      setBotPageMessage(null);
       setCustomAgentId("");
       setNotice(null);
       setMobileSessionsOpen(false);
@@ -3326,15 +3329,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         active={mainView === "custom-agents" ? customAgentId : mainView === "threads" ? selectedRunId ?? selectedSessionId : mainView}
         onSelect={(id) => { if (id === "employee-tools" || id === "swarm" || id === "tasks") openView(id); }}
         agents={signedIn && workspaceAuthorityReady && !teamDirectory.error ? customAgentRecords : []}
-        threads={mainView === "threads" && privateData ? visibleWebSessions.filter((thread) => {
-          const employeeId = threadAgentId(thread);
-          return !employeeId || customAgentRecords.some((profile) => profile.id === employeeId);
-        }) : visibleWebSessions}
-        unavailableThreads={mainView === "threads" && privateData ? visibleWebSessions.filter((thread) => {
-          const employeeId = threadAgentId(thread);
-          const directoryUnavailable = !signedIn || !workspaceAuthorityReady || Boolean(teamDirectory.error) || Boolean(customAgentsError);
-          return Boolean(employeeId) && !customAgentsLoading && (directoryUnavailable || !customAgentRecords.some((profile) => profile.id === employeeId));
-        }) : []}
+        threads={visibleWebSessions}
         threadsLoading={mainView === "threads" && threadsLoading}
         runs={mainView === "threads" ? sessions.filter((session) => !session.webSession) : []}
         onLoadMoreRuns={mainView === "threads" ? () => openView("work") : undefined}
@@ -3358,7 +3353,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         }}
         onOpenAgent={mainView === "threads" ? undefined : openBotPanel}
         onSelectThread={(id) => { void handleSelectSession(id); openView("threads"); }}
-        onSelectRun={(id) => { void handleSelectSession(id); openView("threads"); }}
+        onSelectRun={(id) => { void handleSelectSession(id); }}
         onNewThread={(agentId) => { void startSidebarAgentThread(customAgentRecords.find((profile) => profile.id === agentId)); }}
         onNewChat={mainView === "threads" ? () => { void handleNewTask(); } : undefined}
         onSearchAll={mainView === "threads" ? () => setCommandMenuOpen(true) : undefined}

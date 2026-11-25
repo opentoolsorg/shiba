@@ -735,6 +735,26 @@ describe("employee directory and hire design", () => {
     expect(within(stage).getByRole("link", { name: /Review employee tool policy/ }).getAttribute("href")).toBe("/employee-tools/");
   });
 
+  it("opens the editor's tool policy in a new tab instead of leaving an unsaved edit", async () => {
+    const agent = { id: "fin-1", slug: "auditor", version: 1, config: { name: "Auditor", instructions: "Audit.", harness: "opencode" } };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ agents: [agent] })));
+    const onOpenToolPolicy = vi.fn();
+    render(<CustomAgentsView onOpenToolPolicy={onOpenToolPolicy} />);
+    fireEvent.click(await screen.findByRole("button", { name: "View profile Auditor" }));
+    const profile = screen.getByRole("region", { name: "Auditor overview" });
+    fireEvent.click(within(profile).getByRole("button", { name: "Edit profile" }));
+    const name = screen.getByRole("textbox", { name: "Name" });
+    fireEvent.change(name, { target: { value: "Unsaved Auditor" } });
+
+    const stage = screen.getByRole("heading", { name: "Set boundaries" }).closest("section") as HTMLElement;
+    const link = within(stage).getByRole("link", { name: /Review employee tool policy/ });
+    expect(link).toHaveProperty("target", "_blank");
+    expect(link.getAttribute("href")).toBe("/employee-tools/");
+    fireEvent.click(link);
+    expect(onOpenToolPolicy).not.toHaveBeenCalled();
+    expect(name).toHaveProperty("value", "Unsaved Auditor");
+  });
+
   it("walks the hire stages, reviews the real settings, and saves only real fields", async () => {
     let body: { slug?: string; config: Record<string, unknown> } | undefined;
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {

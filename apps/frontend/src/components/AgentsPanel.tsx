@@ -37,7 +37,6 @@ export interface AgentsPanelProps {
   onSelect: (id: string) => void;
   agents?: CustomAgentWire[];
   threads?: WebThread[];
-  unavailableThreads?: WebThread[];
   threadsLoading?: boolean;
   runs?: SessionItem[];
   onSelectRun?: (id: string) => void;
@@ -72,7 +71,7 @@ interface AgentRow {
 }
 
 const rowAction =
-  "flex size-7 shrink-0 items-center justify-center rounded text-[var(--muted-foreground-2)] hover:bg-[var(--card-hover)] hover:text-[var(--fg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]";
+  "flex size-11 shrink-0 items-center justify-center rounded text-[var(--muted-foreground-2)] hover:bg-[var(--card-hover)] hover:text-[var(--fg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]";
 
 /** Secondary panel for Agents: the default chief of staff plus every custom agent, each with its threads. */
 export function AgentsPanel({
@@ -82,7 +81,6 @@ export function AgentsPanel({
   onSelect,
   agents = [],
   threads = [],
-  unavailableThreads = [],
   threadsLoading = false,
   threadStates,
   onNewThread,
@@ -119,7 +117,7 @@ export function AgentsPanel({
   };
 
   const knownAgentIds = new Set(agents.map((agent) => agent.id));
-  const orphanThreads = unavailableThreads.filter((thread) => {
+  const orphanThreads = loading ? [] : threads.filter((thread) => {
     const agentId = threadAgentId(thread);
     return agentId !== "" && !knownAgentIds.has(agentId);
   });

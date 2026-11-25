@@ -1714,6 +1714,70 @@ describe("bot page without a thread", () => {
     expect(screen.getByRole("button", { name: "Start a thread with Engineering bot" })).toBeTruthy();
   });
 
+  it("opens the general composer only after New chat succeeds from a threadless employee", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    const bots = stubBots();
+    const newThreadId = "66666666-6666-4666-8666-666666666666";
+    const createGeneralThread = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(Response.json({
+        session: { id: newThreadId, name: "New chat", agentName: `web:test-operator:${newThreadId}`, updatedAt: 5 },
+      }, { status: 201 }));
+    vi.stubGlobal("fetch", vi.fn((url: string | URL | Request, options?: RequestInit) =>
+      String(url) === "/api/sessions" && options?.method === "POST"
+        ? createGeneralThread(options.body)
+        : bots(url, options)));
+    render(<App />);
+
+    const emptyPage = { name: "Engineering bot has no thread yet" };
+    const employees = await screen.findByRole("list", { name: "Employees" });
+    fireEvent.click(within(employees).getByRole("button", { name: employeeRowName("Engineering bot") }));
+    await screen.findByRole("heading", emptyPage);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "New chat" })); });
+
+    expect(createGeneralThread).toHaveBeenCalledExactlyOnceWith("{}");
+    expect(screen.getByRole("heading", emptyPage)).toBeTruthy();
+    expect(screen.queryByTestId("chat-composer")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    await screen.findByTestId("chat-composer");
+    expect(screen.queryByRole("heading", emptyPage)).toBeNull();
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(newThreadId));
+    expect(createGeneralThread.mock.calls).toEqual([["{}"], ["{}"]]);
+  });
+
+  it("opens Analytics without resuming a thread when selecting a recent run", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    mocks.chat.messages = [];
+    const bots = stubBots();
+    const run = { runId: "recent-run", task: "Compile the weekly brief", status: "completed", repoUrl: "", sandboxId: "s", baseBranch: "main", publishPullRequest: false, generation: 1, createdAt: 1, updatedAt: 2 };
+    vi.stubGlobal("fetch", vi.fn((url: string | URL | Request, options?: RequestInit) =>
+      String(url).startsWith("/api/runs") ? Promise.resolve(Response.json({ runs: [run] })) : bots(url, options)));
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Compile the weekly brief/ }));
+    await screen.findByRole("heading", { name: "Usage" });
+    await waitFor(() => expect(window.location.pathname).toBe("/analytics/"));
+    expect(bots.mock.calls.some(([url]) => String(url).endsWith("/resume"))).toBe(false);
+  });
+
+  it("keeps an employee's thread reachable from Tasks when the directory fails", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/tasks/");
+    mocks.chat.messages = [];
+    const bots = stubBots();
+    vi.stubGlobal("fetch", vi.fn((url: string | URL | Request, options?: RequestInit) =>
+      String(url) === "/api/custom-agents" ? Promise.resolve(new Response(null, { status: 503 })) : bots(url, options)));
+    render(<App />);
+
+    await openSidebarThread(/Competitor brief/, "Unavailable employee");
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+    expect(bots).toHaveBeenCalledWith(`/api/sessions/${RESEARCH_THREAD}/resume`, expect.objectContaining({ method: "POST" }));
+  });
+
   it("does not leave the previous bot's composer live when a bot's thread fails to resume", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
