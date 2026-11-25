@@ -43,21 +43,24 @@ function setMessage(text: string): void {
 }
 
 function render(state: LocalBrowserUiState): void {
+  if (currentState && state.control.revision < currentState.control.revision) return;
   currentState = state;
   const active = state.control.phase === "approved";
   const takeover = state.control.phase === "approved" && state.control.mode === "takeover";
+  const takingOver = state.control.phase === "approved" && state.control.mode === "taking-over";
   if (controls) controls.hidden = !active;
   if (consent) consent.hidden = true;
   if (statePill) {
-    statePill.textContent = takeover ? "Taken over" : active ? "Approved" : "Stopped";
+    statePill.textContent = takeover ? "Taken over" : takingOver ? "Taking over" : active ? "Approved" : "Stopped";
     statePill.className = `pill${takeover ? " takeover" : active ? " active" : ""}`;
   }
   if (approvedOrigin) approvedOrigin.textContent = active && state.control.phase === "approved" ? `Approved for ${state.control.target.kind === "browser" ? state.control.target.origin : "selected window"}` : "";
-  if (takeOver) takeOver.hidden = takeover;
+  if (takeOver) takeOver.hidden = takingOver || takeover;
   if (handBack) handBack.hidden = !takeover;
-  if (clickButton) clickButton.disabled = !active || takeover;
+  if (clickButton) clickButton.disabled = !active || takingOver || takeover;
   if (nativeStatus) nativeStatus.textContent = state.nativeWindow.reason;
   if (!active) setMessage(state.control.phase === "stopped" && state.control.reason === "target-changed" ? "The site changed; approval was revoked. Review it again to continue." : "No site is approved.");
+  else if (takingOver) setMessage("Waiting for the pending action to finish. You can stop the browser instead.");
   else setMessage(takeover ? "You have taken over. Local actions are paused." : "Visible actions are enabled only for this approved site.");
 }
 
@@ -110,7 +113,9 @@ actionForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const label = buttonLabel?.value.trim() ?? "";
   if (!label) return setMessage("Enter the exact label of a visible page button.");
+  const revision = currentState?.control.revision;
   const result = await requireBridge().clickButton(label);
+  if (currentState?.control.revision !== revision) return;
   setMessage(result.ok ? (result.clicked ? "Visible button clicked." : "No unique visible button matched that label.") : result.error ?? "Action refused.");
 });
 

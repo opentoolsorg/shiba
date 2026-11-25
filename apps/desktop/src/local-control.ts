@@ -15,7 +15,7 @@ export type LocalControlSnapshot =
       phase: "approved";
       revision: number;
       target: LocalControlTarget;
-      mode: "control" | "takeover";
+      mode: "control" | "taking-over" | "takeover";
     };
 
 function sameTarget(a: LocalControlTarget, b: LocalControlTarget): boolean {
@@ -48,12 +48,18 @@ export function createLocalControlBoundary() {
       if (snapshot.phase !== "approved" || sameTarget(snapshot.target, target)) return snapshot;
       return publish({ phase: "stopped", revision: snapshot.revision + 1, reason: "target-changed" });
     },
-    takeOver() {
+    async takeOver(settledActions: Promise<unknown>) {
       if (snapshot.phase !== "approved" || snapshot.mode === "takeover") return snapshot;
-      return publish({ ...snapshot, revision: snapshot.revision + 1, mode: "takeover" });
+      const pending = snapshot.mode === "taking-over"
+        ? snapshot
+        : { ...snapshot, revision: snapshot.revision + 1, mode: "taking-over" as const };
+      if (pending !== snapshot) publish(pending);
+      await settledActions;
+      if (snapshot !== pending) return snapshot;
+      return publish({ ...pending, revision: pending.revision + 1, mode: "takeover" });
     },
     handBack() {
-      if (snapshot.phase !== "approved" || snapshot.mode === "control") return snapshot;
+      if (snapshot.phase !== "approved" || snapshot.mode !== "takeover") return snapshot;
       return publish({ ...snapshot, revision: snapshot.revision + 1, mode: "control" });
     },
     stop(reason: Exclude<LocalControlStopReason, "not-started"> = "user-stopped") {

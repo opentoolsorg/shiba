@@ -11,6 +11,7 @@ let otherOrigin: Server;
 let fixtureUrl = "";
 let otherUrl = "";
 let actionCount = 0;
+let hangingRequests = 0;
 const siteBridgeChecks: string[] = [];
 const siteCookies: string[] = [];
 const actionCookies: string[] = [];
@@ -19,7 +20,13 @@ const userDataDirs: string[] = [];
 beforeAll(async () => {
   fixture = createServer((req, res) => {
     const url = new URL(req.url ?? "/", fixtureUrl || "http://127.0.0.1");
+    if (url.pathname === "/app/") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end("<!doctype html><title>Dashboard fixture</title>");
+      return;
+    }
     if (url.pathname === "/hang") {
+      hangingRequests += 1;
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).flushHeaders();
       return;
     }
@@ -33,6 +40,10 @@ beforeAll(async () => {
       siteBridgeChecks.push(url.searchParams.get("value") ?? "");
       siteCookies.push(req.headers.cookie ?? "");
       res.writeHead(204).end();
+      return;
+    }
+    if (url.pathname !== "/") {
+      res.writeHead(404).end();
       return;
     }
     res.setHeader("content-type", "text/html; charset=utf-8");
@@ -84,6 +95,7 @@ test("local browser requires local consent, pauses for takeover, and revokes on 
   try {
     const dashboard = await app.firstWindow();
     await dashboard.waitForURL(`${fixtureUrl}/app/**`);
+    expect(await dashboard.title()).toBe("Dashboard fixture");
     expect(await dashboard.evaluate(() => typeof (window as Window & { shibaLocalBrowser?: unknown }).shibaLocalBrowser)).toBe("undefined");
 
     const localWindowOpened = app.waitForEvent("window");
@@ -140,6 +152,13 @@ test("local browser requires local consent, pauses for takeover, and revokes on 
     await localBrowser.locator("#address-form").evaluate((form) => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
     await localBrowser.getByRole("button", { name: "Approve and open" }).click();
     await expect.poll(() => localBrowser.locator("#state-pill").textContent()).toBe("Approved");
+    await expect.poll(() => hangingRequests).toBe(1);
+    await localBrowser.locator("#button-label").fill("Increase counter");
+    await localBrowser.getByRole("button", { name: "Click button" }).click();
+    await expect.poll(() => localBrowser.locator("#message").textContent()).toBe("Wait for the approved site to finish loading.");
+    await localBrowser.getByRole("button", { name: "Take over" }).click();
+    await expect.poll(() => localBrowser.locator("#state-pill").textContent()).toBe("Taken over");
+    expect(actionCount).toBe(2);
     await localBrowser.getByRole("button", { name: "Stop" }).click();
     await expect.poll(() => localBrowser.locator("#state-pill").textContent()).toBe("Stopped");
 

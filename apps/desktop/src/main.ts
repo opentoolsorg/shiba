@@ -247,6 +247,7 @@ async function disposeLocalBrowserView(owner = localBrowserWindow): Promise<void
   const browserSession = localBrowserSession;
   localBrowserView = null;
   localBrowserSession = null;
+  localActionQueue = Promise.resolve();
   if (view) {
     try {
       owner?.contentView.removeChildView(view);
@@ -437,7 +438,12 @@ async function clickLocalBrowserButton(rawLabel: unknown): Promise<{ ok: boolean
     return true;
     })()`;
     try {
-      const clicked = await view.webContents.executeJavaScript(script, true);
+      const contents = view.webContents;
+      if (!contents.getURL() || contents.isLoadingMainFrame()) {
+        return { ok: false, error: "Wait for the approved site to finish loading." };
+      }
+      // Bind to this frame rather than waiting for a later document to load.
+      const clicked = await contents.mainFrame.executeJavaScript(script, true);
       const after = localControl.getState();
       if (localBrowserView !== view || after.phase !== "approved" || after.revision !== revision ||
         after.mode !== "control" || after.target.kind !== "browser" || after.target.origin !== target.origin) {
@@ -904,9 +910,9 @@ function registerIpc(): void {
   ipcMain.handle(LOCAL_BROWSER_CHANNELS.clickButton, (event, label: unknown) =>
     trustedLocalCall(event) ? clickLocalBrowserButton(label) : { ok: false, error: "Untrusted sender." },
   );
-  ipcMain.handle(LOCAL_BROWSER_CHANNELS.takeOver, (event) => {
+  ipcMain.handle(LOCAL_BROWSER_CHANNELS.takeOver, async (event) => {
     if (!trustedLocalCall(event)) return { control: { phase: "stopped", revision: 0, reason: "not-started" }, nativeWindow: nativeWindowStatus };
-    localControl.takeOver();
+    await localControl.takeOver(localActionQueue);
     return localBrowserUiState();
   });
   ipcMain.handle(LOCAL_BROWSER_CHANNELS.handBack, (event) => {

@@ -53,7 +53,9 @@ requests, and cross-origin navigation are denied.
 The only app-issued page action is clicking one visible, enabled `<button>` by
 its exact visible or accessible label. The app does not read page text or
 screenshots, inspect form values, type into the page, or import saved logins.
-Take-over pauses app-issued actions until the operator hands control back.
+Take-over refuses new app-issued actions immediately and waits for any
+dispatched action to finish before confirming. Actions resume only after
+the operator hands control back.
 This local window currently has no task-agent/MCP bridge; its action field is
 operated directly from the trusted local UI. Native-window capture/input is
 unavailable unless a verified OS-scoped provider is added; global input tools
