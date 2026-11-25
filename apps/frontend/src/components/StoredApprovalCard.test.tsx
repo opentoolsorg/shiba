@@ -135,4 +135,22 @@ describe("StoredApprovalCard", () => {
     expect(screen.queryByText("Setup:")).toBeNull();
     expect(screen.queryByText(/runs \.shiba\/setup\.json initialize/)).toBeNull();
   });
+
+  it("shows a pending run approval as the current stage with execution not started", () => {
+    render(<StoredApprovalCard approval={approval} decided={false} onDecide={vi.fn()} />);
+    const items = within(screen.getByRole("list", { name: "Request progress" })).getAllByRole("listitem");
+    expect(items.map((item) => item.textContent)).toEqual(["RequestRecorded", "→ApprovalWaiting for you", "→ExecutionNot started", "→EvidenceAfter execution"]);
+    expect(items[1]?.getAttribute("aria-current")).toBe("step");
+    expect(screen.getByText("Waiting for your approval")).toBeTruthy();
+  });
+
+  it("reflects a decision taken here, and hides the rail for other kinds or hosts that show their own", () => {
+    const { rerender } = render(<StoredApprovalCard approval={approval} decided decision={false} onDecide={vi.fn()} />);
+    expect(screen.getByText("Rejected", { selector: "li *" })).toBeTruthy();
+    expect(screen.getByText("Will not run")).toBeTruthy();
+    rerender(<StoredApprovalCard approval={{ ...approval, kind: "pr_publish" }} decided={false} onDecide={vi.fn()} />);
+    expect(screen.queryByRole("list", { name: "Request progress" })).toBeNull();
+    rerender(<StoredApprovalCard approval={approval} decided={false} onDecide={vi.fn()} showStages={false} />);
+    expect(screen.queryByRole("list", { name: "Request progress" })).toBeNull();
+  });
 });

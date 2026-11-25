@@ -7,6 +7,7 @@ import { ApprovalCard } from "./ApprovalCard";
 import { DiffViewer } from "./DiffViewer";
 import { RunDeliverables } from "./RunDeliverables";
 import { RunLivePanel } from "./RunLivePanel";
+import { type RunStage, RunStageRail, runStages } from "./RunStageRail";
 import { WorkDetailModal } from "./WorkDetailModal";
 import { DecidedApprovalRow, StoredApprovalCard } from "./WorkspacePanel";
 import type { WorkTask } from "./WorkView";
@@ -22,6 +23,8 @@ export interface WorkPeekProps {
   onClose(): void;
   onOpenFull?(): void;
   onReviewApproval?(): void;
+  /** Opens the run a publication approval covers; the peek only holds runs selected as runs. */
+  onOpenRun?(runId: string, tab: "diff" | "steps"): void;
   sessionId?: string;
   notice?: ReactNode;
   decisions?: Record<string, boolean>;
@@ -46,38 +49,18 @@ const TABS = [
 const control =
   "inline-flex min-h-11 items-center justify-center border border-[var(--border-1)] px-3 text-xs focus-visible:outline-2 focus-visible:outline-[var(--ring)] [@media(hover:hover)]:hover:bg-[var(--card-hover)]";
 
-type StepState = "done" | "current" | "pending" | "stopped";
-const STEP_DOT: Record<StepState, string> = {
-  done: "bg-[var(--success)]",
-  current: "bg-[var(--warning)]",
-  pending: "bg-[var(--muted-foreground-3)]",
-  stopped: "bg-[var(--destructive)]",
-};
-
 /** Read-only Request → Approval → Execution → Evidence progress, derived only from recorded approval and run data. */
-function flowSteps(props: WorkPeekProps): { label: string; state: StepState; note: string }[] | null {
+function flowSteps(props: WorkPeekProps): RunStage[] | null {
   const { task, run, storedApproval, pendingApproval } = props;
   if (task.kind === "session") return null;
   const local = props.decisions?.[task.id];
   const recorded = storedApproval && storedApproval.status !== "pending" ? storedApproval.status === "approved" : undefined;
   const approved = run?.approval ? true : (local ?? recorded);
-  const approval: { state: StepState; note: string } =
-    approved === true ? { state: "done", note: "Approved" }
-    : approved === false ? { state: "stopped", note: "Rejected" }
-    : storedApproval || pendingApproval ? { state: "current", note: "Waiting for you" }
-    : { state: "pending", note: "Not recorded" };
-  const execution: { state: StepState; note: string } = run
-    ? run.status === "completed" ? { state: "done", note: "Completed" }
-      : run.status === "running" || run.status === "pending" ? { state: "current", note: statusLabel(run.status) }
-      : { state: "stopped", note: statusLabel(run.status) }
-    : props.decisionResults?.[task.id] === "queued" ? { state: "current", note: "Queued" }
-    : { state: "pending", note: approved === false ? "Will not run" : "Not started" };
-  return [
-    { label: "Request", state: "done", note: "Recorded" },
-    { label: "Approval", ...approval },
-    { label: "Execution", ...execution },
-    run?.status === "completed" ? { label: "Evidence", state: "done", note: "Ready to review" } : { label: "Evidence", state: "pending", note: "After execution" },
-  ];
+  return runStages({
+    approval: approved === true ? "approved" : approved === false ? "rejected" : storedApproval || pendingApproval ? "waiting" : undefined,
+    runStatus: run?.status,
+    queued: props.decisionResults?.[task.id] === "queued",
+  });
 }
 
 export function WorkPeek(props: WorkPeekProps) {
@@ -103,6 +86,9 @@ export function WorkPeek(props: WorkPeekProps) {
   const custom = props.renderContent?.(task, tab);
   const approval = storedApproval ?? pendingApproval;
   const steps = flowSteps(props);
+  // A publication approval is selected as an approval, so the covered run is found via its frozen payload.
+  const frozenRunId = storedApproval?.kind === "pr_publish" && typeof storedApproval.payload === "object" && storedApproval.payload !== null ? (storedApproval.payload as { runId?: unknown }).runId : undefined;
+  const publicationRunId = typeof frozenRunId === "string" && frozenRunId ? frozenRunId : undefined;
   const frozen = storedApproval?.payload ?? pendingApproval?.input;
   const content =
     custom ??
@@ -129,6 +115,9 @@ export function WorkPeek(props: WorkPeekProps) {
           onDecide={props.onDecideStoredApproval}
           conflict={props.claimConflict}
           onClaimChoice={(choice) => props.onDecideStoredApproval?.(storedApproval, choice !== "cancel", choice)}
+          onInspectDiff={publicationRunId && props.onOpenRun ? (runId) => props.onOpenRun?.(runId, "diff") : run ? () => onTabChange("diff") : undefined}
+          onOpenEvidence={publicationRunId && props.onOpenRun ? (runId) => props.onOpenRun?.(runId, "steps") : run ? () => onTabChange("steps") : undefined}
+          showStages={false}
         />
       ) : pendingApproval && props.onDecideApproval ? (
         <ApprovalCard
@@ -269,16 +258,7 @@ export function WorkPeek(props: WorkPeekProps) {
           </p>
           {run?.status === "completed" && props.onRepeat ? <button type="button" className={`${control} mt-3`} onClick={props.onRepeat}>Repeat this…</button> : null}
           {steps ? (
-            <ol aria-label="Request progress" className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
-              {steps.map((step, index) => (
-                <li key={step.label} aria-current={step.state === "current" ? "step" : undefined} className="flex items-center gap-1.5">
-                  {index ? <span aria-hidden="true" className="text-[var(--muted-foreground-3)]">→</span> : null}
-                  <span aria-hidden="true" className={`size-1.5 rounded-full ${STEP_DOT[step.state]}`} />
-                  <span className="font-medium">{step.label}</span>
-                  <span className="text-[var(--muted-foreground-2)]">{step.note}</span>
-                </li>
-              ))}
-            </ol>
+            <RunStageRail stages={steps} className="mt-3" />
           ) : null}
           {task.routine ? <p className="mt-2 text-xs">Routine: {task.routine.name}</p> : null}
           {task.repo ? (

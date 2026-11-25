@@ -55,6 +55,8 @@ export interface WorkViewProps {
   onMissingSelection?: (task: string) => void;
   pendingApprovals?: ChatPendingApproval[];
   onSelectTask?: (id: string, kind: WorkTask["kind"]) => void;
+  /** Opens a run on a given peek tab (used by publication approvals, which only know the run id). */
+  onOpenRunTab?: (runId: string, tab: "diff" | "steps") => void;
   onNewTask?: () => void;
   /** Why task creation is unavailable while onNewTask is absent. */
   newTaskBlockedReason?: string;
@@ -78,6 +80,9 @@ export interface WorkViewProps {
   employees?: OrganizationEmployee[];
   onOpenEmployee?: (id: string) => void;
   onOpenApprovals?: () => void;
+  onOpenChief?: () => void;
+  onHireEmployee?: () => void;
+  onOpenOutputs?: () => void;
   /** Renders the Work left panel (scope tabs, nav, task sections) inside this view when given. */
   onScopeChange?: (scope: WorkScope) => void;
   /** Workspace scope: resolves to the created task, or null on failure (draft is kept). `patch` holds only optional fields the user filled in. */
@@ -271,6 +276,9 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
     employees = [],
     onOpenEmployee,
     onOpenApprovals,
+    onOpenChief,
+    onHireEmployee,
+    onOpenOutputs,
   } = props;
 
   const routineState = useRoutines(Boolean(props.routinesEnabled), props.routinesRefreshToken);
@@ -591,6 +599,9 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
             employees={employees}
             onOpen={onOpenEmployee}
             onOpenApprovals={onOpenApprovals}
+            onOpenChief={onOpenChief}
+            onHireEmployee={onHireEmployee}
+            onOpenOutputs={onOpenOutputs}
             user={props.user}
           />
         </section>
@@ -615,6 +626,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
       onClose={props.onClosePeek}
       onOpenFull={onSelectTask ? () => onSelectTask(selected.id, selected.kind) : undefined}
       onReviewApproval={onReviewApproval ? () => onReviewApproval(selected.id) : undefined}
+      onOpenRun={props.onOpenRunTab}
       sessionId={props.peekSessionId}
       notice={ambiguousRun ? ambiguityNotice : props.peekNotice}
       decisions={props.approvalDecisions}
@@ -655,6 +667,9 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
     employees = [],
     onOpenEmployee,
     onOpenApprovals,
+    onOpenChief,
+    onHireEmployee,
+    onOpenOutputs,
     user,
     taskId,
     onTaskChange,
@@ -759,7 +774,7 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
             </section>
           ) : (
             <section aria-label="Organization view" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-              <WorkOrganizationView employees={employees} onOpen={onOpenEmployee} onOpenApprovals={onOpenApprovals} user={user} />
+              <WorkOrganizationView employees={employees} onOpen={onOpenEmployee} onOpenApprovals={onOpenApprovals} onOpenChief={onOpenChief} onHireEmployee={onHireEmployee} onOpenOutputs={onOpenOutputs} user={user} />
             </section>
           )}
       </div>

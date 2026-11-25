@@ -3,7 +3,6 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { KEYBOARD_SHORTCUT_GROUPS } from "../ShortcutsDialog";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CommandPalette } from "./CommandPalette";
-import { areaForView } from "../../app-navigation";
 import { jumpKeyLabel } from "./jump-keys";
 import type { PaletteBot } from "./usePaletteBots";
 
@@ -48,11 +47,9 @@ function renderPalette(onOpenBot = vi.fn()) {
 }
 
 describe("CommandPalette", () => {
-  it("shows page hints, area chips, and collapsible shortcuts from the shared table", async () => {
+  it("shows a page-name hint and collapsible shortcuts from the shared table", async () => {
     renderPalette();
     expect(await screen.findByText("Try a page name such as Providers or Memory")).toBeTruthy();
-    expect(screen.getByText("Action")).toBeTruthy();
-    expect(screen.getAllByText(areaForView("work").label).length).toBeGreaterThan(0);
     const summary = screen.getAllByText("Keyboard shortcuts").find((element) => element.tagName === "SUMMARY")!;
     const details = summary.closest("details")!;
     expect(details.open).toBe(false);

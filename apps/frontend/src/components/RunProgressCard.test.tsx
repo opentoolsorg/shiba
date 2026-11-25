@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { RunProgressCard } from "./RunProgressCard";
 import type { RetainedRun } from "../types";
 import { normalizeRunStatus } from "../types";
@@ -146,5 +146,18 @@ describe("RunProgressCard", () => {
     expect(onReviewPublication).toHaveBeenCalledWith("pr-publish:run-abc");
     rerender(<RunProgressCard run={{ ...done, status: "running" }} publicationApprovals={[publish]} />);
     expect(screen.queryByTestId("run-publication")).toBeNull();
+  });
+
+  it("renders the stage rail from recorded run data only", () => {
+    const { rerender } = render(<RunProgressCard run={baseRun({ status: "running" })} />);
+    const items = () => within(screen.getByRole("list", { name: "Request progress" })).getAllByRole("listitem").map((item) => item.textContent);
+    expect(items()).toEqual(["RequestRecorded", "→ApprovalNot recorded", "→ExecutionRunning", "→EvidenceAfter execution"]);
+    const approval = { approvalId: "a", decidedBy: "me", decidedAt: 1, inputHash: "h" };
+    rerender(<RunProgressCard run={baseRun({ status: "completed", approval })} />);
+    expect(items()).toEqual(["RequestRecorded", "→ApprovalApproved", "→ExecutionCompleted", "→EvidenceReady to review"]);
+    rerender(<RunProgressCard run={baseRun({ status: "cancelled", approval })} />);
+    expect(items()).toEqual(["RequestRecorded", "→ApprovalApproved", "→ExecutionCancelled", "→EvidenceAfter execution"]);
+    rerender(<RunProgressCard run={baseRun({ status: "error", approval, error: "boom" })} />);
+    expect(items()[2]).toBe("→ExecutionError");
   });
 });

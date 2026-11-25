@@ -2704,6 +2704,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         ...(r.deliverables !== undefined ? { deliverables: r.deliverables } : {}),
         ...(r.artifactBundle !== undefined ? { artifactBundle: r.artifactBundle } : {}),
         ...(r.executionTarget !== undefined ? { executionTarget: r.executionTarget } : {}),
+        ...(r.approval !== undefined ? { approval: r.approval } : {}),
         status: r.status,
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,
@@ -3789,6 +3790,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   onOpenEmployee={(id) => { setInitialEmployeeId(id); openView("custom-agents"); }}
                   // The approvals queue is personal-only; team workspaces would land on a notice.
                   onOpenApprovals={teamWorkspaceId ? undefined : () => setMainView("approvals")}
+                  onOpenChief={teamWorkspaceId ? undefined : () => { void handleSelectSession("default"); openView("threads"); }}
+                  // In a team workspace only owners and admins configure employees.
+                  onHireEmployee={teamWorkspaceId && teamWorkspace?.membership.role !== "owner" && teamWorkspace?.membership.role !== "admin" ? undefined : () => openView("custom-agents")}
+                  onOpenOutputs={teamWorkspaceId ? undefined : () => openView("outputs")}
                   workspaceId={teamWorkspaceId || undefined}
                   workspaceName={teamWorkspace?.name}
                   currentActorId={orchestratorName ? `human:${orchestratorName.trim().toLowerCase()}` : undefined}
@@ -3847,6 +3852,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     writeDraft(scope, taskText);
                     setTask(taskText);
                     return true;
+                  }}
+                  onOpenRunTab={(runId, tab) => {
+                    // Stay in Work: select the run itself so its steps and diff are loaded.
+                    applyWorkSelection({ view: workViewMode, task: runId, taskKind: "run", tab }, "push");
                   }}
                   onReviewApproval={(approvalId) => {
                     // Stay in Work: the review is a tab on the same receipt.
@@ -4850,7 +4859,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             open={commandMenuOpen}
             onClose={() => setCommandMenuOpen(false)}
             workspaceId={teamWorkspaceId || null}
-            currentView={mainView}
             roomThreadOpen={Boolean(sharedRoomId && (mainView === "collaboration" || (mainView === "threads" && teamWorkspaceId)))}
             settings={Object.entries(SETTINGS_SECTION_LABELS).map(([id, item]) => ({ id, label: item.label }))}
             extraActions={[

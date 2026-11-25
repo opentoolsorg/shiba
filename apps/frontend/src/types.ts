@@ -173,6 +173,8 @@ export interface VMRun {
   expectedDeliverables?: string[];
   deliverables?: RunDeliverable[];
   executionTarget?: ExecutionTarget;
+  /** Recorded approval evidence from the retained run; absent when none was stored. */
+  approval?: RetainedRun["approval"];
   parentRunId?: string;
   subagentPath?: string;
   subagentSandbox?: "fresh" | "shared";

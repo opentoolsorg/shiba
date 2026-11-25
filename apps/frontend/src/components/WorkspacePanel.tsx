@@ -8,6 +8,7 @@ import { describeRoute } from "@shiba/shared";
 import { formatTimeAgo, statusChipClass, storedApprovalUsesCloudComputer } from "../ui-helpers";
 import type { StoredApproval } from "../types";
 import { RunOutputArchivePolicy } from "./RunOutputArchivePolicy";
+import { RunStageRail, runStages } from "./RunStageRail";
 
 const ACCENT_BUTTON =
   "text-sm bg-[var(--inverse)] hover:bg-[var(--inverse-hover)] text-[var(--inverse-text)] font-medium min-h-11 min-w-11 px-4 rounded-lg transition-colors disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
@@ -58,6 +59,7 @@ export function StoredApprovalCard({
   onClaimChoice,
   onInspectDiff,
   onOpenEvidence,
+  showStages = true,
 }: {
   approval: StoredApproval;
   decided: boolean;
@@ -68,6 +70,8 @@ export function StoredApprovalCard({
   onClaimChoice?: (choice: "queue" | "new_branch" | "cancel") => void;
   onInspectDiff?: (runId: string) => void;
   onOpenEvidence?: (runId: string) => void;
+  /** Hosts that already show the stage rail (WorkPeek header) pass false. */
+  showStages?: boolean;
 }): JSX.Element {
   const frozen =
     approval.payload ??
@@ -91,6 +95,14 @@ export function StoredApprovalCard({
     } satisfies Record<string, unknown>);
   return (
     <section tabIndex={-1} data-approval-id={approval.approvalId} aria-label={`${storedApprovalKind(approval)} approval`} className="bg-[var(--bg)] p-4 outline-none">
+      {showStages && (approval.kind === undefined || approval.kind === "run") ? (
+        <RunStageRail
+          className="mb-3"
+          stages={runStages({
+            approval: decision !== undefined ? (decision ? "approved" : "rejected") : approval.status === "approved" ? "approved" : approval.status === "rejected" ? "rejected" : "waiting",
+          })}
+        />
+      ) : null}
       <p role="status" className="mb-3 text-xs text-[var(--muted-foreground-2)]">
         {decided && decision !== undefined
           ? decision

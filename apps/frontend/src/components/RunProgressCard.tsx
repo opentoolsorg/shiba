@@ -1,10 +1,11 @@
 import type { JSX } from "react";
 import { LoaderCircle, X } from "lucide-react";
 import type { ExecutionTarget } from "@shiba/shared";
-import type { RunProgressRecord, StoredApproval } from "../types";
+import type { RetainedRun, RunProgressRecord, StoredApproval } from "../types";
 import { statusChipClass, statusLabel } from "../ui-helpers";
 import { RunDeliverables } from "./RunDeliverables";
 import { RunLivePanel } from "./RunLivePanel";
+import { RunStageRail, runStages } from "./RunStageRail";
 import { RunComputerPanel } from "./RunComputerPanel";
 
 /** Latest retained run for the active task thread — honest status, not a spinner that never ends. */
@@ -16,7 +17,7 @@ export function RunProgressCard({
   publicationApprovals,
   onReviewPublication,
 }: {
-  run: (RunProgressRecord & { executionTarget?: ExecutionTarget }) | undefined;
+  run: (RunProgressRecord & { executionTarget?: ExecutionTarget; approval?: RetainedRun["approval"] }) | undefined;
   sessionId?: string;
   onCancel?: (runId: string) => void;
   cancelling?: boolean;
@@ -72,6 +73,7 @@ export function RunProgressCard({
         </div>
       </div>
       <p className="text-xs text-[var(--muted-foreground-2)] line-clamp-2">{run.task}</p>
+      <RunStageRail stages={runStages({ approval: run.approval ? "approved" : undefined, runStatus: run.status })} />
       {destination ? <p className="text-xs text-[var(--muted-foreground-2)] break-all" data-testid="run-destination">Destination: {destination}</p> : null}
       {run.customAgentVersion !== undefined ? <p className="text-xs text-[var(--muted-foreground-2)]" data-testid="run-agent-version">Bot profile v{run.customAgentVersion}</p> : null}
       {run.computer === true ? <RunComputerPanel runId={run.runId} sessionId={sessionId} status={run.status} /> : null}

@@ -2,7 +2,6 @@ import { Command } from "cmdk";
 import { useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 import { CommandDialog } from "../ui/command-menu";
-import { areaForView, type AppNavView } from "../../app-navigation";
 import { KEYBOARD_SHORTCUT_GROUPS } from "../ShortcutsDialog";
 import { BotRow, botOptionName } from "./BotRow";
 import { detectPlatform, detectStandalone, jumpEventMatches, jumpKeyAria, jumpKeyLabel } from "./jump-keys";
@@ -34,7 +33,7 @@ function nextSlot(bots: PaletteBot[], bot: PaletteBot): number {
 }
 
 export function CommandPalette({
-  open, onClose, workspaceId, roomThreadOpen, needsYouCount, settings, extraActions = [], currentView = "work",
+  open, onClose, workspaceId, roomThreadOpen, needsYouCount, settings, extraActions = [],
   onNewTask, newTaskBlockedReason, onNewChannel, onOpenBot, onOpenChat, onOpenTask, onOpenKnowledge, onOpenSettings, onOpenNeedsYou,
   onToggleTheme, onOpenShortcuts, onInsertAgentMention, onSearchAll, onMessageAbout,
 }: {
@@ -43,7 +42,6 @@ export function CommandPalette({
   workspaceId: string | null;
   roomThreadOpen: boolean;
   needsYouCount?: number | null;
-  currentView?: AppNavView;
   settings: PaletteSetting[];
   extraActions?: PaletteAction[];
   onNewTask: () => void;
@@ -170,6 +168,7 @@ export function CommandPalette({
     <CommandDialog open={open} onClose={onClose} wide label="Search">
       <Command key={trimmed ? "query" : visibleBots[0]?.agentId ?? "empty"} label="Search bots, chats, tasks, settings" shouldFilter loop onKeyDownCapture={(event) => { if (event.key === "Enter") modifier.current = event.metaKey || event.ctrlKey; }}>
         <Command.Input autoFocus placeholder="Search bots, chats, tasks, settings…" value={query} onValueChange={setQuery} className="w-full bg-transparent px-4 py-3 text-base text-[var(--fg)] placeholder:text-[var(--muted-foreground-2)] border-b border-[var(--border-1)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-[var(--primary)]" />
+          {!trimmed && !pick ? <p className="px-4 pt-2 text-xs text-[var(--muted-foreground-2)]">Try a page name such as Providers or Memory</p> : null}
         <Command.List className="max-h-96 overflow-y-auto py-1.5" onKeyDown={onTab}>
           {pick ? <p className="px-4 py-2 text-xs text-[var(--muted-foreground-2)]">Choose a bot</p> : null}
           <Group id="palette-bots" title={pick ? "Bots" : "Bots"} show={visibleBots.length > 0}>
@@ -199,11 +198,9 @@ export function CommandPalette({
           </Group> : null}
           {search.skeleton ? <div data-testid="palette-skeleton" aria-hidden="true"><div className="min-h-11" /><div className="min-h-11" /></div> : null}
           {search.unavailable ? <p className="px-4 py-2 text-xs text-[var(--muted-foreground-2)]">Message search is unavailable right now</p> : null}
-          {!trimmed && !pick ? <p className="px-4 py-2 text-xs text-[var(--muted-foreground-2)]">Try a page name such as Providers or Memory</p> : null}
-          {!trimmed && !pick ? <div className="flex gap-2 px-4 py-2">{["Action", areaForView(currentView).label, "Needs you", "Chat", "Team"].map((hint) => <span key={hint} className="rounded-full border border-[var(--border-1)] px-2 py-1 text-[10px] text-[var(--muted-foreground-2)]">{hint}</span>)}</div> : null}
-          {!trimmed && !pick ? <details className="border-t border-[var(--border-1)] px-4 py-2"><summary className="min-h-11 cursor-pointer text-xs">Keyboard shortcuts</summary>{KEYBOARD_SHORTCUT_GROUPS.map((group) => <div key={group.group} className="py-1 text-xs"><strong>{group.group}</strong>{group.items.map((row) => <p key={row.id} className="flex justify-between gap-4"><span>{row.label}</span><kbd>{row.keys}</kbd></p>)}</div>)}</details> : null}
           {empty ? <div className="px-4 py-4 text-sm text-[var(--muted-foreground-2)]"><p>No matches for ‘{trimmed}’.</p><button type="button" className="min-h-11" onClick={() => { onSearchAll(trimmed); onClose(); }}>Search all messages for ‘{trimmed}’</button><button type="button" className="min-h-11" onClick={() => setPick("about")}>Message @bot about ‘{trimmed}’</button></div> : null}
         </Command.List>
+          {!trimmed && !pick ? <details className="max-h-56 overflow-y-auto border-t border-[var(--border-1)] px-4 py-2"><summary className="min-h-11 cursor-pointer text-xs">Keyboard shortcuts</summary>{KEYBOARD_SHORTCUT_GROUPS.map((group) => <div key={group.group} className="py-1 text-xs"><strong>{group.group}</strong>{group.items.map((row) => <p key={row.id} className="flex justify-between gap-4"><span>{row.label}</span><kbd>{row.keys}</kbd></p>)}</div>)}</details> : null}
         <div aria-live="polite" className="sr-only">{live}</div>
         {menu ? <button type="button" className="min-h-11 w-full border-t border-[var(--border-1)] px-4 text-left text-sm" onClick={() => { const bot = bots.find((item) => item.agentId === menu.id); if (bot) void pin(bot); }}>Pin to {menu.slot}</button> : null}
       </Command>
