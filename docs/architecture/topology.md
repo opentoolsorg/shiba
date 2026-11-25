@@ -17,8 +17,8 @@
                         └────────────────────┬───────────────────────────┘
                                              ▼
    ┌──────────────────── Durable Objects (all state) ───────────────────────┐
-   │  CodingOrchestrator  Think agent — plans, delegates, NEVER edits       │
-   │  OpenCodeAgent       AIChatAgent — sandbox-side coding sub-agent       │
+   │  Employee Orchestrator — plans and delegates; never edits              │
+   │  OpenCodeAgent       AIChatAgent — sandbox-side execution sub-agent    │
    │  Sandbox             container lifecycle per run                       │
    │  Automations         cron/webhook/event triggers, budget, kill switch  │
    │  Mailbox             inbound email       Memory  banked facts          │

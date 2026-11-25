@@ -27,11 +27,11 @@ file in [SOURCE-LAYOUT.md](../SOURCE-LAYOUT.md).
 ## The one-paragraph version
 
 A single Cloudflare Worker is both the **API** and the **static host** for the
-React dashboard. **Durable Objects** hold coordinated state — the orchestrator
-conversation, coding sub-agent, per-run sandbox control, automations, mailbox,
-memory, model config, session chat rooms, and other per-user services. The MCP
-gateway is stateless (`createMcpHandler` per request), not a DO. Work happens in an
-**ephemeral Sandbox container** (one per run, destroyed at the end) that either clones a GitHub repository or initializes an empty artifact workspace. It executes one selected harness. Nothing starts until a human approves it, and the container's outbound network is allowlisted per run. Read-only Explorer and Reviewer facets inspect explicit snapshots without starting a sandbox. Publication requires a separate human approval of the completed immutable file snapshot.
+React dashboard. **Durable Objects** hold coordinated state — the Employee
+Orchestrator conversation, execution sub-agent, per-run sandbox control,
+automations, mailbox, memory, model config, session chat rooms, and other
+per-user services. The MCP gateway is stateless (`createMcpHandler` per request),
+not a DO. Work happens in an **ephemeral Sandbox container** (one per run, destroyed at the end) that either clones a GitHub repository or initializes an empty artifact workspace. It executes one selected harness. Nothing starts until a human approves it, and the container's outbound network is allowlisted per run. Read-only Explorer and Reviewer facets inspect explicit snapshots without starting a sandbox. Publication requires a separate human approval of the completed immutable file snapshot.
 
 ---
 
@@ -40,7 +40,7 @@ gateway is stateless (`createMcpHandler` per request), not a DO. Work happens in
 | Layer | Lives in | Responsibility |
 |---|---|---|
 | **Ingress** | `index.ts` (router), `slack-routes.ts`, `public-routes.ts`, `sandbox-routes.ts` | Auth per surface, then dispatch. Auth is **per-surface by design** — see §5. |
-| **Orchestration** | `agents/orchestrator.ts`, `automation-runner.ts` | Plans, exposes `delegate_coding_task`, queues approvals. Never touches a repo. |
+| **Employee orchestration** | `agents/orchestrator.ts`, `automation-runner.ts` | Plans, exposes `delegate_coding_task`, queues approvals. Never touches a repo. |
 | **Execution** | `agents/opencode-agent.ts`, `harness/*`, `sandbox.ts`, `sandbox/lifecycle.ts` | Clone → exec harness → collect. Exactly one harness per run. |
 | **Egress control** | `egress.ts`, `sandbox.ts` (`allowedHosts`) | Deny-by-default; per-harness host list; TLS interception; scoped GitHub token. |
 | **State** | DO classes, D1 stores, private R2 objects | DOs coordinate agent/runtime state. D1 owns native membership, versioned policy, source bindings and action receipts. R2 holds private artifacts. |

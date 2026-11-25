@@ -2,8 +2,10 @@
 
 shiba is a pnpm/turbo workspace: a Cloudflare Worker backend that is both API
 and static host, a React dashboard, an Astro docs/marketing site, and shared
-packages. Work runs in ephemeral Sandbox containers behind a human approval
-gate.
+packages. The central coordination role is the **Employee Orchestrator**: it
+receives approved human intent, plans and delegates work to execution agents,
+and never edits a repository itself. Work runs in ephemeral Sandbox containers
+behind a human approval gate.
 
 The architecture notes are in one file for each topic:
 

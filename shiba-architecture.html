@@ -111,7 +111,7 @@
 
         <text x="418" y="72" fill="#64748b" font-size="8" font-weight="600">DURABLE OBJECTS &mdash; the only authoritative state</text>
         <rect x="418" y="80" width="155" height="58" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="495" y="102" fill="white" font-size="11" font-weight="600" text-anchor="middle">CodingOrchestrator</text>
+        <text x="495" y="102" fill="white" font-size="11" font-weight="600" text-anchor="middle">EmployeeOrchestrator</text>
         <text x="495" y="117" fill="#94a3b8" font-size="8" text-anchor="middle">Think&lt;Env&gt;</text>
         <text x="495" y="131" fill="#94a3b8" font-size="7" text-anchor="middle">delegates, never edits</text>
         <rect x="588" y="80" width="155" height="58" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
@@ -280,7 +280,7 @@
         <div class="card-header"><div class="card-dot emerald"></div><h3>Execution spine</h3></div>
         <ul>
           <li>&bull; <strong>9 Durable Objects</strong> are the only authoritative state. D1, KV, R2, Vectorize only support.</li>
-          <li>&bull; <code>CodingOrchestrator</code> plans and delegates. It never edits a repository itself.</li>
+          <li>&bull; <code>EmployeeOrchestrator</code> plans and delegates. It never edits a repository itself.</li>
           <li>&bull; Runs survive client disconnect via <code>schedule()</code> alarms + <code>reclaimRuns</code>, not sleeps.</li>
           <li>&bull; Harness seam: <code>configFile</code>, <code>buildArgv</code>, <code>parseEvent</code>, <code>capabilities</code>, <code>verify</code>.</li>
         </ul>

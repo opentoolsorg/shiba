@@ -3,7 +3,7 @@
 
 ```
 1  ingress    dashboard / Slack / cron / webhook → auth per surface
-2  intent     orchestrator plans; prose → structured delegate_coding_task
+2  intent     Employee Orchestrator plans; prose → structured delegate_coding_task
 3  gate       approval card with the exact frozen arguments; human approves
               (automations always wait for human approval)
 4  dispatch   approved input frozen; route revalidated at dispatch

@@ -4,8 +4,8 @@
 
 | DO | Owns | Migration |
 |---|---|---|
-| `CodingOrchestrator` | conversation, approval, retained-run state, and additive logical task/attempt lineage; `delegate_coding_task` | v1 |
-| `OpenCodeAgent` | the sandbox-side coding agent session | v1 |
+| **Employee Orchestrator** (`CodingOrchestrator` in the current code and binding) | conversation, approval, retained-run state, and additive logical task/attempt lineage; `delegate_coding_task` | v1 |
+| `OpenCodeAgent` | the sandbox-side execution agent session | v1 |
 | `Sandbox` | container lifecycle for one run | v1 |
 | `Automations` | automation records, dedupe, daily budget | v2 |
 | `Mailbox` | inbound email | v3 |
@@ -43,7 +43,7 @@ existing workspace store plus `self-hosted`, and report each workspace failure
 without preventing the others from sweeping.
 
 Enable `SHIBA_SCOPED_DO=1` only on new deployments or after draining pending
-approvals, runs, and local dispatch claims. Existing CodingOrchestrator
+approvals, runs, and local dispatch claims. Existing Employee Orchestrator
 `"default"` state is NOT migrated into scoped instances (the automation-root
 import described above is separate). Before any scoped writes, rollback is
 simply removing the flag. After scoped writes, drain scoped work and deliberately
@@ -62,8 +62,8 @@ their manifest together; missing manifests, missing collection rows, and invalid
 JSON fail closed rather than resetting retained work. Interrupted review
 publication recovers as unknown, without repeating the external publication.
 
-Logical task history is an additive `tasks` projection on each existing
-`CodingOrchestrator`, backed by the same collection store, not a new DO. Existing
+Logical task history is an additive `tasks` projection on each Employee
+Orchestrator instance, backed by the same collection store, not a new DO. Existing
 run IDs and `/api/runs` remain canonical; unlinked retained runs are backfilled
 as one-attempt legacy tasks on task-history reads. Frozen approval snapshots
 stay in orchestrator state and are omitted from the authenticated history DTO.
@@ -73,7 +73,7 @@ stateless `createMcpHandler` server (`mcp-gateway.ts` builds an SDK v2
 `McpServer` per request — same tools, scopes and D1 audit trail, no DO). The
 append-only **v8** migration deletes the now-unused class and namespace.
 
-**P9 event spine** (PLAN-V2-NEXT): inside `CodingOrchestrator`, run
+**P9 event spine** (PLAN-V2-NEXT): inside the Employee Orchestrator, run
 mutations flow `decide → appendEvents → apply` — a schema-validated
 `RunEvent` log (`packages/shared/src/events.ts`) with per-DO `seq` and
 `commandId`/`causationId` threading, a pure projector
