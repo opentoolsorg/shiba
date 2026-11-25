@@ -197,6 +197,18 @@ describe("MemoryTab", () => {
   it("shows empty state when facts list is empty", async () => {
     render(<MemoryTab initialFacts={[]} initialSessions={[]} />);
 
-    expect(screen.getByText("No banked facts yet")).toBeDefined();
+    expect(screen.getByText("No memories yet")).toBeDefined();
   });
+  it("shows the memory skeleton while loading and replaces it with rows", async () => {
+    let resolve!: (response: Response) => void;
+    const pending = new Promise<Response>((done) => { resolve = done; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input).endsWith("/facts") ? pending : json({ sessions: [] })));
+    render(<MemoryTab />);
+    expect(screen.getByRole("status", { name: "Loading memories" })).toBeDefined();
+    resolve(json({ facts: mockFacts }));
+    await screen.findByText(/User prefers pnpm/);
+    expect(screen.queryByTestId("memories-loading")).toBeNull();
+    expect(screen.getAllByTestId("memory-row")).toHaveLength(2);
+  });
+
 });

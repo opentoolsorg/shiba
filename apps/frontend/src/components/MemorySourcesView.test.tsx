@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemorySourcesView } from "./MemorySourcesView";
 
 const source = {
@@ -232,7 +232,7 @@ describe("MemorySourcesView", () => {
 
     render(<MemorySourcesView />);
     expect(await screen.findByRole("heading", { name: "Launch notes" })).toBeTruthy();
-    fireEvent.click(screen.getByText("Inspect stored text"));
+    fireEvent.click(screen.getByText("Source details"));
     expect(screen.getByText("Ship the app after QA approves the release.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Inspect / edit" }));
     fireEvent.change(screen.getByLabelText("TITLE"), { target: { value: "Updated launch notes" } });
@@ -287,4 +287,30 @@ describe("MemorySourcesView", () => {
     expect(requests.some((request) => request.method === "POST" && request.body?.sourceIds && (request.body.sourceIds as string[]).includes(source.id))).toBe(true);
     expect(requests.filter((request) => request.url === "/api/memory/projects" && request.method === "GET").length).toBeGreaterThanOrEqual(2);
   });
+  it("edits in the selected row, saves with command Enter, and cancels with Escape", async () => {
+    const request = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PATCH") return json({ source });
+      return json(String(url).endsWith("/projects") ? { projects: [] } : { sources: [source] });
+    });
+    vi.stubGlobal("fetch", request);
+    render(<MemorySourcesView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Inspect / edit" }));
+    const row = screen.getByTestId("memory-source-row");
+    const text = within(row).getByLabelText("TEXT TO REMEMBER");
+    fireEvent.change(text, { target: { value: "Revised memory" } });
+    fireEvent.keyDown(text, { key: "Enter", metaKey: true });
+    await screen.findByText("Memory source updated.");
+    expect(request).toHaveBeenCalledWith("/api/memory/sources/memsrc_1", expect.objectContaining({ method: "PATCH", body: expect.stringContaining("Revised memory") }));
+    fireEvent.click(screen.getByRole("button", { name: "Inspect / edit" }));
+    fireEvent.keyDown(within(row).getByLabelText("TEXT TO REMEMBER"), { key: "Escape" });
+    expect(within(row).queryByLabelText("TEXT TO REMEMBER")).toBeNull();
+  });
+
+  it("shows loading sources without a premature empty state", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+    render(<MemorySourcesView />);
+    expect(screen.getByRole("status", { name: "Loading memories" })).toBeDefined();
+    expect(screen.queryByText("No private sources saved")).toBeNull();
+  });
+
 });

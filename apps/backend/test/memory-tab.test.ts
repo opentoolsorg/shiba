@@ -80,7 +80,7 @@ describe("MemoryTab component rendering", () => {
   it("renders the loading state on mount when no initial state is provided", () => {
     const html = renderToStaticMarkup(React.createElement(MemoryTab));
     expect(html).toContain("Banked Facts");
-    expect(html).toContain("Loading memory…");
+    expect(html).toContain('aria-label="Loading memories"');
   });
 
   it("renders seeded facts with provenance chips, agent tags, and score pills", () => {
@@ -108,7 +108,7 @@ describe("MemoryTab component rendering", () => {
       initialSessions: [],
     };
     const html = renderToStaticMarkup(React.createElement(MemoryTab, props));
-    expect(html).toContain("No banked facts yet");
+    expect(html).toContain("No memories yet");
     expect(html).toContain("0");
   });
 

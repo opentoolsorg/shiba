@@ -1181,7 +1181,7 @@ describe("InboxTab + MemoryTab SSR", () => {
     );
     expect(inbox).toContain("Loading mail");
     const memory = renderToStaticMarkup(React.createElement(MemoryTab));
-    expect(memory).toContain("Loading memory");
+    expect(memory).toContain('aria-label="Loading memories"');
   });
 
   it("renders mailbox controls and approval boundary in the queued view", () => {
