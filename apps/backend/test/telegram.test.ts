@@ -376,7 +376,10 @@ describe("handleTelegramWebhook callbacks", () => {
       expect(response?.status).toBe(200);
       const answered = calls.find((c) => c.method === "answerCallbackQuery");
       expect(answered?.body.text).toBe("Approved — run starting.");
-      expect(error).toHaveBeenCalledWith("Telegram approval card update failed", expect.any(String));
+      expect(error).toHaveBeenCalledOnce();
+      const record = JSON.parse(String(error.mock.calls[0]?.[0])) as { msg?: string; detail?: string };
+      expect(record.msg).toBe("Telegram approval card update failed");
+      expect(record.detail).toEqual(expect.any(String));
     } finally {
       error.mockRestore();
     }

@@ -14,13 +14,13 @@ describe("theme, docs, marketing, and mascot specifications", () => {
     const tpContent = readFileSync(themeProviderPath, "utf-8");
     const mpContent = readFileSync(marketingPath, "utf-8");
 
-    // The storage key and the dark default are a cross-surface contract:
+    // The storage key and the system default are a cross-surface contract:
     // renaming either on one side silently splits the theme. The literal is
     // the contract here, not incidental copy.
     expect(tpContent).toContain('shiba-theme');
     expect(mpContent).toContain('shiba-theme');
-    expect(tpContent).toContain('defaultTheme="dark"');
-    expect(mpContent).toMatch(/data-theme\s*=\s*["']dark["']/);
+    expect(tpContent).toContain('defaultTheme="system"');
+    expect(mpContent).toContain("root.dataset.themePreference = manual ? 'manual' : 'system'");
   });
 
   it("has dark-first fallback and dark mode support in MarketingPage and ThemeProvider", () => {
