@@ -207,9 +207,11 @@ export function AgentsPanel({
           <Search className="size-4" strokeWidth={1.75} aria-hidden="true" />
         )}
       </PanelIconButton>
-      <PanelIconButton label="Hire employee" onClick={onNewAgent}>
-        <Plus className="size-4" strokeWidth={1.75} aria-hidden="true" />
-      </PanelIconButton>
+      {onNewAgent ? (
+        <PanelIconButton label="Hire employee" onClick={onNewAgent}>
+          <Plus className="size-4" strokeWidth={1.75} aria-hidden="true" />
+        </PanelIconButton>
+      ) : null}
     </>
   );
 

@@ -3364,7 +3364,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         onNewChat={mainView === "threads" ? () => { void handleNewTask(); } : undefined}
         onSearchAll={mainView === "threads" ? () => setCommandMenuOpen(true) : undefined}
         newThreadDisabledReason={taskCreationBlocker ?? undefined}
-        onNewAgent={() => openView("custom-agents")}
+        onNewAgent={mainView === "custom-agents" ? undefined : () => openView("custom-agents")}
       />
     );
   } else if (mainView === "threads" || mainView === "collaboration") {

@@ -1093,7 +1093,9 @@ describe("app Work and Threads routing", () => {
     render(<App />);
     await screen.findByRole("heading", { name: "Your employee roster" });
     fireEvent.click(screen.getByRole("button", { name: "Hire employee" }));
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: scout.config.name } });
+    const name = screen.getByLabelText("Name");
+    expect(document.activeElement).toBe(name);
+    fireEvent.change(name, { target: { value: scout.config.name } });
     fireEvent.change(screen.getByLabelText("Instructions"), { target: { value: scout.config.instructions } });
     fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
     fireEvent.click(await screen.findByRole("button", { name: "Set up tool access" }));
