@@ -303,7 +303,7 @@ it("lists employee threads and resumes the selected thread without queueing work
     const selected = await screen.findByRole("row", { name: new RegExp(run.task) });
     expect(selected.getAttribute("aria-current")).toBe("true");
     expect(document.activeElement).toBe(selected);
-    expect(window.location.search).toBe(`?run=${run.runId}`);
+    expect(window.location.search).toBe(`?inspectRun=${run.runId}`);
     expect(screen.getByRole("row", { name: new RegExp(otherRun.task) }).hasAttribute("aria-current")).toBe(false);
     expect(screen.queryByRole("region", { name: "Guided onboarding" })).toBeNull();
     expect(fetch).not.toHaveBeenCalledWith("/api/sessions/recent-run/resume", { method: "POST" });
@@ -321,9 +321,10 @@ it("lists employee threads and resumes the selected thread without queueing work
     await act(async () => { window.history.back(); });
     await screen.findByRole("combobox", { name: "Select run for diff inspection" });
     await act(async () => { window.history.back(); });
+    await screen.findByRole("heading", { name: "Usage" });
     const restored = await screen.findByRole("row", { name: new RegExp(run.task) });
     expect(restored.getAttribute("aria-current")).toBe("true");
-    expect(window.location.search).toBe(`?run=${run.runId}`);
+    expect(window.location.search).toBe(`?inspectRun=${run.runId}`);
   });
 
   it("opens the returned approval from Chat and follows its server-linked run after approval", async () => {

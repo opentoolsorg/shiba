@@ -387,7 +387,7 @@ function workViewFromUrl(): WorkViewMode {
 }
 
 const SETUP_TOTAL_STEPS = 6;
-const ANALYTICS_RUN_PARAM = "run";
+const ANALYTICS_RUN_PARAM = "inspectRun";
 
 const STARTER_TEMPLATES = [
   {
