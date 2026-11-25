@@ -1,65 +1,89 @@
 # Repository structure
 
 ```text
-apps/
-  backend/           Cloudflare Worker: API + static host, DOs, sandbox control
-  frontend/          React dashboard (TanStack Start SPA at /app)
-  web/               Astro docs and marketing site
-packages/
-  shared/            Boundary contracts: run events, schemas, MCP types
-  openconnector-read-gateway/
-                     Worker-only policy/transport for bounded integration reads
-  sdk/               Generated SDK + OpenAPI surface
-scripts/             Deployment, image, and daemon entry points
-.agents/skills/      Task instructions for coding agents (e.g. shiba-ui-polish)
-docs/                Topic docs; architecture notes live under docs/architecture/
-spec/                Product contract (GOAL.md)
+shiba/
+├── ARCHITECTURE.md            # canonical architecture entrypoint
+├── README.md                  # product-facing overview
+├── docs/product/              # product contracts and acceptance boundaries
+├── docs/architecture/         # living architecture notes
+├── spec/                      # contracts; some files are slice- or era-specific
+├── apps/
+│   ├── backend/               # Cloudflare Worker: API, Durable Objects, queues,
+│   │                          # workflows, integrations, execution control, static assets
+│   ├── frontend/              # React dashboard source, built into apps/backend/public
+│   ├── web/                   # Astro + Starlight marketing/docs site
+│   ├── docs/                  # mintlify docs source, static-exported into the backend
+│   └── local-daemon/          # optional paired-machine daemon
+└── packages/
+    ├── shared/                # protocol and control-plane types used across boundaries
+    └── ui/                    # reusable dashboard primitives
 ```
-
-`apps/backend` owns every runtime surface: ingress routes, the DO classes,
-sandbox lifecycle and the egress proxy. `apps/frontend` renders the dashboard
-and cannot call provider APIs directly; the Worker proxies every model and
-integration call so credentials stay at the egress boundary. `packages/shared`
-holds only types that cross a Worker/package boundary — the same rule OpenBot
-applies to its contracts package. Backend domain ownership is mapped file by
-file in [SOURCE-LAYOUT.md](../SOURCE-LAYOUT.md).
 
 ## The one-paragraph version
 
-A single Cloudflare Worker is both the **API** and the **static host** for the
-React dashboard. **Durable Objects** hold coordinated state — the Employee
-Orchestrator conversation, execution sub-agent, per-run sandbox control,
-automations, mailbox, memory, model config, session chat rooms, and other
-per-user services. The MCP gateway is stateless (`createMcpHandler` per request),
-not a DO. Work happens in an **ephemeral Sandbox container** (one per run, destroyed at the end) that either clones a GitHub repository or initializes an empty artifact workspace. It executes one selected harness. Nothing starts until a human approves it, and the container's outbound network is allowlisted per run. Read-only Explorer and Reviewer facets inspect explicit snapshots without starting a sandbox. Publication requires a separate human approval of the completed immutable file snapshot.
+One Cloudflare Worker (`apps/backend`) serves the API and hosts the built React
+dashboard. Durable Objects coordinate live conversations, runs, sessions,
+mailboxes, and realtime state; D1 holds durable shared domain records; R2 stores
+private artifact bytes; KV stores token lookups; Vectorize stores embeddings;
+Queues and Workflows carry asynchronous work. The conceptual **Employee
+Orchestrator** plans and coordinates employee work; in current code this role is
+still exported as `CodingOrchestrator`. Approved work enters the run/event spine
+and is claimed by one execution lane. Repository work uses an ephemeral Sandbox
+container and a sandbox-side **Run Execution Agent** — currently implemented as
+`OpenCodeAgent` — which coordinates exactly one selected harness. Artifact, app,
+local-machine, browser, computer-assisted, research, marketing, and operations
+work follow the same approval, evidence, and publication boundaries even when
+they do not use a repository sandbox. The MCP gateway is stateless
+(`createMcpHandler` per request), not a Durable Object. Nothing runs before the
+required approval; credentials never enter containers.
 
----
+## Domain model
+
+The canonical work chain is:
+
+```text
+Workspace → Member → Employee profile/version → Goal → Plan → Task
+  → Approval → Run/attempt → Action/tool call → Deliverable/version
+  → Verification → Receipt/publication
+```
+
+| Concept | Architectural meaning |
+|---|---|
+| **Workspace** | Shared boundary for people, employees, context, integrations, work, memory, and audit. Has explicit membership, roles, and human ownership. |
+| **Employee** | Durable identity with instructions, responsibilities, skills, model/runtime bindings, allowed resources/tools, versioned configuration, and readiness state. Hiring/configuring does not start work. |
+| **Goal** | Owner-led outcome with success criteria, scope, and lead employee. |
+| **Plan/task** | Human-reviewable decomposition. Tasks can belong to people or employees and can produce child goals/tasks when authorized. |
+| **Approval** | Exact frozen authority: actor, employee version, target, action, resources, expiry, and limits. Generic consent is not execution authority. |
+| **Run/attempt** | Durable execution lineage with events, cancellation, retry, receipts, and parent/child relationships. |
+| **Execution lane** | Sandbox harness, artifact workspace, app/tool integration, paired local machine, browser/computer session, automation, or non-repository reasoning/output lane. |
+| **Deliverable** | Durable output with provenance, lineage, verification state, and versions. A PR is one publication form, not the only output. |
+| **Publication** | A separately approved external effect, idempotently anchored to a receipt. Execution success never implies permission to publish. |
+
+Employee-to-employee delegation is a regulated child-authority path, not a
+hidden agent network. It remains review-only until its activation gates in
+`docs/team-employee-coordination.md` are satisfied.
 
 ## Layer breakdown
 
-| Layer | Lives in | Responsibility |
+| Layer | Key files | Role |
 |---|---|---|
-| **Ingress** | `index.ts` (router), `slack-routes.ts`, `public-routes.ts`, `sandbox-routes.ts` | Auth per surface, then dispatch. Auth is **per-surface by design** — see §5. |
-| **Employee orchestration** | `agents/orchestrator.ts`, `automation-runner.ts` | Plans, exposes `delegate_coding_task`, queues approvals. Never touches a repo. |
-| **Execution** | `agents/opencode-agent.ts`, `harness/*`, `sandbox.ts`, `sandbox/lifecycle.ts` | Clone → exec harness → collect. Exactly one harness per run. |
-| **Egress control** | `egress.ts`, `sandbox.ts` (`allowedHosts`) | Deny-by-default; per-harness host list; TLS interception; scoped GitHub token. |
-| **State** | DO classes, D1 stores, private R2 objects | DOs coordinate agent/runtime state. D1 owns native membership, versioned policy, source bindings and action receipts. R2 holds private artifacts. |
-| **Presentation** | `apps/frontend` (dashboard), `apps/web` (docs/marketing) | React dashboard; Astro docs. Both served via the Worker's `ASSETS` binding. |
-| **Deploy** | `alchemy.run.ts` (primary), `wrangler.jsonc` (rollback) | Both declare the same stack; wrangler remains a working rollback path. |
+| **Presentation** | `apps/frontend`, `apps/web`, `apps/docs` | Dashboard, public docs, marketing surfaces. Frontend is built by turbo into `apps/backend/public`; Cloudflare Workers Assets serves it. |
+| **Ingress/API** | `apps/backend/src/index.ts`, `routes/`, channel ingress | Authentication, workspace selection, REST/RPC, Slack/Teams/Discord/Telegram/email/webhook/MCP ingress. |
+| **Employee orchestration** | `apps/backend/src/agents/orchestrator.ts` | Conversation, goal/plan/task interpretation, approval queue, delegation, run lineage. Conceptual Employee Orchestrator; current implementation `CodingOrchestrator`. |
+| **Run execution control** | `apps/backend/src/agents/opencode-agent.ts`, sandbox/run modules | Structured execution envelope, progress/events, result envelopes. Conceptual Run Execution Agent; current implementation `OpenCodeAgent`. |
+| **Authority and policy** | approvals, workspace/employee access, tool policy, funding/receipt modules | Decide whether a run/action is executable, what exact resources it may use, and whether a result may be published. |
+| **Execution lanes** | sandbox harnesses, artifact workspace, integrations, local daemon, browser/computer sessions | Perform approved work. Lanes share lineage and evidence contracts but have lane-specific runtimes. |
+| **Coordination state** | Durable Object bindings in `apps/backend/wrangler.jsonc` | Serialized live state for conversations, runs, mailboxes, realtime sessions, dispatch, provider auth, and computer/browser sessions. |
+| **Shared domain state** | D1 migrations and query modules | Durable workspace/domain records and relational queries. |
+| **Artifacts and recall** | R2, KV, Vectorize, memory modules | Private object bytes, token lookup, embeddings/recall, governed memory. |
+| **Async control** | Queues and Workflows | Retryable jobs and long-running orchestration. They are infrastructure lanes, not places to hide authority decisions. |
+| **Integrations** | workspace integrations, OpenConnector boundary, external MCP | Connected apps and tools. Connections/grants are workspace authority; execution still requires task-level approval/policy. |
+| **Deployment** | `alchemy.run.ts`, `apps/backend/wrangler*.jsonc`, turbo | Infrastructure definitions, environment-specific deploys, preview/dev configuration. |
 
-The Teams bot binds a single Azure tenant to one native workspace. The
-Connector JWT gates installation and activity intake; D1 retains the active
-connection generation and the exact reply destination per task. The Worker
-obtains and attaches the Connector token for status, card, and result delivery.
+## Keep this document current
 
-**Three deployment facts that matter:**
-
-1. **Two deploy paths, one stack.** `alchemy.run.ts` and `wrangler.jsonc`
-   declare identical bindings. Live stages pin resource names so the first
-   alchemy deploy *adopts* wrangler-managed resources in place rather than
-   replacing them.
-2. **Static assets come from the Worker.** One host serves API and UI; there is
-   no second deployment target.
-3. **Secrets never enter the container.** The container gets a dummy key; real
-   provider credentials are injected at AI Gateway egress only.
-
+When adding a stateful service, update `apps/backend/wrangler.jsonc`,
+`alchemy.run.ts`, the state map in `docs/architecture/durable-objects.md`, and
+the owning layer row here. When adding an execution lane, document its approval
+input, evidence/result envelope, egress/credential model, cancellation behavior,
+and publication boundary before treating it as production-capable.
