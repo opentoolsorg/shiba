@@ -3799,7 +3799,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   onUpdateTask={(id, patch) => { void sharedWork.update(id, patch); }}
                   onArchiveTask={(id) => { void sharedWork.archive(id); }}
                   onCommentTask={(id, text) => { void sharedWork.comment(id, text); }}
-                  agents={mentionableAgents}
+                  agents={teamWorkspaceId ? mentionableAgents.map((agent) => ({ ...agent, id: `agent:${agent.id}` })) : mentionableAgents}
                   onOpenTeam={() => openView("team")}
                   onOpenSharedTask={(item) => { setSharedRoomId(item.roomId); setSharedHandoffId(item.id); setMainView("threads"); }}
                   runs={retainedRuns}

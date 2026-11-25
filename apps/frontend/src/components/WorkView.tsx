@@ -680,7 +680,12 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
   const focusSearch = useCallback((input: HTMLInputElement | null) => { input?.focus(); }, []);
 
   // An authorization/loading failure must never leave cached room data visible.
-  const all = selectTeamWorkItems(sharedTasksError ? [] : sharedTasks, workspaceId, "all", currentActorId);
+  const agentNames = new Map(agents.map((agent) => [agent.id, agent.name]));
+  const all = selectTeamWorkItems(sharedTasksError ? [] : sharedTasks, workspaceId, "all", currentActorId).map((task) => {
+    const actorId = task.assigneeActorId ?? task.ownerId;
+    const name = actorId ? agentNames.get(actorId) : undefined;
+    return !task.assigneeName && name ? { ...task, assigneeName: name } : task;
+  });
   const q = query.trim().toLowerCase();
   const tasks = all.filter((task) => !q || `${task.title} ${task.assigneeName ?? ""}`.toLowerCase().includes(q));
   const open = all.filter((task) => workListGroup(task.status) !== "done");

@@ -854,6 +854,58 @@ describe("app Work and Threads routing", () => {
     expect(fetch).toHaveBeenCalledWith("/api/collaboration/rooms", expect.objectContaining({ headers: expect.objectContaining({ "X-Shiba-Workspace": id }) }));
   });
 
+  it("uses workspace actor IDs to assign and edit a team task with employee profiles", async () => {
+    const workspaceId = `ws_${"a".repeat(24)}`;
+    const actor = "owner@example.com";
+    const builder = { id: `cag-${"b".repeat(24)}`, slug: "builder", version: 1, config: { name: "Builder", instructions: "Build.", harness: "opencode" } };
+    const reviewer = { id: `cag-${"c".repeat(24)}`, slug: "reviewer", version: 1, config: { name: "Reviewer", instructions: "Review.", harness: "opencode" } };
+    const builderActor = `agent:${builder.id}`;
+    const reviewerActor = `agent:${reviewer.id}`;
+    const workPath = `/api/workspaces/${workspaceId}/work`;
+    const task = { id: `task_${"d".repeat(24)}`, workspaceId, roomId: "", roomTitle: "", title: "Ship the release", status: "todo", updatedAt: 1, assigneeKind: "agent", assigneeActorId: builderActor, ownerId: builderActor };
+    const createTask = vi.fn((body: unknown) => {
+      const ownerId = (body as { ownerId?: string }).ownerId;
+      return ownerId === builderActor ? Response.json({ task }, { status: 201 }) : Response.json({ error: "Invalid actor ID" }, { status: 400 });
+    });
+    const editTask = vi.fn((body: { patch: { reviewerId: string } }) => Response.json({ task: { ...task, reviewerId: body.patch.reviewerId } }));
+    localStorage.setItem(`shiba:team-workspace:${encodeURIComponent(actor)}`, workspaceId);
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path === "/api/whoami") return Response.json({ agent: actor, auth: "access" });
+      if (path === "/api/workspaces") return Response.json({ workspaces: [{ workspaceId, name: "Design team", version: 1, createdAt: 1, membership: { workspaceId, userId: actor, role: "owner", version: 1, joinedAt: 1 } }] });
+      if (path === "/api/custom-agents" && new Headers(options?.headers).get("X-Shiba-Workspace") === workspaceId) return Response.json({ agents: [builder, reviewer] });
+      if (path === workPath) {
+        return options?.method === "POST" ? createTask(JSON.parse(String(options.body))) : Response.json({ workspaceId, currentActorId: `human:${actor}`, tasks: [], truncated: false });
+      }
+      if (path === `${workPath}/${task.id}` && options?.method === "PATCH") return editTask(JSON.parse(String(options.body)));
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add details" }));
+    const assignee = screen.getByRole("combobox", { name: "Assignee" });
+    const builderOption = await within(assignee).findByRole<HTMLOptionElement>("option", { name: "Builder" });
+    fireEvent.change(assignee, { target: { value: builderOption.value } });
+    const title = screen.getByRole("textbox", { name: "Add a task and press Enter" });
+    fireEvent.change(title, { target: { value: task.title } });
+    fireEvent.keyDown(title, { key: "Enter" });
+    await waitFor(() => expect(createTask).toHaveBeenCalledExactlyOnceWith({ title: task.title, ownerId: builderActor }));
+    await waitFor(() => expect(title).toHaveProperty("value", ""));
+
+    const list = screen.getByRole("region", { name: "List view" });
+    const row = within(list).getByRole("button", { name: /Ship the release/ });
+    expect(within(row).getByRole("img", { name: "Builder" })).toBeTruthy();
+    fireEvent.click(row);
+    const detail = await screen.findByRole("complementary", { name: "Task details" });
+    expect(within(detail).getByRole("combobox", { name: "Owner" })).toHaveProperty("value", builderActor);
+    const reviewerSelect = within(detail).getByRole("combobox", { name: "Reviewer" });
+    const reviewerOption = within(reviewerSelect).getByRole<HTMLOptionElement>("option", { name: "Reviewer" });
+    fireEvent.change(reviewerSelect, { target: { value: reviewerOption.value } });
+    await waitFor(() => expect(editTask).toHaveBeenCalledExactlyOnceWith({ patch: { reviewerId: reviewerActor } }));
+  });
+
   it("returns to a linked room after selecting another room in legacy Collaboration", async () => {
     const id = `ws_${"a".repeat(24)}`;
     const actor = "owner@example.com";
