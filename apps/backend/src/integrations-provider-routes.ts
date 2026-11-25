@@ -18,20 +18,9 @@ import { ConnectorProviderError } from "./ports/connector/errors.js";
 import { resolveOrgForApiRequest } from "./org-request-auth.js";
 import { resolveConnectorWorkspaceId, syncPersonalConnectorsFromProvider } from "./extensions/connectors-store.js";
 
-/** False for an explicitly disabled provider (CONNECTOR_PROVIDER=none) or an unbound OpenConnector. */
-export function openConnectorConfigured(env: Env, provider: ConnectorProvider = getIntegrationProvider(env)): boolean {
-  if (provider.adapterId === "none") return false;
-  const bound = Boolean(env.OPEN_CONNECTOR) || Boolean(env.OPEN_CONNECTOR_URL?.trim());
-  const enabled =
-    env.OPEN_CONNECTOR_ENABLED === "1" ||
-    env.OPEN_CONNECTOR_ENABLED === "true" ||
-    bound;
-  return enabled && bound;
-}
-
-/** Unbound provider: mutations answer 409 setup_required; reads degrade to a setup card instead. */
-export function openConnectorGate(env: Env, provider?: ConnectorProvider): Response | null {
-  if (openConnectorConfigured(env, provider)) return null;
+/** Connect requires a configured adapter; reads can show a setup card instead. */
+export function openConnectorGate(provider: ConnectorProvider): Response | null {
+  if (provider.capabilities.configured) return null;
   return json({ ok: false, configured: false, code: "setup_required", error: "Integrations need setup. Connect an OpenConnector worker first." }, 409);
 }
 
@@ -187,7 +176,7 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
   }
 
   if (suffix === "/connections" && request.method === "GET") {
-    if (!openConnectorConfigured(env, provider)) return json({ ok: true, provider: selectedId, configured: false, connections: [] });
+    if (!provider.capabilities.configured) return json({ ok: true, provider: selectedId, configured: false, connections: [] });
     try {
       const connections = await provider.listConnections({ userId: owner, ...(url.searchParams.get("includeUnavailable") === "1" ? { includeUnavailable: true } : {}) });
       const orgAuth = await resolveOrgForApiRequest(request, env);
@@ -212,7 +201,7 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
     if (readiness === null) return json({ ok: false, error: "readiness must be ready, needs_configuration, unsupported or unverified." }, 400);
     const collection = parseIntegrationCollection(url.searchParams.get("collection"));
     if (collection === null) return json({ ok: false, error: "collection must be one of the listed catalog collections." }, 400);
-    if (!openConnectorConfigured(env, provider)) return setupCatalogResponse(url.searchParams.get("query"), {}, collection?.serviceIds);
+    if (!provider.capabilities.configured) return setupCatalogResponse(url.searchParams.get("query"), {}, collection?.serviceIds);
     try {
       const page = await provider.listCatalog({
         userId: owner,
@@ -260,8 +249,8 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
     const body = await readJsonBody(request);
     const providerKey = typeof body?.providerKey === "string" ? body.providerKey.trim() : "";
     if (!providerKey) return json({ ok: false, error: "providerKey is required." }, 400);
-    const unbound = openConnectorGate(env, provider);
-    if (unbound) return unbound;
+    const setupRequired = openConnectorGate(provider);
+    if (setupRequired) return setupRequired;
     const origin =
       typeof body?.callbackOrigin === "string" && body.callbackOrigin.trim()
         ? body.callbackOrigin.trim()

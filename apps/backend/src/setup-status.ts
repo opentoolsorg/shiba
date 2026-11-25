@@ -15,6 +15,7 @@ import { runSetupDoctor, type SetupDoctorReport } from "./setup-doctor.js";
 import { listMissingSetupSecrets, type SetupSecretRow } from "./setup-missing-secrets.js";
 import { LOCAL_RUNTIME_FLAG } from "@shiba/shared";
 import { readModelRoute, readToolSetup, type ModelRouteStatus, type ToolSetupRow } from "./model-route-status.js";
+import { getIntegrationProvider } from "./ports/connector/registry.js";
 
 export interface SetupStatus {
   slack: {
@@ -39,6 +40,7 @@ export interface SetupStatus {
   /** Feature flags the dashboard can use without probing dark routes. */
   deployment: {
     localRuntime: boolean;
+    /** A service binding or URL is present, even if the adapter is disabled. */
     openConnectorBound: boolean;
     openConnectorEnabled: boolean;
     operatorReviewEnabled: boolean;
@@ -140,7 +142,7 @@ export async function readSetupStatus(env: Env, probe = true, initiatorUserId?: 
     deployment: {
       localRuntime: env[LOCAL_RUNTIME_FLAG] === "1" && env.LocalDispatch !== undefined,
       openConnectorBound,
-      openConnectorEnabled: env.OPEN_CONNECTOR_ENABLED === "1" || env.OPEN_CONNECTOR_ENABLED === "true" || openConnectorBound,
+      openConnectorEnabled: getIntegrationProvider(env).capabilities.configured,
       operatorReviewEnabled: env.OPEN_CONNECTOR_OPERATOR_REVIEW_ENABLED === "true",
       workspaceEvents: env.WorkspaceEvents !== undefined,
     },

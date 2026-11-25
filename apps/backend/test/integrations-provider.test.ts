@@ -44,8 +44,8 @@ describe("integrations provider factory", () => {
     expect(await provider.health()).toMatchObject({ provider: "openconnector", status: "unconfigured" });
   });
 
-  it("uses the default for unrecognized provider values", () => {
-    expect(getIntegrationProvider(env({ INTEGRATIONS_PROVIDER: "unknown" })).id).toBe("openconnector");
+  it("disables the adapter for unrecognized deployment values", () => {
+    expect(getIntegrationProvider(env({ CONNECTOR_PROVIDER: "unknown" })).adapterId).toBe("none");
   });
 
   it("reuses the provider for the same environment and isolates credential changes", () => {

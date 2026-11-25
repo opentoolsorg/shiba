@@ -4,6 +4,7 @@
 import type { Env } from "./env.js";
 import { isBetterAuthConfigured } from "./better-auth.js";
 import { agentCliCatalog } from "./harness/catalog.js";
+import { getIntegrationProvider } from "./ports/connector/registry.js";
 
 export type SetupSecretRow = {
   id: string;
@@ -101,7 +102,7 @@ export function listMissingSetupSecrets(env: Env): SetupSecretRow[] {
   }
 
   const openConnectorBound = Boolean(env.OPEN_CONNECTOR) || Boolean(env.OPEN_CONNECTOR_URL?.trim());
-  if (openConnectorBound) {
+  if (openConnectorBound && getIntegrationProvider(env).adapterId === "openconnector") {
     for (const name of ["OPEN_CONNECTOR_ADMIN_TOKEN", "OPEN_CONNECTOR_RUNTIME_TOKEN"] as const) {
       rows.push(
         row(
