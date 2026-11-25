@@ -46,6 +46,40 @@ const TABS = [
 const control =
   "inline-flex min-h-11 items-center justify-center border border-[var(--border-1)] px-3 text-xs focus-visible:outline-2 focus-visible:outline-[var(--ring)] [@media(hover:hover)]:hover:bg-[var(--card-hover)]";
 
+type StepState = "done" | "current" | "pending" | "stopped";
+const STEP_DOT: Record<StepState, string> = {
+  done: "bg-[var(--success)]",
+  current: "bg-[var(--warning)]",
+  pending: "bg-[var(--muted-foreground-3)]",
+  stopped: "bg-[var(--destructive)]",
+};
+
+/** Read-only Request → Approval → Execution → Evidence progress, derived only from recorded approval and run data. */
+function flowSteps(props: WorkPeekProps): { label: string; state: StepState; note: string }[] | null {
+  const { task, run, storedApproval, pendingApproval } = props;
+  if (task.kind === "session") return null;
+  const local = props.decisions?.[task.id];
+  const recorded = storedApproval && storedApproval.status !== "pending" ? storedApproval.status === "approved" : undefined;
+  const approved = run?.approval ? true : (local ?? recorded);
+  const approval: { state: StepState; note: string } =
+    approved === true ? { state: "done", note: "Approved" }
+    : approved === false ? { state: "stopped", note: "Rejected" }
+    : storedApproval || pendingApproval ? { state: "current", note: "Waiting for you" }
+    : { state: "pending", note: "Not recorded" };
+  const execution: { state: StepState; note: string } = run
+    ? run.status === "completed" ? { state: "done", note: "Completed" }
+      : run.status === "running" || run.status === "pending" ? { state: "current", note: statusLabel(run.status) }
+      : { state: "stopped", note: statusLabel(run.status) }
+    : props.decisionResults?.[task.id] === "queued" ? { state: "current", note: "Queued" }
+    : { state: "pending", note: approved === false ? "Will not run" : "Not started" };
+  return [
+    { label: "Request", state: "done", note: "Recorded" },
+    { label: "Approval", ...approval },
+    { label: "Execution", ...execution },
+    run?.status === "completed" ? { label: "Evidence", state: "done", note: "Ready to review" } : { label: "Evidence", state: "pending", note: "After execution" },
+  ];
+}
+
 export function WorkPeek(props: WorkPeekProps) {
   const {
     task,
@@ -68,6 +102,7 @@ export function WorkPeek(props: WorkPeekProps) {
   const serverDecided = storedApproval && storedApproval.status !== "pending" && decision === undefined;
   const custom = props.renderContent?.(task, tab);
   const approval = storedApproval ?? pendingApproval;
+  const steps = flowSteps(props);
   const frozen = storedApproval?.payload ?? pendingApproval?.input;
   const content =
     custom ??
@@ -233,6 +268,18 @@ export function WorkPeek(props: WorkPeekProps) {
             {run?.pullUrl ? " · PR linked" : ""}
           </p>
           {run?.status === "completed" && props.onRepeat ? <button type="button" className={`${control} mt-3`} onClick={props.onRepeat}>Repeat this…</button> : null}
+          {steps ? (
+            <ol aria-label="Request progress" className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+              {steps.map((step, index) => (
+                <li key={step.label} aria-current={step.state === "current" ? "step" : undefined} className="flex items-center gap-1.5">
+                  {index ? <span aria-hidden="true" className="text-[var(--muted-foreground-3)]">→</span> : null}
+                  <span aria-hidden="true" className={`size-1.5 rounded-full ${STEP_DOT[step.state]}`} />
+                  <span className="font-medium">{step.label}</span>
+                  <span className="text-[var(--muted-foreground-2)]">{step.note}</span>
+                </li>
+              ))}
+            </ol>
+          ) : null}
           {task.routine ? <p className="mt-2 text-xs">Routine: {task.routine.name}</p> : null}
           {task.repo ? (
             <p className="mt-1 break-all font-mono text-xs text-[var(--muted-foreground-2)]">

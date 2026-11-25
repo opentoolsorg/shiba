@@ -2,13 +2,26 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { TasksHomeView } from "./TasksHomeView";
-import type { StoredApproval } from "../types";
-vi.mock("../live-status", () => ({useSetupStatus: () => ({state: {kind: "loading"}, reload: vi.fn(), inFlight: false})}));
+import type { StoredApproval, RetainedRun } from "../types";
+import { buildTasksHomeBuckets } from "./TasksHomeView";
+const setupState = vi.hoisted(() => ({ current: { kind: "loading" } as { kind: string; data?: { modelRoute: unknown } } }));
+vi.mock("../live-status", () => ({useSetupStatus: () => ({state: setupState.current, reload: vi.fn(), inFlight: false})}));
 afterEach(cleanup);
 function show(overrides: Partial<React.ComponentProps<typeof TasksHomeView>> = {}) {
   return render(<TasksHomeView task="Fix the bug" onTaskChange={vi.fn()} agents={[]} selectedAgentId="" onAgentChange={vi.fn()} repoUrl="owner/repo" onRepoUrlChange={vi.fn()} runs={[]} approvals={[]} route={{runTarget: "local"}} onSubmit={vi.fn()} {...overrides} />);
 }
 describe("task handoff", () => {
+  it("places completed runs in Recently answered without dropping approval decisions", () => {
+    const run = { runId: "done", task: "Finished work", repoUrl: "https://github.com/a/b", status: "completed", createdAt: 1, updatedAt: 2 } as RetainedRun;
+    const approval: StoredApproval = { approvalId: "p", threadKey: "t", repoUrl: "", task: "Approve publication", status: "pending", createdAt: 3, kind: "pr_publish" };
+    const buckets = buildTasksHomeBuckets([run], [approval]);
+    expect(buckets.recentlyAnswered.map((item) => item.title)).toEqual(["Finished work"]);
+    expect(buckets.needsYou.map((item) => item.title)).toContain("Approve publication");
+    show({ runs: [run], approvals: [approval], route: { runTarget: "sandbox" } });
+    expect(screen.getByRole("region", { name: "Recently answered" }).textContent).toContain("Finished work");
+    expect(screen.getByRole("region", { name: "Needs you" }).textContent).toContain("Approve publication");
+  });
+
   it("shows chat approvals on home and deduplicates stored approvals by id", () => {
     const onOpenApproval = vi.fn();
     const approval: StoredApproval = {
@@ -27,6 +40,12 @@ describe("task handoff", () => {
     expect(screen.getByTestId("task-row-approval:chat-only").textContent).toContain("Approve tool: writeFile");
     fireEvent.click(screen.getByRole("button", { name: "Approve tool: writeFile" }));
     expect(onOpenApproval).toHaveBeenCalledWith("chat-only");
+  });
+  it("renders exactly one ModelRouteCard when setup needs a provider", () => {
+    setupState.current = { kind: "data", data: { modelRoute: { provider: "test", model: "model", status: "ready" } } };
+    show({ route: { runTarget: "sandbox" } });
+    expect(screen.getAllByTestId("model-route-card")).toHaveLength(1);
+    setupState.current = { kind: "loading" };
   });
   it("announces backend rejection or early validation notices next to handoff", () => {
     show({submitNotice: "Run could not be queued: Repository access denied"});

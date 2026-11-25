@@ -106,4 +106,19 @@ describe("NotesEditor", () => {
     expect(screen.getByRole("button", { name: "Snapshot row" })).toBeTruthy();
   });
 
+  it("navigates to memory sources without saving the note", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ notes: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetcher);
+    const onNavigate = vi.fn();
+    const { unmount } = render(<NotesEditor />);
+    await act(async () => {});
+    expect(screen.queryByRole("button", { name: "Save reviewed text as a memory source" })).toBeNull();
+    unmount();
+
+    render(<NotesEditor onNavigate={onNavigate} />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Save reviewed text as a memory source" }));
+    expect(onNavigate).toHaveBeenCalledWith("memory");
+    expect(fetcher.mock.calls.every((call) => !(call as unknown as [string, RequestInit?])[1]?.method)).toBe(true);
+  });
 });

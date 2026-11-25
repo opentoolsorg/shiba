@@ -41,6 +41,8 @@ export interface OrganizationUser {
 export interface WorkOrganizationViewProps {
   employees: OrganizationEmployee[];
   onOpen?: (id: string) => void;
+  /** Client-side navigation to the approvals queue; the link is hidden where that queue is unavailable (team scope). */
+  onOpenApprovals?: () => void;
   user?: OrganizationUser;
   /** Name of the workspace chief of staff; defaults to "Shiba". */
   chiefName?: string;
@@ -86,6 +88,7 @@ function RailSlot({ children }: { children: JSX.Element }): JSX.Element {
 export function WorkOrganizationView({
   employees,
   onOpen,
+  onOpenApprovals,
   user,
   chiefName = "Shiba",
   className = "",
@@ -93,6 +96,7 @@ export function WorkOrganizationView({
   const userName = user?.name?.trim();
   const workspaceLabel = userName ? `${userName}’s workspace` : "Your workspace";
   const memberLabel = userName ? `${userName}’s Shiba` : "Your Shiba";
+  const approvalsLinkClass = "mt-3 inline-flex min-h-11 items-center text-sm text-[var(--primary)] underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]";
 
   return (
     <div
@@ -105,6 +109,7 @@ export function WorkOrganizationView({
             {workspaceLabel}
           </h2>
           <p className={`mt-1.5 text-sm ${MUTED}`}>Workspace agents and member chiefs of staff.</p>
+          {onOpenApprovals ? <button type="button" onClick={onOpenApprovals} className={approvalsLinkClass}>Review human decisions</button> : null}
         </header>
 
         <div
@@ -174,7 +179,7 @@ export function WorkOrganizationView({
               <Users className={`size-5 ${MUTED}`} aria-hidden="true" />
               <p className="text-sm font-semibold text-[var(--fg)]">No workspace agents yet</p>
               <p className={`max-w-xs text-xs leading-relaxed ${MUTED}`}>
-                Agents you add to this workspace appear here under the chief of staff.
+                Agents you add to this workspace are listed here.
               </p>
             </div>
           ) : (
@@ -230,7 +235,7 @@ export function WorkOrganizationView({
         </section>
 
         <p className={`mt-10 max-w-md text-center text-xs leading-relaxed ${MUTED}`}>
-          Lines show coordination, not access permissions. Personal agents and private threads are
+          Lines show grouping and ownership, not access permissions. Personal agents and private threads are
           not exposed here.
         </p>
       </div>

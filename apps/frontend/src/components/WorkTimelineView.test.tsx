@@ -173,4 +173,18 @@ describe("WorkTimelineView", () => {
     expect(onReview).toHaveBeenCalledWith("w1");
     expect(screen.queryByRole("button", { name: "Review Build" })).toBeNull();
   });
+
+  it("offers Schedule a task only on undated rows and only with a handler", () => {
+    const onSchedule = vi.fn();
+    const tasks = [
+      { id: "u1", title: "Plan launch", status: "todo" },
+      { id: "d1", title: "Build", status: "running", startDate: "2026-08-04" },
+    ];
+    const { rerender } = render(<WorkTimelineView tasks={tasks} onOpen={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: /Schedule a task/ })).toBeNull();
+    rerender(<WorkTimelineView tasks={tasks} onOpen={vi.fn()} onSchedule={onSchedule} />);
+    expect(screen.getAllByRole("button", { name: /Schedule a task/ })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Schedule a task: Plan launch" }));
+    expect(onSchedule).toHaveBeenCalledWith("u1");
+  });
 });

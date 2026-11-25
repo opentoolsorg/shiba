@@ -40,7 +40,6 @@ export type SettingsSectionId =
   | "models"
   | "sandbox"
   | "environments"
-  | "experimental"
   | "deployment"
   | "notifications"
   | "slack"
@@ -65,8 +64,7 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, { label: string;
       label: "Environments",
       blurb: "Deployment configuration the Worker proves",
     },
-    experimental: { label: "Experimental", blurb: "Opt-in feature flags (wrangler vars)" },
-    deployment: { label: "Deployment", blurb: "Serving host, models & harness" },
+    deployment: { label: "Deployment", blurb: "Serving host, experimental flags & kill switches" },
     notifications: { label: "Notifications", blurb: "Mentions and Needs you inbox" },
     slack: { label: "Slack", blurb: "Slack app setup and deployment requirements" },
     "slack-import": { label: "Slack import", blurb: "Copy a Slack channel into a room, including threads" },
@@ -112,6 +110,32 @@ function ViewLink({
     >
       {label} →
     </button>
+  );
+}
+
+/** Jump to another settings section. */
+function SectionLink({ label, onClick }: { label: string; onClick: () => void }): JSX.Element {
+  return (
+    <button type="button" onClick={onClick} className="min-h-11 self-start text-xs font-semibold text-[var(--primary)]">
+      {label} →
+    </button>
+  );
+}
+
+function LinkRow({ children }: { children: ReactNode }): JSX.Element {
+  return <div className="flex flex-wrap items-center gap-x-4 gap-y-1">{children}</div>;
+}
+
+/** A titled card of read-only rows with an optional footer. */
+function GroupCard({ title, children, footer }: { title: string; children: ReactNode; footer?: ReactNode }): JSX.Element {
+  return (
+    <Card>
+      <h4 className="border-b border-[var(--border-1)] px-4 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+        {title}
+      </h4>
+      {children}
+      {footer ? <div className="px-4 py-2 text-xs text-[var(--muted-foreground-2)]">{footer}</div> : null}
+    </Card>
   );
 }
 
@@ -300,20 +324,9 @@ function HostedModelsStoppedNotice(): JSX.Element | null {
   );
 }
 
-function EnvironmentsSection({ status }: { status: SetupStatus | undefined }): JSX.Element {
-  if (!status) {
-    return (
-      <Card>
-        <div role="status" className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
-          Reading /api/setup/status…
-        </div>
-      </Card>
-    );
-  }
+function SlackReadinessRows({ status }: { status: SetupStatus }): JSX.Element {
   return (
     <>
-    {!status.slack.botToken || !status.slack.signingSecret ? <SlackSetupCard /> : null}
-    <Card>
       <ChecklistRow
         label="Slack signing secret"
         ok={status.slack.signingSecret}
@@ -334,6 +347,13 @@ function EnvironmentsSection({ status }: { status: SetupStatus | undefined }): J
         ok={status.slack.channelRepos}
         detail="SLACK_CHANNEL_REPOS — repo for bare mentions"
       />
+    </>
+  );
+}
+
+function GatewayTokenRows({ status }: { status: SetupStatus }): JSX.Element {
+  return (
+    <>
       <ChecklistRow
         label="AI Gateway token"
         ok={status.gateway.token}
@@ -344,6 +364,13 @@ function EnvironmentsSection({ status }: { status: SetupStatus | undefined }): J
         ok={!status.gateway.hostedAccessStopped}
         detail={status.gateway.hostedAccessStopped ? "SHIBA_HOSTED_PROVIDER_KILL_SWITCH is on — gateway-funded runs are refused; Workers AI features still run" : "SHIBA_HOSTED_PROVIDER_KILL_SWITCH is off"}
       />
+    </>
+  );
+}
+
+function GatewayAccessRows({ status }: { status: SetupStatus }): JSX.Element {
+  return (
+    <>
       <ChecklistRow
         label="AI Gateway reachable"
         ok={status.gateway.reachable === "yes"}
@@ -354,23 +381,143 @@ function EnvironmentsSection({ status }: { status: SetupStatus | undefined }): J
         ok={status.access.required}
         detail="REQUIRE_ACCESS / ACCESS_AUD — identity on every path"
       />
-    </Card>
+    </>
+  );
+}
+
+function AutomationsRows({ status }: { status: SetupStatus }): JSX.Element {
+  return (
+    <>
+      <ChecklistRow
+        label="Automations enabled"
+        ok={status.automations.enabled}
+        detail='AUTOMATIONS_ENABLED kill switch — "false"/"0"/"off" stops every automation firing'
+      />
+      <ChecklistRow
+        label="TypeSafe key"
+        ok={status.automations.typeSafe}
+        detail="TYPESAFE_API_KEY — System One judgments"
+      />
+    </>
+  );
+}
+
+function MailboxRows({ status }: { status: SetupStatus }): JSX.Element {
+  return (
+    <>
+      <ChecklistRow
+        label="Custom mailbox address"
+        ok={status.mailbox.addressOverride}
+        detail="AGENT_MAILBOX override; the built-in default is used when unset."
+      />
+      <ChecklistRow
+        label="Outbound email binding"
+        ok={status.mailbox.sendEnabled}
+        detail="SEND_EMAIL binding required for approved email sends."
+      />
+      <ChecklistRow
+        label="Auth verification sender"
+        ok={status.transactionalEmail.senderConfigured}
+        detail="BETTER_AUTH_VERIFICATION_FROM — transactional verification, reset, and invitation mail."
+      />
+      <ChecklistRow
+        label="Transactional email queue"
+        ok={status.transactionalEmail.queueBound}
+        detail="EMAIL_QUEUE binding (WS01) for durable delivery and retries."
+      />
+    </>
+  );
+}
+
+function EnvironmentsSection({
+  status,
+  onNavigate,
+}: {
+  status: SetupStatus | undefined;
+  onNavigate?: (view: AppNavView) => void;
+}): JSX.Element {
+  if (!status) {
+    return (
+      <Card>
+        <div role="status" className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
+          Reading /api/setup/status…
+        </div>
+      </Card>
+    );
+  }
+  return (
+    <>
+      {!status.slack.botToken || !status.slack.signingSecret ? <SlackSetupCard /> : null}
+      <GroupCard title="Gateway and access">
+        <GatewayTokenRows status={status} />
+        <GatewayAccessRows status={status} />
+      </GroupCard>
+      <GroupCard title="Slack readiness">
+        <SlackReadinessRows status={status} />
+      </GroupCard>
+      <GroupCard title="Automations" footer={onNavigate ? <ViewLink view="automations" label="Open automations" onNavigate={onNavigate} /> : undefined}>
+        <AutomationsRows status={status} />
+      </GroupCard>
+      <GroupCard title="Mailbox" footer={onNavigate ? <ViewLink view="inbox" label="Open mailbox" onNavigate={onNavigate} /> : undefined}>
+        <MailboxRows status={status} />
+      </GroupCard>
+      <p className="text-xs text-[var(--muted-foreground-2)]">
+        Read-only readiness surface. Configure bindings and secrets in the deployment, never in this dashboard.
+      </p>
+    </>
+  );
+}
+
+function SlackSection({
+  status,
+  onNavigate,
+  onSelectSection,
+}: {
+  status: SetupStatus;
+  onNavigate?: (view: AppNavView) => void;
+  onSelectSection?: (section: string) => void;
+}): JSX.Element {
+  return (
+    <>
+      {!status.slack.botToken || !status.slack.signingSecret ? (
+        <SlackSetupCard />
+      ) : (
+        <p role="status">Slack signing secret and bot token are configured. <a href="/docs/slack-setup/" className="underline">Check the Slack connection</a>.</p>
+      )}
+      <GroupCard title="Slack readiness">
+        <SlackReadinessRows status={status} />
+        <GatewayAccessRows status={status} />
+      </GroupCard>
+      <div role="note" className="border border-[color-mix(in_oklch,var(--warning)_30%,transparent)] bg-[var(--warning-subtle)] px-4 py-3 text-xs leading-relaxed text-[var(--fg)]">
+        Only configured Slack approvers may approve a request. An empty approver list means nobody can approve from Slack.
+      </div>
+      <LinkRow>
+        <ViewLink view="custom-agents" label="Manage agents" onNavigate={onNavigate} />
+        <ViewLink view="collaboration" label="Open rooms" onNavigate={onNavigate} />
+        <ViewLink view="approvals" label="Review approvals" onNavigate={onNavigate} />
+        <ViewLink view="inbox" label="Open Mailbox" onNavigate={onNavigate} />
+        <ViewLink view="integrations" label="Review Slack installations in Integrations" onNavigate={onNavigate} />
+        {onSelectSection ? <SectionLink label="Import a Slack channel" onClick={() => onSelectSection("slack-import")} /> : null}
+      </LinkRow>
     </>
   );
 }
 
 /** Deployment options: this page documents them but cannot read or change Worker vars. */
-const EXPERIMENTAL_FLAGS: { title: string; summary: string; setup: string; flag: string; related: string }[] = [
+type FlagLink = { view: AppNavView; label: string };
+
+const EXPERIMENTAL_FLAGS: { title: string; summary: string; setup: string; flag: string; related: string; link: FlagLink }[] = [
   {
     title: "Use a connected computer",
     summary: "Allows approved tasks to run on a paired local computer.",
     setup: "A deployment admin enables this and configures the computer connection token.",
     flag: "SHIBA_LOCAL_RUNTIME=1",
     related: "LOCAL_ADAPTER_TOKEN secret — unset = the surface refuses every request",
+    link: { view: "remote", label: "Open Remote Access" },
   },
 ];
 
-const KILL_SWITCHES: { title: string; summary: string; flag: string; effect: string }[] = [
+const KILL_SWITCHES: { title: string; summary: string; flag: string; effect: string; link?: FlagLink }[] = [
   {
     title: "Hosted models",
     summary: "Emergency stop for AI Gateway traffic, gateway-backed tasks and team model turns.",
@@ -382,6 +529,7 @@ const KILL_SWITCHES: { title: string; summary: string; flag: string; effect: str
     summary: "Controls whether Shiba saves a short summary after a task finishes.",
     flag: "MEMORY_ENABLED",
     effect: 'Set to "false", "0", or "off" to turn off automatic summaries. Tasks still run.',
+    link: { view: "memory", label: "Open memory" },
   },
 ];
 
@@ -599,8 +747,12 @@ function SandboxOrgSettingsSection({
   return (
     <SectionShell
       title="Sandbox provider"
-      description="Org-default sandbox backend (task → bot → org → deployment). Capability matrix is computed from each registered provider — including ComputeSDK and custom adapters."
+      description="Org-default sandbox backend. Capability matrix is computed from each registered provider — including ComputeSDK and custom adapters."
     >
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)] px-3 py-2 text-xs">
+        <span className="font-semibold text-[var(--fg)]">Selection order</span>
+        <span className="font-mono text-[var(--muted-foreground-1)]">Task → Agent → Organization → Deployment</span>
+      </div>
       {loading ? (
         <div role="status" aria-busy="true" aria-label="Loading sandbox settings">
           <SkeletonLines rows={4} />
@@ -678,9 +830,12 @@ function SandboxOrgSettingsSection({
               </table>
             </div>
           </Card>
-          <ViewLink view="custom-agents" label="Bots" onNavigate={onNavigate} />
+          <ViewLink view="custom-agents" label="Manage agent-specific defaults" onNavigate={onNavigate} />
         </>
       )}
+      <p role="note" className="text-xs leading-relaxed text-[var(--muted-foreground-2)]">
+        A configured provider is not permission to execute. The exact task input must still pass the human approval gate before a sandbox starts.
+      </p>
     </SectionShell>
   );
 }
@@ -690,9 +845,11 @@ type LiveSettingsSection = "automations" | "mailbox" | "environments" | "slack";
 function LiveSettingsSectionBody({
   section,
   onNavigate,
+  onSelectSection,
 }: {
   section: LiveSettingsSection;
   onNavigate?: (view: AppNavView) => void;
+  onSelectSection?: (section: string) => void;
 }): JSX.Element {
   const setup = useSetupStatus();
   const status = setup.state.kind === "data" ? setup.state.data : undefined;
@@ -701,48 +858,18 @@ function LiveSettingsSectionBody({
       <LoadErrorState message={setup.state.message} onRetry={setup.reload} />
     ) : status ? (
       section === "slack" ? (
-        !status.slack.botToken || !status.slack.signingSecret
-          ? <SlackSetupCard />
-          : <p role="status">Slack signing secret and bot token are configured. <a href="/docs/slack-setup/" className="underline">Check the Slack connection</a>.</p>
+        <SlackSection status={status} onNavigate={onNavigate} onSelectSection={onSelectSection} />
       ) : section === "automations" ? (
         <Card>
-          <ChecklistRow
-            label="Automations enabled"
-            ok={status.automations.enabled}
-            detail='AUTOMATIONS_ENABLED kill switch — "false"/"0"/"off" stops every automation firing'
-          />
-          <ChecklistRow
-            label="TypeSafe key"
-            ok={status.automations.typeSafe}
-            detail="TYPESAFE_API_KEY — System One judgments"
-          />
+          <AutomationsRows status={status} />
         </Card>
       ) : section === "mailbox" ? (
         <Card>
-          <ChecklistRow
-            label="Custom mailbox address"
-            ok={status.mailbox.addressOverride}
-            detail="AGENT_MAILBOX override; the built-in default is used when unset."
-          />
-          <ChecklistRow
-            label="Outbound email binding"
-            ok={status.mailbox.sendEnabled}
-            detail="SEND_EMAIL binding required for approved email sends."
-          />
-          <ChecklistRow
-            label="Auth verification sender"
-            ok={status.transactionalEmail.senderConfigured}
-            detail="BETTER_AUTH_VERIFICATION_FROM — transactional verification, reset, and invitation mail."
-          />
-          <ChecklistRow
-            label="Transactional email queue"
-            ok={status.transactionalEmail.queueBound}
-            detail="EMAIL_QUEUE binding (WS01) for durable delivery and retries."
-          />
+          <MailboxRows status={status} />
           <EmailDeliveryStatusPanel />
         </Card>
       ) : (
-        <EnvironmentsSection status={status} />
+        <EnvironmentsSection status={status} onNavigate={onNavigate} />
       )
     ) : (
       <Card>
@@ -866,6 +993,7 @@ export function SettingsSectionBody({
         description="Dashboard theme — stored per browser, shared with the nav rail toggle and the D shortcut."
       >
         <AppearanceSection />
+        {onSelectSection ? <SectionLink label="Next: notifications" onClick={() => onSelectSection("notifications")} /> : null}
       </SectionShell>
     );
   }
@@ -887,7 +1015,7 @@ export function SettingsSectionBody({
         title="Repositories"
         description="GitHub repos you've saved — they show up as picks in the task composer and fill in automatically when you reuse one."
       >
-        <RepositoriesSection />
+        <RepositoriesSection onNavigate={onNavigate} onSelectSection={onSelectSection} />
       </SectionShell>
     );
   }
@@ -903,13 +1031,13 @@ export function SettingsSectionBody({
   if (section === "notifications") {
     return (
       <SectionShell title="Notifications" description="In-app alerts for mentions, thread replies, and approvals.">
-        <NotificationPrefsSection />
+        <NotificationPrefsSection onNavigate={onNavigate} />
       </SectionShell>
     );
   }
 
   if (section === "automations" || section === "mailbox" || section === "environments" || section === "slack") {
-    return <LiveSettingsSectionBody section={section} onNavigate={onNavigate} />;
+    return <LiveSettingsSectionBody section={section} onNavigate={onNavigate} onSelectSection={onSelectSection} />;
   }
 
   if (section === "providers") return (
@@ -923,16 +1051,32 @@ export function SettingsSectionBody({
 
   if (section === "sandbox") return <SandboxOrgSettingsSection onNavigate={onNavigate} />;
 
-  if (section === "experimental") {
-    return (
-      <SectionShell
-        title="Experimental features"
-        description="Deployment options and kill switches for this Shiba installation."
-      >
+  return (
+    <SectionShell
+      title="Deployment"
+      description="What this dashboard is served by — the Worker serving this page is the deployment."
+    >
+      <Card>
+        <div className="border-b border-[var(--border-1)] px-4 py-2.5">
+          <div className="text-xs font-medium text-[var(--fg)]">Serving host</div>
+          <div className="font-mono text-[11px] text-[var(--muted-foreground-2)]">{hostname || "unknown"}</div>
+        </div>
+        <div className="border-b border-[var(--border-1)] px-4 py-2.5">
+          <div className="text-xs font-medium text-[var(--fg)]">Dashboard package</div>
+          <div className="font-mono text-[11px] text-[var(--muted-foreground-2)]">
+            @shiba/frontend@{dashboardVersion}
+          </div>
+        </div>
+      </Card>
+      <section aria-labelledby="deployment-experimental" className="flex flex-col gap-4">
+        <div>
+          <h4 id="deployment-experimental" className="text-sm font-semibold text-[var(--fg)]">Experimental features</h4>
+          <p className="mt-0.5 text-xs text-[var(--muted-foreground-2)]">Deployment options and kill switches for this Shiba installation.</p>
+        </div>
         <p className="text-xs text-[var(--muted-foreground-2)]">
           Connect ChatGPT, Claude, Google and Cursor in Settings → Providers. These sign-in lanes are on when storage is ready unless an admin sets their subscription kill switch to 0.
         </p>
-        {onSelectSection ? <button type="button" className="min-h-11 self-start text-xs font-semibold text-[var(--primary)]" onClick={() => onSelectSection("providers")}>Manage in Providers →</button> : null}
+        {onSelectSection ? <SectionLink label="Manage in Providers" onClick={() => onSelectSection("providers")} /> : null}
         <Card>
           <div className="border-b border-[var(--border-1)] px-4 py-3">
             <div className="text-sm font-medium text-[var(--fg)]">How to use this page</div>
@@ -960,6 +1104,7 @@ export function SettingsSectionBody({
                   <span className="block">{flag.related}</span>
                 </div>
               </details>
+              <ViewLink view={flag.link.view} label={flag.link.label} onNavigate={onNavigate} />
             </div>
           ))}
         </Card>
@@ -980,35 +1125,56 @@ export function SettingsSectionBody({
                   {flag.flag}
                 </code>
               </details>
+              {flag.link ? <ViewLink view={flag.link.view} label={flag.link.label} onNavigate={onNavigate} /> : null}
             </div>
           ))}
         </Card>
-      </SectionShell>
-    );
-  }
-
-  return (
-    <SectionShell
-      title="Deployment"
-      description="What this dashboard is served by — the Worker serving this page is the deployment."
-    >
-      <Card>
-        <div className="border-b border-[var(--border-1)] px-4 py-2.5">
-          <div className="text-xs font-medium text-[var(--fg)]">Serving host</div>
-          <div className="font-mono text-[11px] text-[var(--muted-foreground-2)]">{hostname || "unknown"}</div>
-        </div>
-        <div className="border-b border-[var(--border-1)] px-4 py-2.5">
-          <div className="text-xs font-medium text-[var(--fg)]">Dashboard package</div>
-          <div className="font-mono text-[11px] text-[var(--muted-foreground-2)]">
-            @shiba/frontend@{dashboardVersion}
-          </div>
-        </div>
-      </Card>
+        {onSelectSection ? (
+          <LinkRow>
+            <SectionLink label="Model routing" onClick={() => onSelectSection("models")} />
+            <SectionLink label="Readiness checks" onClick={() => onSelectSection("environments")} />
+          </LinkRow>
+        ) : null}
+      </section>
     </SectionShell>
   );
 }
 
-function RepositoriesSection(): JSX.Element {
+/** Read-only GitHub readiness from GET /api/setup/status; never connects anything. */
+function GitHubReadinessCard(): JSX.Element | null {
+  const setup = useSetupStatus();
+  if (setup.state.kind === "error") return <LoadErrorState message={setup.state.message} onRetry={setup.reload} />;
+  if (setup.state.kind !== "data") {
+    return (
+      <Card>
+        <div role="status" className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
+          Reading /api/setup/status…
+        </div>
+      </Card>
+    );
+  }
+  const github = setup.state.data.github;
+  if (!github) return null;
+  return (
+    <GroupCard
+      title="GitHub connection (read-only)"
+      footer="Repository connection, employee grants and per-task approval are separate controls. Pull request publishing needs its own approval and a configured GitHub credential."
+    >
+      <ChecklistRow label="GitHub token" ok={github.token} detail="GITHUB_TOKEN — repository access for runs" />
+      <ChecklistRow label="GitHub App" ok={github.app} detail="GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY" />
+      <ChecklistRow label="Pull request publishing" ok={github.publish} detail="A token or an App installation lets approved runs open pull requests." />
+      <ChecklistRow label="Webhook secret" ok={github.webhookSecret} detail="GITHUB_WEBHOOK_SECRET — verifies repository events" />
+    </GroupCard>
+  );
+}
+
+function RepositoriesSection({
+  onNavigate,
+  onSelectSection,
+}: {
+  onNavigate?: (view: AppNavView) => void;
+  onSelectSection?: (section: string) => void;
+}): JSX.Element {
   const repos = useSavedRepos();
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -1025,6 +1191,7 @@ function RepositoriesSection(): JSX.Element {
   };
 
   return (
+    <>
     <Card>
       <div className="px-4 py-3 border-b border-[var(--border-1)] flex flex-col gap-2">
         <div className="flex items-center gap-2">
@@ -1047,6 +1214,9 @@ function RepositoriesSection(): JSX.Element {
           </button>
         </div>
         {error ? <span id="settings-repo-error" role="alert" className="text-[11px] text-[var(--destructive)]">{error}</span> : null}
+        <p className="text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
+          Never paste tokens, credentials, or secret URL parameters. A saved local repository draft does not connect GitHub, start a run, or grant access.
+        </p>
       </div>
       {repos.length === 0 ? (
         <div className="px-4 py-6 text-center text-xs text-[var(--muted-foreground-2)]">
@@ -1071,5 +1241,11 @@ function RepositoriesSection(): JSX.Element {
         ))
       )}
     </Card>
+    <GitHubReadinessCard />
+    <LinkRow>
+      <ViewLink view="work" label="Create a task" onNavigate={onNavigate} />
+      {onSelectSection ? <SectionLink label="View environment checks" onClick={() => onSelectSection("environments")} /> : null}
+    </LinkRow>
+    </>
   );
 }

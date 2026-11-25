@@ -36,10 +36,21 @@ describe("WorkOrganizationView", () => {
     expect(screen.getByTestId("organization-user-card").textContent).toContain("Your Shiba");
   });
 
-  it("shows a real empty state and the coordination footer", () => {
+  it("shows a real empty state and the grouping footer", () => {
     render(<WorkOrganizationView employees={[]} />);
     expect(screen.getByTestId("organization-empty-state")).toBeDefined();
-    expect(screen.getByText(/Lines show coordination, not access permissions\./)).toBeDefined();
+    expect(screen.getByText(/Lines show grouping and ownership, not access permissions\./)).toBeDefined();
+  });
+
+  it("opens the approvals queue in-app only when navigation is provided", () => {
+    const onOpenApprovals = vi.fn();
+    const { unmount } = render(<WorkOrganizationView employees={[]} onOpenApprovals={onOpenApprovals} />);
+    fireEvent.click(screen.getByRole("button", { name: "Review human decisions" }));
+    expect(onOpenApprovals).toHaveBeenCalledOnce();
+    unmount();
+    render(<WorkOrganizationView employees={[]} />);
+    expect(screen.queryByRole("button", { name: "Review human decisions" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Review human decisions" })).toBeNull();
   });
 
   it("renders workspace agents with mascots, role and task counts, and opens on click", () => {

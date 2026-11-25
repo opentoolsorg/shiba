@@ -115,3 +115,17 @@ it("refreshes spending limits for the selected session after save", async () => 
     expect.objectContaining({ method: "PUT" }),
   );
 });
+
+it("states that missing usage is not zero and links the env budget to deployment settings only when wired", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ generatedAt: 1, timezone: "UTC", budgetUsd: 5, days: [{ date: new Date().toISOString().slice(0, 10), runs: 1, costUsd: 1, groups: [] }] })));
+  const onOpenSettings = vi.fn();
+  const { unmount } = render(<AnalyticsView runs={[]} sessionId="test" sessionApiAvailable />);
+  expect(screen.getByText(/Missing usage is not zero cost/)).toBeTruthy();
+  expect(await screen.findByText(/USAGE_BUDGET_USD/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Deployment settings" })).toBeNull();
+  unmount();
+
+  render(<AnalyticsView runs={[]} sessionId="test" sessionApiAvailable onOpenSettings={onOpenSettings} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Deployment settings" }));
+  expect(onOpenSettings).toHaveBeenCalledWith("deployment");
+});

@@ -72,6 +72,7 @@ describe("Outputs gallery", () => {
     expect(screen.queryByText("Stale filter error")).toBeNull();
     expect(screen.getByText(report.title)).toBeTruthy();
   });
+
   it("renders previews, plain-language metadata, descriptions and deliverables", async () => {
     api([image, { ...image, id: "video", mime: "video/mp4", title: "A clip", media: { ...image.media, mode: "image-to-video", durationSeconds: 8 } }, { ...image, id: "archive", title: "Run 1", kind: "run-deliverable", mime: "application/zip", media: undefined }]);
     const { container } = render(<OutputsView />);
@@ -83,6 +84,7 @@ describe("Outputs gallery", () => {
     expect(screen.queryByText("image/jpeg")).toBeNull();
     expect(screen.getAllByRole("link", { name: "Download" })).toHaveLength(3);
   });
+
   it("filters media, hides square-only styles for wide shapes, and creates an image", async () => {
     const mock = api();
     render(<OutputsView />);
@@ -97,6 +99,7 @@ describe("Outputs gallery", () => {
     await waitFor(() => expect(mock).toHaveBeenCalledWith("/api/outputs/images", expect.objectContaining({ method: "POST", body: JSON.stringify({ prompt: "A mountain", model: "lucid", aspectRatio: "16:9" }) })));
     await waitFor(() => expect(mock).toHaveBeenCalledWith("/api/outputs?type=image", expect.anything()));
   });
+
   it("shows the empty state and a recoverable generation error", async () => {
     api([], true);
     render(<OutputsView />);
@@ -106,6 +109,7 @@ describe("Outputs gallery", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create image" }));
     expect(await screen.findByText("Please try another description.")).toBeTruthy();
   });
+
   it("hands video creation to an unsent Chat draft without generating or approving anything", async () => {
     const mock = api([image], false, videoOn);
     render(<OutputsView />);
@@ -118,6 +122,7 @@ describe("Outputs gallery", () => {
     expect(mock.mock.calls.map(([url, init]) => [url, init?.method ?? "GET"])).toEqual(expect.arrayContaining([["/api/outputs/media-options", "GET"]]));
     expect(mock.mock.calls.every(([url, init]) => (init?.method ?? "GET") === "GET" && /^\/api\/outputs(\?|\/media-options$|$)/.test(url))).toBe(true);
   });
+
   it("disables the Chat handoff with the server's reason when video is unavailable", async () => {
     const mock = api([image], false, videoOff);
     render(<OutputsView />);
@@ -130,11 +135,26 @@ describe("Outputs gallery", () => {
     fireEvent.click(button);
     expect(mock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
   });
+
   it("keeps the handoff disabled when media options cannot load", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => url.endsWith("/media-options") ? Response.json({ error: "down" }, { status: 503 }) : Response.json({ items: [] })));
     render(<OutputsView />);
     expect(await screen.findByText("Video options could not be loaded. Refresh the page to try again.")).toBeTruthy();
     expect((screen.getByRole("button", { name: "Create in Chat" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole("heading", { name: "Create an image" })).toBeNull();
+  });
+
+  it("states that a saved output is not proof of review and links to the review queues", async () => {
+    api([image]);
+    const onNavigate = vi.fn();
+    const { unmount } = render(<OutputsView />);
+    expect(screen.getByText(/A saved output is not proof that every check passed/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Review approvals" })).toBeNull();
+    unmount();
+
+    render(<OutputsView onNavigate={onNavigate} />);
+    fireEvent.click(screen.getByRole("button", { name: "Review approvals" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open pull requests" }));
+    expect(onNavigate.mock.calls).toEqual([["approvals"], ["diff"]]);
   });
 });

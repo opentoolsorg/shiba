@@ -14,7 +14,7 @@ import { WorkBoardView } from "./WorkBoardView";
 import { WorkDetailModal } from "./WorkDetailModal";
 import { WorkHeader, type WorkHeaderViewMode } from "./WorkHeader";
 import { WorkLeftPanel, type WorkLeftPanelProps, type WorkScope } from "./WorkLeftPanel";
-import { WorkListView, workListGroup } from "./WorkListView";
+import { WorkListFooter, WorkListView, workListGroup } from "./WorkListView";
 import { type OrganizationEmployee, type OrganizationUser, WorkOrganizationView } from "./WorkOrganizationView";
 import { WorkPeek, type WorkPeekProps } from "./WorkPeek";
 import { WorkQuickAdd } from "./WorkQuickAdd";
@@ -68,6 +68,8 @@ export interface WorkViewProps {
   sharedTasksLoading?: boolean;
   sharedTasksError?: string;
   onOpenSharedTask?: (task: TeamWorkItem) => void;
+  /** Opens the approval review for a task; the detail panel itself never decides. Falls back to onOpenSharedTask. */
+  onReviewDecision?: (task: TeamWorkItem) => void;
   onOpenTeam?: () => void;
   view?: WorkViewMode;
   onViewChange?: (view: WorkViewMode) => void;
@@ -75,10 +77,11 @@ export interface WorkViewProps {
   onToggleSidebar?: () => void;
   employees?: OrganizationEmployee[];
   onOpenEmployee?: (id: string) => void;
+  onOpenApprovals?: () => void;
   /** Renders the Work left panel (scope tabs, nav, task sections) inside this view when given. */
   onScopeChange?: (scope: WorkScope) => void;
-  /** Workspace scope: resolves to the created task, or null on failure (draft is kept). */
-  onCreateTask?: (title: string) => Promise<TeamWorkItem | null>;
+  /** Workspace scope: resolves to the created task, or null on failure (draft is kept). `patch` holds only optional fields the user filled in. */
+  onCreateTask?: (title: string, patch?: WorkTaskPatch) => Promise<TeamWorkItem | null>;
   onUpdateTask?: (id: string, patch: WorkTaskPatch) => unknown;
   onArchiveTask?: (id: string) => unknown;
   onCommentTask?: (id: string, text: string) => unknown;
@@ -267,6 +270,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
     onToggleSidebar,
     employees = [],
     onOpenEmployee,
+    onOpenApprovals,
   } = props;
 
   const routineState = useRoutines(Boolean(props.routinesEnabled), props.routinesRefreshToken);
@@ -556,6 +560,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
                   </section>
                 );
               })}
+              {onNewTask ? <WorkListFooter onNewTask={onNewTask} /> : null}
             </div>
           )}
         </section>
@@ -585,6 +590,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
           <WorkOrganizationView
             employees={employees}
             onOpen={onOpenEmployee}
+            onOpenApprovals={onOpenApprovals}
             user={props.user}
           />
         </section>
@@ -648,6 +654,7 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
     agents = [],
     employees = [],
     onOpenEmployee,
+    onOpenApprovals,
     user,
     taskId,
     onTaskChange,
@@ -724,7 +731,8 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
           {view !== "organization" ? (
             <div ref={quickAddRef} className="shrink-0 px-4 pt-3 pb-2">
               <WorkQuickAdd
-                onSubmit={async (title) => (onCreateTask ? (await onCreateTask(title)) !== null : false)}
+                onSubmit={async (title, patch) => (onCreateTask ? (await (patch ? onCreateTask(title, patch) : onCreateTask(title))) !== null : false)}
+                fields={{ owners: agents, tasks: all.filter((task) => !task.archived) }}
                 disabled={!onCreateTask}
                 failureMessage="Could not create the task. Your draft has been kept. Try again."
               />
@@ -732,10 +740,11 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
           ) : null}
           {view === "list" ? (
             <section aria-label="List view" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-              <WorkListView agents={agents} tasks={tasks} selectedId={selected?.id} onOpen={onTaskChange} onToggleDone={toggleDone} />
+              <WorkListView agents={agents} tasks={tasks} selectedId={selected?.id} onOpen={onTaskChange} onToggleDone={toggleDone} onNewTask={onCreateTask || onNewTask ? newTask : undefined} />
             </section>
           ) : view === "board" ? (
             <section aria-label="Board view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              {onUpdateTask ? <p className="shrink-0 px-4 pt-2 text-xs text-[var(--muted-foreground-2)]">Moving a card changes planning status only; execution approval stays separate.</p> : null}
               <WorkBoardView
                 agents={agents}
                 tasks={tasks}
@@ -746,11 +755,11 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
             </section>
           ) : view === "timeline" ? (
             <section aria-label="Timeline view" className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-4">
-              <WorkTimelineView tasks={tasks} onOpen={onTaskChange} className="h-full" />
+              <WorkTimelineView tasks={tasks} onOpen={onTaskChange} onSchedule={onUpdateTask ? onTaskChange : undefined} className="h-full" />
             </section>
           ) : (
             <section aria-label="Organization view" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-              <WorkOrganizationView employees={employees} onOpen={onOpenEmployee} user={user} />
+              <WorkOrganizationView employees={employees} onOpen={onOpenEmployee} onOpenApprovals={onOpenApprovals} user={user} />
             </section>
           )}
       </div>
@@ -758,6 +767,7 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
   );
 
   const closeTask = () => onTaskChange(null);
+  const reviewDecision = props.onReviewDecision ?? props.onOpenSharedTask;
   const detail = selected
     ? {
         onClose: closeTask,
@@ -773,6 +783,8 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
               closeTask();
             }}
             onClose={closeTask}
+            onReviewDecision={reviewDecision ? () => reviewDecision(selected) : undefined}
+            onOpenConversation={props.onOpenSharedTask && selected.roomId ? () => props.onOpenSharedTask?.(selected) : undefined}
           />
         ),
       }

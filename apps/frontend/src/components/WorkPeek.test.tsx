@@ -406,4 +406,30 @@ describe("WorkPeek diff states", () => {
     peek({ run: { ...base, diff: "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-old\n+EXACT_CAPTURED_LINE\n" } });
     expect(screen.getAllByText(/EXACT_CAPTURED_LINE/).length).toBeGreaterThan(0);
   });
+
+});
+
+describe("WorkPeek progress stepper", () => {
+  const task = { id: "run-one", kind: "run", title: "t", repo: "", group: "running", stateLabel: "Running", updatedAt: 1 } as const;
+  const base = { tab: "steps", onTabChange: () => {}, onClose: () => {} } as const;
+  const steps = () => within(screen.getByRole("list", { name: "Request progress" })).getAllByRole("listitem").map((item) => item.textContent);
+
+  it("marks a completed approved run as ready to review", () => {
+    render(<WorkPeek {...base} task={task} run={{ ...run, status: "completed", approval: { approvalId: "a", decidedBy: "me", decidedAt: 1, inputHash: "h" } as RetainedRun["approval"] }} />);
+    expect(steps()).toEqual(["RequestRecorded", "→ApprovalApproved", "→ExecutionCompleted", "→EvidenceReady to review"]);
+  });
+
+  it("shows a pending approval as waiting for the human, with nothing started", () => {
+    render(<WorkPeek {...base} task={{ ...task, kind: "approval", id: "gate-one" }} storedApproval={approval} />);
+    expect(steps()).toEqual(["RequestRecorded", "→ApprovalWaiting for you", "→ExecutionNot started", "→EvidenceAfter execution"]);
+    expect(within(screen.getByRole("list", { name: "Request progress" })).getAllByRole("listitem")[1]?.getAttribute("aria-current")).toBe("step");
+  });
+
+  it("stops at a recorded rejection and omits the stepper for threads", () => {
+    const { unmount } = render(<WorkPeek {...base} task={{ ...task, kind: "approval", id: "gate-one" }} storedApproval={{ ...approval, status: "rejected" }} />);
+    expect(steps()).toEqual(["RequestRecorded", "→ApprovalRejected", "→ExecutionWill not run", "→EvidenceAfter execution"]);
+    unmount();
+    render(<WorkPeek {...base} task={{ ...task, kind: "session" }} />);
+    expect(screen.queryByRole("list", { name: "Request progress" })).toBeNull();
+  });
 });

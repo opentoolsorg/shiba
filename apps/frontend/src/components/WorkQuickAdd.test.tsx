@@ -147,4 +147,32 @@ describe("WorkQuickAdd", () => {
     fireEvent.change(input, { target: { value: "Draft 2" } });
     expect(screen.queryByRole("alert")).toBeNull();
   });
+
+  it("sends only the filled-in supported fields as a create patch", () => {
+    const onSubmit = vi.fn();
+    const fields = { owners: [{ id: "agent:coder", name: "Coder" }], tasks: [{ id: "task_a", title: "Write spec" }] };
+    render(<WorkQuickAdd onSubmit={onSubmit} fields={fields} />);
+    fireEvent.click(screen.getByRole("button", { name: "Add details" }));
+    fireEvent.change(screen.getByLabelText("Assignee"), { target: { value: "agent:coder" } });
+    fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-12-01" } });
+    fireEvent.change(screen.getByLabelText("Depends on"), { target: { value: "task_a" } });
+    fireEvent.change(getInput(), { target: { value: "Ship it" } });
+    fireEvent.keyDown(getInput(), { key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledWith("Ship it", {
+      ownerId: "agent:coder",
+      startDate: "2026-12-01",
+      waitingOn: ["task_a"],
+    });
+    expect((screen.getByLabelText("Assignee") as HTMLSelectElement).value).toBe("");
+  });
+
+  it("submits the title alone when no detail is filled in, and hides details without fields", () => {
+    const onSubmit = vi.fn();
+    const { rerender } = render(<WorkQuickAdd onSubmit={onSubmit} />);
+    expect(screen.queryByRole("button", { name: "Add details" })).toBeNull();
+    rerender(<WorkQuickAdd onSubmit={onSubmit} fields={{ owners: [], tasks: [] }} />);
+    fireEvent.change(getInput(), { target: { value: "Just a title" } });
+    fireEvent.keyDown(getInput(), { key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledWith("Just a title");
+  });
 });

@@ -59,6 +59,16 @@ const mockThreads: WebThread[] = [
 ];
 
 describe("AgentsPanel", () => {
+  it("labels the Chief of Staff and groups employees by role", () => {
+    render(<AgentsPanel scope="personal" onScopeChange={vi.fn()} active="" onSelect={vi.fn()} agents={mockAgents} threads={mockThreads} />);
+    const list = screen.getByRole("list", { name: "Employees" });
+    const headings = Array.from(list.querySelectorAll("h3")).map((heading) => heading.textContent);
+    expect(headings).toContain("Chief of Staff");
+    expect(headings).toContain("Research");
+    expect(headings).toContain("Custom");
+    expect(headings[0]).toBe("Chief of Staff");
+  });
+
   it("renders panel title and actions without duplicating the app-wide workspace picker", () => {
     const onScopeChange = vi.fn();
     const onNewAgent = vi.fn();

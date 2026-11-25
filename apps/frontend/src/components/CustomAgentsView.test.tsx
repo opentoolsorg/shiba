@@ -671,8 +671,12 @@ describe("employee directory and hire design", () => {
     fireEvent.click(await screen.findByRole("button", { name: "View profile Auditor" }));
     const profile = screen.getByRole("region", { name: "Auditor overview" });
     expect(within(profile).getByText("reports/exceptions.md")).toBeTruthy();
-    expect(within(profile).getByText(/need your approval of the exact task before anything runs/)).toBeTruthy();
-    expect(within(profile).getByText("Automated runs also require human approval.")).toBeTruthy();
+    expect(within(profile).getByRole("heading", { name: "How this employee works" })).toBeTruthy();
+    expect(within(profile).getByText("Task brief and context explicitly supplied for the approved request.")).toBeTruthy();
+    expect(within(profile).getByText(/reports\/exceptions\.md/)).toBeTruthy();
+    // The approval sentence appears in both the workflow list and the Boundaries card.
+    expect(within(profile).getAllByText(/need your approval of the exact task before anything runs/).length).toBeGreaterThanOrEqual(2);
+    expect(within(profile).getAllByText(/Automated runs also require human approval\./).length).toBeGreaterThanOrEqual(1);
     expect(within(profile).queryByText(/unattended|allowlist/i)).toBeNull();
     const boundaries = within(profile).getByRole("complementary", { name: "Boundaries" });
     expect(within(boundaries).getByText(/grants no tool or app access/)).toBeTruthy();
@@ -690,8 +694,36 @@ describe("employee directory and hire design", () => {
     const boundaries = within(screen.getByRole("region", { name: "Auditor overview" })).getByRole("complementary", { name: "Boundaries" });
     expect(within(boundaries).getByText(/available for personal employee profiles only/)).toBeTruthy();
     expect(screen.queryByRole("link", { name: /employee tool policy/ })).toBeNull();
-    // Both the profile and the hire stage say it; neither links to a personal-only page.
-    expect(screen.getAllByText(/available for personal employee profiles only/)).toHaveLength(2);
+    // The Boundaries card, the workflow tools note and the hire stage say it; none links to a personal-only page.
+    expect(screen.getAllByText(/available for personal employee profiles only/)).toHaveLength(3);
+  });
+
+  it("shows the personal tool-access setup CTA after hiring without granting access", async () => {
+    let created: CustomAgentWire | undefined;
+    const onOpenToolPolicy = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        const payload = JSON.parse(String(init.body));
+        created = { id: "personal-1", slug: payload.slug, version: 1, config: payload.config };
+        return Response.json({ agent: created }, { status: 201 });
+      }
+      return Response.json({ agents: created ? [created] : [] });
+    }));
+    render(<CustomAgentsView onOpenToolPolicy={onOpenToolPolicy} />);
+    await screen.findByText("No bots");
+    expect(screen.getByRole("list", { name: "Hire steps" }).textContent).toContain("Define the role");
+    expect(screen.getByRole("list", { name: "Hire steps" }).textContent).toContain("Set boundaries");
+    expect(screen.getByRole("list", { name: "Hire steps" }).textContent).toContain("Review the hire");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Finance helper" } });
+    fireEvent.change(screen.getByLabelText("Instructions"), { target: { value: "Review supplied data." } });
+    fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
+    const button = await screen.findByRole("button", { name: "Set up tool access" });
+    expect(screen.getByText("Tool access is a separate decision; this profile granted nothing.")).toBeTruthy();
+    expect(onOpenToolPolicy).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    // The new employee is preselected in Tool policy; nothing is granted by opening it.
+    expect(onOpenToolPolicy).toHaveBeenCalledExactlyOnceWith("personal-1");
+    expect(created).toBeTruthy();
   });
 
   it("links the tool policy from the hire stage in personal scope", async () => {

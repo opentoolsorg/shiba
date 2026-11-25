@@ -284,6 +284,7 @@ export interface CollaborationViewProps {
   initialHandoffId?: string;
   initialEmployeeId?: string;
   onRoomChange?: (roomId: string) => void;
+  onOpenNotificationPreferences?: () => void;
   incomingTaskDraft?: IncomingTaskDraft | null;
   incomingMention?: { id: string; roomId: string; agentId: string };
   onMentionConsumed?: (id: string) => void;
@@ -319,6 +320,7 @@ function ScopedCollaborationView({
   initialHandoffId,
   initialEmployeeId,
   onRoomChange,
+  onOpenNotificationPreferences,
   incomingTaskDraft,
   incomingMention,
   onMentionConsumed,
@@ -1191,7 +1193,11 @@ function ScopedCollaborationView({
             <p className="max-w-sm text-xs text-[var(--ink-2)]">
               Chat with your team. Request employee work separately for human approval.
             </p>
-            <NotificationsPanel workspaceId={workspaceId} />
+            <NotificationsPanel
+              workspaceId={workspaceId}
+              onOpenSource={(item) => { if (item.roomId) openSavedMessage(item.roomId); }}
+              onOpenPreferences={onOpenNotificationPreferences}
+            />
           </div>
         </header>
 

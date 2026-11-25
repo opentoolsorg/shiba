@@ -40,6 +40,19 @@ describe("StoredApprovalCard", () => {
     expect(onDecide).toHaveBeenCalledExactlyOnceWith(frozen, true);
   });
 
+  it("renders frozen publication metadata and routes decisions only through onDecide", () => {
+    const frozen: StoredApproval = { ...approval, kind: "pr_publish", payload: { repoUrl: "https://github.com/o/r", baseBranch: "main", runId: "run-1", sha256: "abc123", bytes: 42, fileCount: 2 } };
+    const onDecide = vi.fn();
+    render(<StoredApprovalCard approval={frozen} decided={false} onDecide={onDecide} />);
+    for (const field of ["https://github.com/o/r", "main", "run-1", "abc123", "42", "2"]) expect(screen.getByText(field)).toBeTruthy();
+    expect(screen.queryByText(/proposed branch|PR title/i)).toBeNull();
+    expect(screen.getByText(/nothing is published/)).toBeTruthy();
+    expect(screen.queryByText(/start the run/)).toBeNull();
+    expect(onDecide).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    expect(onDecide).toHaveBeenCalledExactlyOnceWith(frozen, true);
+  });
+
   it("explains approve vs reject before decision", () => {
     render(<StoredApprovalCard approval={approval} decided={false} onDecide={vi.fn()} />);
     expect(screen.getByText(/Approve to start the run/i)).toBeTruthy();

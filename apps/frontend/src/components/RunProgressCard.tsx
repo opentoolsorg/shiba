@@ -1,6 +1,7 @@
 import type { JSX } from "react";
 import { LoaderCircle, X } from "lucide-react";
-import type { RunProgressRecord } from "../types";
+import type { ExecutionTarget } from "@shiba/shared";
+import type { RunProgressRecord, StoredApproval } from "../types";
 import { statusChipClass, statusLabel } from "../ui-helpers";
 import { RunDeliverables } from "./RunDeliverables";
 import { RunLivePanel } from "./RunLivePanel";
@@ -12,13 +13,26 @@ export function RunProgressCard({
   sessionId,
   onCancel,
   cancelling = false,
+  publicationApprovals,
+  onReviewPublication,
 }: {
-  run: RunProgressRecord | undefined;
+  run: (RunProgressRecord & { executionTarget?: ExecutionTarget }) | undefined;
   sessionId?: string;
   onCancel?: (runId: string) => void;
   cancelling?: boolean;
+  /** Approvals currently loaded; only a pending pr_publish for this run is treated as awaiting review. */
+  publicationApprovals?: readonly StoredApproval[];
+  /** Opens that publication approval for review. It never approves from this card. */
+  onReviewPublication?: (approvalId: string) => void;
 }): JSX.Element | null {
   if (!run) return null;
+  const target = run.executionTarget;
+  const destination = target?.kind === "repository" ? `${target.repoUrl} · ${target.baseBranch}`
+    : target?.kind === "artifact-workspace" ? `Artifact workspace${target.workspaceName ? ` · ${target.workspaceName}` : ""}`
+    : target?.kind === "connected-app" ? `${target.connectionId} · ${target.action}` : undefined;
+  const publication = run.status === "completed" && !run.pullUrl
+    ? publicationApprovals?.find((item) => item.kind === "pr_publish" && item.status === "pending" && item.approvalId === `pr-publish:${run.runId}`)
+    : undefined;
   const inFlight = run.status === "pending" || run.status === "running";
   const failed = run.status === "error" || run.status === "aborted" || run.status === "cancelled" || run.status === "unknown";
   const bundle = run.artifactBundle;
@@ -58,6 +72,7 @@ export function RunProgressCard({
         </div>
       </div>
       <p className="text-xs text-[var(--muted-foreground-2)] line-clamp-2">{run.task}</p>
+      {destination ? <p className="text-xs text-[var(--muted-foreground-2)] break-all" data-testid="run-destination">Destination: {destination}</p> : null}
       {run.customAgentVersion !== undefined ? <p className="text-xs text-[var(--muted-foreground-2)]" data-testid="run-agent-version">Bot profile v{run.customAgentVersion}</p> : null}
       {run.computer === true ? <RunComputerPanel runId={run.runId} sessionId={sessionId} status={run.status} /> : null}
       {inFlight ? (
@@ -79,6 +94,15 @@ export function RunProgressCard({
         >
           Open pull request
         </a>
+      ) : publication ? (
+        <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--muted-foreground-2)]" data-testid="run-publication">
+          <span>Publication: awaiting review</span>
+          {onReviewPublication ? (
+            <button type="button" onClick={() => onReviewPublication(publication.approvalId)} className="min-h-11 font-medium text-[var(--text-link)] underline underline-offset-4">
+              Review publication
+            </button>
+          ) : null}
+        </div>
       ) : run.publishPullRequest && run.status === "completed" ? (
         <p className="text-xs text-[var(--muted-foreground-2)]">
           The changes are ready. Review the separate publication approval before publishing the pull request.

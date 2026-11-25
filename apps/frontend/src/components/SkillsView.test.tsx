@@ -161,6 +161,7 @@ describe("team-scoped skill review", () => {
     for (const [, init] of fetcher.mock.calls) expect(new Headers(init?.headers).get("X-Shiba-Workspace")).toBe(workspaceA);
     expect(screen.queryByRole("button", { name: "Activate reviewed version" })).toBeNull();
   });
+
   it("edits an owned version with CAS and retains unsaved answers after a conflict", async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => init?.method === "PATCH" ? json({ error: "version_conflict" }, 409) : json({ skills: [serverSkill({ sourceUrl: "https://example.test/provenance" })] }));
     vi.stubGlobal("fetch", fetcher); render(<SkillsView workspaceRole="admin" workspaceId={workspaceA} />);
@@ -172,6 +173,7 @@ describe("team-scoped skill review", () => {
     const patch = fetcher.mock.calls.find((call) => call[1]?.method === "PATCH");
     expect(JSON.parse(String(patch?.[1]?.body))).toMatchObject({ expectedVersion: 1, sourceUrl: "https://example.test/provenance" });
   });
+
   it("keeps member configuration controls disabled and opens instruction skills in the same workspace", async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input).startsWith("/api/v1/extensions/skills") ? json([]) : json({ skills: [] }));
     vi.stubGlobal("fetch", fetcher); render(<SkillsView workspaceRole="member" workspaceId={workspaceA} />);
@@ -181,6 +183,7 @@ describe("team-scoped skill review", () => {
     expect(screen.queryByRole("button", { name: "New Skill" })).toBeNull();
     for (const [, init] of fetcher.mock.calls as unknown as Array<[RequestInfo | URL, RequestInit]>) expect(new Headers(init?.headers).get("X-Shiba-Workspace")).toBe(workspaceA);
   });
+
   it("loads team bundle drafts with explicit scope and requires separate review and activation clicks", async () => {
     let status = "draft";
     const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -202,6 +205,7 @@ describe("team-scoped skill review", () => {
     for (const [, init] of fetcher.mock.calls.filter((call) => call[1]?.method === "POST")) expect(JSON.parse(String(init?.body))).toEqual({ version: 1, reviewedInstructions: "Original notes" });
     expect(fetcher.mock.calls.every((call) => String(call[0]).startsWith("/api/skills"))).toBe(true);
   });
+
   it("synchronously clears the prior workspace and aborts its requests before late output arrives", async () => {
     const old = deferred<Response>();
     const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => new Headers(init?.headers).get("X-Shiba-Workspace") === workspaceA ? old.promise : json({ skills: [serverSkill({ name: "Team B only" })] }));
@@ -215,6 +219,7 @@ describe("team-scoped skill review", () => {
     await act(async () => { old.resolve(json({ skills: [serverSkill({ name: "Team A secret" })] })); });
     expect(screen.queryByText("Team A secret")).toBeNull(); expect(screen.getByText("Team B only")).toBeTruthy();
   });
+
   it("drops team drafts immediately when the verified actor changes within the same workspace", async () => {
     const next = deferred<Response>();
     const fetcher = vi.fn().mockResolvedValueOnce(json({ skills: [serverSkill({ name: "Actor A draft" })] })).mockReturnValueOnce(next.promise); vi.stubGlobal("fetch", fetcher);
@@ -224,6 +229,7 @@ describe("team-scoped skill review", () => {
     await act(async () => { next.resolve(json({ skills: [] })); });
     expect(screen.queryByText("Actor A draft")).toBeNull();
   });
+
   it("shows permission/version refusals without activating, and clears cached records on revocation", async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => init?.method === "POST" ? json({ error: "workspace_access_revoked" }, 403) : json({ skills: [serverSkill({ status: "review" })] }));
     vi.stubGlobal("fetch", fetcher); render(<SkillsView workspaceRole="owner" workspaceId={workspaceA} />); await screen.findByText("Imported");
@@ -232,16 +238,48 @@ describe("team-scoped skill review", () => {
     expect(screen.queryByText("Imported")).toBeNull(); expect(screen.queryByText("Original notes")).toBeNull();
     expect(fetcher.mock.calls.filter((call) => call[1]?.method === "POST")).toHaveLength(1);
   });
+
   it("never gives a shared non-owner skill review or activation controls", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json({ skills: [serverSkill({ owned: false, status: "active" })] })));
     render(<SkillsView workspaceRole="owner" workspaceId={workspaceA} />); await screen.findByText("Imported");
     expect(screen.queryByRole("button", { name: "Mark reviewed" })).toBeNull(); expect(screen.queryByRole("button", { name: "Activate reviewed version" })).toBeNull(); expect(screen.queryByRole("button", { name: "Disable" })).toBeNull();
   });
+
   it("keeps history and pagination inside the explicit team scope", async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input).includes("versions") ? json({ versions: [{ version: 1, name: "Prior", instructions: "Prior approved context" }] }) : String(input).includes("cursor=25") ? json({ skills: [serverSkill({ id: "second", name: "Second page" })] }) : json({ skills: [serverSkill()], nextCursor: "25" }));
     vi.stubGlobal("fetch", fetcher); render(<SkillsView workspaceRole="owner" workspaceId={workspaceA} />); await screen.findByText("Imported");
     fireEvent.click(screen.getByRole("button", { name: "Versions" })); await screen.findByText("Prior approved context");
     fireEvent.click(screen.getByRole("button", { name: "Load more skills" })); await screen.findByText("Second page");
     for (const call of fetcher.mock.calls as unknown as Array<[RequestInfo | URL, RequestInit]>) expect(new Headers(call[1]?.headers).get("X-Shiba-Workspace")).toBe(workspaceA);
+  });
+
+  it("links to instruction extensions in Integrations only when navigation is wired", async () => {
+    localStorageMock();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/v1/extensions/skills")) return json([]);
+      if (url === "/api/skills/library") return json({ ok: true, skills: [] });
+      if (url.includes("/api/founder-skills")) return json({ skills: [] });
+      return json({ skills: [] });
+    }));
+    const onNavigate = vi.fn();
+    const { unmount } = render(<SkillsView />);
+    fireEvent.click(screen.getByRole("button", { name: "Run-attached skills" }));
+    expect(screen.queryByRole("button", { name: "Browse instruction extensions" })).toBeNull();
+    unmount();
+
+    render(<SkillsView onNavigate={onNavigate} />);
+    fireEvent.click(screen.getByRole("button", { name: "Run-attached skills" }));
+    fireEvent.click(screen.getByRole("button", { name: "Browse instruction extensions" }));
+    expect(onNavigate).toHaveBeenCalledWith("integrations");
+  });
+
+  it("offers the instruction extensions link in the team skill types nav", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ skills: [] })));
+    const onNavigate = vi.fn();
+    render(<SkillsView workspaceRole="owner" workspaceId={workspaceA} onNavigate={onNavigate} />);
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Team skill types" })).getByRole("button", { name: "Browse instruction extensions" }));
+    expect(onNavigate).toHaveBeenCalledWith("integrations");
+    await screen.findByRole("heading", { name: "Saved skills" });
   });
 });

@@ -247,7 +247,7 @@ describe("Organization", () => {
     expect(within(members).getByText("Personal chief of staff")).toBeTruthy();
     expect(within(members).getAllByRole("img")[0]?.classList.contains("shiba-agent-mascot")).toBe(true);
     expect(screen.getByText("Personal agents are private")).toBeTruthy();
-    expect(screen.getByText(/Lines show coordination, not access permissions/)).toBeTruthy();
+    expect(screen.getByText(/Lines show grouping and ownership, not access permissions/)).toBeTruthy();
   });
 });
 

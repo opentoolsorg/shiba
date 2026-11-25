@@ -85,6 +85,12 @@ export function AgentsView(): JSX.Element {
               <button type="button" onClick={() => copyToClipboard(mcpEndpoint, "endpoint")} className={viewButtonClass}>{copiedSnippet === "endpoint" ? "Copied" : "Copy URL"}</button>
             </div>
             <p className="py-3 text-xs text-[var(--muted-foreground-2)]">Connect an MCP client to Shiba. Connection is not verified here.</p>
+            <ol aria-label="Client setup steps" className="mb-3 list-decimal space-y-0.5 pl-4 text-xs text-[var(--muted-foreground-2)]">
+              <li>Choose your client above.</li>
+              <li>Mint a scoped token from the trusted deployment.</li>
+              <li>Copy the client configuration into your local client.</li>
+            </ol>
+            <p className="mb-3 text-xs text-[var(--muted-foreground-2)]">Keep real tokens out of shared screenshots and source control.</p>
             <div className="mb-3 flex items-center justify-between gap-3"><h3 className="text-[13px] font-medium">{mcpTab === "cli" ? "Mint a token" : "Client configuration"}</h3><button type="button" onClick={() => copyToClipboard(snippet, "snippet")} className={viewButtonClass}>{copiedSnippet === "snippet" ? "Copied" : "Copy configuration"}</button></div>
             <pre className="overflow-x-auto rounded-lg border border-[var(--border-1)] bg-[var(--section)] p-4 font-mono text-xs leading-relaxed text-[var(--fg)]">{snippet}</pre>
             <p className="mt-3 text-xs leading-relaxed text-[var(--muted-foreground-2)]">Replace <code>scout</code> with the principal assigned in Inbox. Use <code>--write</code> to store the token hash in the deployed <code>AGENT_TOKENS</code> namespace. Without it, the token cannot authenticate. Never paste tokens into a mailbox or public log.</p>

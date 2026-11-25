@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "rea
 import { Brain, ChevronRight, History, RefreshCw, Search, X } from "lucide-react";
 import type { MemoryFact, MemorySession } from "../types";
 import { formatTimeAgo } from "../ui-helpers";
+import type { AppNavView } from "./AppNavRail";
 import { MemorySourcesView } from "./MemorySourcesView";
 import { EmptyState, type Scope } from "./ui/ContextPanel";
 
@@ -65,6 +66,7 @@ export interface MemoryTabProps {
   initialSessions?: MemorySession[];
   onForgetFact?: (factId: string) => void;
   onCountsChange?: (counts: Partial<{ facts: number; sessions: number; sources: number }>) => void;
+  onNavigate?: (view: AppNavView) => void;
   className?: string;
 }
 
@@ -78,6 +80,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
     sidebarCollapsed = false,
     scope = "personal",
     onCountsChange,
+    onNavigate,
     className = "",
   } = props;
 
@@ -344,8 +347,9 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
               ) : null}
             </div>
 
-            {viewMode === "facts" ? (
+            {viewMode === "facts" || (viewMode === "sessions" && availableAgents.length > 1) ? (
               <div className="flex items-center justify-between gap-2 flex-wrap text-xs text-[#71717a] dark:text-zinc-400">
+                {viewMode === "facts" ? (
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="uppercase tracking-wider text-[10px] font-mono">Source:</span>
                   {(["all", "run", "email"] as const).map((src) => (
@@ -363,6 +367,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
                     </button>
                   ))}
                 </div>
+                ) : null}
 
                 {availableAgents.length > 1 ? (
                   <div className="flex items-center gap-1.5">
@@ -433,7 +438,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
         ) : null}
 
         {/* Sources View */}
-        {viewMode === "sources" ? <MemorySourcesView onCountsChange={onCountsChange} /> : null}
+        {viewMode === "sources" ? <MemorySourcesView onCountsChange={onCountsChange} onNavigate={onNavigate} /> : null}
 
         {/* Facts View */}
         {viewMode === "facts" ? (
@@ -457,8 +462,13 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
                 title={searchActive ? `Nothing recalled for "${lastRecallQuery}"` : "No banked facts yet"}
                 description={
                   searchActive
-                    ? "Try a different recall query or check your source filters."
+                    ? "Try a different recall query or check your source filters. Saved sources and recorded sessions remain inspectable even when recall finds no match."
                     : "Facts extracted during agent runs and sessions will appear here automatically."
+                }
+                action={
+                  <button type="button" onClick={() => handleSelectView("sources")} className={BUTTON}>
+                    Manage private sources
+                  </button>
                 }
               />
             ) : (
@@ -570,7 +580,14 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
                 description={
                   agentFilter !== "all"
                     ? "No recorded sessions match the selected agent."
-                    : "Interactive sessions will be summarized and banked here across turns."
+                    : "Interactive sessions will be summarized and banked here across turns. A connection alone does not create a saved session."
+                }
+                action={
+                  onNavigate ? (
+                    <button type="button" onClick={() => onNavigate("threads")} className={BUTTON}>
+                      Open conversations
+                    </button>
+                  ) : undefined
                 }
               />
             ) : (

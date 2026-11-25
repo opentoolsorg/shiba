@@ -445,4 +445,44 @@ describe("WorkView", () => {
     expect(screen.queryByText(sharedTask.title)).toBeNull();
     expect(screen.getByText("0 open")).toBeTruthy();
   });
+
+  it("captions the editable team board and offers scheduling, details and the new-task footer", async () => {
+    const onUpdateTask = vi.fn();
+    const onCreateTask = vi.fn().mockResolvedValue({ ...sharedTask, id: "new" });
+    const { rerender } = render(<WorkView workspaceId="workspace-1" view="list" sharedTasks={[sharedTask]} onUpdateTask={onUpdateTask} onCreateTask={onCreateTask} agents={[{ id: "agent:coder", name: "Coder" }]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Describe a new task" }));
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Add a task and press Enter" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add details" }));
+    fireEvent.change(screen.getByLabelText("Assignee"), { target: { value: "agent:coder" } });
+    const input = screen.getByRole("textbox", { name: "Add a task and press Enter" });
+    fireEvent.change(input, { target: { value: "Plan the launch" } });
+    await act(async () => { fireEvent.submit(input.closest("form")!); });
+    expect(onCreateTask).toHaveBeenCalledWith("Plan the launch", { ownerId: "agent:coder" });
+    rerender(<WorkView workspaceId="workspace-1" view="board" sharedTasks={[sharedTask]} onUpdateTask={onUpdateTask} />);
+    expect(screen.getByText("Moving a card changes planning status only; execution approval stays separate.")).toBeTruthy();
+    rerender(<WorkView workspaceId="workspace-1" view="timeline" sharedTasks={[sharedTask]} onUpdateTask={onUpdateTask} />);
+    fireEvent.click(screen.getByRole("button", { name: `Schedule a task: ${sharedTask.title}` }));
+    expect(within(screen.getByLabelText("Task details")).getByLabelText("Start date")).toBeTruthy();
+  });
+
+  it("offers no board caption, scheduling or details when work cannot be edited", () => {
+    const { rerender } = render(<WorkView workspaceId="workspace-1" view="board" sharedTasks={[sharedTask]} />);
+    expect(screen.queryByText(/Moving a card changes planning status only/)).toBeNull();
+    rerender(<WorkView workspaceId="workspace-1" view="timeline" sharedTasks={[sharedTask]} />);
+    expect(screen.queryByRole("button", { name: /Schedule a task/ })).toBeNull();
+    rerender(<WorkView runs={mockRuns} view="board" />);
+    expect(screen.queryByText(/Moving a card changes planning status only/)).toBeNull();
+  });
+
+  it("opens an approval review or conversation from the task panel without deciding", () => {
+    const onOpenSharedTask = vi.fn();
+    const pendingTask = { ...sharedTask, status: "needs-approval", approvalRequired: true, viewerCanApprove: true } satisfies TeamWorkItem;
+    window.history.replaceState(null, "", `/work?task=${pendingTask.id}`);
+    render(<WorkView workspaceId="workspace-1" sharedTasks={[pendingTask]} onOpenSharedTask={onOpenSharedTask} />);
+    fireEvent.click(screen.getByRole("button", { name: "Review exact request" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open linked conversation" }));
+    expect(onOpenSharedTask).toHaveBeenCalledTimes(2);
+    expect(onOpenSharedTask).toHaveBeenCalledWith(pendingTask);
+    expect(screen.queryByRole("button", { name: /^(approve|reject)/i })).toBeNull();
+  });
 });

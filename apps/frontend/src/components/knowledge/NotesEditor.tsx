@@ -3,6 +3,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { knowledgeNoteSchema, type KnowledgeNote, type KnowledgeScope } from "@shiba/shared";
+import type { AppNavView } from "../AppNavRail";
 import { LoadErrorState } from "../LoadErrorState";
 import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 import { toast } from "sonner";
@@ -39,7 +40,7 @@ function editorMarkdown(editor: NonNullable<ReturnType<typeof useEditor>>): stri
   return `${lines.join("\n")}\n`;
 }
 
-export function NotesEditor({ workspaceId = null }: { workspaceId?: string | null }): JSX.Element {
+export function NotesEditor({ workspaceId = null, onNavigate }: { workspaceId?: string | null; onNavigate?: (view: AppNavView) => void }): JSX.Element {
   const [scope, setScope] = useState<KnowledgeScope>("personal");
   const [notes, setNotes] = useState<KnowledgeNote[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -284,6 +285,12 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
           </div>
         ) : null}
         <EditorContent editor={editor} className="prose prose-sm max-w-none min-h-[18rem] text-[var(--fg)] [&_.ProseMirror]:min-h-[18rem] [&_.ProseMirror]:outline-none" />
+        {onNavigate ? (
+          <p className="mt-3 border-t border-[var(--border-1)] pt-3 text-xs text-[var(--muted-foreground-2)]">
+            Notes are not memory until you add them as a source.{" "}
+            <button type="button" className="font-medium text-[var(--fg)] underline underline-offset-2" onClick={() => onNavigate("memory")}>Save reviewed text as a memory source</button>
+          </p>
+        ) : null}
       </section>
       {activeId ? <NoteChatPanel key={`${workspaceId}:${scope}:${activeId}`} noteId={activeId} notes={notes} scope={scope} workspaceId={workspaceId} disabled={bodyLoading || !editor} getDraftBody={() => (editor ? editorMarkdown(editor).slice(0, 24000) : "")} onAdd={(text) => {
         if (!editor || !bodyReady.current) return;

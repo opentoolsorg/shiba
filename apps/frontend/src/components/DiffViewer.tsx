@@ -132,6 +132,8 @@ export function DiffViewer({ diff, runId }: DiffViewerProps): JSX.Element {
         </div>
       </div>
 
+      {/* Matches the markers git (and the backend diff endpoints) emit for binary content. */}
+      {/^(Binary files .* differ|GIT binary patch)$/m.test(diff) ? <p role="status" className="border border-[var(--border-1)] bg-[var(--secondary)] px-3 py-2 text-xs text-[var(--muted-foreground-2)]">Binary files differ; text preview is unavailable.</p> : null}
       {/* Code Block */}
       <pre
         className="font-mono text-xs leading-[1.45] bg-[var(--bg)] border border-t-0 border-[var(--border-1)] rounded-[var(--radius-button)] p-3.5 -mt-2 max-h-96 overflow-auto whitespace-pre block w-full"

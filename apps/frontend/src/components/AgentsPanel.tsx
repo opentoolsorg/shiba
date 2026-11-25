@@ -282,6 +282,7 @@ export function AgentsPanel({
               : null;
             const showPinnedHeading = isPinned && !rows.slice(0, index).some((candidate) => candidate.agent && pinned.includes(candidate.id));
             const showRoleHeading = !isPinned && role !== null && role !== previousRole;
+            const showChiefHeading = isDefault;
             const identityMatches = matchesIdentity(row);
             const threadMatches = matchingThreads(row);
             const isExpanded = expanded[row.id] ?? (
@@ -294,6 +295,7 @@ export function AgentsPanel({
             const threadsId = `${listId}-${row.id}`;
             return (
               <li key={row.id} className="flex flex-col">
+                {showChiefHeading ? <h3 className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground-2)]">Chief of Staff</h3> : null}
                 {showPinnedHeading ? <h3 className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground-2)]">Pinned</h3> : null}
                 {showRoleHeading ? <h3 className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground-2)]">{employeeRoleLabel(role)}</h3> : null}
                 <div

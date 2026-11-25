@@ -1,6 +1,7 @@
 import { type JSX, useCallback, useEffect, useState } from "react";
 import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 import { LoadErrorState } from "../LoadErrorState";
+import { Card } from "../settings-ui";
 import { SkeletonLines } from "../surface";
 
 interface ArchivedItem {
@@ -48,19 +49,27 @@ export function ArchivedSettings({ workspaceId }: { workspaceId?: string }): JSX
   if (error) return <LoadErrorState message={error} onRetry={() => void load()} />;
 
   return (
-    <section className="rounded-lg border border-[var(--border-1)] divide-y divide-[var(--border-1)]">
-      {items.length === 0 ? (
-        <p className="p-4 text-sm text-[var(--muted-foreground-2)]">Nothing archived yet.</p>
-      ) : null}
-      {items.map((item) => (
-        <ArchivedRow
-          key={`${item.resourceKind}:${item.resourceId}`}
-          item={item}
-          workspaceId={workspaceId}
-          onRestored={() => void load()}
-        />
-      ))}
-    </section>
+    <Card>
+      <div className="flex items-center justify-between gap-3 border-b border-[var(--border-1)] px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground-2)]">
+        <span>Resource</span>
+        <span>Action</span>
+      </div>
+      <div className="divide-y divide-[var(--border-1)]">
+        {items.length === 0 ? (
+          <p className="p-4 text-sm text-[var(--muted-foreground-2)]">
+            Nothing archived yet. Archived workspace resources appear here with their type and a restore action.
+          </p>
+        ) : null}
+        {items.map((item) => (
+          <ArchivedRow
+            key={`${item.resourceKind}:${item.resourceId}`}
+            item={item}
+            workspaceId={workspaceId}
+            onRestored={() => void load()}
+          />
+        ))}
+      </div>
+    </Card>
   );
 }
 
@@ -98,6 +107,7 @@ function RestoreButton({
   onRestored: () => void;
 }): JSX.Element {
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
   const path =
     item.resourceKind === "skill"
       ? `/api/v1/extensions/skills/${item.resourceId}/restore`
@@ -107,23 +117,35 @@ function RestoreButton({
           ? `/api/custom-agents/${item.resourceId}/restore`
           : null;
   if (!path) return <span className="text-xs text-[var(--muted-foreground-2)]">—</span>;
+  const restore = () => {
+    setBusy(true);
+    setFailed(false);
+    void fetch(path, { method: "POST", headers: teamWorkspaceHeaders(workspaceId) })
+      .then((response) => {
+        if (!response.ok) throw new Error("Restore failed.");
+        onRestored();
+      })
+      .catch(() => setFailed(true))
+      .finally(() => setBusy(false));
+  };
   return (
-    <button
-      type="button"
-      disabled={busy}
-      className="text-xs font-semibold text-[var(--primary)] disabled:opacity-50"
-      onClick={() => {
-        setBusy(true);
-        void fetch(path, { method: "POST", headers: teamWorkspaceHeaders(workspaceId) })
-          .then((response) => {
-            if (!response.ok) throw new Error("Restore failed.");
-            onRestored();
-          })
-          .catch(() => {})
-          .finally(() => setBusy(false));
-      }}
-    >
-      Restore
-    </button>
+    <div className="flex flex-col items-end gap-1">
+      <button
+        type="button"
+        disabled={busy}
+        className="min-h-11 text-xs font-semibold text-[var(--primary)] disabled:opacity-50"
+        onClick={restore}
+      >
+        Restore
+      </button>
+      {failed ? (
+        <p role="alert" className="flex items-center gap-2 text-xs text-[var(--destructive)]">
+          Restore failed. {item.title} is still archived.
+          <button type="button" disabled={busy} onClick={restore} className="min-h-11 font-semibold text-[var(--primary)] underline disabled:opacity-50">
+            Retry
+          </button>
+        </p>
+      ) : null}
+    </div>
   );
 }

@@ -4,6 +4,9 @@ import { EmployeeBundleExport, EmployeeBundleReview } from "./EmployeeBundleRevi
 import { teamWorkspaceHeaders } from "../team-workspaces-client";
 import { AgentAvatar } from "./AgentAvatar";
 import { Search, ArrowUpRight } from "lucide-react";
+import { McpServerList } from "./marketplace/McpServerList";
+import { ShareEmployeeSection } from "./marketplace/ShareEmployeeSection";
+import { TemplateDetailDialog } from "./marketplace/TemplateDetailDialog";
 
 function capabilities(template: (typeof AGENT_TEMPLATES)[number]): string[] {
   return [...template.skills, ...template.plugins].map((name) => name.replaceAll("-", " ")).concat(template.chat_lanes.map((lane) => `${lane} threads`), "Approval-gated").slice(0, 3);
@@ -14,6 +17,8 @@ function pack(template: (typeof AGENT_TEMPLATES)[number]): string {
 }
 
 export function AgentTemplatesCatalog({ onUse, workspaceId }: { onUse: (template: (typeof AGENT_TEMPLATES)[number], savedConfig?: CustomAgentConfig) => Promise<void>; workspaceId?: string }): JSX.Element {
+  const [kind, setKind] = useState<"employees" | "mcp">("employees");
+  const [detail, setDetail] = useState<(typeof AGENT_TEMPLATES)[number] | null>(null);
   const [category, setCategory] = useState("all");
   const [query, setQuery] = useState("");
   const [importText, setImportText] = useState("");
@@ -45,7 +50,7 @@ export function AgentTemplatesCatalog({ onUse, workspaceId }: { onUse: (template
     }).catch((error: unknown) => { if (current) setMessage(error instanceof Error ? error.message : "Your saved bots could not be loaded."); }).finally(() => { if (current) setMyLoading(false); });
     return () => { current = false; };
   }, [category, workspaceId]);
-  useEffect(() => { setBundleRecipe(null); setExportProfile(null); setMessage(""); }, [workspaceId]);
+  useEffect(() => { setBundleRecipe(null); setExportProfile(null); setDetail(null); setMessage(""); }, [workspaceId]);
   const visible = useMemo(() => (category === "my" ? myTemplates : AGENT_TEMPLATES.filter((item) => category === "all" || item.categories.includes(category))).filter((item) => `${item.name} ${item.description} ${item.categories.join(" ")}`.toLowerCase().includes(query.trim().toLowerCase())), [category, myTemplates, query]);
   const featured = category === "all" && !query.trim() ? visible.filter((item) => item.categories.includes("featured")) : [];
 
@@ -57,13 +62,15 @@ export function AgentTemplatesCatalog({ onUse, workspaceId }: { onUse: (template
       setMessage("Could not copy this pack. Check clipboard access and try again.");
     }
   };
-  const clone = async (template: (typeof AGENT_TEMPLATES)[number]) => {
+  // Resolves true only when the bot was created, so callers can keep a dialog open on failure.
+  const clone = async (template: (typeof AGENT_TEMPLATES)[number]): Promise<boolean> => {
     setBusy(true);
     try {
       if (category === "my") await onUse(template, myProfiles[template.id]?.config);
       else await onUse(template);
       setMessage(`${template.name} added to your bots. Review its instructions before starting a task.`);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not create bot from template."); }
+      return true;
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not create bot from template."); return false; }
     finally { setBusy(false); }
   };
   const reviewTemplate = (template: (typeof AGENT_TEMPLATES)[number]) => {
@@ -110,27 +117,33 @@ export function AgentTemplatesCatalog({ onUse, workspaceId }: { onUse: (template
     finally { setBusy(false); }
   };
 
-  const chip = "min-h-11 rounded-full border px-3.5 text-xs font-medium capitalize transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)] sm:min-h-9";
+  const kinds = [["employees", "Employee templates"], ["mcp", "MCP servers"]] as const;
+  const chip = "min-h-11 rounded-full border px-3.5 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)] sm:min-h-9";
   const primaryBtn = "inline-flex min-h-11 flex-1 items-center justify-center gap-1 rounded-lg border border-[var(--primary)] bg-[var(--primary)] px-3 text-xs font-semibold text-[var(--primary-text)] transition-transform hover:-translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)] disabled:opacity-50";
   const secondaryBtn = "inline-flex min-h-11 items-center justify-center rounded-lg border border-[var(--border-1)] px-3 text-xs font-medium hover:bg-[var(--bg-2,transparent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]";
   const quietBtn = "min-h-11 px-1 text-xs text-[var(--muted-foreground-2)] underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)]";
 
   return <section id="agent-catalog" aria-label="Agent template marketplace" className="agent-catalog">
     <header className="agent-catalog-hero flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="agent-eyebrow">A little team. A lot of possibility.</p><h2>Your next great teammate.</h2><p>Give the work a home. Hire a specialist, start a thread, and build on what you learn together.</p><div className="agent-provider-row" role="group" aria-label="Provider options">{["Codex", "Claude Code", "Gemini", "Grok", "OpenCode", "Cursor"].map((provider) => <span key={provider}>{provider}</span>)}</div><p className="agent-provider-note">Change the provider, keep the agent. Connections are configured separately.</p></div><div className="agent-hero-cast flex -space-x-3" aria-hidden="true">{["coding-coworker", "product-spec-writer", "support-triage"].map((id) => <AgentAvatar key={id} id={id} name="" size={80} decorative className="rounded-full border-2 border-[var(--bg)]" />)}</div></header>
+    <div role="tablist" aria-label="Catalog kind" className="mt-4 flex gap-2" onKeyDown={(event) => { if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return; const next = kind === "employees" ? "mcp" : "employees"; setKind(next); document.getElementById(`catalog-tab-${next}`)?.focus(); }}>{kinds.map(([id, label]) => <button type="button" role="tab" key={id} id={`catalog-tab-${id}`} aria-selected={kind === id} aria-controls="catalog-panel" tabIndex={kind === id ? 0 : -1} onClick={() => setKind(id)} className={`${chip} ${kind === id ? "border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-text)]" : "border-[var(--border-1)]"}`}>{label}</button>)}</div>
+    <div role="tabpanel" id="catalog-panel" aria-labelledby={`catalog-tab-${kind}`}>{kind === "mcp" ? <McpServerList personalScope={!workspaceId} /> : <>
     <div className="agent-catalog-tools mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><h3>Template catalog</h3><p>{AGENT_TEMPLATES.length} thoughtful starting points. Always yours to customize.</p></div><label className="agent-search flex min-h-11 w-full items-center gap-2 rounded-lg border border-[var(--border-1)] px-3 focus-within:border-[var(--primary)] sm:w-72"><Search size={16} aria-hidden="true" /><input type="search" aria-label="Search templates" placeholder="Find your teammate…" value={query} onChange={(event) => setQuery(event.target.value)} className="w-full bg-transparent text-sm outline-none" /></label></div>
-    <div className="agent-filter-row -mx-1 mt-3 flex gap-2 overflow-x-auto px-1 pb-1" role="group" aria-label="Template filters">{categories.map((item) => <button type="button" key={item} aria-pressed={category === item} onClick={() => setCategory(item)} className={`${chip} shrink-0 ${category === item ? "border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-text)]" : "border-[var(--border-1)]"}`}>{item === "all" ? "All teammates" : item === "my" ? "My templates" : item}</button>)}<select aria-label="Template category" value={category} onChange={(event) => setCategory(event.target.value)} className="sr-only">{categories.map((item) => <option key={item} value={item}>{item === "all" ? "All templates" : item}</option>)}</select></div>
+    <div className="agent-filter-row -mx-1 mt-3 flex gap-2 overflow-x-auto px-1 pb-1" role="group" aria-label="Template filters">{categories.map((item) => <button type="button" key={item} aria-pressed={category === item} onClick={() => setCategory(item)} className={`${chip} shrink-0 capitalize ${category === item ? "border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-text)]" : "border-[var(--border-1)]"}`}>{item === "all" ? "All teammates" : item === "my" ? "My templates" : item}</button>)}<select aria-label="Template category" value={category} onChange={(event) => setCategory(event.target.value)} className="sr-only">{categories.map((item) => <option key={item} value={item}>{item === "all" ? "All templates" : item}</option>)}</select></div>
     {featured.length ? <section aria-label="Featured teammates" className="agent-featured mt-5"><p className="agent-eyebrow">Featured · Start something good</p><div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{featured.map((template) => <button type="button" key={template.id} disabled={busy} onClick={() => void clone(template)} className="group flex items-center gap-3 rounded-xl border border-[var(--border-1)] p-3 text-left transition-all hover:-translate-y-0.5 hover:shadow-lg motion-reduce:transition-none motion-reduce:hover:translate-y-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)]"><AgentAvatar id={template.id} name={template.name} size={64} decorative /><span className="min-w-0"><strong className="block text-sm">{template.name}</strong><small className="line-clamp-2 text-xs text-[var(--muted-foreground-2)]">{template.description}</small><span className="agent-featured-cta mt-1 inline-flex items-center gap-1 text-xs font-semibold text-[var(--primary)]">Hire teammate <ArrowUpRight size={14} aria-hidden="true" /></span></span></button>)}</div></section> : null}
-    {message ? <p role="status" className="mt-3 text-xs text-[var(--muted-foreground-2)]">{message}</p> : null}
+    {message && !detail ? <p role="status" className="mt-3 text-xs text-[var(--muted-foreground-2)]">{message}</p> : null}
     {myLoading ? <p className="mt-3 text-xs text-[var(--muted-foreground-2)]">Loading your saved bots…</p> : null}
     {category === "my" && !myLoading && visible.length === 0 ? <p className="mt-3 text-xs text-[var(--muted-foreground-2)]">No saved bots yet. Use an official template or create a bot to see it here.</p> : null}
     {!visible.length && !myLoading && category !== "my" ? <p className="py-8 text-sm text-[var(--muted-foreground-2)]">No teammates match your search. Try another name or category.</p> : null}
     <div className="agent-template-grid mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{visible.map((template) => <article key={template.id} className="agent-template-card group flex flex-col rounded-2xl border border-[var(--border-1)] p-4 transition-all duration-200 hover:-translate-y-1 hover:shadow-xl motion-reduce:transition-none motion-reduce:hover:translate-y-0">
       <div className="agent-card-top flex items-start justify-between gap-2"><AgentAvatar id={template.id} name={template.name} mascotPreset={category === "my" ? myProfiles[template.id]?.config.mascotPreset : undefined} look={category === "my" ? myProfiles[template.id]?.config.look : undefined} size={80} decorative className="agent-card-mascot transition-transform duration-200 group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100" /><span className="agent-category rounded-full border border-[var(--border-1)] px-2.5 py-0.5 text-[11px] capitalize text-[var(--muted-foreground-2)]">{template.categories.find((tag) => tag !== "featured")}</span></div>
       <h3 className="mt-3 text-base font-semibold">{template.name}</h3><p className="agent-value-prop mt-1 text-sm text-[var(--muted-foreground-2)]">{template.description}</p><div className="agent-capabilities mt-3 flex flex-wrap gap-1.5">{capabilities(template).map((tag) => <span key={tag} className="rounded-md bg-[var(--bg-2,rgba(127,127,127,.12))] px-2 py-0.5 text-[11px] capitalize">{tag}</span>)}</div>
-      <div className="mt-auto flex flex-wrap items-center gap-2 pt-4"><button type="button" disabled={busy} onClick={() => void clone(template)} className={primaryBtn}>Hire <ArrowUpRight size={14} aria-hidden="true" /></button><button type="button" onClick={() => void copy(template)} className={secondaryBtn}>Copy pack</button>{category !== "my" ? <button type="button" className={quietBtn} onClick={() => reviewTemplate(template)}>Review bundle</button> : null}{myProfiles[template.id] ? <button type="button" className={quietBtn} onClick={() => { setBundleRecipe(null); setExportProfile(myProfiles[template.id]!); }}>Export owned bundle</button> : null}{category === "my" ? <button type="button" className={quietBtn} onClick={() => reviewTemplate(template)}>Save as new archived bot</button> : null}</div>
+      <div className="mt-auto flex flex-wrap items-center gap-2 pt-4"><button type="button" disabled={busy} onClick={() => void clone(template)} className={primaryBtn}>Hire <ArrowUpRight size={14} aria-hidden="true" /></button><button type="button" onClick={() => { setMessage(""); setDetail(template); }} className={secondaryBtn}>Details<span className="sr-only"> for {template.name}</span></button><button type="button" onClick={() => void copy(template)} className={secondaryBtn}>Copy pack</button>{category !== "my" ? <button type="button" className={quietBtn} onClick={() => reviewTemplate(template)}>Review bundle</button> : null}{myProfiles[template.id] ? <button type="button" className={quietBtn} onClick={() => { setBundleRecipe(null); setExportProfile(myProfiles[template.id]!); }}>Export owned bundle</button> : null}{category === "my" ? <button type="button" className={quietBtn} onClick={() => reviewTemplate(template)}>Save as new archived bot</button> : null}</div>
     </article>)}</div>
     {bundleRecipe ? <EmployeeBundleReview key={`${workspaceId ?? "personal"}:${JSON.stringify(bundleRecipe)}`} workspaceId={workspaceId} recipe={bundleRecipe} onClose={() => setBundleRecipe(null)} onImported={(result) => { setMessage(`${bundleRecipe.profile.name} imported as an archived bot with ${result.skillIds.length} draft skills. Review and restore it in your bots; configure recommendations separately.`); setBundleRecipe(null); setImportText(""); }}/> : null}
     {exportProfile ? <EmployeeBundleExport key={`${workspaceId ?? "personal"}:${exportProfile.employeeId}`} workspaceId={workspaceId} {...exportProfile} onClose={() => setExportProfile(null)}/> : null}
+    <ShareEmployeeSection />
+    {detail ? <TemplateDetailDialog template={detail} busy={busy} message={message} onHire={() => void clone(detail).then((created) => { if (created) setDetail(null); })} onCopy={() => void copy(detail)} onClose={() => setDetail(null)} /> : null}
     <details className="mt-4 border-t border-[var(--border-1)] pt-3"><summary className="cursor-pointer text-xs font-semibold">Paste import</summary><p className="my-2 text-xs text-[var(--muted-foreground-2)]">Paste a Shiba template pack or complete employee bundle. Complete bundles require an instruction and skill review before creating an archived bot. Legacy packs create bot configuration only; their skill and plugin names are recommendations.</p><textarea aria-label="Template pack JSON" value={importText} onChange={(event) => setImportText(event.target.value)} rows={5} className="w-full border border-[var(--border-1)] bg-[var(--bg)] p-2 font-mono text-xs" placeholder="Paste template pack or employee bundle JSON"/><button type="button" disabled={busy || !importText.trim()} onClick={() => void importPack()} className="mt-2 min-h-11 border border-[var(--primary)] px-3 py-1.5 text-xs disabled:opacity-50">{busy ? "Importing…" : "Create bot from pack"}</button></details>
+    </>}</div>
   </section>;
 }

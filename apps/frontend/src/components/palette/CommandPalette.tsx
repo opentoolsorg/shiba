@@ -2,6 +2,8 @@ import { Command } from "cmdk";
 import { useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 import { CommandDialog } from "../ui/command-menu";
+import { areaForView, type AppNavView } from "../../app-navigation";
+import { KEYBOARD_SHORTCUT_GROUPS } from "../ShortcutsDialog";
 import { BotRow, botOptionName } from "./BotRow";
 import { detectPlatform, detectStandalone, jumpEventMatches, jumpKeyAria, jumpKeyLabel } from "./jump-keys";
 import { pushRecent, readRecents } from "./palette-recents";
@@ -32,7 +34,7 @@ function nextSlot(bots: PaletteBot[], bot: PaletteBot): number {
 }
 
 export function CommandPalette({
-  open, onClose, workspaceId, roomThreadOpen, needsYouCount, settings, extraActions = [],
+  open, onClose, workspaceId, roomThreadOpen, needsYouCount, settings, extraActions = [], currentView = "work",
   onNewTask, newTaskBlockedReason, onNewChannel, onOpenBot, onOpenChat, onOpenTask, onOpenKnowledge, onOpenSettings, onOpenNeedsYou,
   onToggleTheme, onOpenShortcuts, onInsertAgentMention, onSearchAll, onMessageAbout,
 }: {
@@ -41,6 +43,7 @@ export function CommandPalette({
   workspaceId: string | null;
   roomThreadOpen: boolean;
   needsYouCount?: number | null;
+  currentView?: AppNavView;
   settings: PaletteSetting[];
   extraActions?: PaletteAction[];
   onNewTask: () => void;
@@ -196,6 +199,9 @@ export function CommandPalette({
           </Group> : null}
           {search.skeleton ? <div data-testid="palette-skeleton" aria-hidden="true"><div className="min-h-11" /><div className="min-h-11" /></div> : null}
           {search.unavailable ? <p className="px-4 py-2 text-xs text-[var(--muted-foreground-2)]">Message search is unavailable right now</p> : null}
+          {!trimmed && !pick ? <p className="px-4 py-2 text-xs text-[var(--muted-foreground-2)]">Try a page name such as Providers or Memory</p> : null}
+          {!trimmed && !pick ? <div className="flex gap-2 px-4 py-2">{["Action", areaForView(currentView).label, "Needs you", "Chat", "Team"].map((hint) => <span key={hint} className="rounded-full border border-[var(--border-1)] px-2 py-1 text-[10px] text-[var(--muted-foreground-2)]">{hint}</span>)}</div> : null}
+          {!trimmed && !pick ? <details className="border-t border-[var(--border-1)] px-4 py-2"><summary className="min-h-11 cursor-pointer text-xs">Keyboard shortcuts</summary>{KEYBOARD_SHORTCUT_GROUPS.map((group) => <div key={group.group} className="py-1 text-xs"><strong>{group.group}</strong>{group.items.map((row) => <p key={row.id} className="flex justify-between gap-4"><span>{row.label}</span><kbd>{row.keys}</kbd></p>)}</div>)}</details> : null}
           {empty ? <div className="px-4 py-4 text-sm text-[var(--muted-foreground-2)]"><p>No matches for ‘{trimmed}’.</p><button type="button" className="min-h-11" onClick={() => { onSearchAll(trimmed); onClose(); }}>Search all messages for ‘{trimmed}’</button><button type="button" className="min-h-11" onClick={() => setPick("about")}>Message @bot about ‘{trimmed}’</button></div> : null}
         </Command.List>
         <div aria-live="polite" className="sr-only">{live}</div>

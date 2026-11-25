@@ -24,9 +24,11 @@ async function notificationsFetch<T>(
 export interface NotificationsPanelProps {
   workspaceId?: string;
   className?: string;
+  onOpenSource?: (item: WorkspaceNotification) => void;
+  onOpenPreferences?: () => void;
 }
 
-export function NotificationsPanel({ workspaceId, className = "" }: NotificationsPanelProps): JSX.Element {
+export function NotificationsPanel({ workspaceId, className = "", onOpenSource, onOpenPreferences }: NotificationsPanelProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<WorkspaceNotification[]>([]);
   const [loading, setLoading] = useState(false);
@@ -128,15 +130,15 @@ export function NotificationsPanel({ workspaceId, className = "" }: Notification
               {error}
             </p>
           ) : null}
-          <div className="flex gap-2 border-b border-[var(--line)] px-3 py-2">
-            <button
-              type="button"
-              aria-pressed={needsYouOnly}
-              onClick={() => setNeedsYouOnly((value) => !value)}
-              className={`min-h-11 px-2 text-[10px] font-semibold uppercase ${needsYouOnly ? "text-[var(--ink)]" : "text-[var(--ink-2)]"}`}
-            >
-              Needs you
-            </button>
+          <div className="flex items-center justify-between gap-2 border-b border-[var(--line)] px-3 py-2">
+            <div className="flex gap-1" role="group" aria-label="Filter notifications">
+              {[false, true].map((needsOnly) => (
+                <button key={String(needsOnly)} type="button" aria-pressed={needsYouOnly === needsOnly} onClick={() => setNeedsYouOnly(needsOnly)} className={`min-h-11 px-2 text-[10px] font-semibold uppercase ${needsYouOnly === needsOnly ? "text-[var(--ink)]" : "text-[var(--ink-2)]"}`}>
+                  {needsOnly ? "Needs you" : "All"}
+                </button>
+              ))}
+            </div>
+            {onOpenPreferences ? <button type="button" onClick={onOpenPreferences} className="min-h-11 px-2 text-xs underline">Notification preferences</button> : null}
           </div>
           <ul className="max-h-80 overflow-y-auto">
             {loading && items.length === 0 ? (
@@ -146,11 +148,9 @@ export function NotificationsPanel({ workspaceId, className = "" }: Notification
             ) : (
               items.filter((item) => !needsYouOnly || item.kind === "needs_you" || item.kind === "approval" || item.kind === "ask_user").map((item) => (
                 <li key={item.notificationId} className="border-b border-[var(--line)] last:border-b-0">
-                  <button
-                    type="button"
-                    onClick={() => void markRead(item.notificationId)}
-                    className={`w-full px-3 py-3 text-left hover:bg-[var(--panel-2)] ${item.readAt == null ? "bg-[var(--panel-2)]/60" : ""}`}
-                  >
+                  <div className="px-3 py-3">
+                    <button type="button" onClick={() => void markRead(item.notificationId)} className={`w-full text-left hover:bg-[var(--panel-2)] ${item.readAt == null ? "bg-[var(--panel-2)]/60" : ""}`}>
+
                     <div className="flex items-start gap-2">
                       {item.readAt == null ? (
                         <span aria-hidden="true" className="mt-1 size-1.5 shrink-0 rounded-full bg-[var(--navy)]" />
@@ -167,7 +167,9 @@ export function NotificationsPanel({ workspaceId, className = "" }: Notification
                         </p>
                       </div>
                     </div>
-                  </button>
+                    </button>
+                    {onOpenSource && item.roomId && item.messageId ? <button type="button" className="mt-1 min-h-11 text-xs underline" onClick={() => onOpenSource(item)}>Open source</button> : null}
+                  </div>
                 </li>
               ))
             )}

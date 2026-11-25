@@ -124,4 +124,27 @@ describe("RunProgressCard", () => {
       .toBe("/api/runs/artifact-run/deliverables/0");
     expect(screen.getByText(/Review their content before using or publishing it/)).toBeTruthy();
   });
+
+  it("shows the frozen destination only when the run carries one", () => {
+    const { rerender } = render(<RunProgressCard run={baseRun({ status: "running" })} />);
+    expect(screen.queryByTestId("run-destination")).toBeNull();
+    rerender(<RunProgressCard run={baseRun({ status: "running", executionTarget: { kind: "repository", repoUrl: "https://github.com/o/r", baseBranch: "main" } })} />);
+    expect(screen.getByTestId("run-destination").textContent).toBe("Destination: https://github.com/o/r · main");
+  });
+
+  it("reports publication awaiting review only for a pending publish approval of this completed run", () => {
+    const onReviewPublication = vi.fn();
+    const publish = { kind: "pr_publish", status: "pending", approvalId: "pr-publish:run-abc", threadKey: "t", repoUrl: "https://github.com/o/r", task: "Publish", createdAt: 1 } as never;
+    const done = baseRun({ status: "completed", publishPullRequest: true });
+    const { rerender } = render(<RunProgressCard run={done} publicationApprovals={[]} onReviewPublication={onReviewPublication} />);
+    expect(screen.queryByTestId("run-publication")).toBeNull();
+    rerender(<RunProgressCard run={done} publicationApprovals={[{ ...(publish as object), approvalId: "pr-publish:other" } as never]} onReviewPublication={onReviewPublication} />);
+    expect(screen.queryByTestId("run-publication")).toBeNull();
+    rerender(<RunProgressCard run={done} publicationApprovals={[publish]} onReviewPublication={onReviewPublication} />);
+    expect(screen.getByText("Publication: awaiting review")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Review publication" }));
+    expect(onReviewPublication).toHaveBeenCalledWith("pr-publish:run-abc");
+    rerender(<RunProgressCard run={{ ...done, status: "running" }} publicationApprovals={[publish]} />);
+    expect(screen.queryByTestId("run-publication")).toBeNull();
+  });
 });

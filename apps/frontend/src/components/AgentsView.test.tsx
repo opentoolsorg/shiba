@@ -89,3 +89,10 @@ it("names the same principal in the mint command and setup instruction", async (
   expect(screen.getByText(/node scripts\/mint-token.mjs --agent scout --scopes email:read/)).toBeTruthy();
   expect(screen.getByText("scout").closest("p")?.textContent).toContain("Replace scout with the principal assigned in Inbox");
 });
+it("guides client setup in three steps and warns to keep tokens out of screenshots", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ principals: [] }) }));
+  render(<AgentsView />);
+  const steps = await screen.findByRole("list", { name: "Client setup steps" });
+  expect(steps.querySelectorAll("li")).toHaveLength(3);
+  expect(screen.getByText(/Keep real tokens out of shared screenshots and source control/)).toBeTruthy();
+});

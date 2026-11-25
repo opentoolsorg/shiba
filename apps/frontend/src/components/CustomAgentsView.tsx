@@ -39,7 +39,7 @@ const AUTOMATION_APPROVAL = "Automated runs also require human approval.";
 /** The tool-policy page is a personal-scope view, so a team workspace gets an honest note instead of a link. */
 function ToolPolicyNote({ workspaceId, onOpenToolPolicy }: { workspaceId?: string; onOpenToolPolicy?: () => void }): JSX.Element {
   if (workspaceId) return <p>Employee tool policy is currently available for personal employee profiles only.</p>;
-  if (onOpenToolPolicy) return <button type="button" onClick={onOpenToolPolicy} className="inline-flex min-h-11 items-center text-[var(--primary)] underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">Review employee tool policy</button>;
+  if (onOpenToolPolicy) return <button type="button" onClick={() => onOpenToolPolicy()} className="inline-flex min-h-11 items-center text-[var(--primary)] underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">Review employee tool policy</button>;
   return <a href={pathForView("employee-tools")} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-[var(--primary)] underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">Review employee tool policy (opens in a new tab)</a>;
 }
 
@@ -107,7 +107,8 @@ export interface CustomAgentsViewProps {
   draftScope?: string;
   workspaceId?: string;
   actorId?: string;
-  onOpenToolPolicy?: () => void;
+  // Receives the employee to preselect after a hire; plain links pass nothing.
+  onOpenToolPolicy?: (employeeId?: string) => void;
 }
 
 /** Keep drafts and async callbacks in the account/workspace that created them. */
@@ -163,12 +164,30 @@ function ScopedCustomAgentsView({
   }, [agents, workspaceId, isActive]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
+  const [createdAgentForToolSetup, setCreatedAgentForToolSetup] = useState<CustomAgentWire | null>(null);
+  const [profilePolicy, setProfilePolicy] = useState<{ employeeId: string; tools: string[] } | null>(null);
+  // Distinguishes "still loading" from "could not be read" so the Tools row never claims unavailability early.
+  const [profilePolicyFailedFor, setProfilePolicyFailedFor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [directoryQuery, setDirectoryQuery] = useState("");
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const selectedAgent = agents?.find((agent) => agent.id === selectedAgentId);
+  useEffect(() => {
+    if (!selectedAgent || workspaceId) { setProfilePolicy(null); setProfilePolicyFailedFor(null); return; }
+    let active = true;
+    setProfilePolicy(null);
+    setProfilePolicyFailedFor(null);
+    void fetch(`/api/employee-tools/${encodeURIComponent(selectedAgent.id)}/policy`, { credentials: "same-origin", cache: "no-store" })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({})) as { toolScopes?: string[]; grants?: { capabilityId: string; resourceId: string; lifecycle: string }[] };
+        if (active && response.ok && Array.isArray(body.toolScopes) && Array.isArray(body.grants)) {
+          setProfilePolicy({ employeeId: selectedAgent.id, tools: body.grants.filter((grant) => grant.lifecycle === "active" && body.toolScopes?.includes(grant.capabilityId)).map((grant) => `${grant.capabilityId.replace(/^mcp:shiba:/, "")} · ${grant.resourceId}`) });
+        } else if (active) setProfilePolicyFailedFor(selectedAgent.id);
+      }).catch(() => { if (active) { setProfilePolicy(null); setProfilePolicyFailedFor(selectedAgent.id); } });
+    return () => { active = false; };
+  }, [selectedAgent?.id, workspaceId]);
   const [roleFilter, setRoleFilter] = useState(ROLE_FILTER_ALL);
   const rosterQuery = directoryQuery.trim().toLocaleLowerCase();
   // Only roles that saved employees actually carry are offered; a role is a label, not a department or reporting line.
@@ -484,6 +503,7 @@ function ScopedCustomAgentsView({
           return [saved, ...rest];
         });
         setNotice({ tone: "ok", text: editingId ? "Bot updated." : "Bot created." });
+        setCreatedAgentForToolSetup(!editingId && !workspaceId ? saved : null);
         resetForm(!editingId);
         refresh();
       }
@@ -670,6 +690,19 @@ function ScopedCustomAgentsView({
                     <h3 className="text-xs font-medium">Instructions</h3>
                     <p className="mt-1 whitespace-pre-wrap break-words text-sm text-[var(--muted-foreground-2)]">{selectedAgent.config.instructions}</p>
                   </div>
+                  {(() => {
+                    const template = EMPLOYEE_TEMPLATES.find((item) => item.id === employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId));
+                    const policyTools = profilePolicy?.employeeId === selectedAgent.id ? profilePolicy.tools : null;
+                    return <div>
+                      <h3 className="text-xs font-medium">How this employee works</h3>
+                      <dl className="mt-2 grid gap-2 text-xs leading-relaxed text-[var(--muted-foreground-2)]">
+                        <div><dt className="font-medium text-[var(--fg)]">Input</dt><dd>Task brief and context explicitly supplied for the approved request.</dd></div>
+                        <div><dt className="font-medium text-[var(--fg)]">Deliverable</dt><dd>{template?.config.expectedDeliverables?.length ? template.config.expectedDeliverables.join(", ") : template?.description ?? "Editable work and a handoff for review."}</dd></div>
+                        <div><dt className="font-medium text-[var(--fg)]">Review</dt><dd>{INTERACTIVE_APPROVAL} {AUTOMATION_APPROVAL}</dd></div>
+                        <div><dt className="font-medium text-[var(--fg)]">Tools</dt><dd>{workspaceId ? "Employee tool policy is currently available for personal employee profiles only." : policyTools === null ? (profilePolicyFailedFor === selectedAgent.id ? "Tool policy is unavailable; no tool access is implied." : "Loading tool policy…") : policyTools.length ? policyTools.join(", ") : "No active tool grants are configured."}</dd></div>
+                      </dl>
+                    </div>;
+                  })()}
                   <div>
                     <h3 className="text-xs font-medium">How work runs</h3>
                     <ol className="mt-2 flex list-decimal flex-col gap-1.5 pl-5 text-xs leading-relaxed text-[var(--muted-foreground-2)]">
@@ -678,7 +711,6 @@ function ScopedCustomAgentsView({
                       <li>The employee runs approved work inside the approved repository scope.</li>
                       <li>Results and any required deliverables return to the thread.</li>
                     </ol>
-                    <p className="mt-2 text-xs leading-relaxed text-[var(--muted-foreground-2)]">{AUTOMATION_APPROVAL}</p>
                   </div>
                 </div>
                 <aside aria-label="Boundaries" className="flex h-fit flex-col gap-2 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)] p-4 text-xs leading-relaxed text-[var(--muted-foreground-2)]">
@@ -823,6 +855,7 @@ function ScopedCustomAgentsView({
             </ul>
           ) : null}
           {notice ? <StatusNotice tone={notice.tone}>{notice.text}</StatusNotice> : null}
+          {createdAgentForToolSetup && !workspaceId && onOpenToolPolicy ? <div className="flex flex-wrap items-center gap-3 rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--panel)] p-4 text-xs text-[var(--muted-foreground-2)]"><p>Tool access is a separate decision; this profile granted nothing.</p><button type="button" className={BTN_PRIMARY} onClick={() => onOpenToolPolicy(createdAgentForToolSetup.id)}>Set up tool access</button></div> : null}
 
           <AgentTemplatesCatalog workspaceId={workspaceId} onUse={async (template: AgentTemplate, savedConfig?: CustomAgentConfig) => {
             if (!isActive()) return;
@@ -872,6 +905,12 @@ function ScopedCustomAgentsView({
                 </p>
               ) : null}
 
+              <div className={editingId ? "space-y-5" : "grid gap-5 md:grid-cols-[9rem_minmax(0,1fr)]"}>
+                {!editingId ? <ol aria-label="Hire steps" className="flex gap-3 overflow-x-auto md:flex-col md:gap-4 md:border-r md:border-[var(--border-1)] md:pr-4">{[[stageRoleId, "1 · Define the role"], [stageBoundariesId, "2 · Set boundaries"], [stageReviewId, "3 · Review the hire"]].map(([id, label]) => (
+                  // All three stages are on one page, so each step jumps to its section instead of faking progress.
+                  <li key={id} className="min-w-max"><button type="button" onClick={() => document.getElementById(id as string)?.scrollIntoView({ behavior: "smooth", block: "start" })} className="min-h-11 border-l-2 border-[var(--border-1)] pl-3 text-left text-xs text-[var(--muted-foreground-2)] hover:text-[var(--fg)]">{label}</button></li>
+                ))}</ol> : null}
+                <div className="min-w-0 space-y-5">
               <section aria-labelledby={stageRoleId} className="flex flex-col gap-4">
               <div>
                 {!editingId ? <p className={OVERLINE}>Step 1 of 3</p> : null}
@@ -1123,6 +1162,8 @@ function ScopedCustomAgentsView({
                 </button>
               </div>
               </section>
+                </div>
+              </div>
               {conflict ? <button type="button" disabled={busy} onClick={() => void reloadEditingAgent()} className="self-start text-xs text-[var(--primary)]">Reload latest bot</button> : null}
             </form>
           ) : null}

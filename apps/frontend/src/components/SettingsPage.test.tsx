@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { SettingsPage, SettingsPanel } from "./SettingsPage";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { SettingsPage, SettingsPanel, normalizeSettingsSection } from "./SettingsPage";
 
 const linkSocial = vi.fn();
 vi.mock("../auth-client", () => ({ authClient: { linkSocial: (...args: unknown[]) => linkSocial(...args), signOut: vi.fn() } }));
@@ -68,7 +68,11 @@ describe("SettingsPage", () => {
     expect(await screen.findByText("No workspace facts saved yet.")).toBeTruthy();
   });
   it("offers Slack settings and setup steps when only one Slack secret is configured", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ slack: { botToken: true, signingSecret: false } })));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      slack: { botToken: true, signingSecret: false, approvers: 0, channelRepos: false },
+      gateway: { id: "default", token: true, reachable: "unknown" },
+      access: { required: false },
+    })));
     const onSelect = vi.fn();
     render(<SettingsPanel active="slack" onSelect={onSelect} />);
     fireEvent.click(screen.getByRole("button", { name: "Slack" }));
@@ -78,6 +82,30 @@ describe("SettingsPage", () => {
     await screen.findByTestId("slack-setup-card");
     expect(screen.queryByRole("alert")).toBeNull();
   });
+  it("shows Slack readiness rows, the empty-approver warning and links to related areas", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      slack: { botToken: true, signingSecret: true, approvers: 0, channelRepos: false },
+      gateway: { id: "default", token: true, reachable: "yes" },
+      access: { required: true },
+    })));
+    const onNavigate = vi.fn();
+    const onSectionChange = vi.fn();
+    render(<SettingsPage section="slack" onNavigate={onNavigate} onSectionChange={onSectionChange} />);
+    expect(await screen.findByText("Slack approvers")).toBeTruthy();
+    expect(screen.getByText("Slack signing secret")).toBeTruthy();
+    expect(screen.getByText("Slack channel→repo map")).toBeTruthy();
+    expect(screen.getByText("AI Gateway reachable")).toBeTruthy();
+    expect(screen.getByText("Cloudflare Access required")).toBeTruthy();
+    expect(screen.getByText(/An empty approver list means nobody can approve from Slack/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /install slack/i })).toBeNull();
+    for (const [name, view] of [["Manage agents →", "custom-agents"], ["Open rooms →", "collaboration"], ["Review approvals →", "approvals"], ["Open Mailbox →", "inbox"], ["Review Slack installations in Integrations →", "integrations"]] as const) {
+      fireEvent.click(screen.getByRole("button", { name }));
+      expect(onNavigate).toHaveBeenLastCalledWith(view);
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Import a Slack channel →" }));
+    expect(onSectionChange).toHaveBeenCalledWith("slack-import");
+  });
+
   it("renders breadcrumb Settings > <Section> and updates with the selected section", () => {
     const onBack = vi.fn();
     const { rerender } = render(
@@ -161,9 +189,12 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("heading", { name: /Remote Access/i })).toBeTruthy();
   });
 
-  it("explains experimental features in plain language and keeps deployment switches read-only", () => {
-    render(<SettingsPage section="experimental" />);
+  it("explains experimental features inside Deployment and keeps switches read-only", () => {
+    const onNavigate = vi.fn();
+    const onSectionChange = vi.fn();
+    render(<SettingsPage section="deployment" onNavigate={onNavigate} onSectionChange={onSectionChange} />);
 
+    expect(screen.getByRole("heading", { name: "Deployment" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Experimental features" })).toBeTruthy();
     expect(screen.getByText(/cannot change deployment settings or check which options are currently turned on/i)).toBeTruthy();
     expect(screen.queryByText("Claude subscription sign-in")).toBeNull();
@@ -178,9 +209,31 @@ describe("SettingsPage", () => {
     fireEvent.click(adminDetails);
     expect(adminDetails.closest("details")?.open).toBe(true);
     expect(screen.getByText("SHIBA_LOCAL_RUNTIME=1")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Remote Access →" }));
+    expect(onNavigate).toHaveBeenLastCalledWith("remote");
+    fireEvent.click(screen.getByRole("button", { name: "Open memory →" }));
+    expect(onNavigate).toHaveBeenLastCalledWith("memory");
+    fireEvent.click(screen.getByRole("button", { name: "Model routing →" }));
+    expect(onSectionChange).toHaveBeenLastCalledWith("models");
+    fireEvent.click(screen.getByRole("button", { name: "Readiness checks →" }));
+    expect(onSectionChange).toHaveBeenLastCalledWith("environments");
   });
 
-  it("opens the shared provider cards from the Experimental link", async () => {
+  it("drops the standalone Experimental nav entry but resolves old deep links to Deployment", () => {
+    render(<SettingsPanel active="deployment" onSelect={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Experimental" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Deployment" }).length).toBeGreaterThan(0);
+    cleanup();
+    expect(normalizeSettingsSection("experimental")).toBe("deployment");
+    expect(normalizeSettingsSection("deployment")).toBe("deployment");
+    expect(normalizeSettingsSection("nope")).toBe("account");
+    render(<SettingsPage section="experimental" />);
+    expect(screen.getByRole("navigation", { name: "Breadcrumb" }).textContent).toContain("Deployment");
+    expect(screen.getByRole("heading", { name: "Experimental features" })).toBeTruthy();
+  });
+
+  it("opens the shared provider cards from the Deployment link", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ providers: [], defaultProviderId: null })));
     render(<SettingsPage initialSection="experimental" />);
     fireEvent.click(screen.getByRole("button", { name: "Manage in Providers →" }));
@@ -221,7 +274,7 @@ describe("Settings overview", () => {
     render(<SettingsPage section="overview" onSectionChange={onSectionChange} onNavigate={onNavigate} />);
 
     expect(screen.getByRole("heading", { name: "Settings overview" })).toBeTruthy();
-    for (const title of ["Account", "Repositories", "Providers & models", "Connected apps", "Employee access", "Workspace", "Appearance & notifications", "Skills"]) {
+    for (const title of ["Account", "Repositories", "Providers & models", "Connected apps", "Connections", "Employee access", "Workspace", "Appearance & notifications", "Templates & skills"]) {
       expect(screen.getByRole("heading", { name: title })).toBeTruthy();
     }
     expect(screen.queryByText(/plugin|marketplace|purchase|install/i)).toBeNull();
@@ -231,7 +284,24 @@ describe("Settings overview", () => {
     expect(onNavigate).toHaveBeenCalledWith("employee-tools");
     fireEvent.click(screen.getByRole("button", { name: "Review connected apps" }));
     expect(onSectionChange).toHaveBeenCalledWith("connected-apps");
+    for (const [name, view] of [["Review connections", "integrations"], ["Open MCP servers", "agents"], ["Open agents", "custom-agents"], ["Open skills", "skills"]] as const) {
+      fireEvent.click(screen.getByRole("button", { name }));
+      expect(onNavigate).toHaveBeenLastCalledWith(view);
+    }
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("links every allowed workspace control from a chip row", () => {
+    const onSectionChange = vi.fn();
+    render(<SettingsPage section="overview" onSectionChange={onSectionChange} />);
+    const chips = within(screen.getByRole("region", { name: "Workspace controls" }));
+    const expected: [string, string][] = [["Appearance", "appearance"], ["Notifications", "notifications"], ["API keys", "api-keys"], ["Archived", "archived"], ["Environments", "environments"], ["Sandbox", "sandbox"], ["Slack", "slack"], ["Admin", "admin"], ["Deployment", "deployment"]];
+    expect(chips.getAllByRole("button").map((button) => button.textContent)).toEqual(expected.map(([label]) => label));
+    for (const [label, id] of expected) {
+      fireEvent.click(chips.getByRole("button", { name: label }));
+      expect(onSectionChange).toHaveBeenLastCalledWith(id);
+    }
+    expect(screen.getByRole("note", { name: "Approval boundary" })).toBeTruthy();
   });
 
   it("limits overview to Team while a team workspace is active", () => {
@@ -240,6 +310,13 @@ describe("Settings overview", () => {
     expect(screen.queryByRole("heading", { name: "Account" })).toBeNull();
     expect(screen.getByRole("button", { name: "Team settings" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Personal workspace setting" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Workspace controls" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Connections" })).toBeNull();
+  });
+
+  it("hides workspace controls while private data is blocked", () => {
+    render(<SettingsPage section="overview" personalDataBlocked />);
+    expect(screen.queryByRole("region", { name: "Workspace controls" })).toBeNull();
   });
 });
 

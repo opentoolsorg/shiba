@@ -104,7 +104,6 @@ export const SETTINGS_PAGE_NAV_GROUPS: SettingsNavGroup[] = [
   {
     heading: "Deployment",
     items: [
-      { id: "experimental", label: "Experimental", blurb: SETTINGS_SECTION_LABELS.experimental.blurb, icon: Sliders },
       { id: "deployment", label: "Deployment", blurb: SETTINGS_SECTION_LABELS.deployment.blurb, icon: ShieldCheck },
     ],
   },
@@ -248,9 +247,13 @@ export interface SettingsPageProps extends Partial<TeamWorkspaceViewProps> {
 
 const SETTINGS_PAGE_SECTION_IDS: readonly string[] = SETTINGS_PAGE_NAV_GROUPS.flatMap((group) => group.items.map((item) => item.id));
 
+/** Experimental flags now live in Deployment; the retired id keeps resolving for old deep links. */
+const canonicalSection = (id: string): string => (id === "experimental" ? "deployment" : id);
+
 /** Returns `id` when it names a known settings section, otherwise "account". */
 export function normalizeSettingsSection(id: string | null | undefined): string {
-  return id && SETTINGS_PAGE_SECTION_IDS.includes(id) ? id : "account";
+  const section = id ? canonicalSection(id) : id;
+  return section && SETTINGS_PAGE_SECTION_IDS.includes(section) ? section : "account";
 }
 
 function getSectionLabel(id: string): string {
@@ -293,7 +296,7 @@ export function SettingsPage({
   className = "",
 }: SettingsPageProps): JSX.Element {
   const [internalSection, setInternalSection] = useState(initialSection);
-  const activeSection = section ?? internalSection;
+  const activeSection = canonicalSection(section ?? internalSection);
 
   const handleSectionChange = useCallback(
     (nextSection: string) => {
@@ -326,11 +329,16 @@ export function SettingsPage({
           actions: [...(providersBlocked ? [] : [sectionAction("Review providers", "providers")]), sectionAction("Review model routing", "models")],
         },
         { title: "Connected apps", description: "External apps authorized for this deployment.", icon: ShieldCheck, actions: [sectionAction("Review connected apps", "connected-apps")] },
+        ...viewAction("Review connections", "integrations").map((action) => ({ title: "Connections", description: "GitHub repositories, app connectors, Slack and MCP servers.", icon: Webhook, actions: [action, ...viewAction("Open MCP servers", "agents")] })),
         ...viewAction("Manage employee access", "employee-tools").map((action) => ({ title: "Employee access", description: "Manage scoped tool grants for individual employees.", icon: ShieldCheck, actions: [action] })),
         { title: "Workspace", description: "Workspace membership and sandbox configuration.", icon: Box, actions: [sectionAction("Team", "team"), sectionAction("Sandbox", "sandbox")] },
         { title: "Appearance & notifications", description: "Theme and in-app alerts for mentions, replies and approvals.", icon: Palette, actions: [sectionAction("Appearance", "appearance"), sectionAction("Notifications", "notifications")] },
-        ...viewAction("Open skills", "skills").map((action) => ({ title: "Skills", description: "Review saved skills available to employees.", icon: Zap, actions: [action] })),
+        ...viewAction("Open agents", "custom-agents").map((action) => ({ title: "Templates & skills", description: "Reusable agent templates and saved skills available to employees.", icon: Zap, actions: [action, ...viewAction("Open skills", "skills")] })),
       ];
+  const controlChips: [SettingsPageSectionId, string][] = guarded ? [] : [
+    ["appearance", "Appearance"], ["notifications", "Notifications"], ["api-keys", "API keys"], ["archived", "Archived"], ["environments", "Environments"],
+    ["sandbox", "Sandbox"], ["slack", "Slack"], ["admin", "Admin"], ["deployment", "Deployment"],
+  ];
 
   const mainCardContent = (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -424,6 +432,18 @@ export function SettingsPage({
                 })}
               </ul>
             </section>
+            {controlChips.length > 0 ? (
+              <section aria-labelledby="settings-overview-controls" className="flex flex-col gap-3">
+                <h3 id="settings-overview-controls" className="text-sm font-semibold text-[var(--fg)]">Workspace controls</h3>
+                <ul className="m-0 flex list-none flex-wrap gap-2 p-0">
+                  {controlChips.map(([id, label]) => (
+                    <li key={id}>
+                      <button type="button" onClick={() => handleSectionChange(id)} className="inline-flex min-h-11 items-center rounded-full border border-[var(--border-1)] bg-[var(--button)] px-3.5 text-xs font-semibold text-[var(--fg)] hover:bg-[var(--button-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]">{label}</button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
             <section role="note" aria-label="Approval boundary" className="flex gap-3 rounded-[var(--radius-card)] border border-[color-mix(in_oklch,var(--warning)_40%,transparent)] bg-[var(--warning-subtle)] p-4 sm:p-5">
               <ShieldCheck className="mt-0.5 size-4 shrink-0 text-[var(--warning-fg)]" aria-hidden="true" />
               <p className="text-xs leading-relaxed text-[var(--muted-foreground-1)]">Connections do not grant employee access by themselves. Read grants allow only scoped reads you select. Interactive tasks and automated runs require human approval.</p>
@@ -467,7 +487,7 @@ export function SettingsPage({
         ) : activeSection === "archived" ? (
           <div className="max-w-4xl mx-auto p-6 lg:p-8"><ArchivedSettings workspaceId={workspaceId} /></div>
         ) : activeSection === "admin" ? (
-          <div className="max-w-4xl mx-auto p-6 lg:p-8"><AdminSettings /></div>
+          <div className="max-w-4xl mx-auto p-6 lg:p-8"><AdminSettings onOpenTeam={() => handleSectionChange("team")} /></div>
         ) : (
           <div className="max-w-4xl mx-auto p-6 lg:p-8 flex flex-col gap-6">
             <SettingsSectionBody
