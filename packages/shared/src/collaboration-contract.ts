@@ -56,6 +56,12 @@ export interface CollaborationHandoffEnvelope {
   remainingBudget: number; grantedCapabilities: readonly CollaborationCapability[]; profileVersion?: number;
 }
 export type CollaborationEnvelope = CollaborationMessageEnvelope | CollaborationHandoffEnvelope;
+export interface CollaborationHandoffBudgetState {
+  /** Historical budget recorded when this handoff was created. */
+  remainingBudget: number;
+  /** Current shared budget for the root's entire handoff tree. */
+  currentRootBudget: number;
+}
 export const MAX_HANDOFF_DEPTH = 4;
 export const MAX_HANDOFF_BUDGET = 32;
 export type EnvelopeValidationError = "invalid-envelope" | "invalid-scope" | "invalid-identity" | "invalid-time" | "invalid-profile-version" | "invalid-lineage" | "depth-exceeded" | "budget-exceeded" | "duplicate-handoff-id" | "parent-mismatch" | "authority-widened" | "invalid-budget-propagation" | "profile-version-mismatch";

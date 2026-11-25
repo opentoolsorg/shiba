@@ -640,6 +640,34 @@ describe("CollaborationView room access polling", () => {
     expect(submittedBody?.targetMachineId).toBe(selection === "sandbox" ? undefined : "machine-1");
   });
 
+  it("offers only parents whose shared handoff budget is still available", async () => {
+    const parent = {
+      taskId: "Review", senderUserId: "member@example.test", senderActorId: "human:member@example.test",
+      recipientActorId: "agent:writer", parentHandoffId: null, status: "active", depth: 0,
+      grantedCapabilities: ["room.read", "message.send", "handoff.create", "task.cancel"],
+      remainingBudget: 1, createdAt: 1,
+    };
+    const detail = {
+      ...roomDetail,
+      handoffs: [
+        { ...parent, handoffId: "root-spent", currentRootBudget: 0 },
+        { ...parent, handoffId: "root-open", currentRootBudget: 1 },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/collaboration/rooms") return jsonResponse({ rooms: [detail.room] });
+      if (path === "/api/collaboration/rooms/room-1") return jsonResponse(detail);
+      return jsonResponse({ agents: [], computers: [] });
+    }));
+    render(<CollaborationView />);
+    await screen.findByRole("heading", { name: "Shared room" });
+    fireEvent.click(screen.getByRole("tab", { name: "Work" }));
+    fireEvent.change(screen.getByLabelText("Task ID"), { target: { value: "Review" } });
+    const options = Array.from((screen.getByLabelText("Parent handoff") as HTMLSelectElement).options);
+    expect(options.map((option) => option.value)).toEqual(["", "root-open"]);
+  });
+
   it("renders a persisted employee reply with its completed run and artifact references", async () => {
     const employeeReplyRoom = {
       ...roomDetail,

@@ -12,7 +12,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { CollabRoomKind, TeamWorkspaceDetail, TeamWorkspaceMembership } from "@shiba/shared";
+import { MAX_HANDOFF_DEPTH, type CollabRoomKind, type CollaborationHandoffBudgetState, type TeamWorkspaceDetail, type TeamWorkspaceMembership } from "@shiba/shared";
 import { useCollaborationRoomRealtime } from "../collaboration-room-realtime";
 import { NotificationsPanel } from "./notifications/NotificationsPanel";
 import { resolveHandoffStatus, type HandoffCardStatus } from "./collab/HandoffCard";
@@ -140,7 +140,7 @@ interface SlackDeliveryIntent {
   outcomeDetail?: string | null;
 }
 
-interface Handoff {
+interface Handoff extends CollaborationHandoffBudgetState {
   handoffId: string;
   taskId: string;
   senderActorId: string;
@@ -148,7 +148,6 @@ interface Handoff {
   recipientActorId: string;
   parentHandoffId: string | null;
   depth: number;
-  remainingBudget: number;
   status: "active" | "cancelled";
   grantedCapabilities: string[];
   createdAt: number;
@@ -990,12 +989,14 @@ function ScopedCollaborationView({
   const recipients = members.filter((member) => member.actorId !== effectiveActorId);
   // Mirrors the request body sent below: grantedCapabilities is never set, so the
   // backend applies this default — a parent can only be continued when its own
-  // grants cover it and it still has depth budget left.
+  // grants cover it and both its lineage and shared root budget allow another handoff.
   const requestedCapabilities = ["room.read", "message.send", "handoff.create", "task.cancel"];
   const parentHandoffs = (detail?.handoffs ?? []).filter(
     (handoff) =>
       handoff.status === "active" &&
       handoff.remainingBudget > 0 &&
+      handoff.currentRootBudget > 0 &&
+      handoff.depth < MAX_HANDOFF_DEPTH &&
       requestedCapabilities.every((capability) =>
         (handoff.grantedCapabilities ?? []).includes(capability),
       ) &&
@@ -1003,6 +1004,7 @@ function ScopedCollaborationView({
         handoff.senderUserId === detail?.currentUserId) &&
       handoff.taskId === taskId.trim(),
   );
+  const parentUnavailable = !!parentHandoffId && !parentHandoffs.some((handoff) => handoff.handoffId === parentHandoffId);
   const canManageMembers = members.some(
     (member) => member.role === "owner" && member.userId === detail?.currentUserId,
   );
@@ -1228,7 +1230,7 @@ function ScopedCollaborationView({
 
   const createHandoff = (event: FormEvent) => {
     event.preventDefault();
-    if (!activeRoomId || !taskId.trim() || !recipientActorId) return;
+    if (!activeRoomId || !taskId.trim() || !recipientActorId || parentUnavailable) return;
     if (personalExecutionMode && (!personalGrant || personalGrant.snapshot.expiresAt <= Date.now())) {
       setError("Choose a current personal account grant before requesting this task. No deployment account will be substituted.");
       return;
@@ -2294,6 +2296,7 @@ function ScopedCollaborationView({
                           className="min-h-11 rounded-none border border-[var(--line)] bg-[var(--card)] px-2 py-2 text-xs"
                         >
                           <option value="">New task handoff</option>
+                          {parentUnavailable && <option value={parentHandoffId} disabled>Selected handoff can no longer be continued</option>}
                           {parentHandoffs.map((handoff) => (
                             <option key={handoff.handoffId} value={handoff.handoffId}>
                               Continue {handoff.handoffId.slice(-8)} · depth {handoff.depth}
@@ -2319,7 +2322,7 @@ function ScopedCollaborationView({
                         </select>
                         <button
                           type="submit"
-                          disabled={busy || !taskId.trim() || !recipientActorId || !task.trim() || (personalExecutionMode && !personalGrant)}
+                          disabled={busy || parentUnavailable || !taskId.trim() || !recipientActorId || !task.trim() || (personalExecutionMode && !personalGrant)}
                           className="min-h-11 rounded-none border border-[var(--line)] px-2 py-2 text-xs disabled:opacity-50"
                         >
                           Request / create handoff
@@ -2353,7 +2356,7 @@ function ScopedCollaborationView({
                             )}
                             {handoff.execution?.unavailable && !handoff.approvalId && <p className="my-2 text-[var(--ink-2)]">Assignment context is unavailable. A source or membership changed.</p>}
                             <p className="mt-1 text-[var(--ink-2)]">
-                              Depth {handoff.depth} · {handoff.remainingBudget} handoffs left
+                              Depth {handoff.depth} · {handoff.currentRootBudget ?? 0} handoffs left in this chain
                             </p>
                             {handoff.approvalId && (
                               <div className="mt-1 border-t border-[var(--line)] pt-1">

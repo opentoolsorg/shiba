@@ -1123,5 +1123,12 @@ describe("approval-gated employee handoffs", () => {
     expect((await sendChild("draft-handoff"))?.status).toBe(201);
     expect(await cancelCreatedCollaborationHandoff(f.env, scope, "draft-handoff", Date.now())).toBe(false);
     expect((await sendChild("no-spare-budget"))?.status).toBe(409);
+    const roomAfterContinuation = await json<{
+      handoffs: Array<{ handoffId: string; remainingBudget: number; currentRootBudget: number }>;
+    }>(await f.send(`/rooms/${roomId}`));
+    expect(roomAfterContinuation.handoffs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ handoffId: "research-handoff", remainingBudget: 1, currentRootBudget: 0 }),
+      expect.objectContaining({ handoffId: "draft-handoff", remainingBudget: 0, currentRootBudget: 0 }),
+    ]));
   });
 });

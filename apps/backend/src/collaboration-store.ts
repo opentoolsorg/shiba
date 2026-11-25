@@ -3,6 +3,7 @@ import {
   isTeamWorkspaceId,
   type CollaborationActorKind,
   type CollaborationCapability,
+  type CollaborationHandoffBudgetState,
   type CollaborationRole,
   type CollaborationVisibility,
 } from "@shiba/shared";
@@ -605,11 +606,18 @@ export async function listCollaborationHandoffs(
   env: Pick<Env, "AGENT_AUDIT">,
   scope: CollaborationScope,
   roomId: string,
-): Promise<CollaborationHandoffRow[]> {
+): Promise<Array<CollaborationHandoffRow & CollaborationHandoffBudgetState>> {
   await ensureCollaborationSchema(env);
   await ensureCollaborationScopeSchema(env, scope);
   const rows = await env.AGENT_AUDIT.prepare(
-    `SELECT * FROM collaboration_handoffs WHERE tenant_id=? AND workspace_id=? AND room_id=? AND EXISTS (SELECT 1 FROM collaboration_memberships reader WHERE reader.tenant_id=? AND reader.workspace_id=? AND reader.room_id=? AND reader.user_id=? AND reader.status='active' AND ${teamMemberSql(scope, 'reader')}) ORDER BY created_at DESC LIMIT 100`,
+    `SELECT h.*, COALESCE(b.remaining, 0) AS current_root_budget
+     FROM collaboration_handoffs h LEFT JOIN collaboration_handoff_budgets b
+       ON b.tenant_id=h.tenant_id AND b.workspace_id=h.workspace_id AND b.room_id=h.room_id
+       AND b.task_id=h.task_id AND b.root_handoff_id=h.root_handoff_id
+     WHERE h.tenant_id=? AND h.workspace_id=? AND h.room_id=? AND EXISTS (
+       SELECT 1 FROM collaboration_memberships reader WHERE reader.tenant_id=? AND reader.workspace_id=?
+         AND reader.room_id=? AND reader.user_id=? AND reader.status='active' AND ${teamMemberSql(scope, 'reader')})
+     ORDER BY h.created_at DESC LIMIT 100`,
   )
     .bind(
       scope.tenantId,
@@ -621,7 +629,10 @@ export async function listCollaborationHandoffs(
       scope.userId,
     )
     .all<Record<string, unknown>>();
-  return (rows.results ?? []).map(rowHandoff);
+  return (rows.results ?? []).map((row) => ({
+    ...rowHandoff(row),
+    currentRootBudget: Number(row.current_root_budget),
+  }));
 }
 
 /** Fetch every record in one bounded handoff tree, independent of the UI's recent-history cap. */
