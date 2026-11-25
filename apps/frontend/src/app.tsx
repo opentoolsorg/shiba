@@ -2902,7 +2902,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         // selected chat session or its session-scoped run list.
         setSelectedRunId(id);
         setMobileSessionsOpen(false);
-        setMainView("analytics");
+        openView("analytics");
         return "ok";
       }
       if (session && id !== "default") {
@@ -2965,7 +2965,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setMainView("threads");
       return "ok";
     },
-    [visibleWebSessions, privateDataEnabled, pushThreadUrl],
+    [visibleWebSessions, privateDataEnabled, pushThreadUrl, openView],
   );
 
   sessionsNavRef.current = sessions;
@@ -4564,6 +4564,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ) : mainView === "analytics" ? (
             <AnalyticsView
               runs={retainedRuns}
+              selectedRun={retainedRuns.find((run) => run.runId === selectedRunId) ?? allRuns.find((run) => run.runId === selectedRunId)}
               error={runsError}
               sessionId={selectedSessionId}
               sessionApiAvailable={sessionApiAvailable}

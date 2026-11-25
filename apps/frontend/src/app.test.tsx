@@ -252,7 +252,7 @@ it("lists employee threads and resumes the selected thread without queueing work
     expect(fetch).not.toHaveBeenCalledWith("/api/runs", expect.objectContaining({ method: "POST" }));
   });
 
-  it("opens Analytics instead of returning to Chat when selecting a Recent run", async () => {
+  it.each([false, true])("opens Analytics focused on the selected Recent run (setup guide open: %s)", async (openSetup) => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", "/threads/");
     const originalFetch = fetch;
@@ -268,18 +268,39 @@ it("lists employee threads and resumes the selected thread without queueing work
       createdAt: 1,
       updatedAt: 2,
     };
+    const otherRun = { ...run, runId: "other-run", task: "Review a different report", createdAt: 3, updatedAt: 4 };
     vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
-      if (String(url).startsWith("/api/runs?") || String(url) === "/api/runs") {
-        return Response.json({ runs: [run] });
+      const path = String(url);
+      if (path === "/api/whoami" && openSetup) return Response.json({ agent: "test-operator", auth: "better-auth" });
+      if (path === "/api/onboarding/progress" && openSetup) {
+        return Response.json({
+          revision: 1, currentStep: "channels", dismissedAt: 1, activatedAt: 1,
+          connectionVerifiedAt: null, firstSuccessfulRunAt: null, acceptedArtifactAt: null,
+          draftTaskId: null, draftTask: null,
+          evidence: { connectedProvider: false, successfulRun: false, acceptedDeliverable: false },
+        });
+      }
+      if (path.startsWith("/api/runs?") || path === "/api/runs") {
+        return Response.json({ runs: [otherRun, run] });
       }
       return originalFetch(url, options);
     }));
     render(<App />);
 
+    if (openSetup) {
+      const rail = await screen.findByRole("complementary", { name: "Primary Left Rail" });
+      fireEvent.click(within(rail).getByRole("button", { name: "Search" }));
+      fireEvent.click(await screen.findByRole("option", { name: "Open setup guide" }));
+      await screen.findByRole("region", { name: "Guided onboarding" });
+    }
     const recent = await screen.findByRole("region", { name: "Recent runs" });
     fireEvent.click(within(recent).getByRole("button", { name: new RegExp(run.task) }));
     expect(await screen.findByRole("heading", { name: "Usage" })).toBeTruthy();
-    expect(await screen.findByRole("row", { name: new RegExp(run.task) })).toBeTruthy();
+    const selected = await screen.findByRole("row", { name: new RegExp(run.task) });
+    expect(selected.getAttribute("aria-current")).toBe("true");
+    expect(document.activeElement).toBe(selected);
+    expect(screen.getByRole("row", { name: new RegExp(otherRun.task) }).hasAttribute("aria-current")).toBe(false);
+    expect(screen.queryByRole("region", { name: "Guided onboarding" })).toBeNull();
     expect(fetch).not.toHaveBeenCalledWith("/api/sessions/recent-run/resume", { method: "POST" });
   });
 
