@@ -39,8 +39,7 @@ vi.mock("@cloudflare/think", () => ({
 }));
 vi.mock("agents/agent-tools", () => ({ agentTool: () => ({ execute: mocks.execute }) }));
 vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
-// Thread post-backs never hit the network; the Slack chat channel posts
-// through the receipt variant, so that is what gets mocked.
+// Stub the Web API client, not the Slack adapter that formats the post.
 vi.mock("../src/slack.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/slack.js")>()),
   postSlackMessageWithReceipt: mocks.postSlackMessageWithReceipt,
@@ -255,7 +254,7 @@ describe("outbox in-flight claims", () => {
   it("the drainer skips a row whose send is still open, and retries it honestly after failure", async () => {
     const instance = agent("slack:T1:C1:111.222");
     type ThreadInternals = {
-      postToThread(text: string, context?: { runId?: string }): void;
+      postToThread(text: string, context?: { runId?: string; persona?: "reviewer"; blocks?: unknown[] }): void;
       reclaimRuns(): Promise<void>;
     };
     const threaded = instance as unknown as ThreadInternals;
@@ -281,12 +280,16 @@ describe("outbox in-flight claims", () => {
     expect(mocks.postSlackMessageWithReceipt).toHaveBeenCalledTimes(1);
 
     // A send that fails retries on the next drain — at-least-once intact.
+    const blocks = [{ type: "section", text: { type: "plain_text", text: "hi again" } }];
     mocks.postSlackMessageWithReceipt.mockRejectedValueOnce(new Error("slack down"));
-    threaded.postToThread("hi again", { runId: "r1" });
+    threaded.postToThread("hi again", { runId: "r1", persona: "reviewer", blocks });
     await flush();
     expect(instance.state.outbox?.[1]?.status).toBe("failed");
     await threaded.reclaimRuns();
     expect(mocks.postSlackMessageWithReceipt).toHaveBeenCalledTimes(3);
+    const post = { channel: "C1", threadTs: "111.222", text: "hi again", persona: "reviewer", native: { blocks } };
+    expect(mocks.postSlackMessageWithReceipt).toHaveBeenNthCalledWith(2, "xoxb-test", post, expect.any(Function));
+    expect(mocks.postSlackMessageWithReceipt).toHaveBeenNthCalledWith(3, "xoxb-test", post, expect.any(Function));
     expect(instance.state.outbox?.[1]?.status).toBe("dispatched");
   });
 });

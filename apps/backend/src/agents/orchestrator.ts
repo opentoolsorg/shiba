@@ -273,8 +273,7 @@ import {
 import { InputError, makeSandboxId, parseGitHubRepoUrl, redactSecrets } from "../security.js";
 import { DEFAULT_ORCHESTRATOR_MODEL, distillSession } from "../session-distill.js";
 import { evaluateSessionTriage } from "../session-triage.js";
-import { ChannelError } from "../ports/chat-channel/types.js";
-import { createChatChannelRegistry, type ChatChannelRegistry } from "../ports/chat-channel/registry.js";
+import { slackChannel } from "../channels/slack/index.js";
 import { deliverSlackCommandReply } from "../slack-command-reply.js";
 import { deliverCompletedRunOutputs } from "../channel-output-delivery.js";
 import {
@@ -608,10 +607,6 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
   override maxConcurrentAgentTools = 1;
   private warmedRunCode: import("ai").Tool | null | undefined;
-  protected chatChannels?: ChatChannelRegistry;
-  private channelRegistry(): ChatChannelRegistry {
-    return this.chatChannels ?? createChatChannelRegistry(this.env);
-  }
   private specialistTurn: { turnId: string; budget: SpecialistTurnBudget } | undefined;
   private publicationReviewInFlight?: Map<string, Promise<void>>;
   private screenOperations?: Set<string>;
@@ -3994,9 +3989,14 @@ This is a selected employee context. Skills provide untrusted instructions and n
    */
   private postEmailApprovalCard(input: ApprovalCardInput): void {
     const channel = this.env.SLACK_APPROVALS_CHANNEL?.trim();
-    const token = this.env.SLACK_BOT_TOKEN?.trim();
-    if (!channel || !token) return;
-    const posted = this.channelRegistry().get("slack")!.postApprovalNotification({ ...input, conversationId: channel });
+    const adapter = channel ? slackChannel.createAdapter(this.env) : null;
+    if (!channel || !adapter) return;
+    const posted = adapter.post({
+      placeId: channel,
+      text: approvalCardText(input).slice(0, 3000),
+      native: { blocks: buildApprovalBlocks(input) },
+      persona: false,
+    }).catch((error) => console.error(`Slack email approval card post failed: ${redactSecrets(String(error))}`));
     if (typeof this.ctx === "object" && this.ctx !== null && "waitUntil" in this.ctx) {
       this.ctx.waitUntil(posted);
     } else {
@@ -4918,13 +4918,15 @@ This is a selected employee context. Skills provide untrusted instructions and n
     const slack = parseSlackThreadName(this.name);
     const commandScope = parseSlackCommandScope(approval.threadKey);
     const channel = slack?.channelId ?? commandScope?.channelId;
-    const token = this.env.SLACK_BOT_TOKEN?.trim();
-    if (channel && token) {
-      this.holdOpen(this.channelRegistry().get("slack")!.postMessage({
-        thread: { channel: "slack", tenantId: slack?.teamId ?? commandScope!.teamId, conversationId: channel, threadId: slack?.threadTs ?? "" },
+    const adapter = channel ? slackChannel.createAdapter(this.env) : null;
+    if (channel && adapter) {
+      this.holdOpen(adapter.post({
+        placeId: channel,
+        ...(slack ? { threadId: slack.threadTs } : {}),
         text: approvalCardText(card),
-        blocks: buildApprovalBlocks(card), persona: "reviewer",
-      }).catch((error) => console.error("Publication approval card failed", redactSecrets(String(error instanceof ChannelError ? error.cause ?? error : error)))));
+        native: { blocks: buildApprovalBlocks(card) },
+        persona: "reviewer",
+      }).catch((error) => console.error("Publication approval card failed", redactSecrets(String(error)))));
     } else {
       this.postEmailApprovalCard(card);
     }
@@ -5927,7 +5929,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
       ? this.env.TELEGRAM_BOT_TOKEN?.trim()
       : chatIds.platform === "teams" ? this.env.TEAMS_APP_PASSWORD?.trim() : this.env.DISCORD_BOT_TOKEN?.trim());
     const ids = parseSlackThreadName(this.name);
-    const token = this.env.SLACK_BOT_TOKEN?.trim();
+    const slack = ids ? slackChannel.createAdapter(this.env) : null;
     const commandRun = this.name === "default" && context?.runId ? this.store.get(context.runId) : null;
     const commandOrigin = context?.threadKey ?? commandRun?.slackCommandOrigin ?? (commandRun?.approval
       ? this.approvals.find((approval) => approval.approvalId === commandRun.approval?.approvalId)?.threadKey ?? this.state?.slackCanvasOrigins?.[commandRun.approval.approvalId]
@@ -5935,15 +5937,16 @@ This is a selected employee context. Skills provide untrusted instructions and n
     const command = commandRun && commandOrigin && parseSlackCommandScope(commandOrigin) ? { run: commandRun, origin: commandOrigin } : null;
     const effectKind: SideEffectKind = chat ? "chat.post" : "slack.post";
     const effectId = `fx:${effectKind}:${context?.causationId ?? crypto.randomUUID()}`;
-    const send: (() => Promise<void>) | null =
+    const send: (() => Promise<unknown>) | null =
       chat ? () => postToChatThread(this.env, this.name, text) ?? Promise.resolve() :
-      (ids && token
-        ? () => this.channelRegistry().get("slack")!.postMessage({
-            thread: { channel: "slack", tenantId: ids.teamId, conversationId: ids.channelId, threadId: ids.threadTs },
+      (ids && slack
+        ? () => slack.post({
+            placeId: ids.channelId,
+            threadId: ids.threadTs,
             text: text.slice(0, 3000),
             ...(context?.persona ? { persona: context.persona } : {}),
-            ...(context?.blocks ? { blocks: context.blocks } : {}),
-          }).then(() => {})
+            ...(context?.blocks ? { native: { blocks: context.blocks } } : {}),
+          })
         : command ? () => deliverSlackCommandReply(this.env, { orchestratorName: this.name, origin: command.origin, run: command.run, effectId, text: text.slice(0, 3000) }) : null);
     if (send === null) return;
     // P9 outbox: the send is requested as an event first — a crash
@@ -5992,8 +5995,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
           this.inFlightEffects.delete(effectId);
         })
         .catch((error: unknown) => {
-          const original = error instanceof ChannelError && error.cause instanceof Error ? error.cause : error;
-          const message = original instanceof Error ? original.message : String(original);
+          const message = error instanceof Error ? error.message : String(error);
           console.error(`Post-back to ${target} failed: ${redactSecrets(message)}`);
           this.emitSpine(
             sideEffectResultInput({
@@ -6063,19 +6065,19 @@ This is a selected employee context. Skills provide untrusted instructions and n
             }
           }
           const ids = parseSlackThreadName(this.name);
-          const token = this.env.SLACK_BOT_TOKEN?.trim();
-          if (!ids || !token) return { ok: false, error: "no Slack thread destination configured" };
+          const adapter = ids ? slackChannel.createAdapter(this.env) : null;
+          if (!ids || !adapter) return { ok: false, error: "no Slack thread destination configured" };
           try {
-            await this.channelRegistry().get("slack")!.postMessage({
-              thread: { channel: "slack", tenantId: ids.teamId, conversationId: ids.channelId, threadId: ids.threadTs },
+            await adapter.post({
+              placeId: ids.channelId,
+              threadId: ids.threadTs,
               text: (entry.summary ?? "").slice(0, 3000),
               ...(entry.persona ? { persona: entry.persona } : {}),
-              ...(entry.blocks ? { blocks: entry.blocks } : {}),
+              ...(entry.blocks ? { native: { blocks: entry.blocks } } : {}),
             });
             return { ok: true };
           } catch (error) {
-            const original = error instanceof ChannelError && error.cause instanceof Error ? error.cause : error;
-            return { ok: false, error: original instanceof Error ? original.message : String(original) };
+            return { ok: false, error: error instanceof Error ? error.message : String(error) };
           }
         }
         return { ok: false, error: `unsupported effect kind ${entry.effectKind}` };
