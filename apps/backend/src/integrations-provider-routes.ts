@@ -12,12 +12,15 @@ import { gmailOwner } from "./gmail-routes.js";
 import type { Env } from "./env.js";
 import { isAuthorizedRequest } from "./request-auth.js";
 import { hasSameOriginIntent } from "./route-utils.js";
-import { getIntegrationProvider } from "./integrations/runtime.js";
-import { OpenConnectorIntegrationProviderError } from "./integrations/openconnector-provider.js";
+import { getIntegrationProvider } from "./ports/connector/registry.js";
+import type { ConnectorProvider } from "./ports/connector/provider.js";
+import { ConnectorProviderError } from "./ports/connector/errors.js";
 import { resolveOrgForApiRequest } from "./org-request-auth.js";
 import { resolveConnectorWorkspaceId, syncPersonalConnectorsFromProvider } from "./extensions/connectors-store.js";
 
-export function openConnectorConfigured(env: Env): boolean {
+/** False for an explicitly disabled provider (CONNECTOR_PROVIDER=none) or an unbound OpenConnector. */
+export function openConnectorConfigured(env: Env, provider: ConnectorProvider = getIntegrationProvider(env)): boolean {
+  if (provider.adapterId === "none") return false;
   const bound = Boolean(env.OPEN_CONNECTOR) || Boolean(env.OPEN_CONNECTOR_URL?.trim());
   const enabled =
     env.OPEN_CONNECTOR_ENABLED === "1" ||
@@ -27,14 +30,14 @@ export function openConnectorConfigured(env: Env): boolean {
 }
 
 /** Unbound provider: mutations answer 409 setup_required; reads degrade to a setup card instead. */
-export function openConnectorGate(env: Env): Response | null {
-  if (openConnectorConfigured(env)) return null;
+export function openConnectorGate(env: Env, provider?: ConnectorProvider): Response | null {
+  if (openConnectorConfigured(env, provider)) return null;
   return json({ ok: false, configured: false, code: "setup_required", error: "Integrations need setup. Connect an OpenConnector worker first." }, 409);
 }
 
 /** True when a provider failure means OpenConnector is missing credentials or a binding, not that it is down. */
 export function isOpenConnectorSetupError(error: unknown): boolean {
-  return error instanceof OpenConnectorIntegrationProviderError && /^(?:Set OPEN_CONNECTOR(?:_| or )|OPEN_CONNECTOR_URL (?:is invalid|must be))/.test(error.message);
+  return error instanceof ConnectorProviderError && (error.code === "not_configured" || /^(?:Set OPEN_CONNECTOR(?:_| or )|OPEN_CONNECTOR_URL (?:is invalid|must be))/.test(error.message));
 }
 
 /** 200 body for catalog reads while OpenConnector is not set up. */
@@ -43,7 +46,7 @@ export function setupCatalogResponse(query?: string | null, extra: Record<string
 }
 
 function integrationUnavailable(error: unknown): Response {
-  if (error instanceof OpenConnectorIntegrationProviderError) {
+  if (error instanceof ConnectorProviderError) {
     return json({ ok: false, error: error.message }, 503);
   }
   return json({ ok: false, error: "Integration connections unavailable." }, 503);
@@ -150,13 +153,12 @@ function requireSameOrigin(request: Request): Response | null {
 }
 
 /** Authenticate and dispatch provider catalog, connection, OAuth, and action routes. */
-export async function handleIntegrationProviderRoutes(request: Request, env: Env): Promise<Response | null> {
+export async function handleIntegrationProviderRoutes(request: Request, env: Env, provider = getIntegrationProvider(env)): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname !== PROVIDER_BASE && !url.pathname.startsWith(`${PROVIDER_BASE}/`)) {
     return null;
   }
 
-  const provider = getIntegrationProvider(env);
   const selectedId = provider.id;
   const suffix = url.pathname.slice(PROVIDER_BASE.length);
 
@@ -185,7 +187,7 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
   }
 
   if (suffix === "/connections" && request.method === "GET") {
-    if (!openConnectorConfigured(env)) return json({ ok: true, provider: selectedId, configured: false, connections: [] });
+    if (!openConnectorConfigured(env, provider)) return json({ ok: true, provider: selectedId, configured: false, connections: [] });
     try {
       const connections = await provider.listConnections({ userId: owner, ...(url.searchParams.get("includeUnavailable") === "1" ? { includeUnavailable: true } : {}) });
       const orgAuth = await resolveOrgForApiRequest(request, env);
@@ -210,7 +212,7 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
     if (readiness === null) return json({ ok: false, error: "readiness must be ready, needs_configuration, unsupported or unverified." }, 400);
     const collection = parseIntegrationCollection(url.searchParams.get("collection"));
     if (collection === null) return json({ ok: false, error: "collection must be one of the listed catalog collections." }, 400);
-    if (!openConnectorConfigured(env)) return setupCatalogResponse(url.searchParams.get("query"), {}, collection?.serviceIds);
+    if (!openConnectorConfigured(env, provider)) return setupCatalogResponse(url.searchParams.get("query"), {}, collection?.serviceIds);
     try {
       const page = await provider.listCatalog({
         userId: owner,
@@ -258,7 +260,7 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
     const body = await readJsonBody(request);
     const providerKey = typeof body?.providerKey === "string" ? body.providerKey.trim() : "";
     if (!providerKey) return json({ ok: false, error: "providerKey is required." }, 400);
-    const unbound = openConnectorGate(env);
+    const unbound = openConnectorGate(env, provider);
     if (unbound) return unbound;
     const origin =
       typeof body?.callbackOrigin === "string" && body.callbackOrigin.trim()
@@ -270,7 +272,7 @@ export async function handleIntegrationProviderRoutes(request: Request, env: Env
       callbackOrigin: origin,
       ...(body?.replaceUnavailable === true ? { replaceUnavailable: true } : {}),
     });
-    if (!result.ok && isOpenConnectorSetupError(new OpenConnectorIntegrationProviderError(result.error ?? ""))) {
+    if (!result.ok && isOpenConnectorSetupError(new ConnectorProviderError(result.error ?? ""))) {
       return json({ ok: false, configured: false, code: "setup_required", error: "Integrations need setup. Connect an OpenConnector worker first." }, 409);
     }
     return json(result, result.ok ? 200 : 503);

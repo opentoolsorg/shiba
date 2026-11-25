@@ -645,6 +645,8 @@ export interface Env {
   OPEN_CONNECTOR_RUNTIME_TOKEN?: string;
   /** When "1", the dashboard shows OpenConnector setup; the service binding may still be absent on dev. */
   OPEN_CONNECTOR_ENABLED?: string;
+  /** Connector adapter selection: openconnector (default) or none. */
+  CONNECTOR_PROVIDER?: string;
   /** WS01 platform queues — consumers attach in later workstreams. */
   INGEST_QUEUE?: Queue;
   WEBHOOK_QUEUE?: Queue;

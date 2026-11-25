@@ -2,7 +2,7 @@ import type { ExtensionScope, ExtensionView, IntegrationProviderConnection } fro
 import { randomHex } from "../mailbox-store.js";
 import type { Env } from "../env.js";
 import { DASHBOARD_ORG_ID } from "../org-request-auth.js";
-import { getIntegrationProvider } from "../integrations/runtime.js";
+import { getIntegrationProvider } from "../ports/connector/registry.js";
 
 export interface WorkspaceConnectorRecord {
   id: string;

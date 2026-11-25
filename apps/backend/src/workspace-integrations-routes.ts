@@ -3,7 +3,7 @@ import { IntegrationActionInputPolicyError, CREDENTIAL_INPUT_UNAVAILABLE } from 
 import type { Env } from "./env.js";
 import { resolveOrgForApiRequest } from "./org-request-auth.js";
 import { rejectCrossOriginMutation } from "./dashboard-mutation.js";
-import { getIntegrationProvider } from "./integrations/runtime.js";
+import { getIntegrationProvider } from "./ports/connector/registry.js";
 import { isOpenConnectorSetupError, openConnectorConfigured, parseReadiness } from "./integrations-provider-routes.js";
 import { mergeFeaturedWithLive, parseIntegrationCollection, setupRequiredCatalog } from "@shiba/shared";
 import {

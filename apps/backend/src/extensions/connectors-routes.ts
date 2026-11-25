@@ -8,8 +8,8 @@ import {
 import type { V1Context } from "../v1/context.js";
 import { rejectCrossOriginMutation, rejectNonJsonMutation } from "../dashboard-mutation.js";
 import { resolveOrgForApiRequest, type ResolvedOrgAuth } from "../org-request-auth.js";
-import { OpenConnectorIntegrationProviderError } from "../integrations/openconnector-provider.js";
-import { getIntegrationProvider } from "../integrations/runtime.js";
+import { ConnectorProviderError } from "../ports/connector/errors.js";
+import { getIntegrationProvider } from "../ports/connector/registry.js";
 import { openConnectorConfigured, openConnectorGate, isOpenConnectorSetupError } from "../integrations-provider-routes.js";
 import {
   archiveWorkspaceConnector,
@@ -75,7 +75,7 @@ async function buildConnectorDirectory(ctx: V1Context, userId: string, teamWorks
     });
     items = page.items;
   } catch (error) {
-    if (error instanceof OpenConnectorIntegrationProviderError) throw error;
+    if (error instanceof ConnectorProviderError) throw error;
     items = INTEGRATION_CATALOG.map((entry) => ({
       id: entry.id,
       providerKey: entry.openConnectorServiceIds?.[0] ?? entry.id,

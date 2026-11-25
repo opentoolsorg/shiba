@@ -1,6 +1,6 @@
 import { parseChatThreadName, type IntegrationProviderConnection } from "@shiba/shared";
 import { registerIntegrationTools, integrationToolInput } from "./mcp-integration-tools.js";
-import { getIntegrationProvider } from "./integrations/runtime.js";
+import { getIntegrationProvider } from "./ports/connector/registry.js";
 import { assertActionArgumentsAllowed, assertActionInputAllowed, IntegrationActionInputPolicyError, CREDENTIAL_INPUT_UNAVAILABLE } from "./integrations/action-input-policy.js";
 import type { TokenRecord } from "./agent-tokens.js";
 import { verifyToken } from "./agent-tokens.js";
