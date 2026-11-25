@@ -34,7 +34,7 @@ let root, rootFd, gitFd;
 function git(args, cap) {
   checkTime();
   const out = spawnSync("git", ["--git-dir=/proc/self/fd/3", "--work-tree=/proc/self/fd/4", "--no-replace-objects",
-    "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "core.untrackedCache=false", ...args], {
+    "-c", "core.fsmonitor=/dev/null", "-c", "core.hooksPath=/dev/null", "-c", "core.untrackedCache=false", ...args], {
     cwd: root, env: gitEnv, stdio: ["ignore", "pipe", "pipe", gitFd, rootFd],
     maxBuffer: cap + 1, timeout: Math.max(1, deadline - Date.now()),
   });

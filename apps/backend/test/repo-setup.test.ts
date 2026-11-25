@@ -145,7 +145,8 @@ describe("sandbox runtime", () => {
     await result;
     const add = calls.find((c) => c.command.includes("'add'") || c.command.includes(" add "));
     expect(add?.command).toContain("core.hooksPath=/dev/null");
-    expect(add?.command).toContain("core.fsmonitor=false");
+    expect(add?.command).toContain("core.fsmonitor=/dev/null");
+    expect(add?.command).not.toContain("core.fsmonitor=false");
   });
 
   it("fails the run when the agent changes a file setup also changed", async () => {
