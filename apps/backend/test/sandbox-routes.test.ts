@@ -19,7 +19,7 @@ const instanceCaps = {
   rawProviderHandle: false,
 };
 
-vi.mock("../src/sandbox/client.js", () => ({
+vi.mock("../src/ports/sandbox/client.js", () => ({
   getSandbox: () => ({
     getContainerPlacementId: mocks.getContainerPlacementId,
     listProcesses: mocks.listProcesses,
@@ -29,7 +29,7 @@ vi.mock("../src/sandbox/client.js", () => ({
   }),
 }));
 
-vi.mock("../src/sandbox/provider.js", () => ({
+vi.mock("../src/ports/sandbox/registry.js", () => ({
   getSandboxInstance: vi.fn(async () => ({
     id: "test-sb-1",
     capabilities: instanceCaps,
