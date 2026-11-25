@@ -374,17 +374,29 @@ function ScopedCollaborationView({
   const [roomTitle, setRoomTitle] = useState("");
   const [roomVisibility, setRoomVisibility] = useState<"private" | "shared">("private");
   const [inviteUserId, setInviteUserId] = useState("");
-  const [message, setMessage] = useState("");
+  const [messageDrafts, setMessageDrafts] = useState(() => new Map<string, string>());
+  const message = messageDrafts.get(openThreadId) ?? "";
+  const updateMessageDraft = useCallback((threadId: string, update: (current: string) => string) => {
+    setMessageDrafts((drafts) => {
+      const current = drafts.get(threadId) ?? "";
+      const value = update(current);
+      if (value === current) return drafts;
+      const next = new Map(drafts);
+      if (value) next.set(threadId, value);
+      else next.delete(threadId);
+      return next;
+    });
+  }, []);
   const messageInput = useRef<HTMLTextAreaElement>(null);
   const insertedMention = useRef<string | null>(null);
   useEffect(() => {
     if (!incomingMention || insertedMention.current === incomingMention.id ||
       incomingMention.roomId !== activeRoomId || detail?.room.roomId !== activeRoomId) return;
     insertedMention.current = incomingMention.id;
-    setMessage((current) => `${current}${current && !/\s$/.test(current) ? " " : ""}@agent:${incomingMention.agentId} `);
+    updateMessageDraft(openThreadId, (current) => `${current}${current && !/\s$/.test(current) ? " " : ""}@agent:${incomingMention.agentId} `);
     messageInput.current?.focus();
     onMentionConsumed?.(incomingMention.id);
-  }, [incomingMention, activeRoomId, detail, onMentionConsumed]);
+  }, [incomingMention, activeRoomId, detail, onMentionConsumed, openThreadId, updateMessageDraft]);
   const [taskId, setTaskId] = useState("");
   const [task, setTask] = useState("");
   const [draftReplacement, setDraftReplacement] = useState<{ id: string; roomId: string; previousTask: string; text: string; provenance: string } | null>(null);
@@ -436,7 +448,7 @@ function ScopedCollaborationView({
   }, [incomingTaskDraft?.id, incomingTaskDraft?.source, incomingTaskDraft?.expiresAt, draftExpiryTick]);
 
   const clearRoomDrafts = useCallback(() => {
-    setMessage("");
+    setMessageDrafts(new Map());
     setOpenThreadId("");
     setCopyLinkStatus("");
     setTask("");
@@ -846,7 +858,10 @@ function ScopedCollaborationView({
   }, [messageSource, linkedMessage, activeRoomId, openThreadId, workspaceId]);
 
   const members = useMemo(() => detail?.members ?? [], [detail]);
-  const mentions = useMentionAutocomplete({ members, selfUserId: detail?.currentUserId ?? "", value: message, setValue: setMessage, input: messageInput });
+  const mentions = useMentionAutocomplete({
+    members, selfUserId: detail?.currentUserId ?? "", value: message, input: messageInput,
+    setValue: (value) => updateMessageDraft(openThreadId, () => value),
+  });
   const workingEmployees = (detail?.handoffs ?? []).filter((handoff) => handoff.status === "active" && handoff.execution?.runStatus === "running")
     .map((handoff) => members.find((member) => member.actorId === handoff.recipientActorId)?.displayName ?? "Employee");
   const typing = typingSummary(realtime.viewers, realtime.viewerId, [...new Set(workingEmployees)]);
@@ -1083,7 +1098,7 @@ function ScopedCollaborationView({
     };
     setBusy(true);
     void optimisticMutation({
-      apply: () => { setPendingMessages((current) => [...current, optimistic]); setMessage(""); },
+      apply: () => { setPendingMessages((current) => [...current, optimistic]); updateMessageDraft(threadRootId ?? "", () => ""); },
       commit: () => api<{ message: Message }>(
         `/api/collaboration/rooms/${encodeURIComponent(roomId)}/messages`,
         request("POST", { body: text, messageId: optimistic.messageId,
@@ -1101,7 +1116,7 @@ function ScopedCollaborationView({
       },
       rollback: () => {
         setPendingMessages((current) => current.filter((item) => item.messageId !== optimistic.messageId));
-        if (activeRoomRef.current === roomId) setMessage((current) => current || text);
+        if (activeRoomRef.current === roomId) updateMessageDraft(threadRootId ?? "", (current) => current || text);
       },
       onError: (cause) => {
         toast.error(cause instanceof Error ? cause.message : "Message could not be sent.");

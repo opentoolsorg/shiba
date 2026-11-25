@@ -71,6 +71,51 @@ describe("CollaborationView notification sources", () => {
       expect(screen.getByText("Confidential room note")).toBe(originalMessage);
     }
   });
+
+  it.each(["room message", "different thread"])("preserves an unsent reply when opening a %s source", async (source) => {
+    const launch = { ...roomDetail.messages[0]!, messageId: "launch", body: "Launch thread" };
+    const budget = { ...launch, messageId: "budget", body: "Budget discussion" };
+    const reply = { ...budget, messageId: "reply", body: "Linked budget reply", threadRootId: budget.messageId };
+    const linked = source === "room message" ? budget : reply;
+    const notification = { notificationId: "n1", title: "Mention", kind: "mention", body: "", createdAt: 2,
+      roomId: roomDetail.room.roomId, messageId: linked.messageId };
+    const sent = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/workspace-notifications") return Response.json({ notifications: [notification] });
+      if (path === "/api/collaboration/rooms") return Response.json({ rooms: [roomDetail.room] });
+      if (path === "/api/collaboration/rooms/room-1") return Response.json({ ...roomDetail, messages: [launch, budget, reply] });
+      if (path === "/api/collaboration/rooms/room-1/messages") {
+        const payload = JSON.parse(String(init?.body));
+        sent(payload);
+        return Response.json({ message: { ...reply, ...payload } });
+      }
+      return Response.json({ agents: [], computers: [] });
+    }));
+    render(<CollaborationView />);
+    const openLaunch = () => fireEvent.click(within(screen.getByText(launch.body).closest("article")!).getByRole("button", { name: "Open thread" }));
+    await screen.findByText(launch.body);
+    openLaunch();
+    const input = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.change(input, { target: { value: "Unsent launch reply" } });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Notifications, 1 unread/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open source" }));
+    const preview = source === "room message"
+      ? screen.getByText(linked.body).closest("article")
+      : within(await screen.findByRole("complementary", { name: "Thread" })).getByText(linked.body);
+    await waitFor(() => expect(document.activeElement).toBe(preview));
+    expect(input).toHaveProperty("value", "");
+    expect(screen.getByRole("button", { name: "Send" })).toHaveProperty("disabled", true);
+    expect(sent).not.toHaveBeenCalled();
+
+    openLaunch();
+    expect(input).toHaveProperty("value", "Unsent launch reply");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(sent).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      body: "Unsent launch reply", threadRootMessageId: launch.messageId,
+    })));
+  });
 });
 
 describe("CollaborationView explicit funded model setup", () => {

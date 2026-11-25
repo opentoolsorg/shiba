@@ -1850,16 +1850,17 @@ describe("bot page without a thread", () => {
     expect(bots.mock.calls.some(([url]) => String(url).endsWith("/resume"))).toBe(false);
   });
 
-  it("opens Work details for the run shown in a conversation with a different ID", async () => {
+  it("opens Work details for the conversation's unarchived run, not its newer archived one", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
     mocks.chat.messages = [];
     const bots = stubBots();
     const run = { runId: "retained-review-run", task: "Compile the weekly brief", status: "completed", repoUrl: "", sandboxId: "s", baseBranch: "main", publishPullRequest: false, generation: 1, createdAt: 1, updatedAt: 2 };
+    const archived = { ...run, runId: "archived-review-run", task: "Archived brief", updatedAt: 8, archivedAt: 8 };
     vi.stubGlobal("fetch", vi.fn((url: string | URL | Request, options?: RequestInit) => {
       const path = new URL(String(url), window.location.origin);
       if (path.pathname !== "/api/runs") return bots(url, options);
-      return Promise.resolve(Response.json({ runs: path.searchParams.get("session") === RESEARCH_THREAD ? [run] : [] }));
+      return Promise.resolve(Response.json({ runs: path.searchParams.get("session") === RESEARCH_THREAD ? [run, archived] : [] }));
     }));
     render(<App />);
 
@@ -1870,6 +1871,27 @@ describe("bot page without a thread", () => {
       expect(params.get("task")).toBe(run.runId);
       expect(params.get("taskKind")).toBe("run");
     });
+  });
+
+  it("omits Task details for shared work in default chat but still lists that work on Work", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    mocks.chat.messages = [];
+    const bots = stubBots();
+    const run = {
+      runId: "shared-automation", task: "Shared automation result", status: "completed", repoUrl: "", sandboxId: "s",
+      baseBranch: "main", publishPullRequest: false, generation: 1, createdAt: 1, updatedAt: 2, fromSharedStore: true,
+    };
+    vi.stubGlobal("fetch", vi.fn((url: string | URL | Request, options?: RequestInit) =>
+      String(url).startsWith("/api/runs") ? Promise.resolve(Response.json({ runs: [run] })) : bots(url, options)));
+    render(<App />);
+
+    await screen.findByRole("button", { name: /Shared automation result/ });
+    expect(screen.queryByRole("button", { name: "Task details" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Work" }));
+    const list = await screen.findByRole("region", { name: "List view" });
+    expect(await within(list).findByText(run.task)).toBeTruthy();
   });
 
   it("keeps an employee's thread reachable from Tasks when the directory fails", async () => {

@@ -37,6 +37,12 @@ export type RunStatus =
   | "cancelled"
   | "unknown";
 
+/** Additional Worker metadata on a dashboard run-list row. */
+export interface DashboardRunProvenance {
+  /** The Worker merged this run from a shared store, not the requested conversation's store. */
+  fromSharedStore?: true;
+}
+
 export interface DelegatedRun extends OnboardingRunFields {
   routineRun?: { automationId: string; test: boolean };
   routineOutcome?: { noUpdate: boolean; failureReason?: string };

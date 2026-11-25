@@ -2754,23 +2754,23 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     return Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
   }, [retainedRuns, toolRuns, seenAt]);
 
+  const retainedRunsNewestFirst = useMemo(
+    () => [...retainedRuns].sort((left, right) => right.updatedAt - left.updatedAt),
+    [retainedRuns],
+  );
   const chatDetailsRunId = useMemo(() => {
-    const displayedRunIds = new Set(allRuns.map((run) => run.runId));
-    const sessionRuns = retainedRuns.filter((run) => displayedRunIds.has(run.runId));
-    if (selectedRunId && sessionRuns.some((run) => run.runId === selectedRunId)) return selectedRunId;
-    // Retained runs are already scoped to the selected conversation. Their
-    // update timestamps are authoritative; delegated tool runs from other
-    // conversations receive a local first-seen timestamp and must not steal
-    // the task screen's review panels from the active thread.
-    return sessionRuns.sort((left, right) => right.updatedAt - left.updatedAt)[0]?.runId ?? null;
-  }, [allRuns, retainedRuns, selectedRunId]);
+    // The default registry can include the approver's shared work, which is
+    // not part of this conversation. Archived runs have no Work inspector.
+    const eligible = retainedRunsNewestFirst.filter((run) => !run.fromSharedStore && run.archivedAt === undefined);
+    return eligible.find((run) => run.runId === selectedRunId)?.runId ?? eligible[0]?.runId ?? null;
+  }, [retainedRunsNewestFirst, selectedRunId]);
 
   const reviewThreadId = useMemo(() => {
     if (selectedRunId && allRuns.some((run) => run.runId === selectedRunId)) return selectedRunId;
-    if (chatDetailsRunId) return chatDetailsRunId;
+    if (retainedRunsNewestFirst[0]) return retainedRunsNewestFirst[0].runId;
     const newest = [...allRuns].sort((a, b) => b.updatedAt - a.updatedAt);
     return newest.find((run) => run.pullUrl)?.runId ?? newest[0]?.runId ?? null;
-  }, [allRuns, chatDetailsRunId, selectedRunId]);
+  }, [allRuns, retainedRunsNewestFirst, selectedRunId]);
 
   const reviewRun = useMemo(() => {
     if (!reviewThreadId) return undefined;
