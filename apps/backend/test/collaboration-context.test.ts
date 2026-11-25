@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   bindCollaborationContextApproval, freezeCollaborationContext,
   isCollaborationApprovalDispatchable, isCollaborationContextCurrent,
+  prepareCollaborationEmployeeContext,
 } from "../src/collaboration-context.js";
 import { createCollaborationMemory, revokeCollaborationMemory } from "../src/collaboration-memory.js";
 import {
@@ -322,5 +323,31 @@ describe("explicit approval-bound shared room context", () => {
     f.sqlite.prepare("UPDATE collaboration_context_snapshots SET snapshot_json=? WHERE handoff_id=?").run(JSON.stringify(saved), HANDOFF);
     expect(await isCollaborationContextCurrent(f.env, HANDOFF, first.task, APPROVAL)).toBe(false);
     expect(await isCollaborationContextCurrent(f.env, "handoff-cycle-b", second.task, "approval-cycle-b")).toBe(false);
+  });
+  it("persists the frozen context when a human-shared deliverable is selected", async () => {
+    const f = await fixture();
+    await f.message("shared_abc123", "Shared report.md", member);
+    const refs = [{ index: 0, path: "report.md", sha256: "a".repeat(64), bytes: 42 }];
+    // Same shape as a shared_deliverable card: artifact refs without a source handoff.
+    f.sqlite.prepare("UPDATE collaboration_messages SET source_artifact_refs_json=? WHERE message_id=?")
+      .run(JSON.stringify(refs), "shared_abc123");
+    const handoffId = "handoff-shared-selection";
+    const write = await prepareCollaborationEmployeeContext(f.env, owner, ROOM, handoffId, TASK, ["shared_abc123"], []);
+    expect(write).toBeDefined();
+    const created = await createRootCollaborationHandoff(f.env, owner, {
+      ...owner, handoffId, roomId: ROOM, taskId: `task-${handoffId}`,
+      senderUserId: OWNER, senderActorId: humanActorId(OWNER),
+      recipientUserId: OWNER, recipientActorId: "agent:writer", parentHandoffId: null,
+      rootHandoffId: handoffId, depth: 0, ancestorHandoffIds: [], remainingBudget: 0,
+      grantedCapabilities: ["room.read"], profileVersion: 1, status: "active", createdAt: 6, cancelledAt: null,
+    }, write);
+    expect(created).not.toBeNull();
+    const row = f.sqlite.prepare("SELECT snapshot_json FROM collaboration_context_snapshots WHERE handoff_id=?").get(handoffId);
+    expect(row).toBeDefined();
+    const saved = JSON.parse(String(row?.snapshot_json));
+    expect(saved.messageRefs).toEqual([{ id: "shared_abc123", sha256: await hash({
+      id: "shared_abc123", author: humanActorId(MEMBER), createdAt: 4, body: "Shared report.md",
+      sourceArtifactRefs: refs,
+    }) }]);
   });
 });

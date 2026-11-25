@@ -25,8 +25,11 @@ async function hash(value: unknown): Promise<string> {
 
 function messageValue(message: Partial<CollaborationMessageRow> & Pick<CollaborationMessageRow, "messageId" | "senderActorId" | "createdAt" | "body">) {
   return { id: message.messageId, author: message.senderActorId, createdAt: message.createdAt, body: message.body,
+    // Human-shared deliverables carry artifact refs without a handoff; omitting them desyncs
+    // the freeze hash from the stored row and the write gate rejects every selection.
     ...(message.sourceHandoffId ? { sourceHandoffId: message.sourceHandoffId, sourceRunId: message.sourceRunId,
-      sourceArtifactRefs: message.sourceArtifactRefs ?? [] } : {}),
+      sourceArtifactRefs: message.sourceArtifactRefs ?? [] }
+      : message.sourceArtifactRefs?.length ? { sourceArtifactRefs: message.sourceArtifactRefs } : {}),
     ...(message.sourceSlackEventId ? { slack: { team: message.sourceSlackTeamId, channel: message.sourceSlackChannelId,
       thread: message.sourceSlackThreadTs, user: message.sourceSlackUserId, event: message.sourceSlackEventId } } : {}) };
 }
