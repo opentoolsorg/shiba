@@ -895,7 +895,7 @@ describe("app Work and Threads routing", () => {
     await waitFor(() => expect(title).toHaveProperty("value", ""));
 
     const list = screen.getByRole("region", { name: "List view" });
-    const row = within(list).getByRole("button", { name: /Ship the release/ });
+    const row = within(list).getByRole("button", { name: /^Ship the release\b/ });
     expect(within(row).getByRole("img", { name: "Builder" })).toBeTruthy();
     fireEvent.click(row);
     const detail = await screen.findByRole("complementary", { name: "Task details" });
