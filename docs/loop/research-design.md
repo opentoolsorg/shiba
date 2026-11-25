@@ -19,11 +19,11 @@ the frozen context survives reload and revocation checks:
 
 | # | Source | Role |
 |---|--------|------|
-| S1 | linear.app/pricing | Linear seat pricing + free-tier limits |
-| S2 | atlassian.com/software/jira/pricing | Jira seat pricing + free-tier limits |
-| S3 | linear.app/docs/cycles | Linear cycles documentation |
-| S4 | support.atlassian.com/jira-software-cloud — sprints | Jira sprint documentation |
-| S5 | Third-party comparison article (dated) | Conflict source — used to show a visible disagreement |
+| S1 | [Pricing – Linear](https://linear.app/pricing) | Linear seat pricing + free-tier limits |
+| S2 | [Jira pricing: Free, Standard, Premium, Enterprise \| Atlassian](https://www.atlassian.com/software/jira/pricing) | Jira seat pricing + free-tier limits |
+| S3 | [Cycles – Linear Docs](https://linear.app/docs/use-cycles) | Linear cycles documentation |
+| S4 | [What is a sprint? \| Jira Cloud \| Atlassian Support](https://support.atlassian.com/jira-software-cloud/docs/what-is-a-sprint/) | Jira sprint documentation |
+| S5 | [Jira review: Rovo agents, pricing and Linear — Software Lifecycle](https://www.software-lifecycle.com/sites/jira) | Dated third-party pricing comparison |
 
 Sources are public pages captured into notes with their retrieval date. No
 paywalled or login-gated source is allowed; the acceptance wants the reviewer

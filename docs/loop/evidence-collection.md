@@ -1,28 +1,20 @@
-# Evidence collection — Linear vs Jira (2026-11-24)
+# Evidence collection — Linear vs Jira (source check 2026-11-25)
 
-Records follow `docs/loop/research-design.md`. `S5` is the dated third-party
-source; every claim below is verbatim-checkable against its excerpt.
+Records use the approved pages in [the research design](research-design.md).
+Dates below are for the sources retrieved during this check, not the original room fixture.
 
 | Claim | Excerpt | Source | Date | Uncertainty |
 |---|---|---|---|---|
-| Linear Free covers unlimited members, 2 teams, 250 issues | "Free for everyone — Unlimited members, 2 teams, 250 issues" | S1 linear.app/pricing | 2026-11-24 | supported |
-| Linear's first paid tier is $10/user/mo billed yearly | "Basic — $10 per user/month — Billed yearly" | S1 linear.app/pricing | 2026-11-24 | supported |
-| Jira Free runs up to 10 users at no cost, no time limit | "The Free plan runs Jira for up to 10 users at no cost, with no time limit" | S2 atlassian.com jira-editions | 2026-11-24 | supported |
-| Jira Standard raises the site to 35,000 users and 250 GB storage | "User limit — Up to 10 users / Up to 35,000 users; Storage — 2 GB / 250 GB" | S2 atlassian.com jira/standard | 2026-11-24 | supported |
-| Jira Standard's starting price per seat | — (official pricing page is JS-rendered; no readable figure) | S2 | 2026-11-24 | missing |
-| Linear Free includes cycles | "Issues, projects, cycles, initiatives — Included" (Free column) | S1 linear.app/pricing | 2026-11-24 | supported |
-| Jira Free includes sprint tracking via Scrum boards | "Every plan includes … Scrum and Kanban boards, backlogs" | S2 atlassian.com jira-editions | 2026-11-24 | supported |
-| Third-party review prices Jira Standard differently than list | Software Lifecycle review (Nov 2026) reports sourced per-user figures "from … pricing pages, licensing FAQs and future price tables" | S5 software-lifecycle.com/sites/jira | 2026-11-24 | conflict |
+| Linear Free covers unlimited members, 2 teams, 250 issues | “Unlimited members”; “2 teams”; “250 issues” | S1 [Pricing – Linear](https://linear.app/pricing) | 2026-11-25 | supported |
+| Linear Basic costs $10/user/month billed yearly | “Basic”; “$10 per user/month”; “Billed yearly” | S1 [Pricing – Linear](https://linear.app/pricing) | 2026-11-25 | supported |
+| Linear Free includes cycles | “Issues, projects, cycles, initiatives”; “Included” (Free column) | S1 [Pricing – Linear](https://linear.app/pricing) | 2026-11-25 | supported |
+| Jira Free covers up to 10 users at no cost and includes 2 GB storage | “Free forever for 10 users” (Free offer metadata); “Our Free plan lets you try Jira for up to 10 users with 2GB of storage and Community Support.” | S2 [Jira pricing: Free, Standard, Premium, Enterprise \| Atlassian](https://www.atlassian.com/software/jira/pricing) | 2026-11-25 | supported |
+| Jira Standard lists 250 GB of storage | “250 GB of storage” (Standard features) | S2 [Jira pricing: Free, Standard, Premium, Enterprise \| Atlassian](https://www.atlassian.com/software/jira/pricing) | 2026-11-25 | supported |
+| Jira Free includes sprint tracking | “Only Scrum teams can use sprints.” S4 describes sprint use but does not name the Free plan. | S4 [What is a sprint? \| Jira Cloud \| Atlassian Support](https://support.atlassian.com/jira-software-cloud/docs/what-is-a-sprint/) | 2026-11-25 | missing |
+| Atlassian's Jira Standard offer metadata lists USD $8.48/user/month for the 300-user quantity | `"price":"8.48","priceCurrency":"USD","billingDuration":"P1M"`; `"eligibleQuantity":{"@type":"QuantitativeValue","value":300,"unitCode":"C62","unitText":"user"}` | S2 [Jira pricing: Free, Standard, Premium, Enterprise \| Atlassian](https://www.atlassian.com/software/jira/pricing) | 2026-11-25 | conflict |
+| Software Lifecycle reports Jira Standard at $9.70/user/month for the first 100 users | “Standard $9.70 and Premium $19.60 per user a month for the first 100 users on monthly billing, from Oct 13” | S5 [Jira review: Rovo agents, pricing and Linear — Software Lifecycle](https://www.software-lifecycle.com/sites/jira) | 2026-11-25 | conflict |
 
-## Independent source check (second assignment)
+## Independent source check
 
-- S1, S2 are first-party vendor pages — authoritative for current list
-  pricing/limits. Both retrieved today.
-- S5 is a dated third-party review; its figures come from earlier price
-  tables, so it is held as `conflict` where it disagrees with S2 — kept
-  visible rather than merged.
-- Unsupported claims: none invented. The Jira Standard seat price stays
-  `missing` — the official page needs JS, and no approved secondary source
-  gives a figure both parties agree on.
-- One conflict kept visible: third-party per-seat figures vs the blocked
-  official pricing table.
+- The Jira Standard figures have different stated seat quantities. This is an unreconciled difference in published figures, not proof that the sources disagree for the same team size. The official five-seat quote is unverified.
+- The previous Standard seat-limit claim and Free sprint claim are not supported by their cited excerpts; the seat limit is not used in the comparison.

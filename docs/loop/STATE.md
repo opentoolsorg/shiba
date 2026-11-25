@@ -15,8 +15,8 @@ Method: five pairs from `shiba-ai-employee-reference-plan.md`; verdicts logged t
 - Pair 2: research design — `docs/loop/research-design.md`
   (Linear vs Jira, 5 approved sources, stopping rule, evidence record shape).
 - Pair 3: evidence collected + independently checked —
-  `docs/loop/evidence-collection.md` (7 supported/verified rows, 1 `missing`
-  (Jira Standard seat price — JS-blocked), 1 `conflict` (third-party pricing)).
+  `docs/loop/evidence-collection.md` keeps Jira Free sprint availability
+  unverified and separates the two Jira Standard price figures by source and seat quantity.
 - Pair 4: smallest fills implemented and tested (60 tests pass in the two
   touched suites):
   - Fill A — chain continuation: a human who *sent* an active handoff may
