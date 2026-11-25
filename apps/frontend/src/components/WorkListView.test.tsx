@@ -113,7 +113,7 @@ describe("WorkListView", () => {
   it("renders assignee avatars and a dashed slot when unassigned", () => {
     renderList();
     expect(screen.getByRole("img", { name: "Coder" })).toBeTruthy();
-    expect(screen.getByRole("img", { name: "Priya" }).getAttribute("src")).toBe("/assets/mascot/pet-logo.png");
+    expect(screen.getByRole("img", { name: "Priya" }).classList.contains("shiba-agent-mascot")).toBe(true);
     expect(screen.getAllByRole("img", { name: "Unassigned" })).toHaveLength(2);
   });
 

@@ -62,8 +62,10 @@ describe("AgentTemplatesCatalog", () => {
   it("renders mascot, category tag and capability chips derived from the template", () => {
     render(<AgentTemplatesCatalog onUse={vi.fn()} />);
     const card = screen.getByRole("heading", { name: "Coding Coworker" }).closest("article");
-    const mascot = card?.querySelector('.agent-avatar img[src="/assets/mascot/pet-logo.png"]');
-    if (!card || !mascot) throw new Error("Expected a card with the Shiba portrait.");
+    const mascot = card?.querySelector(".agent-avatar .shiba-agent-mascot");
+    if (!card || !mascot) throw new Error("Expected a card with a mascot.");
+    expect(mascot.getAttribute("data-shape")).toBe("pointed");
+    expect(mascot.getAttribute("data-eyes")).toBe("happy");
     expect(card.querySelector(".agent-category")?.textContent).toBe("engineering");
     expect(Array.from(card.querySelectorAll(".agent-capabilities span"), (chip) => chip.textContent)).toEqual(["repository work", "slack threads", "Approval-gated"]);
   });

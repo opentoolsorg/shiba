@@ -8,7 +8,7 @@ import {
 } from "./theme-preference";
 
 const rootRoute = readFileSync(new URL("../routes/__root.tsx", import.meta.url), "utf8");
-const themeBootstrapScript = readFileSync(new URL("../../public/assets/theme-bootstrap.js", import.meta.url), "utf8");
+const themeBootstrapScript = readFileSync(new URL("../../../web/public/assets/theme-bootstrap.js", import.meta.url), "utf8");
 
 describe("shared theme preference", () => {
   it("applies the saved dashboard theme before first paint", () => {
