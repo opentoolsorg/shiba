@@ -1850,7 +1850,7 @@ describe("bot page without a thread", () => {
     expect(bots.mock.calls.some(([url]) => String(url).endsWith("/resume"))).toBe(false);
   });
 
-  it("opens Work details for the conversation's unarchived run, not its newer archived one", async () => {
+  it("shows the conversation's unarchived run in both progress and Work details, not a newer archived run", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
     mocks.chat.messages = [];
@@ -1864,7 +1864,10 @@ describe("bot page without a thread", () => {
     }));
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Task details" }));
+    const progress = await screen.findByTestId("run-progress");
+    expect(within(progress).getByText(run.task)).toBeTruthy();
+    expect(within(progress).queryByText(archived.task)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Task details" }));
     await waitFor(() => {
       expect(window.location.pathname).toBe("/work/");
       const params = new URLSearchParams(window.location.search);
@@ -1886,7 +1889,7 @@ describe("bot page without a thread", () => {
       String(url).startsWith("/api/runs") ? Promise.resolve(Response.json({ runs: [run] })) : bots(url, options)));
     render(<App />);
 
-    await screen.findByRole("button", { name: /Shared automation result/ });
+    expect(within(await screen.findByTestId("run-progress")).getByText(run.task)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Task details" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Work" }));

@@ -155,6 +155,10 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return Boolean(el?.closest?.("input, textarea, select, [contenteditable]"));
 }
 
+function canInspectThreadRun(run: RetainedRun | undefined): boolean {
+  return run !== undefined && !run.fromSharedStore && run.archivedAt === undefined;
+}
+
 function useRetainedRuns(
   refreshToken: number,
   sessionId: string,
@@ -2754,28 +2758,18 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     return Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
   }, [retainedRuns, toolRuns, seenAt]);
 
-  const retainedRunsNewestFirst = useMemo(
-    () => [...retainedRuns].sort((left, right) => right.updatedAt - left.updatedAt),
-    [retainedRuns],
-  );
-  const chatDetailsRunId = useMemo(() => {
-    // The default registry can include the approver's shared work, which is
-    // not part of this conversation. Archived runs have no Work inspector.
-    const eligible = retainedRunsNewestFirst.filter((run) => !run.fromSharedStore && run.archivedAt === undefined);
-    return eligible.find((run) => run.runId === selectedRunId)?.runId ?? eligible[0]?.runId ?? null;
-  }, [retainedRunsNewestFirst, selectedRunId]);
-
-  const reviewThreadId = useMemo(() => {
-    if (selectedRunId && allRuns.some((run) => run.runId === selectedRunId)) return selectedRunId;
-    if (retainedRunsNewestFirst[0]) return retainedRunsNewestFirst[0].runId;
-    const newest = [...allRuns].sort((a, b) => b.updatedAt - a.updatedAt);
-    return newest.find((run) => run.pullUrl)?.runId ?? newest[0]?.runId ?? null;
-  }, [allRuns, retainedRunsNewestFirst, selectedRunId]);
-
   const reviewRun = useMemo(() => {
-    if (!reviewThreadId) return undefined;
-    return allRuns.find((run) => run.runId === reviewThreadId);
-  }, [allRuns, reviewThreadId]);
+    const selected = allRuns.find((run) => run.runId === selectedRunId);
+    if (selected) return selected;
+    const retainedNewestFirst = [...retainedRuns].sort((left, right) => right.updatedAt - left.updatedAt);
+    const retained = retainedNewestFirst.find(canInspectThreadRun) ?? retainedNewestFirst[0];
+    if (retained) return allRuns.find((run) => run.runId === retained.runId);
+    const newest = [...allRuns].sort((a, b) => b.updatedAt - a.updatedAt);
+    return newest.find((run) => run.pullUrl) ?? newest[0];
+  }, [allRuns, retainedRuns, selectedRunId]);
+  const reviewThreadId = reviewRun?.runId ?? null;
+  const retainedReviewRun = retainedRuns.find((run) => run.runId === reviewThreadId);
+  const chatDetailsRunId = canInspectThreadRun(retainedReviewRun) ? reviewThreadId : null;
 
   const threadHasWork = chat.messages.length > 0 || reviewThreadId !== null;
   const pendingApprovalCount = pendingApprovals.length + visibleStoredApprovals.length;
@@ -4334,11 +4328,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                       <RunProgressCard
                         run={reviewRun}
                         sessionId={selectedSessionId}
-                        onCancel={
-                          reviewRun && retainedRuns.some((run) => run.runId === reviewRun.runId)
-                            ? cancelRun
-                            : undefined
-                        }
+                        onCancel={retainedReviewRun ? cancelRun : undefined}
                         cancelling={cancellingRunId === reviewRun?.runId}
                         publicationApprovals={storedApprovals}
                         onReviewPublication={(approvalId) => {
