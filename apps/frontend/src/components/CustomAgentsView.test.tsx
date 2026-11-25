@@ -170,6 +170,14 @@ describe("CustomAgentsView", () => {
     expect(within(picker).queryByRole("option", { name: "Directly to you" })).toBeNull();
   });
 
+  it("does not offer assignment to yourself for the unauthenticated fallback identity", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ agents: [] })));
+    render(<CustomAgentsView actorId="default" />);
+    await screen.findByText("No bots");
+    const picker = screen.getByRole("combobox", { name: "Reports to" });
+    expect(within(picker).queryByRole("option", { name: "Directly to you" })).toBeNull();
+  });
+
   it("creates an employee with the manager from a previously saved draft", async () => {
     const scope = "manager-draft";
     const key = `shiba-role-draft-v1:${scope}`;

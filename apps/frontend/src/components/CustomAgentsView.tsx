@@ -194,7 +194,9 @@ function ScopedCustomAgentsView({
   const [editingConfig, setEditingConfig] = useState<CustomAgentConfig | null>(null);
   const managerOptions = new Map<string, { label: string; reportsTo?: CustomAgentConfig["reportsTo"] }>();
   managerOptions.set("", { label: "No manager" });
-  if (actorId) {
+  // "default" is the whoami fallback when no auth lane identifies a person;
+  // self-assignment must not persist it as a fictitious manager.
+  if (actorId && actorId !== "default") {
     managerOptions.set("self", { label: "Directly to you", reportsTo: { kind: "user", userId: actorId } });
   }
   for (const agent of agents ?? []) {
