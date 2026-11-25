@@ -358,7 +358,7 @@ interface BlockActionPayload {
   blocks: unknown[];
 }
 
-function parseBlockActionsPayload(payloadParam: string | null): BlockActionPayload {
+export function parseBlockActionsPayload(payloadParam: string | null): BlockActionPayload {
   if (!payloadParam) {
     throw new Error("Missing interaction payload.");
   }

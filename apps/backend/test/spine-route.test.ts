@@ -12,12 +12,13 @@ import { evidenceFor } from "./seeding.js";
 import { setSandboxHandleResolver } from "../src/sandbox/lifecycle.js";
 import { sendWorkerRequest, productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.js";
 
+const receipt = vi.hoisted(() => ({ channel: "C1", ts: "111.222" }));
 const mocks = vi.hoisted(() => ({
   destroy: vi.fn(),
   execute: vi.fn(),
   keepAliveWhile: vi.fn((fn: () => Promise<unknown>) => fn()),
   schedule: vi.fn(async (..._args: unknown[]) => ({})),
-  postSlackMessage: vi.fn(async () => ({})),
+  postSlackMessageWithReceipt: vi.fn(async () => receipt),
 }));
 vi.mock("@cloudflare/think", () => ({
   Think: class {
@@ -38,11 +39,11 @@ vi.mock("@cloudflare/think", () => ({
 }));
 vi.mock("agents/agent-tools", () => ({ agentTool: () => ({ execute: mocks.execute }) }));
 vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
-// Thread post-backs never hit the network in unit tests — the outbox row is
-// what matters, not the delivery.
+// Thread post-backs never hit the network; the Slack chat channel posts
+// through the receipt variant, so that is what gets mocked.
 vi.mock("../src/slack.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/slack.js")>()),
-  postSlackMessage: mocks.postSlackMessage,
+  postSlackMessageWithReceipt: mocks.postSlackMessageWithReceipt,
 }));
 setSandboxHandleResolver(() => ({ destroy: mocks.destroy }));
 
@@ -93,7 +94,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.destroy.mockResolvedValue(undefined);
   mocks.execute.mockResolvedValue("ok");
-  mocks.postSlackMessage.mockResolvedValue({});
+  mocks.postSlackMessageWithReceipt.mockResolvedValue(receipt);
 });
 
 describe("GET /api/spine", () => {
@@ -261,31 +262,31 @@ describe("outbox in-flight claims", () => {
 
     // Hold the send open: the row commits pending while the send runs.
     let release!: () => void;
-    const open = new Promise<Record<string, never>>((resolve) => {
-      release = () => resolve({});
+    const open = new Promise<typeof receipt>((resolve) => {
+      release = () => resolve(receipt);
     });
-    mocks.postSlackMessage.mockImplementationOnce(() => open);
+    mocks.postSlackMessageWithReceipt.mockImplementationOnce(() => open);
     threaded.postToThread("hi", { runId: "r1" });
     expect(instance.state.outbox?.[0]?.status).toBe("pending");
 
     // A read-path reclaim mid-send must not re-drive the open send.
     await threaded.reclaimRuns();
-    expect(mocks.postSlackMessage).toHaveBeenCalledTimes(1);
+    expect(mocks.postSlackMessageWithReceipt).toHaveBeenCalledTimes(1);
 
     // Resolve the send — the row settles dispatched, still one call.
     release();
     await flush();
     expect(instance.state.outbox?.[0]?.status).toBe("dispatched");
     await threaded.reclaimRuns();
-    expect(mocks.postSlackMessage).toHaveBeenCalledTimes(1);
+    expect(mocks.postSlackMessageWithReceipt).toHaveBeenCalledTimes(1);
 
     // A send that fails retries on the next drain — at-least-once intact.
-    mocks.postSlackMessage.mockRejectedValueOnce(new Error("slack down"));
+    mocks.postSlackMessageWithReceipt.mockRejectedValueOnce(new Error("slack down"));
     threaded.postToThread("hi again", { runId: "r1" });
     await flush();
     expect(instance.state.outbox?.[1]?.status).toBe("failed");
     await threaded.reclaimRuns();
-    expect(mocks.postSlackMessage).toHaveBeenCalledTimes(3);
+    expect(mocks.postSlackMessageWithReceipt).toHaveBeenCalledTimes(3);
     expect(instance.state.outbox?.[1]?.status).toBe("dispatched");
   });
 });

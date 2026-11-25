@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   keepAliveWhile: vi.fn((fn: () => Promise<unknown>) => fn()),
   schedule: vi.fn(async (..._args: unknown[]) => ({})),
   postSlackMessage: vi.fn(async () => ({})),
+  postSlackMessageWithReceipt: vi.fn(async () => ({ channel: "C1", ts: "111.222" })),
 }));
 vi.mock("@cloudflare/think", () => ({
   Think: class {
@@ -50,6 +51,7 @@ vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
 vi.mock("../src/slack.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/slack.js")>()),
   postSlackMessage: mocks.postSlackMessage,
+  postSlackMessageWithReceipt: mocks.postSlackMessageWithReceipt,
 }));
 setSandboxHandleResolver(() => ({ destroy: mocks.destroy }));
 
@@ -116,6 +118,7 @@ beforeEach(() => {
   mocks.destroy.mockResolvedValue(undefined);
   mocks.execute.mockResolvedValue("ok");
   mocks.postSlackMessage.mockResolvedValue({});
+  mocks.postSlackMessageWithReceipt.mockResolvedValue({ channel: "C1", ts: "111.222" });
 });
 
 const make = (kind: ReceiptKind, message: string, at: number): Receipt => ({ at, kind, message });

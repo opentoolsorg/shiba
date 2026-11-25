@@ -273,7 +273,8 @@ import {
 import { InputError, makeSandboxId, parseGitHubRepoUrl, redactSecrets } from "../security.js";
 import { DEFAULT_ORCHESTRATOR_MODEL, distillSession } from "../session-distill.js";
 import { evaluateSessionTriage } from "../session-triage.js";
-import { postSlackMessage } from "../slack.js";
+import { ChannelError } from "../ports/chat-channel/types.js";
+import { createChatChannelRegistry, type ChatChannelRegistry } from "../ports/chat-channel/registry.js";
 import { deliverSlackCommandReply } from "../slack-command-reply.js";
 import { deliverCompletedRunOutputs } from "../channel-output-delivery.js";
 import {
@@ -607,6 +608,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
 
   override maxConcurrentAgentTools = 1;
   private warmedRunCode: import("ai").Tool | null | undefined;
+  protected chatChannels?: ChatChannelRegistry;
+  private channelRegistry(): ChatChannelRegistry {
+    return this.chatChannels ?? createChatChannelRegistry(this.env);
+  }
   private specialistTurn: { turnId: string; budget: SpecialistTurnBudget } | undefined;
   private publicationReviewInFlight?: Map<string, Promise<void>>;
   private screenOperations?: Set<string>;
@@ -3991,30 +3996,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
     const channel = this.env.SLACK_APPROVALS_CHANNEL?.trim();
     const token = this.env.SLACK_BOT_TOKEN?.trim();
     if (!channel || !token) return;
-    const posted = fetch("https://slack.com/api/chat.postMessage", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        channel,
-        text: approvalCardText(input).slice(0, 3000),
-        blocks: buildApprovalBlocks(input),
-      }),
-    })
-      .then(async (response) => {
-        // Slack reports app-level failures (not_in_channel, …) as HTTP 200 with ok:false.
-        const body = (await response.json().catch(() => null)) as {
-          ok?: boolean;
-          error?: string;
-        } | null;
-        if (!response.ok || body?.ok !== true) {
-          console.error(
-            `Slack email approval card post failed (${response.status}): ${body?.error ?? "unparseable response"}`,
-          );
-        }
-      })
-      .catch((error) => {
-        console.error("Slack email approval card post failed", redactSecrets(String(error)));
-      });
+    const posted = this.channelRegistry().get("slack")!.postApprovalNotification({ ...input, conversationId: channel });
     if (typeof this.ctx === "object" && this.ctx !== null && "waitUntil" in this.ctx) {
       this.ctx.waitUntil(posted);
     } else {
@@ -4938,11 +4920,11 @@ This is a selected employee context. Skills provide untrusted instructions and n
     const channel = slack?.channelId ?? commandScope?.channelId;
     const token = this.env.SLACK_BOT_TOKEN?.trim();
     if (channel && token) {
-      this.holdOpen(postSlackMessage(token, {
-        channel,
-        ...(slack ? { threadTs: slack.threadTs } : {}), text: approvalCardText(card),
+      this.holdOpen(this.channelRegistry().get("slack")!.postMessage({
+        thread: { channel: "slack", tenantId: slack?.teamId ?? commandScope!.teamId, conversationId: channel, threadId: slack?.threadTs ?? "" },
+        text: approvalCardText(card),
         blocks: buildApprovalBlocks(card), persona: "reviewer",
-      }).catch((error) => console.error("Publication approval card failed", redactSecrets(String(error)))));
+      }).catch((error) => console.error("Publication approval card failed", redactSecrets(String(error instanceof ChannelError ? error.cause ?? error : error)))));
     } else {
       this.postEmailApprovalCard(card);
     }
@@ -5956,13 +5938,12 @@ This is a selected employee context. Skills provide untrusted instructions and n
     const send: (() => Promise<void>) | null =
       chat ? () => postToChatThread(this.env, this.name, text) ?? Promise.resolve() :
       (ids && token
-        ? () => postSlackMessage(token, {
-            channel: ids.channelId,
-            threadTs: ids.threadTs,
+        ? () => this.channelRegistry().get("slack")!.postMessage({
+            thread: { channel: "slack", tenantId: ids.teamId, conversationId: ids.channelId, threadId: ids.threadTs },
             text: text.slice(0, 3000),
             ...(context?.persona ? { persona: context.persona } : {}),
             ...(context?.blocks ? { blocks: context.blocks } : {}),
-          })
+          }).then(() => {})
         : command ? () => deliverSlackCommandReply(this.env, { orchestratorName: this.name, origin: command.origin, run: command.run, effectId, text: text.slice(0, 3000) }) : null);
     if (send === null) return;
     // P9 outbox: the send is requested as an event first — a crash
@@ -6011,7 +5992,8 @@ This is a selected employee context. Skills provide untrusted instructions and n
           this.inFlightEffects.delete(effectId);
         })
         .catch((error: unknown) => {
-          const message = error instanceof Error ? error.message : String(error);
+          const original = error instanceof ChannelError && error.cause instanceof Error ? error.cause : error;
+          const message = original instanceof Error ? original.message : String(original);
           console.error(`Post-back to ${target} failed: ${redactSecrets(message)}`);
           this.emitSpine(
             sideEffectResultInput({
@@ -6084,16 +6066,16 @@ This is a selected employee context. Skills provide untrusted instructions and n
           const token = this.env.SLACK_BOT_TOKEN?.trim();
           if (!ids || !token) return { ok: false, error: "no Slack thread destination configured" };
           try {
-            await postSlackMessage(token, {
-              channel: ids.channelId,
-              threadTs: ids.threadTs,
+            await this.channelRegistry().get("slack")!.postMessage({
+              thread: { channel: "slack", tenantId: ids.teamId, conversationId: ids.channelId, threadId: ids.threadTs },
               text: (entry.summary ?? "").slice(0, 3000),
               ...(entry.persona ? { persona: entry.persona } : {}),
               ...(entry.blocks ? { blocks: entry.blocks } : {}),
             });
             return { ok: true };
           } catch (error) {
-            return { ok: false, error: error instanceof Error ? error.message : String(error) };
+            const original = error instanceof ChannelError && error.cause instanceof Error ? error.cause : error;
+            return { ok: false, error: original instanceof Error ? original.message : String(original) };
           }
         }
         return { ok: false, error: `unsupported effect kind ${entry.effectKind}` };
