@@ -309,22 +309,55 @@ interface ArtifactReviewState {
   note?: string;
 }
 
+function isArtifactReviewState(review: unknown): review is ArtifactReviewState {
+  return !!review && typeof review === "object" &&
+    "status" in review && typeof review.status === "string" &&
+    "revision" in review && typeof review.revision === "number" &&
+    Number.isSafeInteger(review.revision) && review.revision >= 0 &&
+    (!("note" in review) || typeof review.note === "string");
+}
+
 function ArtifactReviewControls({ artifactUrl, workspaceId }: { artifactUrl: string; workspaceId?: string }) {
   const reviewUrl = `${artifactUrl}/review${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`;
   const [review, setReview] = useState<ArtifactReviewState | null>(null);
   const [note, setNote] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);
+  const [reviewCurrent, setReviewCurrent] = useState(false);
   const [error, setError] = useState("");
-  const load = useCallback(async () => {
-    const res = await fetch(reviewUrl, { credentials: "same-origin" }).catch(() => null);
-    if (!res?.ok) return;
-    const data = (await res.json().catch(() => null)) as { review?: ArtifactReviewState } | null;
-    if (data?.review) setReview(data.review);
+  const load = useCallback(async (signal?: AbortSignal) => {
+    const res = await fetch(reviewUrl, { credentials: "same-origin", signal });
+    if (!res.ok) throw new Error("Could not load the latest review.");
+    const data = (await res.json()) as { review?: ArtifactReviewState } | null;
+    if (!isArtifactReviewState(data?.review)) throw new Error("Could not load the latest review.");
+    return data.review;
   }, [reviewUrl]);
   useEffect(() => {
-    void load();
+    const controller = new AbortController();
+    void load(controller.signal).then((latest) => {
+      if (controller.signal.aborted) return;
+      setReview(latest);
+      setReviewCurrent(true);
+    }).catch(() => {
+      if (!controller.signal.aborted) setError("Could not load the latest review.");
+    }).finally(() => {
+      if (!controller.signal.aborted) setBusy(false);
+    });
+    return () => controller.abort();
   }, [load]);
+  const refresh = async (message = "") => {
+    setReviewCurrent(false);
+    setError(message);
+    try {
+      const latest = await load();
+      if (review && latest.revision < review.revision) throw new Error("Review revision moved backwards.");
+      setReview(latest);
+      setReviewCurrent(true);
+    } catch {
+      setError(message ? `${message} Could not refresh the latest review.` : "Could not refresh the latest review.");
+    }
+  };
   const decide = async (status: "approved" | "changes_requested") => {
+    if (busy || !reviewCurrent || !review) return;
     setBusy(true);
     setError("");
     try {
@@ -334,7 +367,7 @@ function ArtifactReviewControls({ artifactUrl, workspaceId }: { artifactUrl: str
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           status,
-          expectedRevision: review?.revision ?? 0,
+          expectedRevision: review.revision,
           ...(status === "changes_requested" ? { note } : {}),
         }),
       });
@@ -343,19 +376,22 @@ function ArtifactReviewControls({ artifactUrl, workspaceId }: { artifactUrl: str
         deliverable?: { review?: ArtifactReviewState };
       } | null;
       if (!res.ok) {
-        setError(data?.error ?? "Review could not be saved.");
-        await load();
+        await refresh(data?.error ?? "Review could not be saved.");
         return;
       }
-      if (data?.deliverable?.review) setReview(data.deliverable.review);
+      const saved = data?.deliverable?.review;
+      if (!isArtifactReviewState(saved) || saved.revision <= review.revision) throw new Error("Missing saved review revision.");
+      setReview(saved);
       if (status === "changes_requested") setNote("");
+    } catch {
+      await refresh("The review may have been saved. Check the latest review before trying again.");
     } finally {
       setBusy(false);
     }
   };
   return (
-    <span className="inline-flex items-center gap-1 align-middle">
-      {review && (
+    <span className="inline-flex flex-wrap items-center gap-1 align-middle">
+      {review && reviewCurrent && (
         <span>
           review: {review.status.replace(/_/g, " ")}
           {review.note ? ` — ${review.note}` : ""}
@@ -363,9 +399,9 @@ function ArtifactReviewControls({ artifactUrl, workspaceId }: { artifactUrl: str
       )}
       <button
         type="button"
-        disabled={busy}
+        disabled={busy || !reviewCurrent}
         onClick={() => void decide("approved")}
-        className="min-h-6 border border-[var(--line)] bg-[var(--card)] px-1 underline disabled:opacity-50"
+        className="min-h-[44px] border border-[var(--line)] bg-[var(--card)] px-1 underline disabled:opacity-50"
       >
         Approve revision
       </button>
@@ -374,17 +410,29 @@ function ArtifactReviewControls({ artifactUrl, workspaceId }: { artifactUrl: str
         value={note}
         onChange={(event) => setNote(event.target.value)}
         placeholder="change note"
-        className="min-h-6 w-28 border border-[var(--line)] bg-[var(--card)] px-1"
+        className="min-h-[44px] w-28 border border-[var(--line)] bg-[var(--card)] px-1"
       />
       <button
         type="button"
-        disabled={busy || !note.trim()}
+        disabled={busy || !reviewCurrent || !note.trim()}
         onClick={() => void decide("changes_requested")}
-        className="min-h-6 border border-[var(--line)] bg-[var(--card)] px-1 underline disabled:opacity-50"
+        className="min-h-[44px] border border-[var(--line)] bg-[var(--card)] px-1 underline disabled:opacity-50"
       >
         Request change
       </button>
-      {error && <span>{error}</span>}
+      {!reviewCurrent && !busy && (
+        <button
+          type="button"
+          className="min-h-[44px] border border-[var(--line)] bg-[var(--card)] px-1 underline"
+          onClick={() => {
+            setBusy(true);
+            void refresh().finally(() => setBusy(false));
+          }}
+        >
+          Refresh review
+        </button>
+      )}
+      {error && <span role="status">{error}</span>}
     </span>
   );
 }
@@ -1559,6 +1607,7 @@ function ScopedCollaborationView({
                                     </a>
                                     {artifact.artifactId && artifact.version && artifact.sha256 && (
                                       <ArtifactReviewControls
+                                        key={JSON.stringify([workspaceId, activeRoomId, item.sourceHandoffId, artifact.artifactId, artifact.version, artifact.sha256])}
                                         artifactUrl={`/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/handoffs/${encodeURIComponent(item.sourceHandoffId)}/artifacts/${artifact.index}`}
                                         workspaceId={workspaceId}
                                       />

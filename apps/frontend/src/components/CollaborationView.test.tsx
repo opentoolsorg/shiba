@@ -700,6 +700,56 @@ describe("CollaborationView room access polling", () => {
     expect(screen.queryByRole("link", { name: "reports/legacy.md" })).toBeNull();
   });
 
+  it.each(["lost network response", "conflict"] as const)("reloads the artifact revision before retrying after %s", async (failure) => {
+    const firstReview = deferredResponse();
+    const reads = vi.fn()
+      .mockReturnValueOnce(firstReview.promise)
+      .mockResolvedValueOnce(jsonResponse({ review: { status: "pending_review", revision: 2 } }))
+      .mockResolvedValueOnce(jsonResponse({ review: { status: "changes_requested", revision: 4, note: "Include sources." } }));
+    const writes = vi.fn()
+      .mockImplementationOnce(() => failure === "conflict"
+        ? Promise.resolve(jsonResponse({ error: "Review changed." }, 409))
+        : Promise.reject(new TypeError("Network disconnected")))
+      .mockResolvedValueOnce(jsonResponse({ deliverable: { review: { status: "approved", revision: 5 } } }));
+    const detail = {
+      ...roomDetail,
+      messages: [{
+        ...roomDetail.messages[0],
+        senderKind: "agent",
+        sourceRunId: "agent-tool:approval-1",
+        sourceHandoffId: "handoff-1",
+        sourceArtifactRefs: [{ index: 0, path: "reports/review.md", artifactId: "artifact-1", version: 1, sha256: "a".repeat(64) }],
+      }],
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/artifacts/0/review")) return init?.method === "POST" ? writes(JSON.parse(String(init.body))) : reads();
+      if (path.endsWith("/api/collaboration/rooms")) return jsonResponse({ rooms: [detail.room] });
+      if (path.endsWith("/api/collaboration/rooms/room-1")) return jsonResponse(detail);
+      return jsonResponse({ agents: [], computers: [] });
+    }));
+
+    render(<CollaborationView />);
+    const approve = await screen.findByRole("button", { name: "Approve revision" });
+    expect(approve).toHaveProperty("disabled", true);
+    fireEvent.click(approve);
+    expect(writes).not.toHaveBeenCalled();
+    await act(async () => firstReview.resolve(jsonResponse({ review: { status: "pending_review", revision: 3 } })));
+    expect(approve).toHaveProperty("disabled", false);
+    fireEvent.click(approve);
+    const refresh = await screen.findByRole("button", { name: "Refresh review" });
+    expect(screen.getByText(failure === "conflict" ? /Review changed\./ : /review may have been saved/i)).toBeTruthy();
+    expect(approve).toHaveProperty("disabled", true);
+    fireEvent.click(refresh);
+    await screen.findByText(/review: changes requested/);
+    fireEvent.click(approve);
+    await screen.findByText("review: approved");
+    expect(writes.mock.calls).toEqual([
+      [{ status: "approved", expectedRevision: 3 }],
+      [{ status: "approved", expectedRevision: 4 }],
+    ]);
+  });
+
   it("lets a room owner map only an observed Slack thread and shows link status", async () => {
     let mapped = false;
     const slackSource = {
