@@ -3343,7 +3343,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         }}
         onOpenAgent={openBotPanel}
         onSelectThread={(id) => { void handleSelectSession(id); openView("threads"); }}
-        onSelectRun={(id) => { void handleSelectSession(id); openView("threads"); }}
+        onSelectRun={(id) => { void handleSelectSession(id); }}
         onNewThread={(agentId) => { void startSidebarAgentThread(customAgentRecords.find((profile) => profile.id === agentId)); }}
         newThreadDisabledReason={taskCreationBlocker ?? undefined}
         onNewChat={mainView === "threads" ? () => { void handleNewTask(); } : undefined}

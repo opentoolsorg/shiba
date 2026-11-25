@@ -252,6 +252,37 @@ it("lists employee threads and resumes the selected thread without queueing work
     expect(fetch).not.toHaveBeenCalledWith("/api/runs", expect.objectContaining({ method: "POST" }));
   });
 
+  it("opens Analytics instead of returning to Chat when selecting a Recent run", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    const originalFetch = fetch;
+    const run = {
+      runId: "recent-run",
+      task: "Review the workspace report",
+      status: "completed",
+      repoUrl: "",
+      sandboxId: "fixture-sandbox",
+      baseBranch: "main",
+      publishPullRequest: false,
+      generation: 1,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      if (String(url).startsWith("/api/runs?") || String(url) === "/api/runs") {
+        return Response.json({ runs: [run] });
+      }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+
+    const recent = await screen.findByRole("region", { name: "Recent runs" });
+    fireEvent.click(within(recent).getByRole("button", { name: new RegExp(run.task) }));
+    expect(await screen.findByRole("heading", { name: "Usage" })).toBeTruthy();
+    expect(await screen.findByRole("row", { name: new RegExp(run.task) })).toBeTruthy();
+    expect(fetch).not.toHaveBeenCalledWith("/api/sessions/recent-run/resume", { method: "POST" });
+  });
+
   it("opens the returned approval from Chat and follows its server-linked run after approval", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", "/threads/");
