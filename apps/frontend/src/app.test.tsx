@@ -302,6 +302,15 @@ it("lists employee threads and resumes the selected thread without queueing work
     expect(screen.getByRole("row", { name: new RegExp(otherRun.task) }).hasAttribute("aria-current")).toBe(false);
     expect(screen.queryByRole("region", { name: "Guided onboarding" })).toBeNull();
     expect(fetch).not.toHaveBeenCalledWith("/api/sessions/recent-run/resume", { method: "POST" });
+
+    const insights = within(screen.getByRole("navigation", { name: "Insights navigation" }));
+    fireEvent.click(insights.getByRole("button", { name: "Pull requests" }));
+    const diffRun = await screen.findByRole("combobox", { name: "Select run for diff inspection" });
+    fireEvent.change(diffRun, { target: { value: otherRun.runId } });
+    fireEvent.click(insights.getByRole("button", { name: "Usage" }));
+    const usageRow = await screen.findByRole("row", { name: new RegExp(otherRun.task) });
+    expect(usageRow.hasAttribute("aria-current")).toBe(false);
+    expect(document.activeElement).not.toBe(usageRow);
   });
 
   it("opens the returned approval from Chat and follows its server-linked run after approval", async () => {
