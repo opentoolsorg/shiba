@@ -84,7 +84,7 @@ test("real pinned Alchemy declarations and bindings pass the guard offline", { t
     assert.ok(types.length > 0);
     for (const type of types) assert.ok(Object.hasOwn(identities, type) || type === "Cloudflare.Queues.Consumer", `Unhandled resource type: ${type}`);
   });
-  assert.match(result.stdout, /validated 17 real resource declarations/);
+  assert.match(result.stdout, /validated 18 real resource declarations/);
 });
 test("fork and checkout protections are present without pull_request_target", () => {
   const workflow = readFileSync(new URL("../.github/workflows/preview-deploy.yml", import.meta.url), "utf8");
