@@ -14,14 +14,14 @@ import { sealRunEnv } from "../src/run-env-seal.js";
 import type { RunJournalBatch } from "../src/run-room-events.js";
 import type { RuntimeAdapter } from "../src/runtime.js";
 import type { PreparedRuntimeExecution } from "../src/runtime-recovery.js";
-import { resetSandboxProviderCache } from "../src/sandbox/provider.js";
+import { resetSandboxProviderCache } from "../src/ports/sandbox/registry.js";
 
 const mocks = vi.hoisted(() => ({
   run: vi.fn<RuntimeAdapter["runCodingTask"]>(),
   sandbox: vi.fn(),
 }));
 vi.mock("@cloudflare/ai-chat", () => ({ AIChatAgent: class {} }));
-vi.mock("../src/sandbox/client.js", () => ({ getSandbox: mocks.sandbox }));
+vi.mock("../src/ports/sandbox/client.js", () => ({ getSandbox: mocks.sandbox }));
 vi.mock("../src/runtime.js", () => ({
   createRuntimeAdapter: () => ({ runCodingTask: mocks.run }),
   resolveRuntimeName: (name?: string) => name ?? "sandbox",

@@ -18,6 +18,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Check offline agent context budgets
+        run: pnpm check:agent-context
       # biome ci: lint-only for now — formatting is adopted incrementally
       # (config enables it for `pnpm format`), not retro-applied repo-wide.
       - run: pnpm exec biome ci --formatter-enabled=false --assist-enabled=false .

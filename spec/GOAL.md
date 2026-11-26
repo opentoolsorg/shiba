@@ -1,4 +1,14 @@
-# AI Coworker Cloudflare Native Goal
+# AI Coworker Cloudflare Native Goal — historical coding-spine contract
+
+> **Status, 2026-11-25:** historical. This file describes the original
+> Cloudflare-native coding-agent spine. It is still useful for the repository
+> sandbox lane, approval gate, harness history, and deployment constraints. It
+> is not the current product boundary. The current product contract is
+> [`docs/product/ai-employees.md`](../docs/product/ai-employees.md), and the
+> current architecture is [`ARCHITECTURE.md`](../ARCHITECTURE.md). Where this
+> file forbids infrastructure now intentionally present, such as Queues or
+> Workflows, treat that as a dated constraint unless a current architecture
+> document restores it.
 
 ## Outcome
 

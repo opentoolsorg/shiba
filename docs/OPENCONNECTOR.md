@@ -3,8 +3,9 @@
 Shiba's sole `openconnector` integrations provider calls a separately deployed
 [open-connector](https://github.com/oomol-lab/open-connector) Worker on the same
 Cloudflare account. A private `OPEN_CONNECTOR` service binding takes precedence
-over the `OPEN_CONNECTOR_URL` HTTP fallback. `INTEGRATIONS_PROVIDER` accepts only
-`openconnector`; there is no provider switcher. The legacy
+over the `OPEN_CONNECTOR_URL` HTTP fallback. `CONNECTOR_PROVIDER` defaults to
+`openconnector`; set it to `none` to disable connector access even when the
+binding and credentials are present. The legacy
 integrations `/session` route returns HTTP 503 with an `unsupported` error;
 connect through the provider connection flow instead. Direct
 `POST /api/integrations/provider/execute` returns HTTP 403 with
@@ -138,7 +139,7 @@ Shiba deployment, with backend secrets also present in its deploy environment:
 
 ```sh
 export OPEN_CONNECTOR_WORKER=shiba-openconnector
-# INTEGRATIONS_PROVIDER defaults to openconnector; no override is needed.
+# CONNECTOR_PROVIDER defaults to openconnector; no override is needed.
 # Optional public HTTPS origin for HTTP fallback (binding wins when present):
 # export OPEN_CONNECTOR_URL=https://connect.example.com
 pnpm deploy:alchemy
@@ -147,10 +148,15 @@ pnpm deploy:alchemy
 Alchemy adds the service binding only when `OPEN_CONNECTOR_WORKER` is set. For the
 Wrangler rollback path, uncomment the `services` example in
 `apps/backend/wrangler.jsonc` and set its service name to the deployed sibling.
-The default `vars.INTEGRATIONS_PROVIDER` is already `openconnector`. Add `OPEN_CONNECTOR_URL`
+The default `vars.CONNECTOR_PROVIDER` is already `openconnector`. Add `OPEN_CONNECTOR_URL`
 to `vars` only when using HTTP fallback; then use the usual backend deploy.
 Without the binding, the adapter requires that URL. Setting an HTTP URL does not
 remove the need for administrator and runtime authentication.
+
+To opt out, set `CONNECTOR_PROVIDER=none` in the environment for a non-PR
+Alchemy deploy, or set `vars.CONNECTOR_PROVIDER` to `"none"` in the Wrangler
+config you deploy with. The old `INTEGRATIONS_PROVIDER` and
+`OPEN_CONNECTOR_ENABLED` variables no longer select or enable the adapter.
 
 The backend derives `connectionName = "u_" + first 16 hex of SHA-256(userId)` and
 uses it for every connection operation and execution. OAuth opens the upstream

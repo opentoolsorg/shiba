@@ -1,10 +1,10 @@
 # Contributing to Shiba
 
-Thank you for helping make Shiba a credible **open-source, self-hostable** coding agent. This file is the entry point; the detailed guide lives in the docs site.
+Thank you for helping build Shiba, an **open-source, self-hostable** workspace for AI employees. This file is the entry point; the detailed guide lives in the docs site.
 
 ## Before you open a PR
 
-1. Read **`spec/GOAL.md`** (product contract) and **`ARCHITECTURE.md`** / **`ARCHITECTURE-AS-BUILT.md`** for security invariants — especially: **no credentials in containers**, **human approval before execution**.
+1. Read the [product contract](docs/product/ai-employees.md) and the [security and authority model](docs/architecture/security-model.md), especially **no credentials in containers** and **human approval before execution**.
 2. Run the repository gate from the root:
 
    ```sh

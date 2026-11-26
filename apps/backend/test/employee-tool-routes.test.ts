@@ -7,7 +7,7 @@ const integrations = vi.hoisted(() => ({
   searchActions: vi.fn(async () => [{ id: "github.create_issue", service: "github", name: "Create issue" }]),
   executeTool: vi.fn(async () => ({ ok: true, status: "completed", output: { id: 1 } })),
 }));
-vi.mock("../src/integrations/runtime.js", () => ({ getIntegrationProvider: () => ({ id: "openconnector", ...integrations }) }));
+vi.mock("../src/ports/connector/registry.js", () => ({ getIntegrationProvider: () => ({ id: "openconnector", ...integrations }) }));
 const orchestrator = vi.hoisted(() => ({ requests: [] as Request[], sessions: [] as unknown[] }));
 
 vi.mock("../src/request-auth.js", async (importOriginal) => ({

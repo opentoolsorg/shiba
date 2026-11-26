@@ -2,7 +2,7 @@
 
 **Status:** proposal only; no application behavior is implemented by this document.  
 **Researched:** 2026-09-26. Provider capabilities, terms, model IDs, and API shapes must be rechecked immediately before each integration ships.  
-**Product boundary:** `spec/GOAL.md` is authoritative. The deployment is single-tenant and account-owned; this plan does not silently turn it into a multi-tenant SaaS.
+**Product boundary:** See the [product contract](../docs/product/ai-employees.md). This proposal assumes a single-tenant, account-owned installation; it does not propose a multi-tenant SaaS.
 
 ## 1. Decision in one page
 

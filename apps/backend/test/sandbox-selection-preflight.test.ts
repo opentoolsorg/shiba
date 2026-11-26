@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { missingSandboxFeatures } from "@shiba/shared";
 import { resolveSandboxSelection } from "../src/sandbox/selection.js";
-import { resetSandboxProviderCache, resolveSandboxProviderForId } from "../src/sandbox/provider.js";
+import { resetSandboxProviderCache, resolveSandboxProviderForId } from "../src/ports/sandbox/registry.js";
 import { assertSandboxCapabilities, DEFAULT_CODING_RUN_FEATURES } from "../src/sandbox/preflight.js";
 
 describe("sandbox selection precedence", () => {
