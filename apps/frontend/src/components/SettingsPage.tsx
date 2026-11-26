@@ -4,7 +4,6 @@ import {
   useState,
   type ComponentType,
   type JSX,
-  type ReactNode,
 } from "react";
 import {
   ArrowLeft,
@@ -25,7 +24,6 @@ import {
   Search,
   Server,
   ShieldCheck,
-  Sliders,
   Sparkles,
   User,
   Users,
@@ -297,10 +295,7 @@ function PersonalWorkspaceNotice({
   );
 }
 
-interface OverviewAction {
-  label: string;
-  run: () => void;
-}
+type OverviewAction = { label: string } & ({ run: () => void } | { href: string });
 
 interface OverviewCategory {
   id: string;
@@ -340,7 +335,7 @@ function SettingsOverview({
           title: "Workspace",
           description: "Members, invitations and roles for the selected team.",
           icon: Building2,
-          actions: [section("Team", "team")],
+          actions: [section("Team settings", "team")],
         },
       ]
     : [
@@ -376,6 +371,16 @@ function SettingsOverview({
           icon: Plug,
           actions: [section("Review connected apps", "connected-apps")],
         },
+        ...(onNavigate ? [{
+          id: "connections",
+          title: "Connections",
+          description: "GitHub repositories, app connectors, Slack and MCP servers.",
+          icon: Webhook,
+          actions: [
+            ...view("Review connections", "integrations"),
+            { label: "Open MCP servers", href: `${pathForView("integrations")}?tab=mcp` },
+          ],
+        }] : []),
         ...(onNavigate
           ? [
               {
@@ -405,14 +410,20 @@ function SettingsOverview({
           ? [
               {
                 id: "skills",
-                title: "Skills",
-                description: "Review the skills you have saved.",
+                title: "Templates & skills",
+                description: "Reusable agent templates and saved skills available to employees.",
                 icon: Sparkles,
-                actions: view("Open skills", "skills"),
+                actions: [...view("Open agents", "custom-agents"), ...view("Open skills", "skills")],
               },
             ]
           : []),
       ];
+
+  const controlChips: [SettingsPageSectionId, string][] = guarded ? [] : [
+    ["appearance", "Appearance"], ["notifications", "Notifications"], ["api-keys", "API keys"], ["archived", "Archived"], ["environments", "Environments"],
+    ["sandbox", "Sandbox"], ["slack", "Slack"], ["admin", "Admin"], ["deployment", "Deployment"],
+  ];
+  const actionClass = "inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--button)] px-3 text-xs font-semibold text-[var(--fg)] transition-colors hover:bg-[var(--button-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 
   return (
     <div className="flex flex-col gap-6">
@@ -456,17 +467,9 @@ function SettingsOverview({
                     <p className="text-xs leading-relaxed text-[var(--muted-foreground-1)]">{category.note}</p>
                   ) : null}
                   <div className="mt-auto flex flex-wrap gap-2 pt-1">
-                    {category.actions.map((action) => (
-                      <button
-                        key={action.label}
-                        type="button"
-                        onClick={action.run}
-                        className="inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--button)] px-3 text-xs font-semibold text-[var(--fg)] transition-colors hover:bg-[var(--button-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
-                      >
-                        {action.label}
-                        <span aria-hidden="true">→</span>
-                      </button>
-                    ))}
+                    {category.actions.map((action) => "href" in action
+                      ? <a key={action.label} href={action.href} className={actionClass}>{action.label}<span aria-hidden="true">→</span></a>
+                      : <button key={action.label} type="button" onClick={action.run} className={actionClass}>{action.label}<span aria-hidden="true">→</span></button>)}
                   </div>
                 </article>
               </li>
@@ -474,6 +477,19 @@ function SettingsOverview({
           })}
         </ul>
       </section>
+
+      {controlChips.length > 0 ? (
+        <section aria-labelledby="settings-overview-controls" className="flex flex-col gap-3">
+          <h3 id="settings-overview-controls" className="text-sm font-semibold text-[var(--fg)]">Workspace controls</h3>
+          <ul className="m-0 flex list-none flex-wrap gap-2 p-0">
+            {controlChips.map(([id, label]) => (
+              <li key={id}>
+                <button type="button" onClick={() => onSelectSection(id)} className="inline-flex min-h-11 items-center rounded-full border border-[var(--border-1)] bg-[var(--button)] px-3.5 text-xs font-semibold text-[var(--fg)] hover:bg-[var(--button-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]">{label}</button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section
         role="note"
@@ -536,43 +552,6 @@ export function SettingsPage({
   );
 
   const currentLabel = getSectionLabel(activeSection);
-  const guarded = Boolean(onOpenPersonalWorkspace || personalDataBlocked);
-  const sectionAction = (label: string, id: SettingsPageSectionId) => ({ label, onClick: () => handleSectionChange(id) });
-  const viewAction = (label: string, view: AppNavView) => onNavigate ? [{ label, onClick: () => onNavigate(view) }] : [];
-  const overviewActionClass = "inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--button)] px-3 text-xs font-semibold text-[var(--fg)] hover:bg-[var(--button-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
-  const overviewCards: {
-    title: string;
-    description: string;
-    icon: ComponentType<{ className?: string; strokeWidth?: number; "aria-hidden"?: boolean | "true" }>;
-    actions: ({ label: string; onClick: () => void } | { label: string; href: string })[];
-    note?: string;
-  }[] = guarded
-    ? [{ title: "Workspace", description: "Members, invitations and roles for this workspace.", icon: Users, actions: [sectionAction("Team settings", "team")] }]
-    : [
-        { title: "Account", description: "Identity, sign-in methods and active sessions.", icon: User, actions: [sectionAction("Manage account", "account")] },
-        { title: "Repositories", description: "Saved GitHub repositories available to task setup.", icon: GitBranch, actions: [sectionAction("Manage repositories", "repositories")] },
-        {
-          title: "Providers & models",
-          description: "Provider accounts, default provider and per-role model routing.",
-          icon: Cpu,
-          note: providersBlocked ? "Provider setup needs an explicit account grant for invited accounts." : undefined,
-          actions: [...(providersBlocked ? [] : [sectionAction("Review providers", "providers")]), sectionAction("Review model routing", "models")],
-        },
-        { title: "Connected apps", description: "External apps authorized for this deployment.", icon: ShieldCheck, actions: [sectionAction("Review connected apps", "connected-apps")] },
-        ...viewAction("Review connections", "integrations").map((action) => ({
-          title: "Connections", description: "GitHub repositories, app connectors, Slack and MCP servers.", icon: Webhook,
-          actions: [action, { label: "Open MCP servers", href: `${pathForView("integrations")}?tab=mcp` }],
-        })),
-        ...viewAction("Manage employee access", "employee-tools").map((action) => ({ title: "Employee access", description: "Manage scoped tool grants for individual employees.", icon: ShieldCheck, actions: [action] })),
-        { title: "Workspace", description: "Workspace membership and sandbox configuration.", icon: Box, actions: [sectionAction("Team", "team"), sectionAction("Sandbox", "sandbox")] },
-        { title: "Appearance & notifications", description: "Theme and in-app alerts for mentions, replies and approvals.", icon: Palette, actions: [sectionAction("Appearance", "appearance"), sectionAction("Notifications", "notifications")] },
-        ...viewAction("Open agents", "custom-agents").map((action) => ({ title: "Templates & skills", description: "Reusable agent templates and saved skills available to employees.", icon: Zap, actions: [action, ...viewAction("Open skills", "skills")] })),
-      ];
-  const controlChips: [SettingsPageSectionId, string][] = guarded ? [] : [
-    ["appearance", "Appearance"], ["notifications", "Notifications"], ["api-keys", "API keys"], ["archived", "Archived"], ["environments", "Environments"],
-    ["sandbox", "Sandbox"], ["slack", "Slack"], ["admin", "Admin"], ["deployment", "Deployment"],
-  ];
-
   const mainCardContent = (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       {/* 48px standard header row */}
@@ -627,7 +606,7 @@ export function SettingsPage({
       {/* Body content based on section */}
       <div className="flex-1 overflow-y-auto">
         {activeSection === "overview" ? (
-          <div className="max-w-4xl mx-auto p-6 lg:p-8">
+          <div className="mx-auto max-w-6xl p-4 sm:p-6 lg:p-8">
             <SettingsOverview
               guarded={Boolean(onOpenPersonalWorkspace || personalDataBlocked)}
               providersBlocked={providersBlocked}

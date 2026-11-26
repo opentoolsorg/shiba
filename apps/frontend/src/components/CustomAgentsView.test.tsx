@@ -895,7 +895,7 @@ describe("employee directory and hire design", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
     await screen.findByText("Bot created.");
     expect(body?.config).toEqual({
-      name: "Finance Auditor", instructions: "Review approved invoices.", harness: "opencode", roleTemplateId: "finance",
+      name: "Finance Auditor", instructions: "Review approved invoices.", harness: "opencode", roleTemplateId: "finance", department: "finance",
       codingModel: "gpt-review", connectionId: "conn-1", defaultRepoUrl: "https://github.com/example/books", expectedDeliverables: ["reports/a.md", "reports/b.md"],
     });
     expect(body?.config).not.toHaveProperty("access");

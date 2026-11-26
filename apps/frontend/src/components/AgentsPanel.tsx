@@ -6,6 +6,7 @@ import { EMPLOYEE_TEMPLATES, employeeRole, employeeRoleLabel } from "../employee
 import { AgentAvatar } from "./AgentAvatar";
 import { AgentThreadList, agentRunState, type ThreadRunState } from "./AgentThreadList";
 import type { CustomAgentWire } from "./CustomAgentsView";
+import { statusLabel } from "../ui-helpers";
 import type { SessionItem } from "./SessionsSidebar";
 import { ContextPanel, PanelGroup, PanelIconButton, PanelNavItem, type Scope } from "./ui/ContextPanel";
 
@@ -36,7 +37,9 @@ export interface AgentsPanelProps {
   onSelect: (id: string) => void;
   agents?: CustomAgentWire[];
   threads?: WebThread[];
+  threadsLoading?: boolean;
   runs?: SessionItem[];
+  onLoadMoreRuns?: () => void;
   /** Live run state per thread id (e.g. the streaming session); overrides session metadata. */
   threadStates?: Record<string, ThreadRunState>;
   onNewThread?: (agentId?: string) => void;
@@ -46,9 +49,6 @@ export interface AgentsPanelProps {
   onSelectRun?: (id: string) => void;
   onNewChat?: () => void;
   onSearchAll?: () => void;
-  onLoadMoreRuns?: () => void;
-  threadsLoading?: boolean;
-  revealMatches?: boolean;
   onSelectAgent?: (id: string) => void;
   /** Opens this bot's page with its own panel, instead of leaving for the roster. */
   onOpenAgent?: (id?: string) => void;
@@ -71,7 +71,7 @@ interface AgentRow {
 }
 
 const rowAction =
-  "flex size-7 shrink-0 items-center justify-center rounded text-[var(--muted-foreground-2)] hover:bg-[var(--card-hover)] hover:text-[var(--fg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]";
+  "flex size-11 shrink-0 items-center justify-center rounded text-[var(--muted-foreground-2)] hover:bg-[var(--card-hover)] hover:text-[var(--fg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]";
 
 /** Secondary panel for Agents: the default chief of staff plus every custom agent, each with its threads. */
 export function AgentsPanel({
@@ -81,17 +81,16 @@ export function AgentsPanel({
   onSelect,
   agents = [],
   threads = [],
-  runs = [],
+  threadsLoading = false,
   threadStates,
   onNewThread,
-  onLoadMoreRuns,
-  newThreadDisabledReason,
-  onSelectThread,
+  runs = [],
   onSelectRun,
   onNewChat,
   onSearchAll,
-  threadsLoading = false,
-  revealMatches = false,
+  onLoadMoreRuns,
+  newThreadDisabledReason,
+  onSelectThread,
   onSelectAgent,
   onOpenAgent,
   onNewAgent,
@@ -170,11 +169,19 @@ export function AgentsPanel({
     (row.agent?.slug.toLowerCase().includes(query) ?? false);
   const matchingThreads = (row: AgentRow) =>
     query ? row.threads.filter((thread) => thread.name.toLowerCase().includes(query)) : row.threads;
-  const matchingRows = [defaultRow, ...customRows].filter((row) => matchesIdentity(row) || matchingThreads(row).length > 0);
+  const unknownEmployeeIds = new Set(orphanThreads.map(threadAgentId).filter((id) => id !== ""));
+  const unavailableRows: AgentRow[] = [...unknownEmployeeIds].map((id) => ({
+    id: `unavailable:${id}`,
+    name: "Unavailable employee",
+    subtitle: "This employee is archived, deleted, or not available to your account",
+    threads: orphanThreads.filter((thread) => threadAgentId(thread) === id).sort(byRecent),
+  }));
+  const matchingRows = [defaultRow, ...customRows, ...unavailableRows].filter((row) => matchesIdentity(row) || matchingThreads(row).length > 0);
   const rows = [
     ...matchingRows.filter((row) => row.id === DEFAULT_AGENT_ID),
+    ...matchingRows.filter((row) => row.id.startsWith("unavailable:")),
     ...matchingRows.filter((row) => row.agent && pinned.includes(row.id)),
-    ...matchingRows.filter((row) => row.id !== DEFAULT_AGENT_ID && !(row.agent && pinned.includes(row.id))),
+    ...matchingRows.filter((row) => row.id !== DEFAULT_AGENT_ID && !row.id.startsWith("unavailable:") && !(row.agent && pinned.includes(row.id))),
   ];
   const sortedRuns = [...runs].sort((a, b) => b.updatedAt - a.updatedAt);
   const recentRuns = sortedRuns.slice(0, 8);
@@ -213,9 +220,11 @@ export function AgentsPanel({
           <Search className="size-4" strokeWidth={1.75} aria-hidden="true" />
         )}
       </PanelIconButton>
-      <PanelIconButton label="New employee" onClick={onNewAgent}>
-        <Plus className="size-4" strokeWidth={1.75} aria-hidden="true" />
-      </PanelIconButton>
+      {onNewAgent ? (
+        <PanelIconButton label="Hire employee" onClick={onNewAgent}>
+          <Plus className="size-4" strokeWidth={1.75} aria-hidden="true" />
+        </PanelIconButton>
+      ) : null}
     </>
   );
 
@@ -274,7 +283,7 @@ export function AgentsPanel({
             No matching employees
           </p>
         ) : null}
-        <ul className="flex flex-col gap-0.5" aria-label="Agents">
+        <ul className="flex flex-col gap-0.5" aria-label="Employees">
           {rows.map((row, index) => {
             const isDefault = row.id === DEFAULT_AGENT_ID;
             const role = row.agent ? employeeRole(row.agent.slug, row.agent.config.roleTemplateId) : null;
@@ -286,18 +295,21 @@ export function AgentsPanel({
               : null;
             const showPinnedHeading = isPinned && !rows.slice(0, index).some((candidate) => candidate.agent && pinned.includes(candidate.id));
             const showRoleHeading = !isPinned && role !== null && role !== previousRole;
+            const showChiefHeading = isDefault;
             const identityMatches = matchesIdentity(row);
             const threadMatches = matchingThreads(row);
-            const isExpanded = expanded[row.id] ?? (
+            const revealMatches = Boolean(query) && threadMatches.length > 0;
+            const isExpanded = revealMatches || (expanded[row.id] ?? (
               isDefault ||
               row.threads.some((thread) => thread.id === active) ||
               (Boolean(query) && row.threads.length > 0)
-            );
+            ));
             const visibleThreads = query && !identityMatches ? threadMatches : row.threads;
             const status = agentRunState(row.threads, threadStates);
             const threadsId = `${listId}-${row.id}`;
             return (
               <li key={row.id} className="flex flex-col">
+                {showChiefHeading ? <h3 className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground-2)]">Chief of Staff</h3> : null}
                 {showPinnedHeading ? <h3 className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground-2)]">Pinned</h3> : null}
                 {showRoleHeading ? <h3 className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground-2)]">{employeeRoleLabel(role)}</h3> : null}
                 <div
@@ -419,7 +431,7 @@ export function AgentsPanel({
             );
           })}
         </ul>
-        {runs.length > 0 ? (
+        {visibleRuns.length > 0 ? (
           <PanelGroup label="Recent runs">
             {visibleRuns.map((run) => (
               <PanelNavItem
@@ -428,9 +440,10 @@ export function AgentsPanel({
                 label={run.title || "Untitled run"}
                 active={active === run.id}
                 onClick={() => onSelectRun?.(run.id)}
-                trailing={<span className="shrink-0 text-[10px] text-[var(--muted-foreground-2)]">{run.status}</span>}
+                trailing={<span className="shrink-0 text-[10px] text-[var(--muted-foreground-2)]">{statusLabel(run.status)}</span>}
               />
             ))}
+            {onLoadMoreRuns ? <button type="button" onClick={onLoadMoreRuns} className="min-h-9 px-2 text-left text-xs text-[var(--primary)] hover:underline">Open all runs →</button> : null}
           </PanelGroup>
         ) : null}
       </div>

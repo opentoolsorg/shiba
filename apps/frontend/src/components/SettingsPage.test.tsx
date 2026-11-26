@@ -279,7 +279,7 @@ describe("Settings overview", () => {
     }
     expect(screen.queryByText(/plugin|marketplace|purchase|install/i)).toBeNull();
     const note = screen.getByRole("note", { name: "Approval boundary" });
-    expect(note.textContent).toMatch(/Read grants allow only scoped reads you select/);
+    expect(note.textContent).toMatch(/Read grants allow only the scoped\s+reads you select/);
     fireEvent.click(screen.getByRole("button", { name: "Manage employee access" }));
     expect(onNavigate).toHaveBeenCalledWith("employee-tools");
     fireEvent.click(screen.getByRole("button", { name: "Review connected apps" }));
@@ -345,10 +345,11 @@ describe("SettingsPage overview", () => {
     "Repositories",
     "Providers & models",
     "Connected apps",
+    "Connections",
     "Employee access",
     "Workspace",
     "Appearance & notifications",
-    "Skills",
+    "Templates & skills",
   ];
 
   it("renders the overview heading, one card per supported area, and the approval boundary without requesting data", () => {
@@ -383,7 +384,7 @@ describe("SettingsPage overview", () => {
   ])("the %s action opens the %s section", (label, sectionId) => {
     const onSectionChange = vi.fn();
     render(<SettingsPage section="overview" onSectionChange={onSectionChange} onNavigate={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: label }));
+    fireEvent.click(within(screen.getByRole("region", { name: "Settings categories" })).getByRole("button", { name: label }));
     expect(onSectionChange).toHaveBeenCalledExactlyOnceWith(sectionId);
   });
 
@@ -400,14 +401,14 @@ describe("SettingsPage overview", () => {
 
     render(<SettingsPage section="overview" />);
     expect(screen.queryByRole("heading", { name: "Employee access" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Skills" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Templates & skills" })).toBeNull();
     expect(screen.getByRole("heading", { name: "Account" })).toBeTruthy();
   });
 
   it("is the uncontrolled default and navigates in place to a real section", () => {
     render(<SettingsPage />);
     expect(screen.getByRole("heading", { name: "Settings overview" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "Settings categories" })).getByRole("button", { name: "Appearance" }));
     expect(screen.queryByRole("heading", { name: "Settings overview" })).toBeNull();
     expect(screen.getByRole("radiogroup", { name: "Theme" })).toBeTruthy();
     expect(screen.getByRole("navigation", { name: "Breadcrumb" }).textContent).toContain("Appearance");
@@ -440,7 +441,7 @@ describe("SettingsPage overview", () => {
     }
     expect(screen.getByRole("note", { name: "Approval boundary" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Team" }));
+    fireEvent.click(screen.getByRole("button", { name: "Team settings" }));
     expect(onSectionChange).toHaveBeenCalledExactlyOnceWith("team");
     fireEvent.click(screen.getByRole("button", { name: "Switch to personal workspace" }));
     expect(onOpenPersonalWorkspace).toHaveBeenCalledOnce();
