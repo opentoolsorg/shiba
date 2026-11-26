@@ -60,6 +60,8 @@ jobs:
       # sandbox SDK's top-level schemas -> "Class is not a constructor").
       - name: Verify the Worker boots and serves the dashboard locally
         run: pnpm selfhost:smoke
+      - name: Verify invited teammate review of a private research brief
+        run: node --test apps/backend/test/acceptance/research-room-fixture.test.mjs
       - run: pnpm docs:check
       # Marketing page and SEO assertions run against the generated site.
       # SEO tests skip in the earlier unit step when dist does not exist.
