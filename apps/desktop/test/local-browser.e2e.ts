@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron } from "playwright-core";
 import { afterAll, beforeAll, expect, test } from "vitest";
+import { nativeWindowAvailability } from "../src/local-browser-policy.js";
 
 let fixture: Server;
 let otherOrigin: Server;
@@ -177,7 +178,14 @@ test("local browser requires local consent, pauses for takeover, and revokes on 
     await localBrowser.getByRole("button", { name: "Approve and open" }).click();
     await expect.poll(() => localBrowser.locator("#state-pill").textContent()).toBe("Approved");
     await expect.poll(() => siteBridgeChecks.length).toBe(2);
-    await expect.poll(() => localBrowser.locator("#native-status").textContent()).toContain("Native window control is unavailable");
+    const { DISPLAY, WAYLAND_DISPLAY, XDG_SESSION_TYPE } = process.env;
+    const { reason } = nativeWindowAvailability({
+      platform: process.platform,
+      display: DISPLAY,
+      waylandDisplay: WAYLAND_DISPLAY,
+      sessionType: XDG_SESSION_TYPE,
+    });
+    await expect.poll(() => localBrowser.locator("#native-status").textContent()).toBe(reason);
   } finally {
     await app.close();
   }
