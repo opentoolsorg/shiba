@@ -373,7 +373,7 @@ const DEFAULT_VIEW: MainView = "tasks";
  * normalizeSettingsSection validates the requested section against the settings nav.
  */
 function settingsSectionFromSearch(search: string): string {
-  return normalizeSettingsSection(new URLSearchParams(search).get("section") ?? "overview");
+  return normalizeSettingsSection(new URLSearchParams(search).get("section") || "overview");
 }
 /** Views that work inside a team workspace; every other view is personal-only. */
 /** Views that render their own MainCard, so the shell must not add a second one. */
@@ -548,11 +548,8 @@ export function App(): React.JSX.Element {
   const [automationDraft, setAutomationDraft] = useState<{ prompt: string; repoUrl: string } | null>(null);
   const [automationList, setAutomationList] = useState<AutomationRecord[]>([]);
   // Settings is a full page; the section lives in ?section= and "Back to app" returns to the previous view.
-  const [settingsSection, setSettingsSection] = useState<string>(() => {
-    if (typeof window === "undefined") return "overview";
-    const section = new URLSearchParams(window.location.search).get("section");
-    return section ? normalizeSettingsSection(section) : "overview";
-  });
+  const [settingsSection, setSettingsSection] = useState<string>(() =>
+    settingsSectionFromSearch(typeof window === "undefined" ? "" : window.location.search));
   const previousViewRef = useRef<MainView>(DEFAULT_VIEW);
   const clearRoomIntentRef = useRef<() => void>(() => {});
   const [analyticsRunId, setAnalyticsRunId] = useState<string | null>(() =>
@@ -935,7 +932,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setAnalyticsRunId(view === "analytics" ? new URLSearchParams(window.location.search).get(ANALYTICS_RUN_PARAM) : null);
       setMainView(view ?? DEFAULT_VIEW);
       if (view === "analytics") return;
-      if (view === "settings") setSettingsSection(normalizeSettingsSection(new URLSearchParams(window.location.search).get("section")));
+      if (view === "settings") setSettingsSection(settingsSectionFromSearch(window.location.search));
       if (readRoomLink(window.location.search) !== null) return;
       const linked = readThreadLink(window.location.search);
       // A dead link — deleted, or never ours to open — restores the default
@@ -3374,7 +3371,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         onSelect={(id) => { if (id === "employee-tools" || id === "swarm" || id === "tasks") openView(id); }}
         agents={signedIn && workspaceAuthorityReady && !teamDirectory.error ? customAgentRecords : []}
         threads={visibleWebSessions}
+        threadsLoading={mainView === "threads" && threadsLoading}
         runs={mainView === "threads" ? sessions.filter((session) => !session.webSession) : []}
+        onLoadMoreRuns={mainView === "threads" ? () => openView("work") : undefined}
         // Only the open thread has a live stream; the rest fall back to stored session metadata.
         threadStates={{ [selectedSessionId]: chat.isStreaming || chat.status === "streaming" || chat.status === "submitted" ? "working" : pendingApprovals.length > 0 ? "waiting" : "idle" }}
         ownerName={orchestratorName ?? undefined}
@@ -3383,24 +3382,24 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         error={customAgentsError}
         onSelectAgent={(id) => {
           if (mainView === "threads") {
-            const latest = visibleWebSessions
-              .filter((thread) => threadAgentId(thread) === id)
-              .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+            const latest = agentThreads(visibleWebSessions, id)[0];
+            // A click resumes; it never creates. An employee with no thread opens its own
+            // empty page, where Start a thread is an explicit action.
             if (latest) void handleSelectSession(latest.id);
-            else void startSidebarAgentThread(customAgentRecords.find((profile) => profile.id === id));
+            else openBotPanel(id);
             return;
           }
           setInitialEmployeeId(id);
           openView("custom-agents");
         }}
-        onOpenAgent={openBotPanel}
+        onOpenAgent={mainView === "threads" ? undefined : openBotPanel}
         onSelectThread={(id) => { void handleSelectSession(id); openView("threads"); }}
-        onSelectRun={(id) => { void handleSelectSession(id); }}
+        onSelectRun={openRunInAnalytics}
         onNewThread={(agentId) => { void startSidebarAgentThread(customAgentRecords.find((profile) => profile.id === agentId)); }}
         onNewChat={mainView === "threads" ? () => { void handleNewTask(); } : undefined}
         onSearchAll={mainView === "threads" ? () => setCommandMenuOpen(true) : undefined}
         newThreadDisabledReason={taskCreationBlocker ?? undefined}
-        onNewAgent={() => openView("custom-agents")}
+        onNewAgent={mainView === "custom-agents" ? undefined : () => openView("custom-agents")}
       />
     );
   } else if (mainView === "collaboration" || mainView === "threads") {
@@ -3408,7 +3407,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       <ChatsPanel
         {...panelProps}
         active={selectedRunId ?? selectedSessionId}
-        onSelect={(id) => { void handleSelectSession(id); openView("threads"); }}
+        onSelect={(id) => { openView("threads"); void handleSelectSession(id); }}
         showWorkspaceGroups={false}
         loading={privateData && threadsLoading}
         sessions={privateData ? sessions : []}

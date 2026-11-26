@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WebThread } from "../agent-threads";
 import { AgentsPanel } from "./AgentsPanel";
@@ -88,13 +88,13 @@ describe("AgentsPanel", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "Agents" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Search agents" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Employees" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Search employees" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "New chat" }));
     expect(onNewChat).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Search all" }));
     expect(onSearchAll).toHaveBeenCalledOnce();
-    const newBtn = screen.getByRole("button", { name: "New employee" });
+    const newBtn = screen.getByRole("button", { name: "Hire employee" });
     expect(newBtn).toBeTruthy();
     fireEvent.click(newBtn);
     expect(onNewAgent).toHaveBeenCalledOnce();
@@ -247,6 +247,7 @@ describe("AgentsPanel", () => {
 
   it("keeps the selected older run available and sorts recent runs by update time", () => {
     const onSelectRun = vi.fn();
+    const onLoadMoreRuns = vi.fn();
     const runs = Array.from({ length: 10 }, (_, index) => ({
       id: `run-${index}`,
       title: index === 0 ? "Older selected run" : `Run ${index}`,
@@ -261,18 +262,23 @@ describe("AgentsPanel", () => {
         active="run-0"
         onSelect={vi.fn()}
         onSelectRun={onSelectRun}
+        onLoadMoreRuns={onLoadMoreRuns}
         runs={runs}
         agents={mockAgents}
         threads={mockThreads}
       />,
     );
     const recent = screen.getByRole("region", { name: "Recent runs" });
-    const titles = [...recent.querySelectorAll("button:not([aria-expanded])")].map((button) => button.textContent ?? "");
-    expect(titles).toHaveLength(10);
-    expect(titles[0]).toContain("Run 9");
-    expect(titles[9]).toContain("Older selected run");
-    fireEvent.click(screen.getByRole("button", { name: /Older selected run/ }));
+    const allRuns = within(recent).getByRole("button", { name: /Open all runs/ });
+    const olderRun = within(recent).getByRole("button", { name: /Older selected run/ });
+    const runButtons = within(recent).getAllByRole("button").filter((button) => button !== allRuns && !button.hasAttribute("aria-expanded"));
+    expect(runButtons).toHaveLength(8);
+    expect(runButtons[0]).toBe(olderRun);
+    expect(runButtons[1]?.textContent).toContain("Run 9");
+    fireEvent.click(olderRun);
     expect(onSelectRun).toHaveBeenCalledWith("run-0");
+    fireEvent.click(allRuns);
+    expect(onLoadMoreRuns).toHaveBeenCalledOnce();
   });
 
   it("expands agent threads and selects a thread", () => {
@@ -311,6 +317,20 @@ describe("AgentsPanel", () => {
     expect(screen.queryByText("Competitor analysis")).toBeNull();
   });
 
+  it("shows a loading state instead of an empty Shiba thread while sessions load", () => {
+    render(
+      <AgentsPanel
+        scope="personal"
+        onScopeChange={vi.fn()}
+        active="default"
+        onSelect={vi.fn()}
+        threadsLoading
+      />,
+    );
+    expect(screen.getByRole("status").textContent).toContain("Loading threads");
+    expect(screen.queryByRole("group", { name: "Shiba threads" })).toBeNull();
+  });
+
   it("searches employee names and thread titles without hiding matching conversations", () => {
     render(
       <AgentsPanel
@@ -322,8 +342,8 @@ describe("AgentsPanel", () => {
         threads={mockThreads}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Search agents" }));
-    const search = screen.getByRole("searchbox", { name: "Filter agents" });
+    fireEvent.click(screen.getByRole("button", { name: "Search employees" }));
+    const search = screen.getByRole("searchbox", { name: "Filter employees" });
     fireEvent.change(search, { target: { value: "research" } });
     expect(screen.getByText("Literature review")).toBeTruthy();
     expect(screen.getByText("Competitor analysis")).toBeTruthy();
@@ -332,36 +352,6 @@ describe("AgentsPanel", () => {
     fireEvent.change(search, { target: { value: "Tech debt" } });
     expect(screen.getByText("Tech debt review")).toBeTruthy();
     expect(screen.queryByText("Literature review")).toBeNull();
-  });
-
-  it("shows the newest runs and keeps the selected older run reachable", () => {
-    const onSelectRun = vi.fn();
-    const runs = Array.from({ length: 10 }, (_, index) => ({
-      id: `run-${index}`,
-      title: index === 0 ? "Older selected run" : `Run ${index}`,
-      repoName: "shiba",
-      status: "completed",
-      updatedAt: index,
-    }));
-    render(
-      <AgentsPanel
-        scope="personal"
-        onScopeChange={vi.fn()}
-        active="run-0"
-        onSelect={vi.fn()}
-        onSelectRun={onSelectRun}
-        runs={runs}
-        agents={mockAgents}
-        threads={mockThreads}
-      />,
-    );
-    const recent = screen.getByRole("region", { name: "Recent runs" });
-    const titles = [...recent.querySelectorAll("button:not([aria-expanded])")].map((button) => button.textContent ?? "");
-    expect(titles).toHaveLength(8);
-    expect(titles[0]).toContain("Older selected run");
-    expect(titles[1]).toContain("Run 9");
-    fireEvent.click(screen.getByRole("button", { name: /Older selected run/ }));
-    expect(onSelectRun).toHaveBeenCalledWith("run-0");
   });
 
   it("always lists the default agent with the default session and unbound threads", () => {
@@ -496,6 +486,28 @@ describe("AgentsPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Close search" }));
     expect(screen.getByText("Research Partner")).toBeTruthy();
+  });
+
+  it("groups archived employee threads without a Shiba new-thread action", () => {
+    const onSelectThread = vi.fn();
+    render(
+      <AgentsPanel
+        scope="personal"
+        onScopeChange={vi.fn()}
+        active=""
+        onSelect={onSelectThread}
+        onSelectThread={onSelectThread}
+        agents={mockAgents}
+        threads={[{ id: "orphan", name: "Archived employee thread", agentName: "web:user:orphan", updatedAt: 500, metadata: { customAgentId: "archived-agent" } }]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Expand Unavailable employee" }));
+    const orphanGroup = screen.getByRole("group", { name: "Unavailable employee threads" });
+    expect(orphanGroup.textContent).toContain("Archived employee thread");
+    expect(screen.queryByRole("button", { name: "New thread with Unavailable employee" })).toBeNull();
+    expect(screen.getByRole("group", { name: "Shiba threads" }).textContent).not.toContain("Archived employee thread");
+    fireEvent.click(screen.getByRole("button", { name: /Archived employee thread/ }));
+    expect(onSelectThread).toHaveBeenCalledWith("orphan");
   });
 
   it("groups employee rows by their existing role template after Shiba", () => {
