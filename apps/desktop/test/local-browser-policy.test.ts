@@ -15,6 +15,9 @@ describe("local browser address policy", () => {
       "data:text/html,secret",
       "https://user:password@example.org/",
       "https://example.org/\n",
+      `https://example.org/${String.fromCharCode(0x00)}`,
+      `https://example.org/${String.fromCharCode(0x1f)}`,
+      `https://example.org/${String.fromCharCode(0x7f)}`,
       `https://example.org/${"x".repeat(2048)}`,
     ]) {
       expect(parseLocalBrowserAddress(value)).toBeNull();

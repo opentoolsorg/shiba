@@ -177,7 +177,9 @@ test("local browser requires local consent, pauses for takeover, and revokes on 
     await localBrowser.getByRole("button", { name: "Approve and open" }).click();
     await expect.poll(() => localBrowser.locator("#state-pill").textContent()).toBe("Approved");
     await expect.poll(() => siteBridgeChecks.length).toBe(2);
-    await expect.poll(() => localBrowser.locator("#native-status").textContent()).toContain("Native window control is unavailable");
+    await expect.poll(() => localBrowser.locator("#native-status").textContent()).toMatch(
+      /Native window control is unavailable on this Linux\/X11 session|no verified OS-scoped native window capture and input provider/,
+    );
   } finally {
     await app.close();
   }

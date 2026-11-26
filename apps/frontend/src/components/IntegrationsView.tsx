@@ -725,11 +725,11 @@ function PersonalIntegrationsView({
         </div>
         {activeTab === "connectors" && !showCapabilityCatalog ? (
           <section aria-labelledby="connection-management-heading" className="mx-4 mt-4 shrink-0 rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)] p-4 shadow-[var(--sh-card)] lg:mx-8">
-            <h3 id="connection-management-heading" className="text-sm font-semibold text-[var(--fg)]">Connection management</h3>
+            <h2 id="connection-management-heading" className="text-sm font-semibold text-[var(--fg)]">Connection management</h2>
             <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-[var(--muted-foreground-2)]">Connection status, account scope, and employee permissions are separate. Connecting an app does not grant any employee access.</p>
-            {onOpenSettings && onNavigate ? (
+            {onNavigate ? (
               <div className="mt-3 flex flex-wrap gap-2">
-                <button type="button" onClick={() => onOpenSettings?.("connected-apps")} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--button)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--button-hover)]">Review app setup</button>
+                <button type="button" onClick={() => onOpenSettings ? onOpenSettings("connected-apps") : onNavigate("settings")} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--button)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--button-hover)]">Review app setup</button>
                 <button type="button" onClick={() => onNavigate("employee-tools")} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--button)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--button-hover)]">Review employee permissions</button>
               </div>
             ) : null}
@@ -912,16 +912,6 @@ function PersonalIntegrationsView({
           ) : null}
           <div className="flex-1 overflow-y-auto p-4 lg:p-8">
             <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-              <section aria-labelledby="connection-management-heading" className="rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)] p-4 shadow-[var(--sh-card)] sm:p-5">
-                <h2 id="connection-management-heading" className="text-base font-semibold text-[var(--fg)]">Connection management</h2>
-                <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-[var(--muted-foreground-2)]">
-                  Connection status, account scope, and employee permissions are separate. Connecting an app does not grant any employee access.
-                </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button type="button" onClick={() => onNavigate?.("settings")} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--card-hover)]">Review app setup</button>
-                  <button type="button" onClick={() => onNavigate?.("employee-tools")} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--card-hover)]">Review employee permissions</button>
-                </div>
-              </section>
               <WorkspaceConnectorsPanel bindingInputs={bindingInputs} actorId={actorId} onManagePermissions={() => onNavigate?.("employee-tools")} onChooseWorkspace={onChooseWorkspace} onChanged={() => setCatalogRefresh((value) => value + 1)} />
             </div>
           </div>

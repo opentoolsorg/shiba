@@ -5,9 +5,17 @@ export interface LocalBrowserAddress {
   origin: string;
 }
 
+export function hasAsciiControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
+
 export function parseLocalBrowserAddress(value: unknown): LocalBrowserAddress | null {
   if (typeof value !== "string" || value.length === 0 || value.length > MAX_LOCAL_URL_CHARS) return null;
-  if (/[\u0000-\u001f\u007f]/.test(value)) return null;
+  if (hasAsciiControlCharacter(value)) return null;
   try {
     const url = new URL(value.trim());
     if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) return null;
