@@ -11,7 +11,7 @@ vi.mock("agents/routing", () => ({ getAgentByName: async () => ({ fetch: async (
 vi.mock("@cloudflare/think", () => ({ Think: class { getTools() { return {}; } } }));
 vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
 vi.mock("../src/agents/specialists/tools.js", () => ({ createSpecialistTools: () => ({}) }));
-vi.mock("../src/integrations/runtime.js", () => ({ getIntegrationProvider: () => ({
+vi.mock("../src/ports/connector/registry.js", () => ({ getIntegrationProvider: () => ({
   id: "openconnector", listConnections: async () => { await provider.list?.(); return [{ id: "connection:owner", providerKey: "github", executionReady: true }]; },
   searchActions: provider.search, executeTool: provider.execute,
 }) }));

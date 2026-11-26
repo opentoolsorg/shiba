@@ -96,6 +96,13 @@ describe("private deterministic founder evidence using real SQLite and auth-meta
     f.accounts[0]!.configured=true;f.metadataBody(" ".repeat(524289));await expect(f.preview()).rejects.toThrow();
     f.metadataBody(JSON.stringify(Array.from({length:201},()=>f.accounts[0])));await expect(f.preview()).rejects.toThrow();
   });
+  it("does not check upstream metadata when the connector adapter is disabled", async () => {
+    const f = await fixture();
+    f.env.CONNECTOR_PROVIDER = "none";
+    f.fetcher.mockClear();
+    await expect(f.preview()).rejects.toThrow("report_connection_metadata_unavailable");
+    expect(f.fetcher).not.toHaveBeenCalled();
+  });
   it("never selects another requester's manager-visible receipts or non-completed work",async()=>{
     const f=await fixture(),foreign=await f.receipt("stripe",{requester:f.admin});
     await expect(previewFounderEvidenceReport(f.env,f.owner,LIBRARY,{...f.input,receipts:[{approvalId:foreign.approvalId,inputHash:foreign.inputHash,resultDigest:foreign.resultDigest}]})).rejects.toThrow("report_receipt_changed");

@@ -12,7 +12,7 @@ import { getSkillInstall } from "../skill-library-store.js";
 import { COLLAB_TENANT_ID } from "../collaboration-store.js";
 import { sha256Hex } from "../agent-tokens.js";
 import { hashToolArgs } from "../mcp-gateway.js";
-import { OpenConnectorIntegrationProvider } from "../integrations/openconnector-provider.js";
+import { createConnectorProvider } from "../ports/connector/registry.js";
 
 const FORMAT = "shiba.founder-evidence.v1";
 const MODE = "local-and-connection-metadata" as const;
@@ -79,8 +79,9 @@ async function connectionAuth(env: Env, member: WorkspaceNativeMember, sources: 
   };
   const boundedEnv = Object.create(env) as Env;
   if (env.OPEN_CONNECTOR) Object.defineProperty(boundedEnv, "OPEN_CONNECTOR", { value: { fetch: transport } });
-  let accounts: Awaited<ReturnType<OpenConnectorIntegrationProvider["listConnections"]>>;
-  try { accounts = await new OpenConnectorIntegrationProvider({ env: boundedEnv, fetchImpl: transport }).listConnections({ userId: member.userId, workspaceId: member.workspaceId }); }
+  const provider = createConnectorProvider(boundedEnv, { fetchImpl: transport });
+  let accounts: Awaited<ReturnType<typeof provider.listConnections>>;
+  try { accounts = await provider.listConnections({ userId: member.userId, workspaceId: member.workspaceId }); }
   catch { throw metadataFailure ?? new WorkspaceIntegrationError("report_connection_metadata_unavailable",503); }
   for (const item of sources) if (accounts.filter((account) => account.id === item.binding.providerConnectionId && account.providerKey === item.binding.providerKey && account.authorizationFingerprint === item.binding.fingerprint && account.executionReady === true).length !== 1)
     throw new WorkspaceIntegrationError("report_connection_authorization_changed", 409);
