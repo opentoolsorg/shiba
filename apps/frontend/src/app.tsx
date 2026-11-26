@@ -40,7 +40,7 @@ import { EmployeeToolPolicyView } from "./components/EmployeeToolPolicyView";
 import { AgentDetailsPanel, BotThreadlessState, EmployeeOnboarding, ONBOARDING_DISMISSED_KEY, createEmployeeAgent, employeeExamples } from "./components/AgentExperience";
 import type { BotRunsScope } from "./components/bot/BotPanel";
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
-import { agentThreads, applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
+import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
 import { saveBotConfig, saveBotDeliverables, type BotConfigEdit } from "./bot-library";
 import { useProjectContexts } from "./project-contexts";
 import { buildExecutionTargetFields, hasComposerInput, parseArtifactDeliverables, type DashboardExecutionTargetFields } from "./execution-target-input";
@@ -888,6 +888,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       // it now would drop the selector the reader just followed. A shared
       // destination has nothing to confirm and drops the stray selector at once.
       if (threadLinkPending && !shared) { urlSynced.current = true; return; }
+      // A resume from Chat must keep the previous entry intact for Back.
+      if (botPage === "pending" && !shared && !viewChanged) return;
       // Query state belongs to the view that set it, so a view change starts
       // clean — except when the browser itself restored the query.
       const kept = traversing || first || !viewChanged ? window.location.search : "";
@@ -3373,22 +3375,17 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         threads={visibleWebSessions}
         threadsLoading={mainView === "threads" && threadsLoading}
         runs={mainView === "threads" ? sessions.filter((session) => !session.webSession) : []}
-        onLoadMoreRuns={mainView === "threads" ? () => openView("work") : undefined}
+        onLoadMoreRuns={mainView === "threads" ? () => {
+          setWorkViewMode("list");
+          openView("work");
+        } : undefined}
         // Only the open thread has a live stream; the rest fall back to stored session metadata.
         threadStates={{ [selectedSessionId]: chat.isStreaming || chat.status === "streaming" || chat.status === "submitted" ? "working" : pendingApprovals.length > 0 ? "waiting" : "idle" }}
         ownerName={orchestratorName ?? undefined}
         workspaceName={teamWorkspace?.name}
         loading={customAgentsLoading}
         error={customAgentsError}
-        onSelectAgent={(id) => {
-          if (mainView === "threads") {
-            const latest = agentThreads(visibleWebSessions, id)[0];
-            // A click resumes; it never creates. An employee with no thread opens its own
-            // empty page, where Start a thread is an explicit action.
-            if (latest) void handleSelectSession(latest.id);
-            else openBotPanel(id);
-            return;
-          }
+        onSelectAgent={mainView === "threads" ? openBotPanel : (id) => {
           setInitialEmployeeId(id);
           openView("custom-agents");
         }}

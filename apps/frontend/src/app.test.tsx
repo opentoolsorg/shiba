@@ -296,6 +296,31 @@ describe("app Work and Threads routing", () => {
     expect(fetch).not.toHaveBeenCalledWith("/api/runs", expect.objectContaining({ method: "POST" }));
   });
 
+  it("opens the runs list from Chat after visiting the Work organization chart", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const originalFetch = fetch;
+    const run = {
+      runId: "recent-run", task: "Review the workspace report", status: "completed",
+      repoUrl: "", sandboxId: "fixture-sandbox", baseBranch: "main", publishPullRequest: false,
+      generation: 1, createdAt: 1, updatedAt: 2,
+    };
+    vi.stubGlobal("fetch", vi.fn((url: string | URL | Request, options?: RequestInit) =>
+      String(url).startsWith("/api/runs")
+        ? Promise.resolve(Response.json({ runs: [run] }))
+        : originalFetch(url, options)));
+    render(<App />);
+
+    const views = await screen.findByRole("group", { name: "Work views" });
+    fireEvent.click(within(views).getByRole("button", { name: "Organization" }));
+    await screen.findByRole("region", { name: "Organization view" });
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+    const recent = await screen.findByRole("region", { name: "Recent runs" });
+    fireEvent.click(within(recent).getByRole("button", { name: /Open all runs/ }));
+
+    expect(await within(await screen.findByRole("region", { name: "List view" })).findByText(run.task)).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Organization view" })).toBeNull();
+  });
+
   it.each([false, true])("opens Analytics focused on the selected Recent run (setup guide open: %s)", async (openSetup) => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", "/threads/");
@@ -2050,7 +2075,7 @@ describe("bot page without a thread", () => {
     expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
   });
 
-  it("stays inert while a bot's thread opens and never sends the previous draft", async () => {
+  it.each(["roster", "Chat sidebar"])("opens bot details from the %s without leaving the previous composer live", async (source) => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
     mocks.chat.messages = [];
@@ -2064,8 +2089,22 @@ describe("bot page without a thread", () => {
     render(<App />);
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
 
-    await openBotFromAgentsView(/Engineering bot/);
+    const closeDetails = screen.queryByRole("button", { name: "Close agent details" });
+    if (closeDetails) fireEvent.click(closeDetails);
+    expect(screen.queryByRole("complementary", { name: "Agent details" })).toBeNull();
+    expect(screen.getByTestId("chat-composer")).toBeTruthy();
+
+    if (source === "roster") await openBotFromAgentsView(/Engineering bot/);
+    else {
+      const employees = await screen.findByRole("list", { name: "Employees" });
+      fireEvent.click(within(employees).getByRole("button", { name: employeeRowName("Engineering bot") }));
+    }
+    const details = screen.getByRole("complementary", { name: "Agent details" });
+    expect(within(details).getByRole("heading", { name: "Engineering bot" })).toBeTruthy();
     await screen.findByRole("heading", { name: /Opening Engineering bot/ });
+    if (source === "Chat sidebar") {
+      expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD);
+    }
     expect(screen.queryByTestId("task-composer")).toBeNull();
     expect(screen.queryByTestId("chat-composer")).toBeNull();
     mocks.chat.sendMessage.mockClear();
@@ -2074,6 +2113,11 @@ describe("bot page without a thread", () => {
 
     await act(async () => { release?.(); await held; });
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(ENGINEERING_THREAD));
+    expect(await screen.findByRole("button", { name: "Hide details panel" })).toBeTruthy();
+    if (source === "Chat sidebar") {
+      await act(async () => { window.history.back(); });
+      await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+    }
   });
 
   it("keeps Engineering as the recovery bot when its named thread was removed", async () => {
