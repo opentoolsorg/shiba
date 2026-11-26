@@ -318,19 +318,23 @@ function isArtifactReviewState(review: unknown): review is ArtifactReviewState {
 }
 
 function ArtifactReviewControls({ artifactUrl, workspaceId }: { artifactUrl: string; workspaceId?: string }) {
-  const reviewUrl = `${artifactUrl}/review${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`;
+  const reviewUrl = `${artifactUrl}/review`;
   const [review, setReview] = useState<ArtifactReviewState | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(true);
   const [reviewCurrent, setReviewCurrent] = useState(false);
   const [error, setError] = useState("");
   const load = useCallback(async (signal?: AbortSignal) => {
-    const res = await fetch(reviewUrl, { credentials: "same-origin", signal });
+    const res = await fetch(reviewUrl, {
+      credentials: "same-origin",
+      headers: workspaceId ? { "X-Shiba-Workspace": workspaceId } : undefined,
+      signal,
+    });
     if (!res.ok) throw new Error("Could not load the latest review.");
     const data = (await res.json()) as { review?: ArtifactReviewState } | null;
     if (!isArtifactReviewState(data?.review)) throw new Error("Could not load the latest review.");
     return data.review;
-  }, [reviewUrl]);
+  }, [reviewUrl, workspaceId]);
   useEffect(() => {
     const controller = new AbortController();
     void load(controller.signal).then((latest) => {
@@ -364,7 +368,7 @@ function ArtifactReviewControls({ artifactUrl, workspaceId }: { artifactUrl: str
       const res = await fetch(reviewUrl, {
         method: "POST",
         credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(workspaceId ? { "X-Shiba-Workspace": workspaceId } : {}) },
         body: JSON.stringify({
           status,
           expectedRevision: review.revision,

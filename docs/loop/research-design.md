@@ -48,3 +48,31 @@ uncovered at the cap is recorded as a missing source, never invented.
 A claim is only `supported` when its excerpt literally states it. Two sources
 disagreeing produces two records with `conflict`, never a silently merged
 number.
+
+## Run the local research-room fixture
+
+With the repository's pinned Node and pnpm versions, run from the root:
+
+```sh
+pnpm install --frozen-lockfile
+node --test apps/backend/test/acceptance/research-room-fixture.test.mjs
+```
+
+The test builds the dashboard, initializes a fresh loopback Worker with temporary
+D1 and Durable Object storage, then creates a workspace, two signed-in teammates,
+room citations, and an evidence-to-brief handoff. It seeds only the invited
+reviewer's verified account record directly because local email is disabled;
+workspace invitations, sign-ins, handoffs, results, and review decisions use
+the real APIs. Nothing reuses a database, credentials, or a saved session.
+
+For browser automation, import `startResearchRoomFixture` from
+`apps/backend/test/acceptance/research-room-fixture.mjs`. It returns the
+`roomUrl`, two disposable sign-in identities, and `revise()`, which creates a
+new room handoff after the reviewer requests changes on the first brief. Use
+separate browser profiles and call `stop()` to remove the fixture state.
+The two briefs are distinct immutable handoff artifacts, not in-place edits.
+
+The local adapter returns prewritten Markdown based on the
+[dated evidence](evidence-collection.md); it does not run a model. Live model
+generation and verification email delivery are not covered. The fixture does
+not deploy, publish, or require provider credentials.

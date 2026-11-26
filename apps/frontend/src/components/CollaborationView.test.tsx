@@ -809,6 +809,7 @@ describe("CollaborationView room access polling", () => {
   });
 
   it.each(["lost network response", "conflict"] as const)("reloads the artifact revision before retrying after %s", async (failure) => {
+    const workspaceId = failure === "conflict" ? "ws_123456789012345678901234" : undefined;
     const firstReview = deferredResponse();
     const reads = vi.fn()
       .mockReturnValueOnce(firstReview.promise)
@@ -831,13 +832,17 @@ describe("CollaborationView room access polling", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
-      if (path.endsWith("/artifacts/0/review")) return init?.method === "POST" ? writes(JSON.parse(String(init.body))) : reads();
+      if (path.includes("/artifacts/0/review")) {
+        expect(path).not.toContain("?");
+        expect(new Headers(init?.headers).get("X-Shiba-Workspace")).toBe(workspaceId ?? null);
+        return init?.method === "POST" ? writes(JSON.parse(String(init.body))) : reads();
+      }
       if (path.endsWith("/api/collaboration/rooms")) return jsonResponse({ rooms: [detail.room] });
       if (path.endsWith("/api/collaboration/rooms/room-1")) return jsonResponse(detail);
       return jsonResponse({ agents: [], computers: [] });
     }));
 
-    render(<CollaborationView />);
+    render(<CollaborationView workspaceId={workspaceId} />);
     const approve = await screen.findByRole("button", { name: "Approve revision" });
     expect(approve).toHaveProperty("disabled", true);
     fireEvent.click(approve);
