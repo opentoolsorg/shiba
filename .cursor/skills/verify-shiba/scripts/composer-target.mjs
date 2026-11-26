@@ -41,3 +41,13 @@ export async function openAppView(page, view) {
   await page.getByRole("navigation", { name: `${area} destinations`, exact: true }).filter({ visible: true }).first()
     .getByRole("button", { name: view, exact: true }).click();
 }
+
+export async function openEmployeeThread(page, employeeName, threadName) {
+  const panel = page.getByRole("complementary", { name: "Employees", exact: true });
+  const expand = panel.getByRole("button", { name: `Expand ${employeeName}`, exact: true });
+  const collapse = panel.getByRole("button", { name: `Collapse ${employeeName}`, exact: true });
+  await expand.or(collapse).waitFor({ state: "visible" });
+  if (await expand.isVisible()) await expand.click();
+  await panel.getByRole("group", { name: `${employeeName} threads`, exact: true })
+    .getByRole("button").filter({ has: page.getByText(threadName, { exact: true }) }).click();
+}

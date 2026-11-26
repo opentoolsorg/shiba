@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { chromium } from "playwright";
 import { containersMode, githubMode, readPort, standinMode, waitFor } from "./journey-lib.mjs";
 import { launchLifecycleTarget } from "./lifecycle-target.mjs";
-import { openAppView, selectRepositoryTask } from "./composer-target.mjs";
+import { openAppView, openEmployeeThread, selectRepositoryTask } from "./composer-target.mjs";
 
 assert.equal(process.env.VERIFY_AGENT_LIFECYCLE_MOCK, "1", "Set VERIFY_AGENT_LIFECYCLE_MOCK=1 for the explicitly synthetic execution journey.");
 assert.equal(githubMode(), "mock");
@@ -257,7 +257,7 @@ try {
   const reviewReadPromise = panelResponse("review");
   await page.goto(new URL("/app/", base).href);
   await openAppView(page, "Chats");
-  await page.getByRole("complementary", { name: "Chats", exact: true }).getByRole("region", { name: "Recents", exact: true }).getByRole("button").filter({ hasText: name }).first().click();
+  await openEmployeeThread(page, name, session.name);
   await page.getByTestId("run-agent-version").filter({ hasText: "Bot profile v2" }).first().waitFor();
   const reviewRead = await reviewReadPromise;
   assert.equal(new URL(reviewRead.url()).searchParams.get("session"), sessionId);
