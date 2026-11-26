@@ -43,6 +43,10 @@
   --muted-foreground-2: var(--ink-2);
   --muted-foreground-3: #a1a1aa;
   --icon-muted: #71717a;
+  --knowledge-muted: #71717a;
+  --muted-light: #a1a1aa;
+  --surface-subtle: #f0f0f0;
+  --sidebar-surface: #f5f5f5;
   --text-link: var(--primary);
   --border-1: var(--line);
   --border-2: #e4e4e7;
@@ -1286,3 +1290,14 @@ select:focus-visible,
     border: 0;
   }
 }
+
+.note-writing-surface .ProseMirror > * + * { margin-top: 0.75em; }
+.note-writing-surface h1 { font-size: 2em; font-weight: 700; }
+.note-writing-surface h2 { font-size: 1.5em; font-weight: 600; }
+.note-writing-surface h3 { font-size: 1.25em; font-weight: 600; }
+.note-writing-surface ul { list-style: disc; padding-left: 1.5em; }
+.note-writing-surface ol { list-style: decimal; padding-left: 1.5em; }
+.note-writing-surface blockquote { border-left: 3px solid var(--border-1); padding-left: 1em; }
+.note-writing-surface pre { background: var(--panel); border-radius: 12px; padding: 1em; overflow-x: auto; }
+.note-writing-surface .is-editor-empty:first-child::before { content: attr(data-placeholder); float: left; height: 0; pointer-events: none; color: var(--muted-light); }
+.dark { --knowledge-muted: #a1a1aa; --muted-light: #71717a; --surface-subtle: #27272a; --sidebar-surface: #18181b; }

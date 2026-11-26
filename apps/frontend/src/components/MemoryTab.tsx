@@ -2,10 +2,11 @@
  * MemoryTab — Durable agent memory view (banked facts, recorded sessions, workspace sources).
  * Renders inside MainCard with a 48px header row, breadcrumb navigation, and search/sync actions.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
 import { Brain, ChevronRight, History, RefreshCw, Search, X } from "lucide-react";
 import type { MemoryFact, MemorySession } from "../types";
 import { formatTimeAgo } from "../ui-helpers";
+import { MemoriesLoadingState } from "./knowledge/MemoriesLoadingState";
 import type { AppNavView } from "./AppNavRail";
 import { MemorySourcesView } from "./MemorySourcesView";
 import { EmptyState, type Scope } from "./ui/ContextPanel";
@@ -52,6 +53,16 @@ export function filterFactsBySource(facts: MemoryFact[], source: string): Memory
 export function filterFactsByAgent(facts: MemoryFact[], agent: string): MemoryFact[] {
   if (!agent || agent === "all") return facts;
   return facts.filter((f) => f.agent === agent);
+}
+
+function memoryDateLabel(timestamp: number): string {
+  const date = new Date(timestamp);
+  const today = new Date();
+  if (date.toDateString() === today.toDateString()) return "Today";
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+  return date.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
 }
 
 export type MemoryViewMode = "facts" | "sessions" | "sources";
@@ -442,7 +453,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
 
         {/* Facts View */}
         {viewMode === "facts" ? (
-          <section aria-label="Banked Facts" className="flex flex-col gap-3">
+          <section aria-label="Banked Facts" data-testid="memories-list" className="mx-auto flex w-full max-w-3xl flex-col gap-3">
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-semibold uppercase font-mono tracking-wider text-[#71717a] dark:text-zinc-400">
                 {searchActive ? "Recall results" : "Banked Facts"}
@@ -453,13 +464,11 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
             </div>
 
             {loading ? (
-              <div className="flex flex-col items-center justify-center py-10 border border-dashed border-[#e4e4e7] dark:border-zinc-800 rounded-xl text-xs text-[#71717a] dark:text-zinc-400">
-                Loading memory…
-              </div>
+              <MemoriesLoadingState />
             ) : visibleFacts.length === 0 ? (
               <EmptyState
                 icon={Brain}
-                title={searchActive ? `Nothing recalled for "${lastRecallQuery}"` : "No banked facts yet"}
+                title={searchActive ? `Nothing recalled for "${lastRecallQuery}"` : "No memories yet"}
                 description={
                   searchActive
                     ? "Try a different recall query or check your source filters. Saved sources and recorded sessions remain inspectable even when recall finds no match."
@@ -473,87 +482,92 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
               />
             ) : (
               <ol className="flex flex-col gap-2.5">
-                {visibleFacts.map((fact) => {
+                {visibleFacts.map((fact, index) => {
                   const isConfirming = confirmForget === fact.id;
                   const scoreText = formatRecallScore(fact.score);
 
+                  const previous = visibleFacts[index - 1];
+                  const dateLabel = memoryDateLabel(fact.created_at);
                   return (
-                    <li
-                      key={fact.id}
-                      className="border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-3.5 shadow-xs flex flex-col gap-2.5 transition-colors"
-                    >
-                      <pre className="font-sans text-xs text-[#0a0a0a] dark:text-zinc-200 whitespace-pre-wrap break-words leading-relaxed bg-[#fafafa] dark:bg-zinc-800/60 p-2.5 rounded-lg border border-[#e4e4e7] dark:border-zinc-800">
-                        {fact.fact}
-                      </pre>
+                    <Fragment key={fact.id}>
+                      {(!previous || memoryDateLabel(previous.created_at) !== dateLabel) ? (
+                        <li className="mt-3 text-[11px] font-medium text-[var(--muted-foreground-2)]">{dateLabel}</li>
+                      ) : null}
+                      <li
+                        data-testid="memory-row"
+                        className="border border-[var(--border-1)] rounded-xl bg-[var(--card)] px-3 py-3 flex flex-col gap-2 transition-colors"
+                      >
+                        <p className="text-sm text-[var(--fg)] whitespace-pre-wrap break-words leading-relaxed">
+                          {fact.fact}
+                        </p>
 
-                      <div className="flex items-center gap-2 flex-wrap pt-0.5">
-                        <span
-                          className={`text-[10px] font-bold font-mono uppercase tracking-wider border rounded-md px-2 py-0.5 ${sourceChipClass(
-                            fact.source,
-                          )}`}
-                        >
-                          {fact.source}
-                        </span>
-
-                        <span className="text-[10px] font-mono text-[#71717a] dark:text-zinc-400 bg-[#fafafa] dark:bg-zinc-800 border border-[#e4e4e7] dark:border-zinc-700 px-1.5 py-0.5 rounded-md">
-                          @{fact.agent}
-                        </span>
-
-                        <time
-                          dateTime={new Date(fact.created_at).toISOString()}
-                          title={new Date(fact.created_at).toLocaleString()}
-                          className="text-[10px] font-mono text-[#71717a] dark:text-zinc-400"
-                        >
-                          {formatTimeAgo(fact.created_at)}
-                        </time>
-
-                        {scoreText !== "" ? (
+                        <div className="flex items-center gap-2 flex-wrap pt-0.5">
                           <span
-                            className="text-[10px] font-mono text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-900 px-2 py-0.5 rounded-md font-semibold"
-                            title={`Relevance score: ${scoreText}`}
+                            className="text-[10px] border border-[var(--border-1)] bg-[var(--surface-subtle)] text-[var(--muted-foreground-2)] rounded-full px-2 py-0.5"
                           >
-                            Score {scoreText}
+                            {fact.source}
                           </span>
-                        ) : null}
 
-                        <span className="flex-1 min-w-[8px]" />
+                          <span className="text-[10px] text-[var(--muted-foreground-2)] bg-[var(--surface-subtle)] border border-[var(--border-1)] px-2 py-0.5 rounded-full">
+                            @{fact.agent}
+                          </span>
 
-                        {!isConfirming ? (
-                          <button
-                            type="button"
-                            className={BUTTON}
-                            onClick={() => setConfirmForget(fact.id)}
-                            aria-label={`Forget fact ${fact.id}`}
+                          <time
+                            dateTime={new Date(fact.created_at).toISOString()}
+                            title={new Date(fact.created_at).toLocaleString()}
+                            className="text-[10px] font-mono text-[#71717a] dark:text-zinc-400"
                           >
-                            Forget
-                          </button>
-                        ) : null}
-                      </div>
+                            {formatTimeAgo(fact.created_at)}
+                          </time>
 
-                      {/* Explicit Two-Step Confirmation Prompt */}
-                      {isConfirming ? (
-                        <div className="mt-1 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-lg p-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-xs text-rose-800 dark:text-rose-300">
-                          <span>Permanently forget this fact? This cannot be undone.</span>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <button
-                              type="button"
-                              className={DANGER}
-                              disabled={forgetBusy === fact.id}
-                              onClick={() => void forgetFact(fact.id)}
+                          {scoreText !== "" ? (
+                            <span
+                              className="text-[10px] font-mono text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-900 px-2 py-0.5 rounded-md font-semibold"
+                              title={`Relevance score: ${scoreText}`}
                             >
-                              {forgetBusy === fact.id ? "Forgetting…" : "Confirm forget"}
-                            </button>
+                              Score {scoreText}
+                            </span>
+                          ) : null}
+
+                          <span className="flex-1 min-w-[8px]" />
+
+                          {!isConfirming ? (
                             <button
                               type="button"
                               className={BUTTON}
-                              onClick={() => setConfirmForget(null)}
+                              onClick={() => setConfirmForget(fact.id)}
+                              aria-label={`Forget fact ${fact.id}`}
                             >
-                              Keep
+                              Forget
                             </button>
-                          </div>
+                          ) : null}
                         </div>
-                      ) : null}
-                    </li>
+
+                        {/* Explicit Two-Step Confirmation Prompt */}
+                        {isConfirming ? (
+                          <div className="mt-1 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-lg p-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-xs text-rose-800 dark:text-rose-300">
+                            <span>Permanently forget this fact? This cannot be undone.</span>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                className={DANGER}
+                                disabled={forgetBusy === fact.id}
+                                onClick={() => void forgetFact(fact.id)}
+                              >
+                                {forgetBusy === fact.id ? "Forgetting…" : "Confirm forget"}
+                              </button>
+                              <button
+                                type="button"
+                                className={BUTTON}
+                                onClick={() => setConfirmForget(null)}
+                              >
+                                Keep
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </li>
+                    </Fragment>
                   );
                 })}
               </ol>
@@ -573,7 +587,7 @@ export function MemoryTab(props: MemoryTabProps): JSX.Element {
               </span>
             </div>
 
-            {!loading && visibleSessions.length === 0 ? (
+            {loading ? <MemoriesLoadingState /> : visibleSessions.length === 0 ? (
               <EmptyState
                 icon={History}
                 title="No sessions recorded yet"
