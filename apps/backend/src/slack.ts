@@ -83,7 +83,8 @@ export async function postSlackMessageWithReceipt(
     text: string;
     blocks?: unknown[];
     clientMsgId?: string;
-    persona?: SlackPersonaRole;
+    /** False leaves the Slack app's own username and icon in place. */
+    persona?: SlackPersonaRole | false;
     native?: Record<string, unknown>;
   },
   fetchImpl: typeof fetch = fetch,
@@ -101,7 +102,7 @@ export async function postSlackMessageWithReceipt(
       ...(input.threadTs ? { thread_ts: input.threadTs } : {}),
       ...(input.clientMsgId ? { client_msg_id: input.clientMsgId } : {}),
       text: input.text,
-      ...slackAgentPersona(input.persona),
+      ...(input.persona === false ? {} : slackAgentPersona(input.persona)),
       ...(input.blocks ? { blocks: input.blocks } : {}),
     }),
   });
