@@ -29,7 +29,7 @@ import { parseDeepLink } from "./deep-link.js";
 import { createIpcBounds } from "./ipc-guard.js";
 import { createDashboardTrust, createLocalBrowserTrust, createSetupTrust } from "./ipc-trust.js";
 import { LOCAL_BROWSER_CHANNELS } from "./local-browser-contract.js";
-import { hasAsciiControlCharacter, nativeWindowAvailability, parseLocalBrowserAddress } from "./local-browser-policy.js";
+import { nativeWindowAvailability, parseLocalBrowserAddress } from "./local-browser-policy.js";
 import { createLocalControlBoundary } from "./local-control.js";
 import { HOSTED_ORIGIN, dashboardPath, resolveConfiguredOrigin } from "./launch.js";
 import type { Logger } from "./logs.js";
@@ -405,7 +405,7 @@ async function navigateLocalBrowser(rawUrl: unknown): Promise<{ ok: boolean; err
 
 async function clickLocalBrowserButton(rawLabel: unknown): Promise<{ ok: boolean; clicked?: boolean; error?: string }> {
   const label = typeof rawLabel === "string" ? rawLabel.trim() : "";
-  if (label.length === 0 || label.length > 100 || hasAsciiControlCharacter(label)) {
+  if (label.length === 0 || label.length > 100 || /[\u0000-\u001f\u007f]/.test(label)) {
     return { ok: false, error: "Enter an exact visible button label (up to 100 characters)." };
   }
   const state = localControl.getState();

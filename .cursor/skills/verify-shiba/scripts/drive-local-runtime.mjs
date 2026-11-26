@@ -20,7 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {chromium} from 'playwright';
 import {launchLifecycleTarget} from './lifecycle-target.mjs';
-import {openAppView,openEmployeeThreads,selectRepositoryTask} from './composer-target.mjs';
+import {openAppView,openEmployeeThread,selectRepositoryTask} from './composer-target.mjs';
 import {fixtureAuthRequest} from './run-employee-ci.mjs';
 const exec=promisify(execFile);
 const origin=process.env.VERIFY_LOCAL_WORKER_URL??'http://localhost:8794';
@@ -163,8 +163,7 @@ await assertThreadProfile();
 passed('Launch bot opens a real bound conversation');
 async function reopenThread(){
   await openAppView(page, "Chats");
-  const threads=await openEmployeeThreads(page,config.name);
-  await threads.getByRole('button').filter({hasText:config.name}).first().click();
+  await openEmployeeThread(page,config.name,session.name);
   await assertThreadProfile();
 }
 async function queue(task){

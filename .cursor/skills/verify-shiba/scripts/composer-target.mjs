@@ -18,16 +18,6 @@ export async function selectRepositoryTask(page) {
 
 const setupNudgeHandled = new WeakSet();
 
-export async function openEmployeeThreads(page, employee) {
-  const panel = page.getByRole("complementary", { name: "Employees", exact: true });
-  const expand = panel.getByRole("button", { name: `Expand ${employee}`, exact: true });
-  const threads = panel.getByRole("group", { name: `${employee} threads`, exact: true });
-  await expand.or(threads).waitFor({ state: "visible" });
-  if (await expand.isVisible()) await expand.click();
-  await threads.waitFor({ state: "visible" });
-  return threads;
-}
-
 /** Follow the desktop rail and contextual panels used by the shared dashboard. */
 export async function openAppView(page, view) {
   const inspectorClose = page.getByRole("button", { name: "Close task", exact: true });
