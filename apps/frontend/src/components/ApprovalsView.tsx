@@ -24,6 +24,9 @@ export interface ApprovalsViewProps {
   reviewAfterPublishById?: Record<string, boolean>;
   /** Exact Work receipt URL for this approval; the queue itself has no selection key. */
   onOpenInWork?: (approval: StoredApproval) => void;
+  /** Open a run's diff or evidence from a publication snapshot; links hide when absent. */
+  onInspectRunDiff?: (runId: string) => void;
+  onOpenRunEvidence?: (runId: string) => void;
   /** Poll the live session only when this page is active. */
   liveHarness?: boolean;
   scope?: Scope;
@@ -51,6 +54,8 @@ export function ApprovalsView({
   onRefresh,
   reviewAfterPublishById,
   onOpenInWork,
+  onInspectRunDiff,
+  onOpenRunEvidence,
   liveHarness = false,
   scope = "personal",
   sidebarCollapsed = false,
@@ -82,6 +87,9 @@ export function ApprovalsView({
 
   const visiblePending = pendingApprovals.filter(matches);
   const visibleStored = storedApprovals.filter(matches);
+  // Publication snapshots get their own section below, so the main queue skips them.
+  const queueStored = visibleStored.filter((approval) => approval.kind !== "pr_publish");
+  const publicationStored = visibleStored.filter((approval) => approval.kind === "pr_publish");
   const scopeLabel = scope === "workspace" ? "Workspace" : "Personal";
 
   return (
@@ -194,6 +202,10 @@ export function ApprovalsView({
                   <p className="py-12 text-center text-sm text-[#71717a] dark:text-zinc-400">
                     No matching approvals
                   </p>
+                ) : visiblePending.length + queueStored.length === 0 ? (
+                  <p className="py-12 text-center text-sm text-[#71717a] dark:text-zinc-400">
+                    Only publication approvals are waiting. Review them under Publication review below.
+                  </p>
                 ) : (
                   <div className="flex flex-col divide-y divide-[#e4e4e7] border-y border-[#e4e4e7] dark:divide-zinc-800 dark:border-zinc-800">
                     {visiblePending.map((approval) => (
@@ -207,7 +219,7 @@ export function ApprovalsView({
                         reviewAfterPublish={reviewAfterPublishById?.[approval.approvalId]}
                       />
                     ))}
-                    {visibleStored.map((approval) => (
+                    {queueStored.map((approval) => (
                       <div key={approval.approvalId}>
                         {onOpenInWork ? (
                           <div className="flex justify-end px-4 pt-2">
@@ -231,6 +243,24 @@ export function ApprovalsView({
               </div>
             </details>
           </section>
+
+          {publicationStored.length > 0 ? (
+            <section aria-label="Publication review" className="rounded-xl border border-[#e4e4e7] bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+              <h2 className="mb-3 text-sm font-medium">Publication review</h2>
+              {publicationStored.map((approval) => (
+                <div key={approval.approvalId}>
+                  {onOpenInWork ? (
+                    <div className="flex justify-end px-4 pt-2">
+                      <button type="button" className={workLinkClass} onClick={() => onOpenInWork(approval)}>
+                        Open in Work
+                      </button>
+                    </div>
+                  ) : null}
+                  <StoredApprovalCard approval={approval} decided={storedDecisions[approval.approvalId] !== undefined} decision={storedDecisions[approval.approvalId]} onDecide={onDecideStoredApproval} onInspectDiff={onInspectRunDiff} onOpenEvidence={onOpenRunEvidence} />
+                </div>
+              ))}
+            </section>
+          ) : null}
 
           {decidedStoredApprovals.length > 0 ? (
             <section aria-labelledby="recent-outcomes-heading" className="rounded-xl border border-[#e4e4e7] bg-white dark:border-zinc-800 dark:bg-zinc-900/40 p-4">

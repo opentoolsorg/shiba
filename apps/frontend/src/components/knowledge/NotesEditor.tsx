@@ -3,6 +3,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { knowledgeNoteSchema, type KnowledgeNote, type KnowledgeScope } from "@shiba/shared";
+import type { AppNavView } from "../AppNavRail";
 import { LoadErrorState } from "../LoadErrorState";
 import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 import { toast } from "sonner";
@@ -39,26 +40,30 @@ function editorMarkdown(editor: NonNullable<ReturnType<typeof useEditor>>): stri
   return `${lines.join("\n")}\n`;
 }
 
-export function NotesEditor({ workspaceId = null }: { workspaceId?: string | null }): JSX.Element {
+export function NotesEditor({ workspaceId = null, onNavigate }: { workspaceId?: string | null; onNavigate?: (view: AppNavView) => void }): JSX.Element {
   const [scope, setScope] = useState<KnowledgeScope>("personal");
   const [notes, setNotes] = useState<KnowledgeNote[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [title, setTitle] = useState("Untitled");
-  const [version, setVersion] = useState(1);
-  const activeVersionRef = useRef(version);
-  activeVersionRef.current = version;
+  const [title, setTitleState] = useState("Untitled");
+  const draftTitle = useRef(title);
+  const setTitle = useCallback((value: string) => {
+    draftTitle.current = value;
+    setTitleState(value);
+  }, []);
+  const activeVersionRef = useRef(1);
   const [bodyLoading, setBodyLoading] = useState(false);
   const [menu, setMenu] = useState<typeof SLASH_COMMANDS[number] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
-  const saving = useRef(false);
+  const saving = useRef<Promise<boolean> | null>(null);
+  const [openingMemory, setOpeningMemory] = useState(false);
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
   const bodyReady = useRef(false);
   const [bodyRevision, setBodyRevision] = useState(0);
   const dirty = useRef(false);
   const draftRevision = useRef(0);
-  const persistRef = useRef<(ed: NonNullable<ReturnType<typeof useEditor>>) => Promise<void>>(async () => {});
+  const persistRef = useRef<(ed: NonNullable<ReturnType<typeof useEditor>>) => Promise<boolean>>(async () => false);
   const eventRevision = useRef(0);
   const pendingIdsRef = useRef(new Set<string>());
   const context = `${workspaceId}:${scope}`;
@@ -82,7 +87,7 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
       if (!activeId) return;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => {
-        void persist(ed);
+        void persistRef.current(ed);
       }, 600);
     },
   });
@@ -105,9 +110,9 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
     const selected = loaded.find((note) => note.id === activeIdRef.current);
     if (selected && !dirty.current && !pendingIdsRef.current.has(selected.id) && selected.version > activeVersionRef.current) {
       activeVersionRef.current = selected.version;
-      setTitle(selected.title); setVersion(selected.version); setBodyRevision((value) => value + 1);
+      setTitle(selected.title); setBodyRevision((value) => value + 1);
     }
-  }, [scope, workspaceId, context]);
+  }, [scope, workspaceId, context, setTitle]);
 
   useEffect(() => { void loadNotes().catch((err: unknown) => setError(err instanceof Error ? err.message : "Notes failed to load.")); }, [loadNotes]);
 
@@ -123,7 +128,7 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
         const note = parsed.success ? parsed.data : undefined;
         if (note?.scope === scope && note.workspaceId === workspaceId && note.id === event.entityId && note.version > activeVersionRef.current) {
           activeVersionRef.current = note.version;
-          setTitle(note.title); setVersion(note.version); setBodyRevision((value) => value + 1);
+          setTitle(note.title); setBodyRevision((value) => value + 1);
         }
       }
     },
@@ -170,40 +175,74 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
     });
   }
 
-  async function persist(ed: NonNullable<typeof editor>) {
-    if (!activeId || !bodyReady.current || !dirty.current || activeId.startsWith("pending:") || saving.current) return;
+  async function persist(ed: NonNullable<typeof editor>): Promise<boolean> {
+    if (saving.current) return saving.current;
+    if (!dirty.current) return true;
+    if (!activeId || !bodyReady.current || activeId.startsWith("pending:")) return false;
     const id = activeId;
-    const previous = notes.find((note) => note.id === id);
-    const markdown = editorMarkdown(ed);
-    const savedRevision = draftRevision.current;
-    saving.current = true;
-    pending(id, true);
-    const saved = await optimisticMutation({
-      apply: () => setNotes((current) => current.map((note) => note.id === id ? { ...note, title, updatedAt: Date.now() } : note)),
-      commit: async () => {
-        const response = await fetch(`/api/notes/${encodeURIComponent(id)}`, {
-          method: "PATCH", credentials: "same-origin", headers: { ...teamWorkspaceHeaders(workspaceId ?? undefined), "Content-Type": "application/json" },
-          body: JSON.stringify({ title, markdown, expectedVersion: version }),
+    const stillEditing = () => activeIdRef.current === id && contextRef.current === context && !ed.isDestroyed;
+    async function saveDraft() {
+      let previous = notes.find((note) => note.id === id);
+      while (stillEditing() && dirty.current) {
+        const title = draftTitle.current;
+        const markdown = editorMarkdown(ed);
+        const savedRevision = draftRevision.current;
+        const expectedVersion = activeVersionRef.current;
+        const beforeSave = previous;
+        const saved = await optimisticMutation({
+          apply: () => setNotes((current) => current.map((note) => note.id === id ? { ...note, title, updatedAt: Date.now() } : note)),
+          commit: async () => {
+            const response = await fetch(`/api/notes/${encodeURIComponent(id)}`, {
+              method: "PATCH", credentials: "same-origin", headers: { ...teamWorkspaceHeaders(workspaceId ?? undefined), "Content-Type": "application/json" },
+              body: JSON.stringify({ title, markdown, expectedVersion }),
+            });
+            const body = await response.json() as { note?: KnowledgeNote; error?: string };
+            if (!response.ok || !body.note) throw new Error(body.error ?? "Autosave failed.");
+            return body.note;
+          },
+          reconcile: (note) => {
+            if (contextRef.current !== context) return;
+            if (stillEditing()) {
+              activeVersionRef.current = note.version;
+              if (draftRevision.current === savedRevision) dirty.current = false;
+            }
+            setNotes((current) => current.map((item) => item.id === id ? note : item));
+          },
+          rollback: () => {
+            if (beforeSave && contextRef.current === context) setNotes((current) => current.map((note) => note.id === id ? beforeSave : note));
+          },
+          onError: () => toast.error("Note could not be saved. Your draft is still in the editor."),
         });
-        const body = await response.json() as { note?: KnowledgeNote; error?: string };
-        if (!response.ok || !body.note) throw new Error(body.error ?? "Autosave failed.");
-        return body.note;
-      },
-      reconcile: (note) => {
-        if (contextRef.current !== context) return;
-        if (activeIdRef.current === id) { setVersion(note.version); if (draftRevision.current === savedRevision) dirty.current = false; }
-        setNotes((current) => current.map((item) => item.id === id ? note : item));
-      },
-      rollback: () => {
-        if (previous) setNotes((current) => current.map((note) => note.id === id ? previous : note));
-      },
-      onError: () => toast.error("Note could not be saved. Your draft is still in the editor."),
+        if (!saved) return false;
+        previous = saved;
+      }
+      return stillEditing() && !dirty.current;
+    }
+    pending(id, true);
+    saving.current = saveDraft().finally(() => {
+      pending(id, false);
+      saving.current = null;
     });
-    pending(id, false);
-    saving.current = false;
-    if (saved && dirty.current && activeIdRef.current === id) saveTimer.current = setTimeout(() => void persistRef.current(ed), 600);
+    return saving.current;
   }
   persistRef.current = persist;
+
+  async function openMemory() {
+    if (!onNavigate || openingMemory) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    if (!dirty.current && !saving.current) { onNavigate("memory"); return; }
+    if (!editor) return;
+    setOpeningMemory(true);
+    try {
+      do {
+        if (!await persistRef.current(editor)) return;
+        if (activeIdRef.current !== activeId || contextRef.current !== context || editor.isDestroyed) return;
+      } while (dirty.current);
+      onNavigate("memory");
+    } finally {
+      setOpeningMemory(false);
+    }
+  }
 
   async function createNote() {
     const id = `pending:${crypto.randomUUID()}`;
@@ -227,7 +266,7 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
       reconcile: (note) => {
         if (contextRef.current !== context) return;
         setNotes((current) => [note, ...current.filter((item) => item.id !== id && item.id !== note.id)]);
-        setActiveId(note.id); setTitle(note.title); setVersion(note.version);
+        setActiveId(note.id); setTitle(note.title); activeVersionRef.current = note.version;
         editor?.commands.setContent("<p></p>");
       },
       rollback: () => setNotes((current) => current.filter((note) => note.id !== id)),
@@ -265,7 +304,10 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
           <ul className="space-y-1 text-sm">
             {notes.map((note) => (
               <li key={note.id} className={pendingIds.has(note.id) ? "opacity-60" : undefined} aria-busy={pendingIds.has(note.id)}>
-                <button type="button" disabled={note.id.startsWith("pending:")} className={`w-full truncate rounded px-2 py-1 text-left ${activeId === note.id ? "bg-[var(--panel)]" : ""}`} onClick={() => { setActiveId(note.id); setTitle(note.title); setVersion(note.version); }}>
+                <button type="button" disabled={note.id.startsWith("pending:")} className={`w-full truncate rounded px-2 py-1 text-left ${activeId === note.id ? "bg-[var(--panel)]" : ""}`} onClick={() => {
+                  if (note.id === activeId) return;
+                  setActiveId(note.id); setTitle(note.title); activeVersionRef.current = note.version;
+                }}>
                   {note.title}
                 </button>
               </li>
@@ -284,6 +326,12 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
           </div>
         ) : null}
         <EditorContent editor={editor} className="prose prose-sm max-w-none min-h-[18rem] text-[var(--fg)] [&_.ProseMirror]:min-h-[18rem] [&_.ProseMirror]:outline-none" />
+        {onNavigate ? (
+          <p className="mt-3 border-t border-[var(--border-1)] pt-3 text-xs text-[var(--muted-foreground-2)]">
+            Notes are not memory until you add them as a source.{" "}
+            <button type="button" disabled={openingMemory} className="font-medium text-[var(--fg)] underline underline-offset-2" onClick={() => void openMemory()}>Save reviewed text as a memory source</button>
+          </p>
+        ) : null}
       </section>
       {activeId ? <NoteChatPanel key={`${workspaceId}:${scope}:${activeId}`} noteId={activeId} notes={notes} scope={scope} workspaceId={workspaceId} disabled={bodyLoading || !editor} getDraftBody={() => (editor ? editorMarkdown(editor).slice(0, 24000) : "")} onAdd={(text) => {
         if (!editor || !bodyReady.current) return;

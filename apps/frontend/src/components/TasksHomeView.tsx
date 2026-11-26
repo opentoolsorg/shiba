@@ -38,6 +38,7 @@ export interface TasksHomeBuckets {
   needsYou: TasksHomeItem[];
   working: TasksHomeItem[];
   waiting: TasksHomeItem[];
+  recentlyAnswered: TasksHomeItem[];
 }
 
 function runProgressLabel(run: RetainedRun): string | undefined {
@@ -64,7 +65,7 @@ export function buildTasksHomeBuckets(
   chatApprovals: ChatPendingApproval[] = [],
   questions: TasksHomeQuestion[] = [],
 ): TasksHomeBuckets {
-  const buckets: TasksHomeBuckets = { needsYou: [], working: [], waiting: [] };
+  const buckets: TasksHomeBuckets = { needsYou: [], working: [], waiting: [], recentlyAnswered: [] };
   const pendingApprovals = approvals.filter((approval) => approval.status === "pending");
   const approvalIds = new Set<string>();
 
@@ -134,7 +135,7 @@ export function buildTasksHomeBuckets(
     } else if (run.status === "pending") {
       buckets.waiting.push({ ...base, bucket: "waiting", status: "Queued", progressText: run.summary?.trim() || "Waiting to start" });
     } else if (run.status === "completed") {
-      buckets.needsYou.push({ ...base, bucket: "needs-you", status: "Answered" });
+      buckets.recentlyAnswered.push({ ...base, bucket: "waiting", status: "Answered" });
     } else {
       buckets.needsYou.push({
         ...base,
@@ -597,12 +598,12 @@ export function TasksHomeView({
         <SuggestionCards items={suggestions} onDo={doSuggestion} onDismiss={dismissSuggestion} />
 
         <div role="group" className="mt-10 grid grid-cols-1 md:grid-cols-3 gap-4" aria-label="Task queues">
-          <div className="space-y-3">
-            {setup.state.kind === "data" && route.runTarget !== "local" ? <ModelRouteCard modelRoute={setup.state.data.modelRoute} onConnect={onOpenProviders} /> : null}
-            <TaskQueue title="Needs you" items={buckets.needsYou} emptyText="Nothing waiting for review." onOpenRun={onOpenRun} onOpenApproval={onOpenApproval} />
-          </div>
+          <TaskQueue title="Needs you" items={buckets.needsYou} emptyText="Nothing waiting for review." onOpenRun={onOpenRun} onOpenApproval={onOpenApproval} />
           <TaskQueue title="Working" items={buckets.working} emptyText="No agents currently running." onOpenRun={onOpenRun} onOpenApproval={onOpenApproval} />
-          <TaskQueue title="Waiting" items={buckets.waiting} emptyText="No tasks in queue." onOpenRun={onOpenRun} onOpenApproval={onOpenApproval} />
+          <div className="space-y-3">
+            <TaskQueue title="Waiting" items={buckets.waiting} emptyText="No tasks in queue." onOpenRun={onOpenRun} onOpenApproval={onOpenApproval} />
+            <TaskQueue title="Recently answered" items={buckets.recentlyAnswered} emptyText="No completed runs yet." onOpenRun={onOpenRun} onOpenApproval={onOpenApproval} />
+          </div>
         </div>
       </div>
     </main>

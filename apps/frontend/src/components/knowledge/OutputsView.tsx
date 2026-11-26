@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useState, type JSX, type FormEvent } from "react";
 import { Download, FileArchive, FileText, MessageSquare, PanelsTopLeft } from "lucide-react";
+import type { AppNavView } from "../AppNavRail";
 import { DocumentActions, isDocumentArtifactId, type GeneratedDocument } from "../GeneratedDocumentCard";
 import { LoadErrorState } from "../LoadErrorState";
 import { MainCard } from "../ui/ContextPanel";
@@ -20,7 +21,7 @@ interface MediaOptions { imageModels: Array<{ id: string; label: string; support
 const modeLabels: Record<string, string> = { "text-to-image": "Created from a description", "text-to-video": "Created from a description", "image-to-video": "Animated from an image", "reference-to-video": "Made with reference images", "motion-control": "Motion copied from a video", "video-editing": "Edited from a video" };
 const shapeLabels: Record<string, string> = { "1:1": "Square", "16:9": "Wide", "9:16": "Tall", "4:3": "Landscape", "3:4": "Portrait" };
 
-export function OutputsView(): JSX.Element {
+export function OutputsView({ onNavigate }: { onNavigate?: (view: AppNavView) => void } = {}): JSX.Element {
   const [items, setItems] = useState<OutputItem[] | null>(null);
   const [filter, setFilter] = useState<"" | "archive" | "image" | "video" | "document">("");
   const [revision, refresh] = useReducer((n: number) => n + 1, 0);
@@ -84,6 +85,14 @@ export function OutputsView(): JSX.Element {
         <header className="mb-3">
           <h1 className="text-lg font-medium">Outputs</h1>
           <p className="text-sm text-[var(--muted-foreground-2)]">Run deliverables, generated media, and documents from your workspace.</p>
+          <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">
+            A saved output is not proof that every check passed. Inspect the run result, commands, and exit status before approving publication.
+            {onNavigate ? <>{" "}
+              <button type="button" className="font-medium text-[var(--fg)] underline underline-offset-2" onClick={() => onNavigate("approvals")}>Review approvals</button>
+              {" · "}
+              <button type="button" className="font-medium text-[var(--fg)] underline underline-offset-2" onClick={() => onNavigate("diff")}>Open pull requests</button>
+            </> : null}
+          </p>
         </header>
         {!!options?.imageModels.length && <form onSubmit={(event) => void createImage(event)} className="mb-6 space-y-3 border border-[var(--border-1)] p-4">
           <h2 className="font-medium">Create an image</h2>

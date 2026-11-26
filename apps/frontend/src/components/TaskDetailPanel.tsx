@@ -17,6 +17,7 @@ import type { WorkTaskPatch } from "../work-mutations";
 import { AgentAvatar } from "./AgentAvatar";
 import { TaskActivity } from "./TaskActivity";
 import { TaskDetailSections } from "./TaskDetailSections";
+import { viewButtonClass } from "./ui/ViewChrome";
 
 export interface TaskDetailAgent {
   id: string;
@@ -35,6 +36,10 @@ export interface TaskDetailPanelProps {
   onComment?(text: string): void;
   onArchive(): void;
   onClose(): void;
+  /** Opens the approval review. The panel never approves or rejects inline. */
+  onReviewDecision?(): void;
+  /** Opens the room conversation that owns this task. */
+  onOpenConversation?(): void;
 }
 
 type StatusValue = TeamWorkItem["status"];
@@ -113,6 +118,8 @@ export function TaskDetailPanel({
   onComment,
   onArchive,
   onClose,
+  onReviewDecision,
+  onOpenConversation,
 }: TaskDetailPanelProps): JSX.Element {
   const [title, setTitle] = useState(task.title);
   const pending = useRef<{
@@ -377,6 +384,22 @@ export function TaskDetailPanel({
           </PropertyRow>
         </div>
 
+        {task.status === "needs-approval" && task.approvalRequired ? (
+          <section aria-labelledby={id("decision")} className="mt-6 rounded-lg border border-[var(--border-1)] bg-[var(--section)] p-3 text-[13px]">
+            <h3 id={id("decision")} className="font-medium">
+              {task.viewerCanApprove ? "Waiting for your decision" : "Waiting for approval"}
+            </h3>
+            <p className="mt-1 text-[var(--muted-foreground-2)]">
+              The proposed input is frozen for review and no sandbox has started. Changes to the request need a fresh approval.
+            </p>
+            {task.viewerCanApprove && onReviewDecision ? (
+              <button type="button" onClick={onReviewDecision} className={`${viewButtonClass} mt-2`}>
+                Review exact request
+              </button>
+            ) : null}
+          </section>
+        ) : null}
+
         <div className="mt-6 flex flex-col gap-6">
           <TaskDetailSections task={task} onChange={onChange} tasks={tasks} />
           <TaskActivity
@@ -384,6 +407,11 @@ export function TaskDetailPanel({
             onComment={(text) => onComment?.(text)}
             actorNames={Object.fromEntries(agents.map((agent) => [agent.id, agent.name]))}
           />
+          {task.roomId && onOpenConversation ? (
+            <button type="button" onClick={onOpenConversation} className={`${viewButtonClass} w-fit`}>
+              Open linked conversation
+            </button>
+          ) : null}
         </div>
       </div>
     </aside>

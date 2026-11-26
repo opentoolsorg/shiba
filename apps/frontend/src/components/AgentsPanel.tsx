@@ -46,12 +46,13 @@ export interface AgentsPanelProps {
   onSelectRun?: (id: string) => void;
   onNewChat?: () => void;
   onSearchAll?: () => void;
+  onLoadMoreRuns?: () => void;
+  threadsLoading?: boolean;
+  revealMatches?: boolean;
   onSelectAgent?: (id: string) => void;
   /** Opens this bot's page with its own panel, instead of leaving for the roster. */
   onOpenAgent?: (id?: string) => void;
   onNewAgent?: () => void;
-  /** Opens the agent catalog from the empty state; falls back to onNewAgent. */
-  onOpenCatalog?: () => void;
   ownerName?: string;
   workspaceName?: string;
   /** The bot registry is still loading; rows appear as placeholders rather than an empty Shiba row. */
@@ -83,11 +84,14 @@ export function AgentsPanel({
   runs = [],
   threadStates,
   onNewThread,
+  onLoadMoreRuns,
   newThreadDisabledReason,
   onSelectThread,
   onSelectRun,
   onNewChat,
   onSearchAll,
+  threadsLoading = false,
+  revealMatches = false,
   onSelectAgent,
   onOpenAgent,
   onNewAgent,
@@ -114,9 +118,12 @@ export function AgentsPanel({
   };
 
   const knownAgentIds = new Set(agents.map((agent) => agent.id));
-  // Unbound and orphaned sessions belong to the default agent; "default" always exists server-side.
-  const defaultThreads = threads.filter((thread) => !knownAgentIds.has(threadAgentId(thread)));
-  if (!defaultThreads.some((thread) => thread.id === "default")) {
+  const orphanThreads = loading ? [] : threads.filter((thread) => {
+    const agentId = threadAgentId(thread);
+    return agentId !== "" && !knownAgentIds.has(agentId);
+  });
+  const defaultThreads = threads.filter((thread) => !threadAgentId(thread));
+  if (!threadsLoading && !defaultThreads.some((thread) => thread.id === "default")) {
     defaultThreads.push({ id: "default", name: "Default session", agentName: "", updatedAt: 0 });
   }
   const byRecent = (a: WebThread, b: WebThread) => b.updatedAt - a.updatedAt;
@@ -194,7 +201,7 @@ export function AgentsPanel({
         </PanelIconButton>
       ) : null}
       <PanelIconButton
-        label={searchOpen ? "Close search" : "Search agents"}
+        label={searchOpen ? "Close search" : "Search employees"}
         onClick={() => {
           setSearchOpen((prev) => !prev);
           if (searchOpen) setSearchQuery("");
@@ -214,7 +221,7 @@ export function AgentsPanel({
 
   return (
     <ContextPanel
-      title="Agents"
+      title="Employees"
       actions={actions}
       scope={scope}
       onScopeChange={onScopeChange}
@@ -231,8 +238,8 @@ export function AgentsPanel({
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search agents…"
-              aria-label="Filter agents"
+              placeholder="Search employees…"
+              aria-label="Filter employees"
               // biome-ignore lint/a11y/noAutofocus: field is revealed by an explicit user action
               autoFocus
               className="h-9 w-full rounded-md border border-[var(--border-1)] bg-[var(--input)] pl-7 pr-2 text-[12px] text-[var(--fg)] placeholder:text-[var(--muted-foreground-2)] focus:border-[var(--ring)] focus:outline-none"
@@ -242,8 +249,9 @@ export function AgentsPanel({
       ) : null}
 
       <div className="flex flex-1 flex-col overflow-y-auto">
+        {threadsLoading ? <p role="status" aria-live="polite" className="px-2 py-2 text-xs text-[var(--muted-foreground-2)]">Loading threads…</p> : null}
         {loading && agents.length === 0 ? (
-          <ul aria-label="Loading bots" aria-busy="true" className="flex flex-col gap-1 px-2 py-1">
+          <ul aria-label="Loading employees" aria-busy="true" className="flex flex-col gap-1 px-2 py-1">
             {[0, 1, 2].map((row) => (
               <li key={row} className="flex items-center gap-2.5 py-1.5" aria-hidden="true">
                 <span className="size-7 shrink-0 animate-pulse bg-[#e4e4e7] dark:bg-zinc-800" />
@@ -253,17 +261,17 @@ export function AgentsPanel({
                 </span>
               </li>
             ))}
-            <li className="sr-only">Loading bots…</li>
+            <li className="sr-only">Loading employees…</li>
           </ul>
         ) : null}
         {error && agents.length === 0 ? (
           <p role="alert" className="px-2 py-2 text-[12px] text-[#b91c1c] dark:text-red-400">
-            Bots couldn’t load: {error}
+            Employees couldn’t load: {error}
           </p>
         ) : null}
         {rows.length === 0 && !loading && !error ? (
           <p className="px-2 py-3 text-center text-[12px] text-[#71717a] dark:text-zinc-500">
-            No matching agents
+            No matching employees
           </p>
         ) : null}
         <ul className="flex flex-col gap-0.5" aria-label="Agents">
@@ -303,6 +311,11 @@ export function AgentsPanel({
                     type="button"
                     aria-current={active === row.id ? "page" : undefined}
                     onClick={() => {
+                      if (row.id.startsWith("unavailable:")) {
+                        const latest = row.threads[0];
+                        if (latest) openThread(latest.id);
+                        return;
+                      }
                       if (onOpenAgent) {
                         onOpenAgent(row.agent?.id);
                         onSelect(row.id);
@@ -358,22 +371,25 @@ export function AgentsPanel({
                       />
                     </button>
                   ) : null}
-                  <button
-                    type="button"
-                    aria-label={`New thread with ${row.name}`}
-                    title={newThreadDisabledReason ?? `New thread with ${row.name}`}
-                    disabled={Boolean(newThreadDisabledReason)}
-                    onClick={() => onNewThread?.(row.agent?.id)}
-                    className={`${rowAction} disabled:cursor-not-allowed disabled:opacity-50`}
-                  >
-                    <Plus className="size-3.5" strokeWidth={2} aria-hidden="true" />
-                  </button>
+                  {!row.id.startsWith("unavailable:") ? (
+                    <button
+                      type="button"
+                      aria-label={`New thread with ${row.name}`}
+                      title={newThreadDisabledReason ?? `New thread with ${row.name}`}
+                      disabled={Boolean(newThreadDisabledReason)}
+                      onClick={() => onNewThread?.(row.agent?.id)}
+                      className={`${rowAction} disabled:cursor-not-allowed disabled:opacity-50`}
+                    >
+                      <Plus className="size-3.5" strokeWidth={2} aria-hidden="true" />
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     aria-label={`${isExpanded ? "Collapse" : "Expand"} ${row.name}`}
                     title={`${isExpanded ? "Collapse" : "Expand"} ${row.name}`}
                     aria-expanded={isExpanded}
                     aria-controls={isExpanded ? threadsId : undefined}
+                    disabled={revealMatches}
                     onClick={() => setExpanded((prev) => ({ ...prev, [row.id]: !isExpanded }))}
                     className={rowAction}
                   >
@@ -389,7 +405,7 @@ export function AgentsPanel({
                     />
                   </button>
                 </div>
-                {isExpanded ? (
+                {isExpanded && !threadsLoading ? (
                   <AgentThreadList
                     id={threadsId}
                     agentName={row.name}

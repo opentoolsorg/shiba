@@ -31,7 +31,7 @@ import {
   Users,
   Zap,
 } from "lucide-react";
-import type { AppNavView } from "./AppNavRail";
+import { pathForView, type AppNavView } from "../app-navigation";
 import {
   ContextPanel,
   MainCard,
@@ -110,7 +110,6 @@ export const SETTINGS_PAGE_NAV_GROUPS: SettingsNavGroup[] = [
   {
     heading: "Deployment",
     items: [
-      { id: "experimental", label: "Experimental", blurb: SETTINGS_SECTION_LABELS.experimental.blurb, icon: Sliders },
       { id: "deployment", label: "Deployment", blurb: SETTINGS_SECTION_LABELS.deployment.blurb, icon: ShieldCheck },
     ],
   },
@@ -142,7 +141,7 @@ export function SettingsPanel({
   onScopeChange,
   className = "",
 }: SettingsPanelProps): JSX.Element {
-  const currentActive = active ?? activeSection ?? "account";
+  const currentActive = active ?? activeSection ?? "overview";
   const handleSelect = useCallback(
     (id: string) => {
       onSelect?.(id);
@@ -254,9 +253,13 @@ export interface SettingsPageProps extends Partial<TeamWorkspaceViewProps> {
 
 const SETTINGS_PAGE_SECTION_IDS: readonly string[] = SETTINGS_PAGE_NAV_GROUPS.flatMap((group) => group.items.map((item) => item.id));
 
+/** Experimental flags now live in Deployment; the retired id keeps resolving for old deep links. */
+const canonicalSection = (id: string): string => (id === "experimental" ? "deployment" : id);
+
 /** Returns `id` when it names a known settings section, otherwise "account". */
 export function normalizeSettingsSection(id: string | null | undefined): string {
-  return id && SETTINGS_PAGE_SECTION_IDS.includes(id) ? id : "account";
+  const section = id ? canonicalSection(id) : id;
+  return section && SETTINGS_PAGE_SECTION_IDS.includes(section) ? section : "account";
 }
 
 function getSectionLabel(id: string): string {
@@ -522,7 +525,7 @@ export function SettingsPage({
   className = "",
 }: SettingsPageProps): JSX.Element {
   const [internalSection, setInternalSection] = useState(initialSection);
-  const activeSection = section ?? internalSection;
+  const activeSection = canonicalSection(section ?? internalSection);
 
   const handleSectionChange = useCallback(
     (nextSection: string) => {
@@ -533,6 +536,42 @@ export function SettingsPage({
   );
 
   const currentLabel = getSectionLabel(activeSection);
+  const guarded = Boolean(onOpenPersonalWorkspace || personalDataBlocked);
+  const sectionAction = (label: string, id: SettingsPageSectionId) => ({ label, onClick: () => handleSectionChange(id) });
+  const viewAction = (label: string, view: AppNavView) => onNavigate ? [{ label, onClick: () => onNavigate(view) }] : [];
+  const overviewActionClass = "inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--button)] px-3 text-xs font-semibold text-[var(--fg)] hover:bg-[var(--button-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
+  const overviewCards: {
+    title: string;
+    description: string;
+    icon: ComponentType<{ className?: string; strokeWidth?: number; "aria-hidden"?: boolean | "true" }>;
+    actions: ({ label: string; onClick: () => void } | { label: string; href: string })[];
+    note?: string;
+  }[] = guarded
+    ? [{ title: "Workspace", description: "Members, invitations and roles for this workspace.", icon: Users, actions: [sectionAction("Team settings", "team")] }]
+    : [
+        { title: "Account", description: "Identity, sign-in methods and active sessions.", icon: User, actions: [sectionAction("Manage account", "account")] },
+        { title: "Repositories", description: "Saved GitHub repositories available to task setup.", icon: GitBranch, actions: [sectionAction("Manage repositories", "repositories")] },
+        {
+          title: "Providers & models",
+          description: "Provider accounts, default provider and per-role model routing.",
+          icon: Cpu,
+          note: providersBlocked ? "Provider setup needs an explicit account grant for invited accounts." : undefined,
+          actions: [...(providersBlocked ? [] : [sectionAction("Review providers", "providers")]), sectionAction("Review model routing", "models")],
+        },
+        { title: "Connected apps", description: "External apps authorized for this deployment.", icon: ShieldCheck, actions: [sectionAction("Review connected apps", "connected-apps")] },
+        ...viewAction("Review connections", "integrations").map((action) => ({
+          title: "Connections", description: "GitHub repositories, app connectors, Slack and MCP servers.", icon: Webhook,
+          actions: [action, { label: "Open MCP servers", href: `${pathForView("integrations")}?tab=mcp` }],
+        })),
+        ...viewAction("Manage employee access", "employee-tools").map((action) => ({ title: "Employee access", description: "Manage scoped tool grants for individual employees.", icon: ShieldCheck, actions: [action] })),
+        { title: "Workspace", description: "Workspace membership and sandbox configuration.", icon: Box, actions: [sectionAction("Team", "team"), sectionAction("Sandbox", "sandbox")] },
+        { title: "Appearance & notifications", description: "Theme and in-app alerts for mentions, replies and approvals.", icon: Palette, actions: [sectionAction("Appearance", "appearance"), sectionAction("Notifications", "notifications")] },
+        ...viewAction("Open agents", "custom-agents").map((action) => ({ title: "Templates & skills", description: "Reusable agent templates and saved skills available to employees.", icon: Zap, actions: [action, ...viewAction("Open skills", "skills")] })),
+      ];
+  const controlChips: [SettingsPageSectionId, string][] = guarded ? [] : [
+    ["appearance", "Appearance"], ["notifications", "Notifications"], ["api-keys", "API keys"], ["archived", "Archived"], ["environments", "Environments"],
+    ["sandbox", "Sandbox"], ["slack", "Slack"], ["admin", "Admin"], ["deployment", "Deployment"],
+  ];
 
   const mainCardContent = (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -570,7 +609,7 @@ export function SettingsPage({
           <span className="shrink-0">Section</span>
           <select
             aria-label="Settings section"
-            value={SETTINGS_PAGE_SECTION_IDS.includes(activeSection) ? activeSection : "account"}
+            value={SETTINGS_PAGE_SECTION_IDS.includes(activeSection) ? activeSection : "overview"}
             onChange={(event) => handleSectionChange(event.target.value)}
             className="min-h-11 min-w-0 flex-1 rounded-lg border border-[#e4e4e7] bg-white px-2 text-sm text-[#0a0a0a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
           >
@@ -629,7 +668,7 @@ export function SettingsPage({
         ) : activeSection === "archived" ? (
           <div className="max-w-4xl mx-auto p-6 lg:p-8"><ArchivedSettings workspaceId={workspaceId} /></div>
         ) : activeSection === "admin" ? (
-          <div className="max-w-4xl mx-auto p-6 lg:p-8"><AdminSettings /></div>
+          <div className="max-w-4xl mx-auto p-6 lg:p-8"><AdminSettings onOpenTeam={() => handleSectionChange("team")} /></div>
         ) : (
           <div className="max-w-4xl mx-auto p-6 lg:p-8 flex flex-col gap-6">
             <SettingsSectionBody

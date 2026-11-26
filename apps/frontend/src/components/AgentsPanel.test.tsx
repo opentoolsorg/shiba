@@ -59,6 +59,16 @@ const mockThreads: WebThread[] = [
 ];
 
 describe("AgentsPanel", () => {
+  it("labels the Chief of Staff and groups employees by role", () => {
+    render(<AgentsPanel scope="personal" onScopeChange={vi.fn()} active="" onSelect={vi.fn()} agents={mockAgents} threads={mockThreads} />);
+    const list = screen.getByRole("list", { name: "Employees" });
+    const headings = Array.from(list.querySelectorAll("h3")).map((heading) => heading.textContent);
+    expect(headings).toContain("Chief of Staff");
+    expect(headings).toContain("Research");
+    expect(headings).toContain("Custom");
+    expect(headings[0]).toBe("Chief of Staff");
+  });
+
   it("renders panel title and actions without duplicating the app-wide workspace picker", () => {
     const onScopeChange = vi.fn();
     const onNewAgent = vi.fn();
@@ -194,6 +204,77 @@ describe("AgentsPanel", () => {
     expect(onSelectAgent).toHaveBeenCalledWith("agent-1");
   });
 
+  it("shows thread matches when searching by employee role or thread title", () => {
+    render(
+      <AgentsPanel
+        scope="personal"
+        onScopeChange={vi.fn()}
+        active=""
+        onSelect={vi.fn()}
+        agents={mockAgents}
+        threads={mockThreads}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Search employees" }));
+    const search = screen.getByPlaceholderText("Search employees…");
+    fireEvent.change(search, { target: { value: "Research" } });
+    expect(screen.getByText("Literature review")).toBeTruthy();
+    expect(screen.getByText("Competitor analysis")).toBeTruthy();
+    expect(screen.queryByText("Tech debt review")).toBeNull();
+
+    fireEvent.change(search, { target: { value: "Tech debt" } });
+    expect(screen.getByText("Tech debt review")).toBeTruthy();
+    expect(screen.queryByText("Literature review")).toBeNull();
+  });
+
+  it("reveals a matching thread without overwriting the employee's collapsed state", () => {
+    render(<AgentsPanel scope="personal" onScopeChange={vi.fn()} active="" onSelect={vi.fn()} agents={mockAgents} threads={mockThreads} />);
+    const employee = screen.getByRole("button", { name: /^Expand .*Research/ });
+    fireEvent.click(employee);
+    fireEvent.click(screen.getByRole("button", { name: /^Collapse .*Research/ }));
+    expect(screen.queryByText("Competitor analysis")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Search employees" }));
+    const search = screen.getByPlaceholderText("Search employees…");
+    fireEvent.change(search, { target: { value: "Competitor analysis" } });
+    expect(screen.getByText("Competitor analysis")).toBeTruthy();
+    expect(screen.queryByText("Literature review")).toBeNull();
+
+    fireEvent.change(search, { target: { value: "" } });
+    expect(screen.queryByText("Competitor analysis")).toBeNull();
+    expect(screen.getByRole("button", { name: /^Expand .*Research/ })).toBeTruthy();
+  });
+
+  it("keeps the selected older run available and sorts recent runs by update time", () => {
+    const onSelectRun = vi.fn();
+    const runs = Array.from({ length: 10 }, (_, index) => ({
+      id: `run-${index}`,
+      title: index === 0 ? "Older selected run" : `Run ${index}`,
+      repoName: "shiba",
+      status: "completed",
+      updatedAt: index,
+    }));
+    render(
+      <AgentsPanel
+        scope="personal"
+        onScopeChange={vi.fn()}
+        active="run-0"
+        onSelect={vi.fn()}
+        onSelectRun={onSelectRun}
+        runs={runs}
+        agents={mockAgents}
+        threads={mockThreads}
+      />,
+    );
+    const recent = screen.getByRole("region", { name: "Recent runs" });
+    const titles = [...recent.querySelectorAll("button:not([aria-expanded])")].map((button) => button.textContent ?? "");
+    expect(titles).toHaveLength(10);
+    expect(titles[0]).toContain("Run 9");
+    expect(titles[9]).toContain("Older selected run");
+    fireEvent.click(screen.getByRole("button", { name: /Older selected run/ }));
+    expect(onSelectRun).toHaveBeenCalledWith("run-0");
+  });
+
   it("expands agent threads and selects a thread", () => {
     const onSelectThread = vi.fn();
     const onSelect = vi.fn();
@@ -303,8 +384,8 @@ describe("AgentsPanel", () => {
     );
 
     const group = screen.getByRole("group", { name: "Shiba threads" });
-    expect(group.textContent).toContain("Quick question");
     expect(group.textContent).toContain("Default session");
+    expect(group.textContent).toContain("Quick question");
     expect(group.textContent).not.toContain("Competitor analysis");
 
     fireEvent.click(screen.getByText("Shiba"));
@@ -361,23 +442,11 @@ describe("AgentsPanel", () => {
     localStorage.removeItem("shiba.agents.pinned");
   });
 
-  it("does not show an empty workspace when the built-in Shiba exists", () => {
-    const onOpenCatalog = vi.fn();
-    render(
-      <AgentsPanel
-        scope="personal"
-        onScopeChange={vi.fn()}
-        active=""
-        onSelect={vi.fn()}
-        onOpenCatalog={onOpenCatalog}
-      />,
-    );
-
+  it("always includes the built-in Shiba employee", () => {
+    render(<AgentsPanel scope="personal" onScopeChange={vi.fn()} active="" onSelect={vi.fn()} />);
     expect(screen.getByText("Shiba")).toBeTruthy();
     expect(screen.queryByText("No agents yet")).toBeNull();
-    expect(screen.queryByText("Make room for good work.")).toBeNull();
     expect(screen.queryByRole("button", { name: "Hire your first teammate" })).toBeNull();
-    expect(onOpenCatalog).not.toHaveBeenCalled();
   });
 
   it("renders panel navigation items for Tool policy, Swarm, and Tasks", () => {
@@ -418,8 +487,8 @@ describe("AgentsPanel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Search agents" }));
-    const input = screen.getByPlaceholderText("Search agents…");
+    fireEvent.click(screen.getByRole("button", { name: "Search employees" }));
+    const input = screen.getByPlaceholderText("Search employees…");
     fireEvent.change(input, { target: { value: "Lead" } });
 
     expect(screen.getByText("Engineering Lead")).toBeTruthy();
@@ -457,9 +526,9 @@ describe("AgentsPanel", () => {
         agents={mockAgents}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Search agents" }));
-    fireEvent.change(screen.getByPlaceholderText("Search agents…"), { target: { value: "zzz" } });
-    expect(screen.getByText("No matching agents")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Search employees" }));
+    fireEvent.change(screen.getByPlaceholderText("Search employees…"), { target: { value: "zzz" } });
+    expect(screen.getByText("No matching employees")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Hire your first teammate" })).toBeNull();
   });
 });

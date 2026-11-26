@@ -29,6 +29,7 @@ export function AccountSettings({
   const [socialProviders, setSocialProviders] = useState<SocialProvider[]>([]);
   const [linking, setLinking] = useState<SocialProvider | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
+  const [verification, setVerification] = useState<"idle" | "sending" | "sent" | "failed">("idle");
 
   const loadSessions = useCallback(async () => {
     setSessionsLoading(true);
@@ -126,6 +127,20 @@ export function AccountSettings({
     }
   };
 
+  const resendVerification = async () => {
+    setVerification("sending");
+    try {
+      const response = await withAuthTimeout(fetch("/api/auth/send-verification-email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: identity.agent, callbackURL: "/app/?email_verified=1" }),
+      }));
+      setVerification(response.ok ? "sent" : "failed");
+    } catch {
+      setVerification("failed");
+    }
+  };
+
   const signOut = async () => {
     setSigningOut(true);
     try {
@@ -207,9 +222,9 @@ export function AccountSettings({
         ) : null}
       </Card>
 
-      {socialProviders.length > 0 ? (
-        <Card>
-          <div className="border-b border-[var(--border-1)] px-4 py-3 text-xs font-semibold text-[var(--fg)]">Connected sign-in methods</div>
+      <Card>
+        <div className="border-b border-[var(--border-1)] px-4 py-3 text-xs font-semibold text-[var(--fg)]">Linked sign-in methods</div>
+        {socialProviders.length > 0 ? (
           <div className="flex flex-wrap gap-2 px-4 py-3">
             {socialProviders.map((provider) => (
               <button key={provider} type="button" disabled={linking !== null} onClick={() => void linkSocial(provider)}
@@ -218,12 +233,31 @@ export function AccountSettings({
               </button>
             ))}
           </div>
-          {linkError ? <p role="alert" className="px-4 pb-3 text-xs text-[var(--destructive)]">{linkError}</p> : null}
-          <p className="px-4 pb-3 text-[11px] text-[var(--muted-foreground-2)]">
-            Account linking signs you in with an existing verified email. Shiba does not install a Slack app for dashboard login unless your operator enabled the Slack provider.
+        ) : (
+          <p className="px-4 py-3 text-xs text-[var(--muted-foreground-2)]">
+            No linked sign-in providers. Google and Slack sign-in appear here when your operator enables them.
           </p>
-        </Card>
-      ) : null}
+        )}
+        {linkError ? <p role="alert" className="px-4 pb-3 text-xs text-[var(--destructive)]">{linkError}</p> : null}
+        <p className="px-4 pb-3 text-[11px] text-[var(--muted-foreground-2)]">
+          Account linking signs you in with an existing verified email. Shiba does not install a Slack app for dashboard login unless your operator enabled the Slack provider.
+        </p>
+      </Card>
+
+      <Card>
+        <div className="border-b border-[var(--border-1)] px-4 py-3 text-xs font-semibold text-[var(--fg)]">Email verification</div>
+        <div className="flex flex-col gap-2 px-4 py-3">
+          <p className="text-xs text-[var(--muted-foreground-2)]">
+            Verification status is shown after you open the link in the email. A verified sender must be configured before a verification email can be sent.
+          </p>
+          <button type="button" disabled={verification === "sending" || !identity.agent.includes("@")} onClick={() => void resendVerification()}
+            className="self-start min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] px-3 text-xs font-semibold disabled:opacity-60">
+            {verification === "sending" ? "Sending…" : "Resend verification email"}
+          </button>
+          {verification === "sent" ? <p role="status" className="text-xs text-[var(--muted-foreground-2)]">Verification email requested. Check your inbox and open the link.</p> : null}
+          {verification === "failed" ? <p role="alert" className="text-xs text-[var(--destructive)]">Verification email could not be sent. Try again, or ask your workspace owner to check the email setup.</p> : null}
+        </div>
+      </Card>
 
       <Card>
         <div className="flex items-center justify-between gap-3 px-4 py-3">

@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { type OrganizationEmployee, WorkOrganizationView } from "./WorkOrganizationView";
 
 vi.mock("./AgentAvatar", () => ({
-  AgentAvatar: ({ id, name }: { id: string; name: string }) => (
-    <span data-testid={`avatar-${id}`} role="img" aria-label={name} />
+  AgentAvatar: ({ id, name, look }: { id: string; name: string; look?: { color?: string } }) => (
+    <span data-testid={`avatar-${id}`} data-look-color={look?.color} role="img" aria-label={name} />
   ),
 }));
 
@@ -21,6 +21,9 @@ describe("WorkOrganizationView", () => {
     expect(chief.textContent).toContain("Shiba");
     expect(chief.textContent).toContain("Workspace chief of staff");
     expect(screen.getByTestId("avatar-workspace-chief")).toBeDefined();
+    // Both chiefs of staff use the blue Shiba brand mascot, never a generated one.
+    expect(screen.getByTestId("avatar-workspace-chief").getAttribute("data-look-color")).toBe("#899bd0");
+    expect(screen.getByTestId("organization-user-card").querySelector("[data-look-color]")?.getAttribute("data-look-color")).toBe("#899bd0");
   });
 
   it("renders the member chief card with the private note and falls back without a user", () => {
@@ -36,10 +39,59 @@ describe("WorkOrganizationView", () => {
     expect(screen.getByTestId("organization-user-card").textContent).toContain("Your Shiba");
   });
 
-  it("shows a real empty state and the coordination footer", () => {
+  it("shows a real empty state and the grouping footer", () => {
     render(<WorkOrganizationView employees={[]} />);
     expect(screen.getByTestId("organization-empty-state")).toBeDefined();
-    expect(screen.getByText(/Lines show coordination, not access permissions\./)).toBeDefined();
+    expect(screen.getByText(/Lines show grouping and ownership, not access permissions\./)).toBeDefined();
+  });
+
+  it("groups workspace agents by employee role with real counts", () => {
+    const employees: OrganizationEmployee[] = [
+      { id: "emp-1", name: "Engineer A", role: "Engineer", config: { roleTemplateId: "engineering" } },
+      { id: "emp-2", name: "Engineer B", role: "Engineer", config: { roleTemplateId: "engineering" } },
+      { id: "emp-3", name: "Researcher", role: "Researcher", config: { roleTemplateId: "research" } },
+    ];
+    render(<WorkOrganizationView employees={employees} />);
+    expect(screen.getByRole("heading", { name: "Engineering (2)" })).toBeDefined();
+    expect(screen.getByRole("heading", { name: "Research (1)" })).toBeDefined();
+  });
+
+  it("opens the chief, hire flow and outputs only when callbacks are provided", () => {
+    const onOpenChief = vi.fn();
+    const onHireEmployee = vi.fn();
+    const onOpenOutputs = vi.fn();
+    render(<WorkOrganizationView employees={[]} onOpenChief={onOpenChief} onHireEmployee={onHireEmployee} onOpenOutputs={onOpenOutputs} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open conversation" }));
+    // An empty roster shows a single Hire employee button, in the empty state.
+    expect(screen.getAllByRole("button", { name: "Hire employee" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Hire employee" }));
+    fireEvent.click(screen.getByRole("button", { name: "Outputs & handoffs" }));
+    expect(onOpenChief).toHaveBeenCalledOnce();
+    expect(onHireEmployee).toHaveBeenCalledOnce();
+    expect(onOpenOutputs).toHaveBeenCalledOnce();
+  });
+
+  it("hides optional organization controls when callbacks are absent", () => {
+    render(<WorkOrganizationView employees={[]} />);
+    expect(screen.queryByRole("button", { name: "Open conversation" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Hire employee" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Outputs & handoffs" })).toBeNull();
+  });
+
+  it("uses no department or manager wording", () => {
+    const { container } = render(<WorkOrganizationView employees={[]} />);
+    expect(container.textContent?.toLowerCase()).not.toMatch(/department|manager/);
+  });
+
+  it("opens the approvals queue in-app only when navigation is provided", () => {
+    const onOpenApprovals = vi.fn();
+    const { unmount } = render(<WorkOrganizationView employees={[]} onOpenApprovals={onOpenApprovals} />);
+    fireEvent.click(screen.getByRole("button", { name: "Review human decisions" }));
+    expect(onOpenApprovals).toHaveBeenCalledOnce();
+    unmount();
+    render(<WorkOrganizationView employees={[]} />);
+    expect(screen.queryByRole("button", { name: "Review human decisions" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Review human decisions" })).toBeNull();
   });
 
   it("renders workspace agents with mascots, role and task counts, and opens on click", () => {

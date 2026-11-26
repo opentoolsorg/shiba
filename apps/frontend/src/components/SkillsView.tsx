@@ -18,6 +18,7 @@ import {
 } from "../saved";
 import { FounderSkillLibrary } from "./FounderSkillLibrary";
 import { ExtensionSkillsView } from "./ExtensionSkillsView";
+import type { AppNavView } from "./AppNavRail";
 import { MainCard, type Scope } from "./ui/ContextPanel";
 
 const FIELD =
@@ -29,34 +30,36 @@ export function SkillsView({
   actorId,
   workspaceRole,
   scope,
+  onNavigate,
 }: {
   embedded?: boolean;
   workspaceId?: string;
   actorId?: string | null;
   workspaceRole?: "owner" | "admin" | "member";
   scope?: Scope;
+  onNavigate?: (view: AppNavView) => void;
 } = {}): JSX.Element {
   const currentScope = `${actorId ?? ""}\0${workspaceId ?? ""}`;
   const current = useRef(currentScope); current.current = currentScope;
   return workspaceId ? (
-    <TeamSkillsSurface key={currentScope} actorId={actorId?.trim().toLowerCase()} workspaceId={workspaceId} isCurrent={() => current.current === currentScope} canManage={workspaceRole === "owner" || workspaceRole === "admin"} />
+    <TeamSkillsSurface key={currentScope} actorId={actorId?.trim().toLowerCase()} workspaceId={workspaceId} isCurrent={() => current.current === currentScope} canManage={workspaceRole === "owner" || workspaceRole === "admin"} onNavigate={onNavigate} />
   ) : (
-    <PersonalSkillsView key={currentScope} embedded={embedded} scope={scope} />
+    <PersonalSkillsView key={currentScope} embedded={embedded} scope={scope} onNavigate={onNavigate} />
   );
 }
 
-function TeamSkillsSurface({ workspaceId, actorId, isCurrent, canManage }: { workspaceId: string; actorId?: string; isCurrent: () => boolean; canManage: boolean }): JSX.Element {
+function TeamSkillsSurface({ workspaceId, actorId, isCurrent, canManage, onNavigate }: { workspaceId: string; actorId?: string; isCurrent: () => boolean; canManage: boolean; onNavigate?: (view: AppNavView) => void }): JSX.Element {
   const [surface, setSurface] = useState<"run" | "extensions">("run");
-  return <div className="flex h-full min-h-0 flex-1 flex-col"><nav aria-label="Team skill types" className="flex flex-wrap gap-2 border-b border-[var(--line)] p-3"><button type="button" aria-pressed={surface === "run"} className={TEAM_CONTROL} onClick={() => setSurface("run")}>Run-attached skills</button><button type="button" aria-pressed={surface === "extensions"} className={TEAM_CONTROL} onClick={() => setSurface("extensions")}>Team instruction skills</button></nav>{surface === "run" ? <TeamSkillReview actorId={actorId} workspaceId={workspaceId} isCurrent={isCurrent} canManage={canManage} /> : <ExtensionSkillsView workspaceId={workspaceId} canManage={canManage} />}</div>;
+  return <div className="flex h-full min-h-0 flex-1 flex-col"><nav aria-label="Team skill types" className="flex flex-wrap gap-2 border-b border-[var(--line)] p-3"><button type="button" aria-pressed={surface === "run"} className={TEAM_CONTROL} onClick={() => setSurface("run")}>Run-attached skills</button><button type="button" aria-pressed={surface === "extensions"} className={TEAM_CONTROL} onClick={() => setSurface("extensions")}>Team instruction skills</button>{onNavigate && <button type="button" className={TEAM_CONTROL} onClick={() => onNavigate("integrations")}>Browse instruction extensions</button>}</nav>{surface === "run" ? <TeamSkillReview actorId={actorId} workspaceId={workspaceId} isCurrent={isCurrent} canManage={canManage} /> : <ExtensionSkillsView workspaceId={workspaceId} canManage={canManage} />}</div>;
 }
 
-function PersonalSkillsView({ embedded, scope }: { embedded: boolean; scope?: Scope }): JSX.Element {
+function PersonalSkillsView({ embedded, scope, onNavigate }: { embedded: boolean; scope?: Scope; onNavigate?: (view: AppNavView) => void }): JSX.Element {
   const [surface, setSurface] = useState<"extensions" | "run">("extensions");
   return (
     <div className="flex h-full min-h-0 min-w-0 w-full flex-1 bg-[var(--bg)] text-[var(--fg)]">
       {surface === "extensions"
         ? <ExtensionSkillsView embedded={embedded} scope={scope} onOpenRunSkills={() => setSurface("run")} />
-        : <RunAttachedSkillsView onOpenExtensions={() => setSurface("extensions")} scope={scope} />}
+        : <RunAttachedSkillsView onOpenExtensions={() => setSurface("extensions")} scope={scope} onNavigate={onNavigate} />}
     </div>
   );
 }
@@ -194,7 +197,7 @@ function TeamSkillReview({ workspaceId, actorId, isCurrent, canManage }: { works
   </section>;
 }
 
-function RunAttachedSkillsView({ onOpenExtensions, scope }: { onOpenExtensions: () => void; scope?: Scope }): JSX.Element {
+function RunAttachedSkillsView({ onOpenExtensions, scope, onNavigate }: { onOpenExtensions: () => void; scope?: Scope; onNavigate?: (view: AppNavView) => void }): JSX.Element {
   const savedSkills = useSavedSkills();
   const skills = savedSkills.skills;
   const [name, setName] = useState("");
@@ -295,6 +298,9 @@ function RunAttachedSkillsView({ onOpenExtensions, scope }: { onOpenExtensions: 
             <h2 className="text-base font-semibold text-[var(--fg)]">Run-attached skills</h2>
             <p className="text-xs text-[var(--muted-foreground-2)]">
               Versioned instruction bundles scoped to your signed-in account or workspace. Review a draft before activating it. Source links are labels only; Shiba never downloads or executes their contents.
+              {onNavigate ? <>{" "}
+                <button type="button" onClick={() => onNavigate("integrations")} className="font-medium text-[var(--fg)] underline underline-offset-2">Browse instruction extensions</button>
+              </> : null}
             </p>
           </div>
           <button type="button" onClick={onOpenExtensions} className="min-h-11 max-w-full shrink-0 border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs hover:bg-[var(--secondary)]">Workspace skills</button>

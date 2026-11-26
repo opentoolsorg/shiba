@@ -3,10 +3,11 @@ import { FolderPlus, Search, Upload } from "lucide-react";
 import type { KnowledgeFile, KnowledgeScope, KnowledgeSearchHit } from "@shiba/shared";
 import { MarkedSnippet } from "../palette/ResultRow";
 import { uploadFile } from "../../files-upload-client";
+import type { AppNavView } from "../AppNavRail";
 import { LoadErrorState } from "../LoadErrorState";
 import { MainCard } from "../ui/ContextPanel";
 
-export function FilesView(): JSX.Element {
+export function FilesView({ onNavigate }: { onNavigate?: (view: AppNavView) => void } = {}): JSX.Element {
   const [scope, setScope] = useState<KnowledgeScope>("personal");
   const [files, setFiles] = useState<KnowledgeFile[]>([]);
   const [query, setQuery] = useState("");
@@ -125,6 +126,12 @@ export function FilesView(): JSX.Element {
         <header className="mb-3">
           <h1 className="text-lg font-medium">Files</h1>
           <p className="text-sm text-[var(--muted-foreground-2)]">Upload documents and browse folders. Ingestion runs after each upload completes.</p>
+          {onNavigate ? (
+            <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">
+              Uploaded files are separate from memory sources.{" "}
+              <button type="button" className="font-medium text-[var(--fg)] underline underline-offset-2" onClick={() => onNavigate("memory")}>Review memory sources</button>
+            </p>
+          ) : null}
         </header>
         <div className="flex flex-wrap items-center gap-2 pb-3">
           <label className="text-xs text-[var(--muted-foreground-2)]">

@@ -406,4 +406,73 @@ describe("WorkPeek diff states", () => {
     peek({ run: { ...base, diff: "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-old\n+EXACT_CAPTURED_LINE\n" } });
     expect(screen.getAllByText(/EXACT_CAPTURED_LINE/).length).toBeGreaterThan(0);
   });
+
+});
+
+describe("WorkPeek progress stepper", () => {
+  const task = { id: "run-one", kind: "run", title: "t", repo: "", group: "running", stateLabel: "Running", updatedAt: 1 } as const;
+  const base = { tab: "steps", onTabChange: () => {}, onClose: () => {} } as const;
+  const steps = () => within(screen.getByRole("list", { name: "Request progress" })).getAllByRole("listitem").map((item) => item.textContent);
+
+  it("marks a completed approved run as ready to review", () => {
+    render(<WorkPeek {...base} task={task} run={{ ...run, status: "completed", approval: { approvalId: "a", decidedBy: "me", decidedAt: 1, inputHash: "h" } as RetainedRun["approval"] }} />);
+    expect(steps()).toEqual(["RequestRecorded", "→ApprovalApproved", "→ExecutionCompleted", "→EvidenceReady to review"]);
+  });
+
+  it("shows a pending approval as waiting for the human, with nothing started", () => {
+    render(<WorkPeek {...base} task={{ ...task, kind: "approval", id: "gate-one" }} storedApproval={approval} />);
+    expect(steps()).toEqual(["RequestRecorded", "→ApprovalWaiting for you", "→ExecutionNot started", "→EvidenceAfter execution"]);
+    expect(within(screen.getByRole("list", { name: "Request progress" })).getAllByRole("listitem")[1]?.getAttribute("aria-current")).toBe("step");
+  });
+
+  it("stops at a recorded rejection and omits the stepper for threads", () => {
+    const { unmount } = render(<WorkPeek {...base} task={{ ...task, kind: "approval", id: "gate-one" }} storedApproval={{ ...approval, status: "rejected" }} />);
+    expect(steps()).toEqual(["RequestRecorded", "→ApprovalRejected", "→ExecutionWill not run", "→EvidenceAfter execution"]);
+    unmount();
+    render(<WorkPeek {...base} task={{ ...task, kind: "session" }} />);
+    expect(screen.queryByRole("list", { name: "Request progress" })).toBeNull();
+  });
+});
+
+describe("WorkPeek publication links", () => {
+  const publish: StoredApproval = { ...approval, approvalId: "pr-publish:run-one", kind: "pr_publish", payload: { repoUrl: "https://github.com/acme/service", baseBranch: "main", runId: "run-one", sha256: "abc", bytes: 1, fileCount: 1 } };
+  const task = { id: publish.approvalId, kind: "approval", title: "Publish", repo: "", group: "needs-approval", stateLabel: "Waiting", updatedAt: 1 } as const;
+
+  it("switches WorkPeek's own tabs and never decides", () => {
+    const onTabChange = vi.fn();
+    const onDecideStoredApproval = vi.fn();
+    render(<WorkPeek task={task} run={run} storedApproval={publish} tab="approval" onTabChange={onTabChange} onClose={() => {}} onDecideStoredApproval={onDecideStoredApproval} />);
+    fireEvent.click(screen.getByRole("button", { name: "Inspect diff" }));
+    expect(onTabChange).toHaveBeenLastCalledWith("diff");
+    fireEvent.click(screen.getByRole("button", { name: "Evidence" }));
+    expect(onTabChange).toHaveBeenLastCalledWith("steps");
+    expect(onDecideStoredApproval).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    expect(onDecideStoredApproval).toHaveBeenCalledExactlyOnceWith(publish, true);
+  });
+
+  it("opens the covered run by its frozen id when only the approval is selected, and never decides", () => {
+    const onOpenRun = vi.fn();
+    const onTabChange = vi.fn();
+    const onDecideStoredApproval = vi.fn();
+    // Production shape: an approval is selected, so the peek holds no run of its own.
+    render(<WorkPeek task={task} storedApproval={publish} tab="approval" onTabChange={onTabChange} onOpenRun={onOpenRun} onClose={() => {}} onDecideStoredApproval={onDecideStoredApproval} />);
+    fireEvent.click(screen.getByRole("button", { name: "Inspect diff" }));
+    expect(onOpenRun).toHaveBeenLastCalledWith("run-one", "diff");
+    fireEvent.click(screen.getByRole("button", { name: "Evidence" }));
+    expect(onOpenRun).toHaveBeenLastCalledWith("run-one", "steps");
+    expect(onTabChange).not.toHaveBeenCalled();
+    expect(onDecideStoredApproval).not.toHaveBeenCalled();
+  });
+
+  it("hides the links instead of dead-ending when no run can be opened", () => {
+    render(<WorkPeek task={task} storedApproval={publish} tab="approval" onTabChange={() => {}} onClose={() => {}} onDecideStoredApproval={() => {}} />);
+    expect(screen.queryByRole("button", { name: "Inspect diff" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Evidence" })).toBeNull();
+  });
+
+  it("shows one stage rail, in the header", () => {
+    render(<WorkPeek task={{ ...task, id: "gate-one" }} storedApproval={approval} tab="approval" onTabChange={() => {}} onClose={() => {}} onDecideStoredApproval={() => {}} />);
+    expect(screen.getAllByRole("list", { name: "Request progress" })).toHaveLength(1);
+  });
 });

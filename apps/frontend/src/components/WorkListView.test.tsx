@@ -129,4 +129,13 @@ describe("WorkListView", () => {
     fireEvent.keyDown(first, { key: "ArrowUp" });
     expect(document.activeElement).toBe(first);
   });
+
+  it("offers the new-task footer only when a handler exists", () => {
+    const onNewTask = vi.fn();
+    const { rerender } = render(<WorkListView tasks={tasks} onOpen={vi.fn()} onToggleDone={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Describe a new task" })).toBeNull();
+    rerender(<WorkListView tasks={tasks} onOpen={vi.fn()} onToggleDone={vi.fn()} onNewTask={onNewTask} />);
+    fireEvent.click(screen.getByRole("button", { name: "Describe a new task" }));
+    expect(onNewTask).toHaveBeenCalledOnce();
+  });
 });

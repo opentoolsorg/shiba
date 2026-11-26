@@ -121,6 +121,7 @@ export function AnalyticsView({
   selectedRun,
   error,
   onNavigate,
+  onOpenSettings,
   sessionId,
   sessionApiAvailable,
   scope = "personal",
@@ -132,6 +133,7 @@ export function AnalyticsView({
   selectedRun?: TableRun;
   error?: string | null;
   onNavigate?: (view: AppNavView) => void;
+  onOpenSettings?: (section: "deployment") => void;
   sessionId: string;
   sessionApiAvailable: boolean;
   scope?: Scope;
@@ -300,7 +302,7 @@ export function AnalyticsView({
             />
           </div>
 
-          <UsageSection sessionId={sessionId} sessionApiAvailable={sessionApiAvailable} />
+          <UsageSection sessionId={sessionId} sessionApiAvailable={sessionApiAvailable} onOpenSettings={onOpenSettings} />
 
           <WorkspaceBillingCard sessionId={sessionId} sessionApiAvailable={sessionApiAvailable} />
 
@@ -471,9 +473,11 @@ function mergeUsageGroups(days: UsageDayWire[]): UsageGroupWire[] {
 function UsageSection({
   sessionId,
   sessionApiAvailable,
+  onOpenSettings,
 }: {
   sessionId: string;
   sessionApiAvailable: boolean;
+  onOpenSettings?: (section: "deployment") => void;
 }): JSX.Element {
   const usage = useUsageReport(sessionId, sessionApiAvailable);
   return (
@@ -482,7 +486,7 @@ function UsageSection({
         <div>
           <h3 className="text-xs font-semibold text-[#0a0a0a] dark:text-zinc-100">Token usage &amp; budget</h3>
           <p className="text-[11px] text-[#71717a] dark:text-zinc-400">
-            Harness-reported usage by day, in UTC.
+            Harness-reported usage by day, in UTC. Missing usage is not zero cost.
           </p>
         </div>
         {usage.state.kind === "data" || usage.state.kind === "error" ? (
@@ -507,13 +511,14 @@ function UsageSection({
           sessionId={sessionId}
           sessionApiAvailable={sessionApiAvailable}
           onUsageSaved={usage.reload}
+          onOpenSettings={onOpenSettings}
         />
       )}
     </section>
   );
 }
 
-function UsageReportBody({ report, sessionId, sessionApiAvailable, onUsageSaved }: { report: UsageReportWire; sessionId: string; sessionApiAvailable: boolean; onUsageSaved: () => void }): JSX.Element {
+function UsageReportBody({ report, sessionId, sessionApiAvailable, onUsageSaved, onOpenSettings }: { report: UsageReportWire; sessionId: string; sessionApiAvailable: boolean; onUsageSaved: () => void; onOpenSettings?: (section: "deployment") => void }): JSX.Element {
   const todayKey = new Date().toISOString().slice(0, 10);
   const weekStartKey = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const weekDays = report.days.filter((day) => day.date >= weekStartKey);
@@ -589,6 +594,9 @@ function UsageReportBody({ report, sessionId, sessionApiAvailable, onUsageSaved 
           </div>
           <p className="mt-1.5 text-[11px] text-[#71717a] dark:text-zinc-400">
             USAGE_BUDGET_USD — today&apos;s reported cost against the configured daily budget.
+            {onOpenSettings ? <>{" "}
+              <button type="button" onClick={() => onOpenSettings("deployment")} className="font-medium text-[#0a0a0a] underline underline-offset-2 dark:text-zinc-100">Deployment settings</button>
+            </> : null}
           </p>
         </div>
       ) : null}

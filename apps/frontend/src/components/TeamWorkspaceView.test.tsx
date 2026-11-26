@@ -74,6 +74,7 @@ describe("team workspace settings", () => {
     expect(localStorage.length).toBe(0);
     expect(screen.queryByRole("button", { name: "Accept invitation" })).toBeNull();
   });
+
   it("blocks unauthenticated acceptance and reports exact-email/revoked refusals", async () => {
     const fetcher = vi.fn(async () =>
       Response.json(
@@ -91,6 +92,7 @@ describe("team workspace settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Accept invitation" }));
     expect((await screen.findByRole("alert")).textContent).toContain("email does not match");
   });
+
   it("sends rename CAS and exposes server conflicts without silently retrying", async () => {
     const requests: Array<{ method: string; body: unknown }> = [];
     const fetcher = vi.fn(async (_path: RequestInfo | URL, init?: RequestInit) => {
@@ -112,6 +114,7 @@ describe("team workspace settings", () => {
       { method: "PATCH", body: { name: "New team", expectedVersion: 7 } },
     ]);
   });
+
   it("protects the last owner and sends member role changes with that member's version", async () => {
     const fetcher = vi.fn(async () => Response.json({ workspace: detail() }));
     vi.stubGlobal("fetch", fetcher);
@@ -136,6 +139,7 @@ describe("team workspace settings", () => {
       ),
     );
   });
+
   it("gives admins only member-level invite and roster controls; hides manager data from members", async () => {
     let workspace = detail("admin");
     workspace.members.push({
@@ -159,6 +163,7 @@ describe("team workspace settings", () => {
     expect(screen.queryByText("guest@example.com")).toBeNull();
     expect(screen.queryByRole("button", { name: "Save name" })).toBeNull();
   });
+
   it("creates a link once, rechecks membership before fragment-safe clipboard copy and revokes it", async () => {
     let revoked = false;
     const copy = vi.fn(async (_text: string) => {});
@@ -211,6 +216,7 @@ describe("team workspace settings", () => {
     expect(screen.queryByRole("button", { name: "Copy invitation link" })).toBeNull();
     expect(fetcher.mock.calls.filter((call) => call[1]?.method === "POST")).toHaveLength(1);
   });
+
   it("suppresses duplicate mutations and ignores late actor-A invite responses after a switch", async () => {
     let resolveInvite!: (value: Response) => void;
     const fetcher = vi.fn(async (path: RequestInfo | URL, init?: RequestInit) => {
@@ -246,6 +252,7 @@ describe("team workspace settings", () => {
     expect(screen.queryByRole("button", { name: "Copy invitation link" })).toBeNull();
     expect(changed).not.toHaveBeenCalled();
   });
+
   it("refuses clipboard disclosure when an owner was demoted after creating a link", async () => {
     let role: TeamWorkspaceRole = "owner";
     const copy = vi.fn(async (_text: string) => {});
@@ -276,6 +283,7 @@ describe("team workspace settings", () => {
     expect(copy).not.toHaveBeenCalled();
     expect(screen.queryByText("guest@example.com")).toBeNull();
   });
+
   it("does not replace an unsaved rename draft during membership refresh", async () => {
     vi.stubGlobal(
       "fetch",
@@ -292,6 +300,7 @@ describe("team workspace settings", () => {
       "Unsaved name",
     );
   });
+
   it("drops cached roster and invitation controls if membership is revoked", async () => {
     let revoked = false;
     vi.stubGlobal(
@@ -310,6 +319,7 @@ describe("team workspace settings", () => {
     expect(screen.queryByText("guest@example.com")).toBeNull();
     expect(screen.queryByLabelText("Teammate email")).toBeNull();
   });
+
   it("creates a separate workspace only after explicit submit without sharing private context", async () => {
     const fetcher = vi.fn(async () => Response.json({ workspace: detail() }));
     vi.stubGlobal("fetch", fetcher);
@@ -369,5 +379,22 @@ describe("team coworker launchpad", () => {
     expect(screen.queryByRole("region", { name: "Team coworker launchpad" })).toBeNull();
     view.rerender(<TeamWorkspaceView {...props} workspaceId={idB} />);
     expect(screen.queryByRole("button", { name: "Open Slack setup" })).toBeNull();
+  });
+
+  it("links to agent setup and tool policy only when wired, and explains what follows an invite link", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ workspace: detail() })));
+    const onOpenAgents = vi.fn(), onOpenToolPolicy = vi.fn();
+    const view = render(<TeamWorkspaceView actorId="owner@example.com" workspaceId={idA} />);
+    await loaded();
+    expect(screen.queryByRole("button", { name: "Set up the team’s agents" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Review employee tool policy" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Tool access is a separate decision" })).toBeDefined();
+    expect(screen.getByText("The recipient signs in and verifies that email.")).toBeDefined();
+
+    view.rerender(<TeamWorkspaceView actorId="owner@example.com" workspaceId={idA} onOpenAgents={onOpenAgents} onOpenToolPolicy={onOpenToolPolicy} />);
+    fireEvent.click(screen.getByRole("button", { name: "Set up the team’s agents" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review employee tool policy" }));
+    expect(onOpenAgents).toHaveBeenCalledOnce();
+    expect(onOpenToolPolicy).toHaveBeenCalledOnce();
   });
 });

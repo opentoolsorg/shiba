@@ -17,6 +17,7 @@ export interface SwarmDeskViewProps {
   onApplyIntake: (prompt: string) => void;
   shareUrlFor: (runId: string) => Promise<string>;
   onResolve?: (runId: string) => Promise<void> | void;
+  onOpenRun?: (runId: string) => void;
 }
 
 const LANE_LABELS: Record<SwarmLane, string> = {
@@ -37,7 +38,9 @@ export function SwarmDeskView({
   onApplyIntake,
   shareUrlFor,
   onResolve,
+  onOpenRun,
 }: SwarmDeskViewProps): JSX.Element {
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [intakeText, setIntakeText] = useState("");
   const [search, setSearch] = useState("");
   const [resolving, setResolving] = useState<Record<string, boolean>>({});
@@ -50,6 +53,7 @@ export function SwarmDeskView({
   const isApplyDisabled = !parsedIntake.prompt.trim();
 
   const desk = useMemo(() => projectSwarmDesk(runs), [runs]);
+  const selectedCard = Object.values(desk).flat().find((card) => card.runId === selectedRunId) ?? null;
   const handleResolve = async (runId: string) => {
     if (!onResolve || resolving[runId]) return;
     setResolving((previous) => ({ ...previous, [runId]: true }));
@@ -97,7 +101,7 @@ export function SwarmDeskView({
             Swarm desk
           </h2>
           <p className="text-xs text-[var(--muted-foreground-2)] mt-0.5">
-            Backlog, in progress, needs review, archived. Threads queue here. Concurrent sandboxes stay capped by wrangler max_instances.
+            Backlog, in progress, needs review, archived. Threads queue here. Concurrent sandboxes stay capped by wrangler max_instances. Marking a task resolved does not approve publication.
           </p>
         </div>
 
@@ -135,6 +139,7 @@ export function SwarmDeskView({
           onChange={(event) => setSearch(event.target.value)}
           className="w-full min-h-11 bg-[var(--card)] border border-[var(--border-2)] rounded-[var(--radius-button)] px-3 text-sm text-[var(--fg)] placeholder-[var(--muted-foreground-3)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
         />
+        {selectedCard ? <section aria-label="Selected run summary" className="border border-[var(--border-2)] bg-[var(--card)] p-4"><h3 className="text-sm font-semibold">{selectedCard.title}</h3><p className="mt-1 text-xs text-[var(--muted-foreground-2)]">{selectedCard.repoUrl} · {selectedCard.baseBranch} · {selectedCard.status}</p><p className="mt-2 text-xs">{selectedCard.task}</p>{selectedCard.pullUrl ? <a className="mt-2 inline-block text-xs underline" href={selectedCard.pullUrl}>Pull request</a> : null}</section> : null}
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 items-start">
           {SWARM_LANES.map((lane) => {
             const cards: SwarmCard[] = desk[lane].filter((card) =>
@@ -206,6 +211,10 @@ export function SwarmDeskView({
                             </div>
                           ) : null}
 
+                          <div className="flex gap-3">
+                            <button type="button" className="min-h-11 text-xs underline" aria-pressed={selectedRunId === card.runId} onClick={() => setSelectedRunId((current) => current === card.runId ? null : card.runId)}>Show summary</button>
+                            {onOpenRun ? <button type="button" className="min-h-11 text-xs underline" onClick={() => { setSelectedRunId(card.runId); onOpenRun(card.runId); }}>{card.status === "completed" ? "Review result" : "Open run"}</button> : null}
+                          </div>
                           {/* Share button & results */}
                           <div className="pt-1 border-t border-[var(--border-1)] flex flex-col gap-1.5">
                             <div className="flex items-center justify-between gap-2">

@@ -98,4 +98,27 @@ describe("RemoteAccessView in a plain browser", () => {
     expect(screen.getByText("pair me")).toBeTruthy();
     expect(screen.queryByText(/open this Shiba in your browser/i)).toBeNull();
   });
+
+  it("warns never to share pairing tokens in the pairing dialog", async () => {
+    stubFetch(200);
+    render(<RemoteAccessView />);
+    await waitFor(() => expect(screen.getByText(/No computers paired/i)).toBeTruthy());
+    screen.getByRole("button", { name: "Add computer" }).click();
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+    expect(screen.getByText(/Never share pairing tokens/)).toBeTruthy();
+  });
+
+  it("shows the local runtime row only when remote access is disabled on the deployment", async () => {
+    stubFetch(404);
+    const disabled = render(<RemoteAccessView />);
+    await waitFor(() => expect(screen.getByText("Remote access is off on this deployment")).toBeTruthy());
+    expect(screen.getByText("Local runtime")).toBeTruthy();
+    expect(screen.getByText("Operator enablement required; pairing alone does not enable it.")).toBeTruthy();
+    disabled.unmount();
+
+    stubFetch(200);
+    render(<RemoteAccessView />);
+    await waitFor(() => expect(screen.getByText(/No computers paired/i)).toBeTruthy());
+    expect(screen.queryByText("Local runtime")).toBeNull();
+  });
 });

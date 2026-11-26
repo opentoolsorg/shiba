@@ -22,6 +22,7 @@ export function AgentChatHeader({
   workspaceLabel = "Workspace",
   onOpenAgents,
   sideQuestion,
+  onOpenTaskDetails,
   thread,
 }: {
   agent: { id: string; name: string; role?: EmployeeRole; mascotPreset?: CustomAgentMascotPreset; look?: AgentMascotLook; avatar?: AgentAvatarChoice };
@@ -31,6 +32,7 @@ export function AgentChatHeader({
   actions?: readonly AgentChatMenuAction[];
   workspaceLabel?: string;
   onOpenAgents?: () => void;
+  onOpenTaskDetails?: () => void;
   sideQuestion?: { employeeId: string; threadId: string };
   /** The open thread, so a reloaded or linked conversation says which one it is. */
   thread?: { name: string; state?: "idle" | "working" | "waiting" };
@@ -85,12 +87,10 @@ export function AgentChatHeader({
               <li aria-hidden="true"><ChevronRight className="size-3.5" /></li>
               <li aria-current="page" className="flex min-w-0 items-center gap-2 font-medium text-[var(--fg)]">
                 <span className="truncate">{thread.name || "Untitled thread"}</span>
-                {thread.state && thread.state !== "idle" ? (
-                  <span className={`flex shrink-0 items-center gap-1 border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] ${thread.state === "working" ? "border-[var(--navy)] text-[var(--navy)]" : "border-[var(--pending)] text-[var(--pending)]"}`}>
-                    <span aria-hidden="true" className={`size-1.5 ${thread.state === "working" ? "bg-[var(--navy)]" : "bg-[var(--pending-bg)]"}`} />
-                    {thread.state === "working" ? "Working" : "Needs you"}
+                <span className={`flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${thread.state === "working" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : thread.state === "waiting" ? "border-[var(--pending)] bg-[var(--pending-bg)] text-[var(--pending)]" : "border-[var(--border-1)] bg-[var(--secondary)] text-[var(--muted-foreground-2)]"}`}>
+                    <span aria-hidden="true" className={`size-1.5 rounded-full ${thread.state === "working" ? "bg-emerald-500" : thread.state === "waiting" ? "bg-[var(--pending)]" : "bg-[var(--muted-foreground-2)]"}`} />
+                    {thread.state === "working" ? "Working" : thread.state === "waiting" ? "Waiting for approval" : "Idle"}
                   </span>
-                ) : null}
               </li>
             </>
           ) : (
@@ -102,6 +102,7 @@ export function AgentChatHeader({
         </ol>
       </nav>
       <div className="flex shrink-0 items-center gap-1">
+        {onOpenTaskDetails ? <button type="button" onClick={onOpenTaskDetails} className={iconButton}>Task details</button> : null}
         {sideQuestion ? <SideQuestion key={`${sideQuestion.employeeId}:${sideQuestion.threadId}`} {...sideQuestion} /> : null}
         {actions.length ? (
           <div className="relative">

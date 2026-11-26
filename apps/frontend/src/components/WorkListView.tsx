@@ -4,6 +4,7 @@ import type { TeamWorkItem } from "../team-work-items";
 import { avatarStatusFromTask } from "../agent-mascots";
 import { AgentAvatar } from "./AgentAvatar";
 import type { TaskDetailAgent } from "./TaskDetailPanel";
+import { viewButtonClass } from "./ui/ViewChrome";
 
 export type WorkListGroup = "backlog" | "todo" | "in_progress" | "in_review" | "done";
 
@@ -108,12 +109,26 @@ function AssigneeSlot({ task, agents }: { task: TeamWorkItem; agents: readonly T
   return <AgentAvatar id={id} name={name} mascotPreset={agent?.mascotPreset} look={agent?.look} role={agent?.role} status={avatarStatusFromTask(task.status)} size={20} />;
 }
 
+/** Footer prompt shared by the team and personal lists; the handler only opens the create flow. */
+export function WorkListFooter({ onNewTask }: { onNewTask: () => void }): JSX.Element {
+  return (
+    <div className="mt-2 flex items-center justify-between gap-3 border-t border-[var(--border-1)] px-4 py-3 text-xs text-[var(--muted-foreground-2)]">
+      <span>Have something in mind?</span>
+      <button type="button" onClick={onNewTask} className={viewButtonClass}>
+        Describe a new task
+      </button>
+    </div>
+  );
+}
+
 export interface WorkListViewProps {
   tasks: TeamWorkItem[];
   agents?: readonly TaskDetailAgent[];
   selectedId?: string;
   onOpen: (id: string) => void;
   onToggleDone: (id: string) => void;
+  /** Renders the "Describe a new task" footer; omit when creating is unavailable. */
+  onNewTask?: () => void;
 }
 
 export function WorkListView({
@@ -122,6 +137,7 @@ export function WorkListView({
   selectedId,
   onOpen,
   onToggleDone,
+  onNewTask,
 }: WorkListViewProps): JSX.Element {
   const [collapsed, setCollapsed] = useState<ReadonlySet<WorkListGroup>>(new Set());
   const visible = tasks.filter((task) => !task.archived);
@@ -230,6 +246,7 @@ export function WorkListView({
           </div>
         );
       })}
+      {onNewTask ? <WorkListFooter onNewTask={onNewTask} /> : null}
     </section>
   );
 }

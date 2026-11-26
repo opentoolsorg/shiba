@@ -2003,6 +2003,7 @@ placeholder={executionTargetKind === "artifact-workspace" ? "Describe the docume
           <p className="mt-3 max-w-md mx-auto text-sm leading-relaxed text-[var(--muted-foreground-1)]">
             Plan a campaign, prepare sales materials, research a question, or build something. Connect a repository for execution. Planning can start before approval; standard sandbox execution requires approval.
           </p>
+          <p className="mt-2 max-w-md mx-auto text-xs text-[var(--muted-foreground-2)]">Two separate decisions: creating a task, and approving execution.</p>
         </div>
         <fieldset aria-label="Example tasks" className="flex w-full min-w-0 flex-wrap justify-center gap-2">
           {examples.map((prompt) => <button key={prompt} type="button" disabled={task.trim() !== ""}
