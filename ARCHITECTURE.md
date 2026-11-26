@@ -1,33 +1,77 @@
-# shiba architecture
+# Shiba architecture
 
-shiba is a pnpm/turbo workspace: a Cloudflare Worker backend that is both API
-and static host, a React dashboard, an Astro docs/marketing site, and shared
-packages. Work runs in ephemeral Sandbox containers behind a human approval
-gate.
+Shiba is a self-hosted, Cloudflare-native workspace for AI employees. People and
+employees share workspace context; employees turn goals into approved plans and
+tasks; approved work runs through scoped execution lanes; every result returns as
+reviewable evidence, files, receipts, or a clear blocked/failed state. Publication
+is a separate human decision, never implied by task execution.
 
-The architecture notes are in one file for each topic:
+The product target is [AI employees in a shared workspace](docs/product/ai-employees.md).
+The architecture is therefore larger than the original coding-agent spine:
+repository work is one execution lane beside artifact workspaces, employee app
+actions, local machines, browser/computer-assisted work, research, marketing,
+operations, automations, and channel-based collaboration.
+
+## Role names and implementation names
+
+Use product-role names in architecture and implementation names only where the
+current binding matters:
+
+| Architecture role | Current implementation | Meaning |
+|---|---|---|
+| **Employee Orchestrator** | `CodingOrchestrator` Durable Object | Owns the conversation, planning, approval queue, run lineage, delegation, and event spine. It never edits a repository or directly performs external effects. |
+| **Run Execution Agent** | `OpenCodeAgent` Durable Object | Sandbox-side execution child. Despite the legacy name, it coordinates the selected harness/runtime and makes no model calls of its own. |
+| **Harness** | `opencode`, `claude-code`, `codex`, ACP lanes, etc. | A pluggable coding CLI/transport inside the repository execution lane, not the center of the product. |
+
+A documentation rename is not a Durable Object migration. Do not claim the code
+binding has been renamed until the migration actually lands.
+
+## Architectural spine
+
+```text
+people and channels
+  → authenticated ingress and workspace context
+  → Employee Orchestrator
+  → goal/plan/task with exact scope
+  → human approval
+  → run orchestration and event spine
+  → execution lane
+  → deliverables, provenance, verification, receipts
+  → human review
+  → separately approved publication or follow-up
+```
+
+The load-bearing rule is unchanged: nothing executes before the required human
+approval, credentials stay out of sandboxes, authority is scoped to the approved
+target, and external publication requires its own exact approval.
+
+## Architecture notes
 
 - [Repository structure](docs/architecture/structure.md)
   - [The one-paragraph version](docs/architecture/structure.md#the-one-paragraph-version)
+  - [Domain model](docs/architecture/structure.md#domain-model)
   - [Layer breakdown](docs/architecture/structure.md#layer-breakdown)
 - [Topology](docs/architecture/topology.md)
-  - [Worker topology](docs/architecture/topology.md#worker-topology)
+  - [Employee platform topology](docs/architecture/topology.md#employee-platform-topology)
   - [Integration sibling](docs/architecture/topology.md#integration-sibling)
   - [Bounded automatic reads and isolated computers](docs/architecture/topology.md#bounded-automatic-reads-and-isolated-computers)
-- [Durable Objects and state](docs/architecture/durable-objects.md)
-  - [State map](docs/architecture/durable-objects.md#state-map)
-- [Security model](docs/architecture/security-model.md)
-- [Request lifecycle](docs/architecture/request-lifecycle.md)
+- [State ownership](docs/architecture/durable-objects.md)
+  - [Coordination state](docs/architecture/durable-objects.md#coordination-state)
+  - [Shared domain state](docs/architecture/durable-objects.md#shared-domain-state)
+- [Security and authority model](docs/architecture/security-model.md)
+- [Employee work lifecycle](docs/architecture/request-lifecycle.md)
 - [Browser use](docs/architecture/browser.md)
 - [Computer use](docs/architecture/computer-use.md)
 - [Harnesses](docs/architecture/harnesses.md)
 - [Change rules and known gaps](docs/architecture/change-rules.md)
-  - [How this evolves](docs/architecture/change-rules.md#how-this-evolves)
-  - [Cron job queue rollout](docs/architecture/change-rules.md#cron-job-queue-rollout)
-  - [Known architectural gaps](docs/architecture/change-rules.md#known-architectural-gaps)
-  - [Where to start reading the code](docs/architecture/change-rules.md#where-to-start-reading-the-code)
 - [Internal signing migration](docs/architecture/internal-signing-migration.md)
 
-**Companions:** `spec/GOAL.md` (product contract — *currently contradicted by
-the tree*, see `PLAN.md` §17.2 T27) · `design.md` (visual design system) ·
-`PLAN.md` (plan, gaps, §17 parity roadmap) · `VERIFICATION.md` (evidence).
+**Companions:** [product contract](docs/product/ai-employees.md) ·
+[public architecture guide](apps/web/src/content/docs/docs/architecture.md) ·
+[measured as-built snapshot](ARCHITECTURE-AS-BUILT.md) ·
+[infra/auth/harness/monorepo](INFRA-AUTH-HARNESS-MONOREPO.md) ·
+[UI architecture](UI-ARCHITECTURE.md) ·
+[launch checklist](LAUNCH_CHECKLIST.md) ·
+`spec/GOAL.md`, `PLAN.md`, and `ROADMAP.md` are dated coding-spine/platform
+documents unless a section explicitly says it is current · `design.md` (visual
+system) · `VERIFICATION.md` (dated evidence).

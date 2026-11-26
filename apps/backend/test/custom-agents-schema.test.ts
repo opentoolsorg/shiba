@@ -41,6 +41,16 @@ describe("optional employee role provenance", () => {
   });
 });
 
+describe("employee manager identity", () => {
+  it("accepts a user ID up to the workspace email limit", () => {
+    const userId = `${"a".repeat(64)}@${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(57)}.com`;
+    const input = { slug: "helper", config: { ...config, reportsTo: { kind: "user", userId } } };
+    expect(decodeCreateCustomAgent(input)).toEqual(input);
+    expect(decodeUpdateCustomAgent({ config: input.config })).toEqual({ config: input.config });
+    expect(decodeUpdateCustomAgent({ config: { ...config, reportsTo: { kind: "user", userId: `a${userId}` } } })).toBeNull();
+  });
+});
+
 describe("bot library links", () => {
   const id = (suffix: string) => `file_${suffix.padEnd(16, "0")}`;
 

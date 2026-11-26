@@ -1,5 +1,12 @@
 # Shiba product roadmap (honest status)
 
+> **Current direction, 2026-11-25:** Shiba is an AI employee workspace, not only
+> a coding-agent roadmap. The current architecture is [`ARCHITECTURE.md`](./ARCHITECTURE.md)
+> and the product contract is [`docs/product/ai-employees.md`](./docs/product/ai-employees.md).
+> The phase table below is dated coding-spine/platform evidence. Do not treat a
+> completed sandbox, harness, desktop, or integration row as proof that the AI
+> employee workspace journey is complete.
+
 **Revision:** 2026-10-19. Complements the historical task tracker in [`PLAN.md`](./PLAN.md) (T-rows, rev 12). **Evidence for “done in code”** is grep-able paths below; **live verification** is only what [`VERIFICATION.md`](./VERIFICATION.md) records with a dated entry.
 
 ## Shipped in tree (Phase 1–6 arc)

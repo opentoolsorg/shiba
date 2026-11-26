@@ -14,6 +14,9 @@ files:
 asarUnpack:
   - dist/setup.html
   - dist/setup.js
+  - dist/local-browser.html
+  - dist/local-browser.css
+  - dist/local-browser-ui.js
   - dist/fonts/**
 protocols:
   - name: Shiba

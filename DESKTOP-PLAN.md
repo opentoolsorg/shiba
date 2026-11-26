@@ -17,7 +17,7 @@ model), the P9 prohibitions in `PLAN.md` §19.5.
   full UI rewrite. gpuix is also pre-1.0 with one maintainer.
 
 Electron runs the daemon unchanged through `utilityProcess` and keeps the whole
-repo in TypeScript. t3code ships its desktop app the same way.
+repo in TypeScript. External reference products also ship desktop apps this way.
 
 ---
 
