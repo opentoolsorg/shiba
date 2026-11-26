@@ -39,6 +39,28 @@ session it gets `origin` only. `redactBrowserLoginOutput` strips credential
 material from any tool result. Screenshots are delivered as bounded image
 bytes through the same serial queue.
 
+## Local desktop browser (operator-only)
+
+The Electron app also has an isolated Local Browser window for visible,
+operator-triggered actions. Its bundled local UI is a separate trusted
+surface; it does not add local-control authority to `window.shibaDesktop` or
+the remote dashboard. The operator approves one exact `http(s)` origin. Each
+approval gets a fresh non-persistent Electron session; stop, window close,
+target change, and app quit revoke control and clear that session's cookies,
+cache, and storage. Browser permissions, pop-ups, downloads, cross-origin
+requests, and cross-origin navigation are denied.
+
+The only app-issued page action is clicking one visible, enabled `<button>` by
+its exact visible or accessible label. The app does not read page text or
+screenshots, inspect form values, type into the page, or import saved logins.
+Take-over refuses new app-issued actions immediately and waits for any
+dispatched action to finish before confirming. Actions resume only after
+the operator hands control back.
+This local window currently has no task-agent/MCP bridge; its action field is
+operated directly from the trusted local UI. Native-window capture/input is
+unavailable unless a verified OS-scoped provider is added; global input tools
+are not a fallback.
+
 ## Frontend
 
 `apps/frontend/src/components/BrowserPanel.tsx` renders the live frame and
