@@ -5,7 +5,7 @@ Shiba is a self-hosted, approval-first workspace for AI employees. Start with th
 ```bash
 # Gate — always required:
 pnpm typecheck && pnpm lint && pnpm lint:imports && pnpm test && pnpm build && pnpm test:built
-pnpm check:ci                    # the CI biome-knip job: biome ci (lint only) + knip --max-issues 6
+pnpm check:ci                    # the CI biome-knip job: agent context budgets, Biome lint, and the exact Knip baseline
 pnpm env:load && pnpm env:scan   # varlock: validate .env against .env.schema; scan for leaked secrets
 # Second tier — only where a Docker daemon is running:
 npx wrangler deploy --dry-run --config apps/backend/wrangler.jsonc
