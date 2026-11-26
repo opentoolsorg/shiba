@@ -1,5 +1,5 @@
 import { FOUNDER_STRIPE_EXECUTOR_DIGEST } from "./founder-stripe-generated.js";
-import { z } from "zod";
+import { founderStripeDraftSchema as stripeDraftSchema } from "@shiba/shared";
 import { stripeSessionGuard, type StripeHumanSession } from "./founder-stripe-session.js";
 import { founderStripeReadUrl, type StripeReadSelection } from "./founder-stripe-read.js";
 import { sealFounderStripeCredential, type FounderStripeCredentialScope } from "./founder-stripe-credential.js";
@@ -8,7 +8,6 @@ import type { WorkspaceNativeMember } from "../workspace-native-authority.js";
 import type { Env } from "../env.js";
 import { FOUNDER_SQL_NOW } from "./founder-connector-context.js";
 export type StripeEnv = Env & { FOUNDER_STRIPE_READS_ENABLED?: string; FOUNDER_STRIPE_CREDENTIAL_KEY?: string };
-export const stripeDraftSchema = z.strictObject({accountId:z.string().regex(/^acct_[A-Za-z0-9]{1,200}$/),mode:z.enum(["live","test"]),restrictedKey:z.string().min(24).max(260),expiresAt:z.number().int().positive(),maxCalls:z.number().int().min(2).max(8),selection:z.strictObject({kind:z.enum(["invoices","balance_transactions"]),createdGte:z.number().int().nonnegative(),createdLt:z.number().int().positive(),limit:z.number().int().min(1).max(25)}),readOnlyAttestation:z.literal("restricted-key-read-only-for-selected-resources")}).refine(v=>(v.mode==="test"?/^rk_test_[A-Za-z0-9]{16,250}$/:/^rk_live_[A-Za-z0-9]{16,250}$/).test(v.restrictedKey));
 export interface StripeGrantRow { id:string;workspace_id:string;owner_id:string;owner_account_id:string;owner_json:string;account_id:string;mode:"live"|"test";revision:number;expires_at:number;ciphertext:string;fingerprint:string;selection_json:string;contract_digest:string;executor_digest:string;max_calls:number;used_calls:number;state:string;next_due_at:number|null }
 export function stripeAvailable(env:StripeEnv) { if(env.FOUNDER_STRIPE_READS_ENABLED!=="true"||!(/^[a-fA-F0-9]{64}$/.test(env.FOUNDER_STRIPE_CREDENTIAL_KEY??""))) throw new WorkspaceIntegrationError("stripe_reads_unavailable",503); }
 export function stripeScope(row:StripeGrantRow):FounderStripeCredentialScope{return{workspaceId:row.workspace_id,ownerAccountId:row.owner_account_id,credentialId:row.id,revision:row.revision,accountId:row.account_id,mode:row.mode,expiresAt:row.expires_at};}

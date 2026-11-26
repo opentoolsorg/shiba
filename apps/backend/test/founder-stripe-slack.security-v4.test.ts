@@ -10,9 +10,9 @@ import { sealSlackSecret } from '../src/slack-installations-crypto.js';
 import { prepareStripeSlack,readStripeSlackGrant,transitionStripeSlack } from '../src/founder-automatic-slack-stripe-store.js';
 import { handleFounderStripeAutomaticSlack } from '../src/founder-automatic-slack-stripe-routes.js';
 
-const identity=vi.hoisted(()=>({email:'owner@example.test',accountId:'native-owner'}));
+const identity=vi.hoisted(()=>({email:'owner@example.test',accountId:'native-owner',sessionExpiresAt:0}));
 vi.mock('../src/request-auth.js',async original=>({...await original<typeof import('../src/request-auth.js')>(),isAuthorizedRequest:async()=>true,resolveUserId:async()=>identity.email}));
-vi.mock('@shiba/auth/better-auth',async original=>({...await original<typeof import('@shiba/auth/better-auth')>(),resolveBetterAuthSessionAccount:async()=>({policy:{accountId:identity.accountId,email:identity.email,kind:'invited'},emailVerified:true,sessionId:`session-${identity.accountId}`,sessionExpiresAt:Date.now()+86400000})}));
+vi.mock('@shiba/auth/better-auth',async original=>({...await original<typeof import('@shiba/auth/better-auth')>(),resolveBetterAuthSessionAccount:async()=>({policy:{accountId:identity.accountId,email:identity.email,kind:'invited'},emailVerified:true,sessionId:`session-${identity.accountId}`,sessionExpiresAt:identity.sessionExpiresAt||Date.now()+86400000})}));
 
 const OWNER='owner@example.test',ADMIN='admin@example.test';
 afterEach(()=>{vi.useRealTimers();vi.unstubAllGlobals();vi.restoreAllMocks();});
@@ -43,7 +43,7 @@ describe('independent Stripe Slack final disclosure lease',()=>{
  it.each(['sample','session'])('withholds private sample when %s expires while final SQL proof returns',async(kind)=>{
   const f=await fixture(),id=await f.prepare(),deadline=Date.now()+60000;
   if(kind==='sample')f.db.sqlite.prepare('UPDATE founder_stripe_read_receipts SET expires_at=? WHERE id=?').run(deadline,f.input.sampleReceiptId);
-  else f.db.sqlite.prepare('UPDATE "session" SET expiresAt=? WHERE id=?').run(deadline,f.ownerSession.id);
+  else {f.db.sqlite.prepare('UPDATE "session" SET expiresAt=? WHERE id=?').run(deadline,f.ownerSession.id);identity.sessionExpiresAt=deadline;}
   const request=()=>new Request(`https://shiba.test/api/founder-stripe-slack/${id}`,{headers:{'X-Shiba-Workspace':f.owner.workspaceId,Cookie:'fixture=session'}});
   expect((await handleFounderStripeAutomaticSlack(request(),f.env))?.status).toBe(200);
   const prepare=f.env.AGENT_AUDIT.prepare.bind(f.env.AGENT_AUDIT);let held=false;
