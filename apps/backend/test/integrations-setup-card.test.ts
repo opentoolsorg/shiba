@@ -14,6 +14,11 @@ vi.mock("../src/gmail-routes.js", () => ({ gmailOwner: vi.fn(async () => "authen
 const origin = "https://app.example.test";
 const get = (path: string) => new Request(`${origin}/api/integrations/provider/${path}`);
 const REQUIRED = ["stripe", "hubspot", "google-ads", "meta-ads", "notion", "gmail", "google-calendar"];
+const configured = {
+  OPEN_CONNECTOR_URL: "https://oc.example.test",
+  OPEN_CONNECTOR_ADMIN_TOKEN: "fixture-admin",
+  OPEN_CONNECTOR_RUNTIME_TOKEN: "fixture-runtime",
+};
 
 describe("integrations setup card (OpenConnector unbound)", () => {
   beforeEach(() => resetIntegrationProviderCacheForTests());
@@ -54,7 +59,7 @@ describe("integrations setup card (OpenConnector unbound)", () => {
     "OpenConnector request failed (HTTP 503).",
     "OpenConnector returned an invalid response.",
   ])("keeps real provider failures as 503: %s", async (message) => {
-    const env = { OPEN_CONNECTOR_URL: "https://oc.example.test" } as Env;
+    const env = { ...configured } as Env;
     const provider = getIntegrationProvider(env);
     for (const path of ["catalog", "connections"]) {
       vi.spyOn(provider, path === "catalog" ? "listCatalog" : "listConnections")
@@ -75,7 +80,7 @@ describe("integrations setup card (OpenConnector bound, mocked)", () => {
   beforeEach(() => resetIntegrationProviderCacheForTests());
 
   it("merges live rows over featured entries by provider id", async () => {
-    const env = { OPEN_CONNECTOR_URL: "https://oc.example.test" } as Env;
+    const env = { ...configured } as Env;
     vi.spyOn(getIntegrationProvider(env), "listCatalog").mockResolvedValue({
       items: [{ id: "stripe", providerKey: "stripe", name: "Stripe", description: "live", source: "openconnector", isConnected: true, connectable: true, setupState: "ready" }],
       nextCursor: null, hasMore: false,
@@ -91,7 +96,7 @@ describe("integrations setup card (OpenConnector bound, mocked)", () => {
   });
 
   it("falls back to the setup card when the provider reports missing credentials", async () => {
-    const env = { OPEN_CONNECTOR_URL: "https://oc.example.test" } as Env;
+    const env = { ...configured } as Env;
     const { OpenConnectorIntegrationProviderError } = await import("../src/integrations/openconnector-provider.js");
     vi.spyOn(getIntegrationProvider(env), "listCatalog").mockRejectedValue(new OpenConnectorIntegrationProviderError("Set OPEN_CONNECTOR_ADMIN_TOKEN to enable OpenConnector admin requests."));
     const response = await handleIntegrationProviderRoutes(get("catalog"), env);

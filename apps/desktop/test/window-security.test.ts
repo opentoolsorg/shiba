@@ -31,7 +31,7 @@ function fakeContents() {
   return { contents, emit, open, listeners };
 }
 
-function guard(options: { allowFileUrl?: string } = {}) {
+function guard(options: { allowFileUrl?: string; allowFileUrls?: readonly string[] } = {}) {
   const opened: string[] = [];
   const decisions: string[] = [];
   const contents = fakeContents();
@@ -74,6 +74,14 @@ describe("window policy", () => {
     const g = guard({ allowFileUrl: SETUP });
     expect(g.emit("will-navigate", { url: SETUP })).toBe(false);
     expect(g.emit("will-navigate", { url: "file:///tmp/other.html" })).toBe(true);
+  });
+
+  it("allows each explicitly bundled local page without allowing other file URLs", () => {
+    const localBrowser = "file:///opt/shiba/local-browser.html";
+    const g = guard({ allowFileUrls: [SETUP, localBrowser] });
+    expect(g.emit("will-navigate", { url: SETUP })).toBe(false);
+    expect(g.emit("will-navigate", { url: localBrowser })).toBe(false);
+    expect(g.emit("will-navigate", { url: "file:///tmp/untrusted.html" })).toBe(true);
   });
 
   it("pins subframes to the app origin and ignores the main frame", () => {

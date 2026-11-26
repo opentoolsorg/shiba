@@ -8,9 +8,9 @@ import {
 import type { V1Context } from "../v1/context.js";
 import { rejectCrossOriginMutation, rejectNonJsonMutation } from "../dashboard-mutation.js";
 import { resolveOrgForApiRequest, type ResolvedOrgAuth } from "../org-request-auth.js";
-import { OpenConnectorIntegrationProviderError } from "../integrations/openconnector-provider.js";
-import { getIntegrationProvider } from "../integrations/runtime.js";
-import { openConnectorConfigured, openConnectorGate, isOpenConnectorSetupError } from "../integrations-provider-routes.js";
+import { ConnectorProviderError } from "../ports/connector/errors.js";
+import { getIntegrationProvider } from "../ports/connector/registry.js";
+import { openConnectorGate, isOpenConnectorSetupError } from "../integrations-provider-routes.js";
 import {
   archiveWorkspaceConnector,
   createWorkspaceConnector,
@@ -75,7 +75,7 @@ async function buildConnectorDirectory(ctx: V1Context, userId: string, teamWorks
     });
     items = page.items;
   } catch (error) {
-    if (error instanceof OpenConnectorIntegrationProviderError) throw error;
+    if (error instanceof ConnectorProviderError) throw error;
     items = INTEGRATION_CATALOG.map((entry) => ({
       id: entry.id,
       providerKey: entry.openConnectorServiceIds?.[0] ?? entry.id,
@@ -135,7 +135,7 @@ export async function handleExtensionConnectors(ctx: V1Context): Promise<Respons
   if (pathname === BASE && ctx.request.method === "GET") {
     const rawView = ctx.url.searchParams.get("view");
     const view = views.includes(rawView as ExtensionView) ? rawView as ExtensionView : "personal";
-    if (openConnectorConfigured(ctx.env)) {
+    if (getIntegrationProvider(ctx.env).capabilities.configured) {
       try {
         await syncPersonalConnectorsFromProvider(ctx.env, registryWorkspaceId, userId, teamWorkspaceId);
       } catch {
@@ -148,7 +148,7 @@ export async function handleExtensionConnectors(ctx: V1Context): Promise<Respons
 
   if (pathname === `${BASE}/directory` && ctx.request.method === "GET") {
     const noStore = { headers: { "cache-control": "no-store" } };
-    if (!openConnectorConfigured(ctx.env)) return Response.json(setupRequiredCatalog(), noStore);
+    if (!getIntegrationProvider(ctx.env).capabilities.configured) return Response.json(setupRequiredCatalog(), noStore);
     try {
       const directory = await buildConnectorDirectory(ctx, userId, teamWorkspaceId);
       return Response.json(directory ?? { items: [], fallbackCatalog: true }, noStore);
@@ -175,8 +175,8 @@ export async function handleExtensionConnectors(ctx: V1Context): Promise<Respons
       const connectedAccountId = typeof body?.connectedAccountId === "string" ? body.connectedAccountId.trim() : "";
       const scope = body?.scope === "workspace" ? "workspace" : "personal";
       if (!providerKey || !connectedAccountId) return badRequest("providerKey and connectedAccountId are required");
-      const unbound = openConnectorGate(ctx.env);
-      if (unbound) return unbound;
+      const setupRequired = openConnectorGate(getIntegrationProvider(ctx.env));
+      if (setupRequired) return setupRequired;
       if (body?.provider !== undefined && body.provider !== "openconnector") return badRequest("Only openconnector is supported");
       try {
         const connector = await createWorkspaceConnector(

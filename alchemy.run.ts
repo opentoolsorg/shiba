@@ -185,8 +185,7 @@ export const Worker = Cloudflare.Worker("Worker", {
   crons: isPreview ? [] : ["*/5 * * * *"],
   env: {
     GATEWAY_ID: "default",
-    INTEGRATIONS_PROVIDER: "openconnector",
-    OPEN_CONNECTOR_ENABLED: "0",
+    CONNECTOR_PROVIDER: "openconnector",
     VAULT_WRITE_V2: "0",
     SHIBA_PERSONAL_LOCAL_EXECUTION: "0",
     SHIBA_TEAM_MODEL_SESSIONS: "0",
@@ -581,7 +580,7 @@ export const Worker = Cloudflare.Worker("Worker", {
       "GMAIL_CLIENT_ID",
       "BETTER_AUTH_VERIFICATION_FROM",
       "GMAIL_REDIRECT_URI",
-      "INTEGRATIONS_PROVIDER",
+      "CONNECTOR_PROVIDER",
       "OPEN_CONNECTOR_URL",
     ]),
   },

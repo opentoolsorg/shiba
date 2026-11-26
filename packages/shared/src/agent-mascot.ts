@@ -111,6 +111,7 @@ export const AGENT_MASCOT_ROLE_LOOKS: Record<string, AgentMascotLook> = {
   gtm: { shape: "pointed", color: "#b78fa8", eyes: "heart", acc: "compass" },
   hr: { shape: "pointed", color: "#d9a8b4", eyes: "happy", acc: "headset" },
   finance: { shape: "pointed", color: "#9490b0", eyes: "pill", acc: "chart" },
+  support: { shape: "pointed", color: "#7fa07b", eyes: "happy", acc: "headset" },
 };
 
 const ROLE_LOOKS = AGENT_MASCOT_ROLE_LOOKS;

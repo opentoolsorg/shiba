@@ -106,7 +106,7 @@ export function createSandboxOAuthRunner(env: Pick<Env, "Sandbox">): SandboxOAut
     async exchange(discovery, body, userId) {
       const safeUser = userId.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 48);
       const sandboxId = `siwc-oauth-${safeUser}-${crypto.randomUUID().slice(0, 8)}`;
-      const { getSandboxInstance, destroySandboxInstance } = await import("../sandbox/provider.js");
+      const { getSandboxInstance, destroySandboxInstance } = await import("../ports/sandbox/registry.js");
       const { assertSandboxRunPreflight, OAUTH_SANDBOX_FEATURES } = await import("../sandbox/preflight.js");
       const fullEnv = env as Env;
       await assertSandboxRunPreflight(fullEnv, {}, OAUTH_SANDBOX_FEATURES);

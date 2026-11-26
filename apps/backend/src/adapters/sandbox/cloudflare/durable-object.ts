@@ -1,25 +1,26 @@
+/* eslint-disable no-restricted-imports -- These adapters import backend-internal modules, three directories below src/. */
 /**
  * Sandbox SDK 1.0 — one Durable Object + Container per run. Egress runs in
  * SandboxOutbound (WorkerEntrypoint); credentials never enter the container.
  */
 import { Files } from "@cloudflare/sandbox";
 import { DurableObject } from "cloudflare:workers";
-import type { Env } from "../env.js";
-import type { EgressOverride } from "../harness/types.js";
-import { boundTail, redactSecrets } from "../security.js";
+import type { Env } from "../../../env.js";
+import type { EgressOverride } from "../../../harness/types.js";
+import { boundTail, redactSecrets } from "../../../security.js";
 import {
   defaultOutboundConfig,
   loadOutboundConfig,
   OUTBOUND_CONFIG_KEY,
   type NamedOutboundHandler,
   type OutboundConfig,
-} from "./outbound-config.js";
-import { SandboxOutbound } from "./outbound-entrypoint.js";
+} from "../../../sandbox/outbound-config.js";
+import { SandboxOutbound } from "../../../sandbox/outbound-entrypoint.js";
 import type { JournalExecutionInput, JournalPage, JournalState } from "@shiba/sandbox";
 import {
   assertJournalJobId, emptyJournalPage, executionInputDigest, EXECUTION_EPOCH_LABEL, EXECUTION_JOURNAL_SOURCE,
   JOURNAL_MAX_REPLY_BYTES, JOURNAL_START_GRACE_MS, JournalIntegrityError, type JournalClaim,
-} from "./execution-journal.js";
+} from "../../../sandbox/execution-journal.js";
 import {
   loadPortTokens,
   mintPreviewToken,
@@ -27,7 +28,7 @@ import {
   type PortTokenMap,
   type PreviewRoute,
   previewUrlFor,
-} from "./preview-proxy.js";
+} from "../../../sandbox/preview-proxy.js";
 
 const INACTIVITY_TIMEOUT_MS = 60_000;
 const KEEPALIVE_ALARM_MS = 30_000;
@@ -46,6 +47,7 @@ const TRUST_ENV: Record<string, string> = {
   CURL_CA_BUNDLE: CA_PATH,
   SSL_CERT_FILE: CA_PATH,
   NODE_EXTRA_CA_CERTS: CA_PATH,
+  GIT_SSL_CAINFO: CA_PATH,
 };
 
 interface SandboxCtx extends DurableObjectState {

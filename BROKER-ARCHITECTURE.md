@@ -14,7 +14,7 @@ a thing, that is the signal."
 
 A competitor shipped. a peer product (AGPL-3.0, same license as this repo)
 runs cloud E2B sandboxes and brokers per-account agent credentials in production
-today. The mechanism is neither t3code's local `claude auth login` nor the
+today. The mechanism is neither a local `claude auth login` flow nor the
 `claude setup-token` handoff that Phase 10 proposed.
 
 It is a **credential broker with account-owned images**. That is strictly better

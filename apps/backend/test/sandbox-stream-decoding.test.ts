@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { Sandbox } from "../src/sandbox/durable-object.js";
+import { Sandbox } from "../src/adapters/sandbox/cloudflare/durable-object.js";
 import type { Env } from "../src/env.js";
 
 vi.mock("@cloudflare/sandbox", () => ({ Files: class {} }));

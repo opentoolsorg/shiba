@@ -17,9 +17,49 @@ export type CustomAgentSandboxProvider = (typeof CUSTOM_AGENT_SANDBOX_PROVIDERS)
 /** Optional template provenance; these labels do not grant tools or connections. */
 export const CUSTOM_AGENT_ROLE_TEMPLATE_IDS = [
   "engineering", "marketing", "sales", "product", "design", "research", "operations", "qa",
-  "gtm", "hr", "finance",
+  "gtm", "hr", "support", "finance",
 ] as const;
 export type CustomAgentRoleTemplateId = (typeof CUSTOM_AGENT_ROLE_TEMPLATE_IDS)[number];
+
+/**
+ * The department a hire belongs to in the roster. Departments are the
+ * Tasklet-style org grouping shown to non-technical users: a department lead
+ * may have support agents, and each department owns its own thread space.
+ * Unlike roleTemplateId this is a display/organization field, not a label
+ * stamped from a template.
+ */
+export const CUSTOM_AGENT_DEPARTMENTS = [
+  "general", "marketing", "engineering", "sales", "support", "operations", "finance", "tech",
+] as const;
+export type CustomAgentDepartment = (typeof CUSTOM_AGENT_DEPARTMENTS)[number];
+
+/** Maps a role template onto its roster department (templates without a field map to `general`). */
+export function departmentForRoleTemplate(id: CustomAgentRoleTemplateId | undefined): CustomAgentDepartment {
+  switch (id) {
+    case "engineering": case "qa": case "design": return "engineering";
+    case "marketing": case "gtm": return "marketing";
+    case "sales": return "sales";
+    case "support": return "support";
+    case "operations": case "product": case "hr": return "operations";
+    case "finance": return "finance";
+    default: return "general";
+  }
+}
+
+/**
+ * Who a hire reports to — the human manager shown on the roster card, or
+ * another agent when this is a support agent under a department lead.
+ */
+export type CustomAgentReportsTo =
+  | { kind: "user"; userId: string }
+  | { kind: "agent"; agentId: string };
+
+/** Where an employee is reachable as itself. Values are handles/addresses, not credentials. */
+export interface CustomAgentChannelIdentities {
+  slack?: string;
+  discord?: string;
+  email?: string;
+}
 
 import type { AgentMascotLook, CustomAgentMascotPreset } from "./agent-mascot.js";
 import type { AgentAvatarChoice } from "./agent-avatar.js";
@@ -71,6 +111,16 @@ export type {
 /** Versioned config blob stored in D1 (JSON). */
 export interface CustomAgentConfig {
   name: string;
+  /** Job title on the roster card, e.g. "Accounts Payable Clerk". */
+  title?: string;
+  /** Roster department; defaults from roleTemplateId when unset. */
+  department?: CustomAgentDepartment;
+  /** Human manager or lead agent this hire reports to. */
+  reportsTo?: CustomAgentReportsTo;
+  /** Per-channel identities the employee answers as (slack handle, discord handle, email address). */
+  channelIdentities?: CustomAgentChannelIdentities;
+  /** Persistent computer bound to this employee instead of per-run sandboxes. */
+  primaryComputerId?: string;
   emoji?: string;
   mascotPreset?: CustomAgentMascotPreset;
   /** Visor-mascot parts. When set, this wins over mascotPreset. */
