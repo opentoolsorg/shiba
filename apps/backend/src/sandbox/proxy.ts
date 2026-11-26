@@ -1,7 +1,7 @@
 import { resolveSandboxDurableObjectId } from "@shiba/shared";
 import type { Env } from "../env.js";
 import { parsePreviewHostname } from "./preview-proxy.js";
-import type { Sandbox } from "./durable-object.js";
+import type { Sandbox } from "../adapters/sandbox/cloudflare/durable-object.js";
 
 /** Routes tokenized preview hostnames to the sandbox container port (0.12 parity). */
 export async function proxyToSandbox(request: Request, env: Pick<Env, "Sandbox">): Promise<Response | null> {

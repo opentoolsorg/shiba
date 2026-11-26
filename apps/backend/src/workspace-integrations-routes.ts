@@ -3,8 +3,8 @@ import { IntegrationActionInputPolicyError, CREDENTIAL_INPUT_UNAVAILABLE } from 
 import type { Env } from "./env.js";
 import { resolveOrgForApiRequest } from "./org-request-auth.js";
 import { rejectCrossOriginMutation } from "./dashboard-mutation.js";
-import { getIntegrationProvider } from "./integrations/runtime.js";
-import { isOpenConnectorSetupError, openConnectorConfigured, parseReadiness } from "./integrations-provider-routes.js";
+import { getIntegrationProvider } from "./ports/connector/registry.js";
+import { isOpenConnectorSetupError, openConnectorGate, parseReadiness } from "./integrations-provider-routes.js";
 import { mergeFeaturedWithLive, parseIntegrationCollection, setupRequiredCatalog } from "@shiba/shared";
 import {
   WorkspaceIntegrationError, assertWorkspaceMemberCurrent, connectionDto, createWorkspaceConnection,
@@ -78,7 +78,7 @@ export async function handleWorkspaceIntegrations(request: Request, env: Env): P
     if (!sameMember(member, current)) return json({ error: "workspace_authority_changed" }, 403);
     if (approvalsResponse) return json({ ...await listWorkspaceApprovals(env, member), ...(receipt?.approvalId ? { approvalId: receipt.approvalId } : {}) }, result.status);
     if (isListPath(suffix) && request.method === "GET") {
-      const configured = openConnectorConfigured(env);
+      const configured = getIntegrationProvider(env).capabilities.configured;
       return json({ ...await listWorkspaceConnections(env, member), configured, ...(configured ? {} : { setup: setupRequiredCatalog().setup }) });
     }
     return result;
@@ -99,16 +99,18 @@ async function dispatch(request: Request, env: Env, member: WorkspaceNativeMembe
     if (collection === null) return json({ error: "invalid_collection" }, 400);
     await assertWorkspaceMemberCurrent(env, member, true);
     const setup = (query: string) => json({ ...setupRequiredCatalog(query, collection?.serviceIds), workspaceId: member.workspaceId });
-    if (!openConnectorConfigured(env)) return setup(url.searchParams.get("query") ?? "");
-    let result: Awaited<ReturnType<ReturnType<typeof getIntegrationProvider>["listCatalog"]>>;
-    try { result = await getIntegrationProvider(env).listCatalog({ userId: member.userId, workspaceId: member.workspaceId, ...(readiness ? { readiness } : {}), ...(collection ? { services: collection.serviceIds } : {}),
+    const provider = getIntegrationProvider(env);
+    if (!provider.capabilities.configured) return setup(url.searchParams.get("query") ?? "");
+    let result: Awaited<ReturnType<typeof provider.listCatalog>>;
+    try { result = await provider.listCatalog({ userId: member.userId, workspaceId: member.workspaceId, ...(readiness ? { readiness } : {}), ...(collection ? { services: collection.serviceIds } : {}),
       query: (url.searchParams.get("query") ?? "").slice(0, 200), limit: Math.max(1, Math.min(50, Number(url.searchParams.get("limit")) || 20)), cursor: url.searchParams.get("cursor") ?? undefined });
     } catch (error) { if (isOpenConnectorSetupError(error)) return setup(url.searchParams.get("query") ?? ""); throw error; }
     await assertWorkspaceMemberCurrent(env, member, true);
     return json({ ok: true, workspaceId: member.workspaceId, provider: "openconnector", configured: true, featured: mergeFeaturedWithLive(result.items), ...result });
   }
   if (suffix === "/connect" && request.method === "POST") {
-    if (!openConnectorConfigured(env)) return json({ ok: false, configured: false, code: "setup_required", error: "Integrations need setup. Connect an OpenConnector worker first." }, 409);
+    const setupRequired = openConnectorGate(getIntegrationProvider(env));
+    if (setupRequired) return setupRequired;
     const input = await parse(request, connect), result = await createWorkspaceConnection(env, member, input.providerKey, url.origin);
     return json({ ok: true, workspaceId: member.workspaceId, connection: await connectionDto(env, result.row), pendingId: result.pendingId,
       authorizationFingerprint: result.authorizationFingerprint, redirectUrl: result.redirectUrl }, 201);

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
+  <title>Shiba Local Browser</title>
+  <link rel="stylesheet" href="local-browser.css" />
+</head>
+<body>
+  <main>
+    <header>
+      <div class="heading">
+        <div>
+          <p class="eyebrow">SHIBA DESKTOP · LOCAL ONLY</p>
+          <h1>Local browser</h1>
+        </div>
+        <span id="state-pill" class="pill" role="status">Stopped</span>
+      </div>
+      <p class="lede">Choose a site and approve it here. This window is separate from the dashboard; pages cannot grant consent or access your saved browser sessions.</p>
+      <form id="address-form" novalidate>
+        <label class="sr-only" for="address">Website address</label>
+        <input id="address" type="url" inputmode="url" placeholder="https://example.org or http://127.0.0.1:3000" autocomplete="off" spellcheck="false" />
+        <button id="review" type="submit">Review site</button>
+      </form>
+      <section id="consent" class="consent" hidden aria-labelledby="consent-title">
+        <div>
+          <h2 id="consent-title">Approve this site?</h2>
+          <p>Shiba can act only in this visible browser and only on this exact origin. Cross-origin requests, navigation, pop-ups, downloads, and browser permissions are blocked. Site data is temporary and cleared when you stop.</p>
+          <strong id="consent-origin"></strong>
+        </div>
+        <button id="approve" type="button">Approve and open</button>
+      </section>
+      <section id="controls" class="controls" hidden aria-label="Local control">
+        <p id="approved-origin" class="approved"></p>
+        <div class="control-row">
+          <button id="take-over" type="button" class="secondary">Take over</button>
+          <button id="hand-back" type="button" class="secondary" hidden>Hand back to Shiba</button>
+          <button id="stop" type="button" class="danger">Stop</button>
+        </div>
+        <form id="action-form" class="action-form" novalidate>
+          <label for="button-label">Visible button label</label>
+          <div class="control-row">
+            <input id="button-label" maxlength="100" autocomplete="off" placeholder="e.g. Increase counter" />
+            <button id="click-button" type="submit">Click button</button>
+          </div>
+          <p class="hint">Actions are initiated in this trusted local window and run visibly in the page. The remote dashboard has no control bridge.</p>
+        </form>
+      </section>
+      <p id="message" role="status" aria-live="polite">No site is approved.</p>
+      <p id="native-status" class="native-status"></p>
+    </header>
+    <section id="page-host" aria-label="Approved website"></section>
+  </main>
+  <script src="local-browser-ui.js"></script>
+</body>
+</html>

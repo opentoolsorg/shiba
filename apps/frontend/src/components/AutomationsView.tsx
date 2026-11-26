@@ -188,6 +188,8 @@ export function AutomationsPanel({
 }
 
 export interface AutomationsViewProps {
+  initialDraft?: { prompt: string; repoUrl: string } | null;
+  onDraftSaved?: () => void;
   scope?: Scope;
   sidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
@@ -199,6 +201,8 @@ export interface AutomationsViewProps {
 }
 
 export function AutomationsView({
+  initialDraft,
+  onDraftSaved,
   scope = "personal",
   sidebarCollapsed = false,
   onToggleSidebar,
@@ -207,6 +211,17 @@ export function AutomationsView({
   onAutomationsChange,
   className = "",
 }: AutomationsViewProps): JSX.Element {
+  const [draftPrompt, setDraftPrompt] = useState(initialDraft?.prompt ?? "");
+  const [draftRepo, setDraftRepo] = useState(initialDraft?.repoUrl ?? "");
+  const [draftId, setDraftId] = useState("");
+  const [draftCron, setDraftCron] = useState("");
+  const [draftVisible, setDraftVisible] = useState(Boolean(initialDraft));
+  useEffect(() => {
+    if (!initialDraft) return;
+    setDraftPrompt(initialDraft.prompt);
+    setDraftRepo(initialDraft.repoUrl);
+    setDraftVisible(true);
+  }, [initialDraft]);
   const [copiedEndpoint, setCopiedEndpoint] = useState<string | null>(null);
   const [automations, setAutomations] = useState<AutomationRecord[] | null>(null);
   useEffect(() => {
@@ -272,6 +287,24 @@ export function AutomationsView({
       });
   }, []);
   useEffect(refresh, [refresh]);
+
+  const saveDraft = async () => {
+    setBusyId("suggestion-draft");
+    setNotice(null);
+    try {
+      const response = await fetch("/api/automations", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: draftId.trim(), prompt: draftPrompt.trim(), repoUrl: draftRepo.trim(), enabled: false, triggers: [{ kind: "schedule", cron: draftCron.trim() }] }),
+      });
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) { setNotice(body.error ?? "Could not save automation."); return; }
+      setDraftVisible(false);
+      onDraftSaved?.();
+      setNotice("Automation saved disabled. Enable it when you are ready; each run requires approval.");
+      refresh();
+    } catch { setNotice("Could not save automation. Please try again."); }
+    finally { setBusyId(null); }
+  };
 
   const deployRecipe = async (recipe: (typeof RECIPES)[number]) => {
     if (!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+/.test(repoUrl.trim())) {
@@ -466,6 +499,18 @@ export function AutomationsView({
             </p>
           ) : null}
 
+          {draftVisible ? (
+            <form aria-label="Suggested automation" className="space-y-3 border border-[var(--border-1)] p-4" onSubmit={(event) => { event.preventDefault(); void saveDraft(); }}>
+              <h2 className="text-lg">Make this task a routine</h2>
+              <label className="block">Automation name<input className="block w-full" required pattern="[a-zA-Z0-9_-]+" value={draftId} onChange={(event) => setDraftId(event.target.value)} /></label>
+              <label className="block">Routine prompt<textarea className="block w-full" required value={draftPrompt} onChange={(event) => setDraftPrompt(event.target.value)} /></label>
+              <label className="block">Routine repository URL<input className="block w-full" required value={draftRepo} onChange={(event) => setDraftRepo(event.target.value)} /></label>
+              <label className="block">Schedule (cron, UTC)<input className="block w-full" required placeholder="Minute hour day month weekday" value={draftCron} onChange={(event) => setDraftCron(event.target.value)} /></label>
+              <p className="text-xs">Saved disabled. Every run requires approval.</p>
+              <button type="submit" disabled={busyId === "suggestion-draft"}>Save disabled automation</button>
+              <button type="button" onClick={() => setDraftVisible(false)}>Cancel</button>
+            </form>
+          ) : null}
           {tab === "automations" ? (
             <section aria-label="Deployed automations" className="space-y-6">
               {/* Header Hero Area */}

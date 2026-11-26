@@ -633,20 +633,15 @@ export interface Env {
   SHIBA_ELEVATED_CONCURRENCY?: string;
   /** Phase 2b: optional UTC-day USD cap on summed run.usage.costUsd. */
   SHIBA_DAILY_CONTAINER_BUDGET_USD?: string;
-  /**
-   * SaaS integrations use the openconnector sibling Worker.
-   * Retained as a deployment configuration value; only openconnector is supported.
-   */
-  INTEGRATIONS_PROVIDER?: string;
-  /** Optional sibling Worker; preferred over OPEN_CONNECTOR_URL. */
+  /** Connector adapter selection: openconnector (default) or none. */
+  CONNECTOR_PROVIDER?: string;
   /** Review metadata only; never enables non-OAuth execution. */
   OPEN_CONNECTOR_OPERATOR_REVIEW_ENABLED?: string;
+  /** Optional sibling Worker; preferred over OPEN_CONNECTOR_URL. */
   OPEN_CONNECTOR?: Fetcher;
   OPEN_CONNECTOR_URL?: string;
   OPEN_CONNECTOR_ADMIN_TOKEN?: string;
   OPEN_CONNECTOR_RUNTIME_TOKEN?: string;
-  /** When "1", the dashboard shows OpenConnector setup; the service binding may still be absent on dev. */
-  OPEN_CONNECTOR_ENABLED?: string;
   /** WS01 platform queues — consumers attach in later workstreams. */
   INGEST_QUEUE?: Queue;
   WEBHOOK_QUEUE?: Queue;

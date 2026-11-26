@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { discordChannel } from "../src/channels/discord/index.js";
-import { slackChannel } from "../src/channels/slack/index.js";
+import { createSlackAdapter, slackChannel } from "../src/channels/slack/index.js";
 import { createTeamsTransport, teamsChannel } from "../src/channels/teams/index.js";
 import { telegramChannel } from "../src/channels/telegram/index.js";
 import type { Env } from "../src/env.js";
@@ -338,6 +338,30 @@ describe("channel adapter outbound details", () => {
     }) as typeof fetch;
     return { calls, fetchImpl };
   };
+
+  it("posts Slack blocks with the selected persona and returns the provider receipt", async () => {
+    const slack = capture({ ok: true, channel: "C2", ts: "1.3" });
+    const adapter = slackChannel.createAdapter({ SLACK_BOT_TOKEN: "x" } as Env, { fetch: slack.fetchImpl });
+    if (!adapter) throw new Error("Expected an outbound adapter for the configured token");
+    const blocks = [{ type: "section", text: { type: "plain_text", text: "Review" } }];
+
+    await expect(adapter.post({
+      placeId: "C1", threadId: "1.2", text: "Review", native: { blocks }, persona: "reviewer",
+    })).resolves.toEqual({ placeId: "C2", messageId: "1.3", threadId: "1.2" });
+    expect(slack.calls).toHaveLength(1);
+    expect(JSON.parse(slack.calls[0]?.body ?? "{}")).toEqual({
+      channel: "C1", thread_ts: "1.2", text: "Review", blocks,
+      username: "Shiba Reviewer", icon_emoji: ":eyes:",
+    });
+  });
+
+  it("preserves Slack's rejection and whether the delivery outcome is known", async () => {
+    const slack = capture({ ok: false, error: "not_in_channel" });
+    const adapter = createSlackAdapter({ token: "x", fetch: slack.fetchImpl });
+    await expect(adapter.post({ placeId: "C1", text: "Review" })).rejects.toMatchObject({
+      name: "SlackPostRejectedError", message: "not_in_channel", outcomeKnown: true,
+    });
+  });
 
   it("converts reaction names and glyphs to each platform's format", async () => {
     const slack = capture({ ok: true });

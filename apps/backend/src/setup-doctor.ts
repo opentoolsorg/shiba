@@ -11,7 +11,7 @@ import { agentCliCatalog } from "./harness/catalog.js";
 import { isGitHubPublishConfigured, resolveGitHubCredential } from "./github-auth.js";
 import { assertRunPreflight, type RunPreflightInput } from "./run-preflight.js";
 import { resolveSandboxSelection } from "./sandbox/selection.js";
-import { resolveSandboxProviderForId } from "./sandbox/provider.js";
+import { resolveSandboxProviderForId } from "./ports/sandbox/registry.js";
 import { sandboxFeatureMatrix } from "@shiba/shared";
 import { defaultCodingFromConnection, soleReadyConnection } from "./model-defaults.js";
 import { readModelConfig, resolveCodingRoute, type ModelConfigSnapshot } from "./model-policy.js";

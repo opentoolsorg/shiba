@@ -84,3 +84,14 @@ test("signed archive downloads reach Worker authentication without bypassing art
   assert.ok(!paths.some((path) => path.startsWith("/api/slack-canvas") || path.startsWith("/slack-canvas")));
   assert.ok(!paths.includes("/api/*"));
 });
+
+test("normal deploy paths bind the canonical connector selector", () => {
+  const stack = readFileSync(new URL("../alchemy.run.ts", import.meta.url), "utf8");
+  const configVars = stack.match(/\.\.\.configVars\(\[([\s\S]*?)\]\)/)?.[1];
+  assert.match(configVars ?? "", /"CONNECTOR_PROVIDER"/);
+  assert.match(stack, /\bCONNECTOR_PROVIDER: "openconnector"/);
+  for (const path of ["wrangler.jsonc", "wrangler.dogfood.jsonc"]) {
+    const config = readFileSync(new URL(`../apps/backend/${path}`, import.meta.url), "utf8");
+    assert.match(config, /"CONNECTOR_PROVIDER": "openconnector"/);
+  }
+});

@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Env } from "./env.js";
 import type { ToolRegistry } from "./mcp-gateway.js";
 import { dispatchEmployeeToolForPrincipal } from "./employee-tool-routes.js";
-import { getIntegrationProvider } from "./integrations/runtime.js";
+import { getIntegrationProvider } from "./ports/connector/registry.js";
 
 const service = z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/);
 const base = z.object({ toolkitSlug: service, employeeId: z.string().min(1).max(120).optional() });

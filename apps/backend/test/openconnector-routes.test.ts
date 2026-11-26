@@ -32,7 +32,7 @@ describe("openconnector runtime and routes", () => {
   });
 
   it("does not reuse another environment's service binding or credentials", () => {
-    const first = { INTEGRATIONS_PROVIDER: "openconnector", OPEN_CONNECTOR_ADMIN_TOKEN: "first" } as Env;
+    const first = { OPEN_CONNECTOR_ADMIN_TOKEN: "first" } as Env;
     const second = { ...first, OPEN_CONNECTOR_ADMIN_TOKEN: "second" };
     expect(getIntegrationProvider(first).id).toBe("openconnector");
     expect(getIntegrationProvider(first)).toBe(getIntegrationProvider(first));
@@ -40,7 +40,7 @@ describe("openconnector runtime and routes", () => {
   });
 
   it("rejects direct execution without an exact employee action approval", async () => {
-    const env = { INTEGRATIONS_PROVIDER: "openconnector" } as Env;
+    const env = {} as Env;
     const provider = getIntegrationProvider(env);
     const execute = vi.spyOn(provider, "executeTool").mockResolvedValue({ ok: true, status: "completed", output: { count: 1 } });
     const response = await handleIntegrationProviderRoutes(post("execute", {
@@ -52,7 +52,7 @@ describe("openconnector runtime and routes", () => {
   });
 
   it("reports unsupported sessions and rejects cross-origin execute", async () => {
-    const env = { INTEGRATIONS_PROVIDER: "openconnector" } as Env;
+    const env = {} as Env;
     const execute = vi.spyOn(getIntegrationProvider(env), "executeTool");
     const session = await handleIntegrationProviderRoutes(post("session", { toolkitSlug: "github" }), env);
     expect(session?.status).toBe(503);

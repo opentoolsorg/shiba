@@ -533,6 +533,7 @@ export function App(): React.JSX.Element {
   }, []);
   const [selectedAutomationId, setSelectedAutomationId] = useState<string | null>(null);
   const [repeatSource, setRepeatSource] = useState<RoutineSource | null>(null);
+  const [automationDraft, setAutomationDraft] = useState<{ prompt: string; repoUrl: string } | null>(null);
   const [automationList, setAutomationList] = useState<AutomationRecord[]>([]);
   // Settings is a full page; the section lives in ?section= and "Back to app" returns to the previous view.
   const [settingsSection, setSettingsSection] = useState<string>(() => {
@@ -1421,6 +1422,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     firstRunProgressClient.current?.reset();
     setTask(""); setSelectedOnboardingDraftRef(null); setPendingOnboardingDraft(null);
     setComputerDraftScope(null);
+    setAutomationDraft(null);
     setWebSessions([]); setSessionRegistryOwner(null);
     setOrchestratorName(null);
     setAuthMode(null);
@@ -3872,6 +3874,17 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               workspaceId={teamWorkspaceId || undefined}
               task={composerVisible ? task : ""}
               onTaskChange={setTask}
+              onAutomationDraft={(prompt) => { setAutomationDraft({ prompt, repoUrl }); openView("automations"); }}
+              onOpenSuggestion={(item) => {
+                if (item.kind === "setup") {
+                  const step = nudgeStatus?.steps.find((candidate) => item.id === `setup:${candidate.id}`);
+                  if (step) void resumeNudgeStep(step);
+                  else openFirstRun();
+                  return;
+                }
+                const view = item.action.payload.view;
+                if (view && isNavId(view)) openView(view);
+              }}
               agents={customAgentRecords.map((profile) => ({
                 id: profile.id,
                 name: profile.config.name,
@@ -4645,7 +4658,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ) : mainView === "outputs" ? (
             <OutputsView />
           ) : mainView === "automations" ? (
-            <AutomationsView scope={scope} sidebarCollapsed={sessionsCollapsed} onToggleSidebar={toggleSessionsCollapsed} selectedAutomationId={selectedAutomationId} onSelectAutomation={setSelectedAutomationId} onAutomationsChange={setAutomationList} />
+            <AutomationsView initialDraft={automationDraft} onDraftSaved={() => setAutomationDraft(null)} scope={scope} sidebarCollapsed={sessionsCollapsed} onToggleSidebar={toggleSessionsCollapsed} selectedAutomationId={selectedAutomationId} onSelectAutomation={setSelectedAutomationId} onAutomationsChange={setAutomationList} />
           ) : mainView === "swarm" ? (
             <SwarmDeskView
               runs={retainedRuns}

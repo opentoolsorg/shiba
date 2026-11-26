@@ -21,7 +21,7 @@ const fixture = () => {
   const { database, sqlite } = customAgentD1();
   sqlite.exec(connectorMigration);
   sqlite.exec(integrationMigration);
-  const env = { AGENT_AUDIT: database, INTEGRATIONS_PROVIDER: "openconnector" } as unknown as Env;
+  const env = { AGENT_AUDIT: database } as unknown as Env;
   let principal: V1Principal = { principal: "alice", orgId: "self-hosted", scopes: ["api:read", "api:write"] };
   const send = (path: string, method = "GET", body?: unknown) => handleV1(
     new Request(`https://shiba.test${path}`, {
@@ -51,6 +51,8 @@ describe("workspace connectors registry", () => {
   it("preserves 503 for configured directory outages", async () => {
     const f = fixture();
     f.env.OPEN_CONNECTOR_URL = "https://oc.example.test";
+    f.env.OPEN_CONNECTOR_ADMIN_TOKEN = "fixture-admin";
+    f.env.OPEN_CONNECTOR_RUNTIME_TOKEN = "fixture-runtime";
     const spy = vi.spyOn(getIntegrationProvider(f.env), "listCatalog")
       .mockRejectedValue(new OpenConnectorIntegrationProviderError("Could not reach OpenConnector."));
     try {

@@ -311,7 +311,7 @@ export interface SandboxHandle {
 
 /** Resolves a container handle — production default loads the SDK lazily. */
 export type SandboxHandleResolver = (
-  binding: DurableObjectNamespace<import("./durable-object.js").Sandbox>,
+  binding: DurableObjectNamespace<import("../adapters/sandbox/cloudflare/durable-object.js").Sandbox>,
   sandboxId: string,
 ) => SandboxHandle;
 

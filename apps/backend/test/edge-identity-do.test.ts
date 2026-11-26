@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   schedule: vi.fn(),
   execute: vi.fn(async () => ({})),
   postSlackMessage: vi.fn(async () => ({})),
+  postSlackMessageWithReceipt: vi.fn(async () => ({ channel: "C1", ts: "111.222" })),
   destroy: vi.fn(async () => undefined),
 }));
 vi.mock("@cloudflare/think", () => ({
@@ -34,6 +35,7 @@ vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
 vi.mock("../src/slack.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/slack.js")>()),
   postSlackMessage: mocks.postSlackMessage,
+  postSlackMessageWithReceipt: mocks.postSlackMessageWithReceipt,
 }));
 setSandboxHandleResolver(() => ({ destroy: mocks.destroy }));
 

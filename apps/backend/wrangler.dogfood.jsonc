@@ -23,11 +23,7 @@
   "vars": {
     "MCP_TRUSTED_HOSTS": "",
     "AGENT_HARNESS": "opencode",
-    "INTEGRATIONS_PROVIDER": "openconnector",
-    // Matches wrangler.jsonc: without the OPEN_CONNECTOR service binding or an
-    // OPEN_CONNECTOR_URL, setup status would otherwise report the lane enabled
-    // while every call fails closed.
-    "OPEN_CONNECTOR_ENABLED": "0",
+    "CONNECTOR_PROVIDER": "openconnector",
     "SHIBA_PERSONAL_LOCAL_EXECUTION": "0",
     "SHIBA_TEAM_MODEL_SESSIONS": "0",
     "SHIBA_SHARED_COMPUTER": "0",

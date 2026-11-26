@@ -20,6 +20,7 @@ const ROLE_CAPABILITIES: Record<CustomAgentRoleTemplateId, {
   finance: { integrationIds: ["stripe", "quickbooks", "google-drive-docs-sheets", "gmail-calendar"], mcpCatalogIds: ["stripe", "notion"] },
   product: { integrationIds: ["linear", "posthog", "figma", "notion", "github"], mcpCatalogIds: ["posthog", "figma", "notion", "jira-atlassian", "github-readonly", "linear-readonly"] },
   research: { integrationIds: ["notion", "google-drive-docs-sheets", "gmail-calendar"], mcpCatalogIds: ["notion"] },
+  support: { integrationIds: ["slack", "gmail-calendar", "notion", "linear"], mcpCatalogIds: ["notion", "linear-readonly"] },
 };
 
 export type CapabilityRoleFilter = CustomAgentRoleTemplateId | "all";

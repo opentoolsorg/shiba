@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import type { JournalExecutionInput, JournalPage } from "@shiba/sandbox";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Sandbox } from "../src/sandbox/durable-object.js";
+import { Sandbox } from "../src/adapters/sandbox/cloudflare/durable-object.js";
 import { EXECUTION_EPOCH_LABEL, EXECUTION_JOURNAL_SOURCE, executionInputDigest } from "../src/sandbox/execution-journal.js";
 import type { Env } from "../src/env.js";
 

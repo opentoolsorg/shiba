@@ -1,9 +1,10 @@
-import { deliverableByteLimit, isSafeDeliverablePath, runInputHash, type DelegatedRun, type RunDeliverable } from "@shiba/shared";
+import { authorizeCollaborationAction, deliverableByteLimit, isSafeDeliverablePath, runInputHash, type CollaborationActor, type DelegatedRun, type RunDeliverable } from "@shiba/shared";
+import { authoritativeArtifactReview, parseArtifactReview } from "./artifact-metadata.js";
 import { getAgentByName } from "agents/routing";
 import { isCollaborationApprovalDispatchable } from "./collaboration-context.js";
 import { collaborationExecutorIdentity } from "./collaboration-executor.js";
 import { canReadCollaborationRoom } from "./collaboration-room-access.js";
-import { getCollaborationHandoff, type CollaborationHandoffRow, type CollaborationScope } from "./collaboration-store.js";
+import { getCollaborationHandoff, getCollaborationMembership, getCollaborationRoom, humanActorId, type CollaborationHandoffRow, type CollaborationScope } from "./collaboration-store.js";
 import { signInternalRequest } from "./edge-identity.js";
 import type { Env } from "./env.js";
 import { deliverableResponse, deliverableViewOptions } from "./deliverable-response.js";
@@ -11,7 +12,7 @@ import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
 import { deliverableStorageKey } from "./run-deliverables.js";
 import { resolveTeamCollaborationScope } from "./team-collaboration-scope.js";
 
-const ROUTE = /^\/api\/collaboration\/rooms\/([^/]+)\/handoffs\/([^/]+)\/artifacts\/([^/]+)$/;
+const ROUTE = /^\/api\/collaboration\/rooms\/([^/]+)\/handoffs\/([^/]+)\/artifacts\/([^/]+)(\/review)?$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const ARTIFACT_ID = /^artifact_[a-f0-9]{32}$/;
 
@@ -80,6 +81,24 @@ async function hasSharedArtifactRef(
   }
 }
 
+/** Review decisions are writes: read-level room access or a governance view grant is not enough —
+ *  the caller needs an active room membership carrying approval.decide. */
+async function canDecideArtifactReview(env: Env, scope: CollaborationScope, handoff: CollaborationHandoffRow): Promise<boolean> {
+  const room = await getCollaborationRoom(env, scope, handoff.roomId);
+  if (!room) return false;
+  const membership = await getCollaborationMembership(env, scope, handoff.roomId, humanActorId(scope.userId));
+  const actor: CollaborationActor = {
+    kind: membership?.actorKind ?? "human",
+    actorId: membership?.actorId ?? humanActorId(scope.userId),
+    tenantId: scope.tenantId,
+    workspaceId: scope.workspaceId,
+    userId: scope.userId,
+  };
+  return authorizeCollaborationAction(
+    { ...scope, actor }, room, membership ?? undefined, "approval.decide",
+  ).allowed === true;
+}
+
 async function currentAccess(request: Request, env: Env, scope: CollaborationScope, handoff: CollaborationHandoffRow, run: DelegatedRun): Promise<boolean> {
   const currentScope = await resolveTeamCollaborationScope(request, env);
   if (!currentScope || currentScope.userId !== scope.userId || currentScope.tenantId !== scope.tenantId || currentScope.workspaceId !== scope.workspaceId) return false;
@@ -119,7 +138,8 @@ export async function handleCollaborationArtifact(request: Request, env: Env): P
   const match = url.pathname.match(ROUTE);
   if (!match) return null;
   if (!await isAuthorizedRequest(request, env)) return failure(401);
-  if (request.method !== "GET") return failure(405);
+  const reviewPath = match[4] === "/review";
+  if ((reviewPath ? request.method !== "GET" && request.method !== "POST" : request.method !== "GET")) return failure(405);
   const origin = request.headers.get("Origin");
   if ((origin !== null && origin !== url.origin) || request.headers.get("Sec-Fetch-Site") === "cross-site") return failure(403);
   const userId = (await resolveUserId(request, env))?.trim().toLowerCase();
@@ -153,6 +173,32 @@ export async function handleCollaborationArtifact(request: Request, env: Env): P
     const item = validRun(run, handoff, index);
     if (!run || !item || !await hasSharedArtifactRef(env, scope, handoff, index, item) ||
         !await currentAccess(request, env, scope, handoff, run)) return failure();
+    if (reviewPath) {
+      if (request.method === "GET") {
+        return Response.json({
+          review: authoritativeArtifactReview(item.review),
+          artifact: { index, artifactId: item.artifactId, version: item.version ?? 1 },
+        }, { headers: { "Cache-Control": "private, no-store" } });
+      }
+      const review = parseArtifactReview(await request.json().catch(() => null));
+      if (!review) return failure(400);
+      // Membership may have ended while the body streamed: re-verify the shared ref, read access
+      // and the approval.decide grant right before the signed write.
+      if (!await hasSharedArtifactRef(env, scope, handoff, index, item) ||
+          !await currentAccess(request, env, scope, handoff, run) ||
+          !await canDecideArtifactReview(env, scope, handoff)) return failure();
+      // The shared-ref check binds this decision to the exact published revision.
+      const decision = new Request(
+        `https://internal/api/runs/${encodeURIComponent(handoff.runId)}/deliverables/${index}/review`,
+        { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(review) },
+      );
+      await signInternalRequest(decision, env);
+      const decided = await owner.fetch(decision);
+      return new Response(await decided.text(), {
+        status: decided.status,
+        headers: { "content-type": "application/json", "Cache-Control": "private, no-store" },
+      });
+    }
     const object = await env.ATTACHMENTS.get(deliverableStorageKey(run.sandboxId, item.sha256, index));
     if (!object) return failure();
     if (object.size !== item.bytes) {

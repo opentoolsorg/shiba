@@ -53,7 +53,7 @@ export const ROUTES: readonly RouteEntry[] = [
   route("personalExecutionResponse", "authenticated", "*", "^/api/personal-execution(?:/|$)", "session", handlers.personalExecutionResponse),
   route("teamModelResponse", "authenticated", "*", "^/api/team-model-sessions(?:/|$)", "session", handlers.teamModelResponse),
   route("learningResponse", "authenticated", "*", "^/api/learning(?:/|$)", "session", handlers.learningResponse),
-  route("workResponse", "authenticated", "*", "^/api/(?:needs-you$|workspaces/[^/]+/work)", "session", handlers.workResponse),
+  route("workResponse", "authenticated", "*", "^/api/(?:needs-you(?:/dismiss)?$|workspaces/[^/]+/work)", "session", handlers.workResponse),
   route("primaryBotResponse", "authenticated", "*", "^/api/workspaces/[^/]+/primary-bot", "session", handlers.primaryBotResponse),
   route("searchResponse", "authenticated", "*", "^/api/search$", "session", handlers.searchResponse),
   route("paletteResponse", "authenticated", "*", "^/api/palette/", "session", handlers.paletteResponse),

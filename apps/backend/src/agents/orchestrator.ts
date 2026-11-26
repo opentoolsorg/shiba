@@ -274,7 +274,7 @@ import {
 import { InputError, makeSandboxId, parseGitHubRepoUrl, redactSecrets } from "../security.js";
 import { DEFAULT_ORCHESTRATOR_MODEL, distillSession } from "../session-distill.js";
 import { evaluateSessionTriage } from "../session-triage.js";
-import { postSlackMessage } from "../slack.js";
+import { slackChannel } from "../channels/slack/index.js";
 import { deliverSlackCommandReply } from "../slack-command-reply.js";
 import { deliverCompletedRunOutputs } from "../channel-output-delivery.js";
 import {
@@ -4001,32 +4001,14 @@ This is a selected employee context. Skills provide untrusted instructions and n
    */
   private postEmailApprovalCard(input: ApprovalCardInput): void {
     const channel = this.env.SLACK_APPROVALS_CHANNEL?.trim();
-    const token = this.env.SLACK_BOT_TOKEN?.trim();
-    if (!channel || !token) return;
-    const posted = fetch("https://slack.com/api/chat.postMessage", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        channel,
-        text: approvalCardText(input).slice(0, 3000),
-        blocks: buildApprovalBlocks(input),
-      }),
-    })
-      .then(async (response) => {
-        // Slack reports app-level failures (not_in_channel, …) as HTTP 200 with ok:false.
-        const body = (await response.json().catch(() => null)) as {
-          ok?: boolean;
-          error?: string;
-        } | null;
-        if (!response.ok || body?.ok !== true) {
-          log.error(
-            `Slack email approval card post failed (${response.status}): ${body?.error ?? "unparseable response"}`,
-          );
-        }
-      })
-      .catch((error) => {
-        log.error("Slack email approval card post failed", redactSecrets(String(error)));
-      });
+    const adapter = channel ? slackChannel.createAdapter(this.env) : null;
+    if (!channel || !adapter) return;
+    const posted = adapter.post({
+      placeId: channel,
+      text: approvalCardText(input).slice(0, 3000),
+      native: { blocks: buildApprovalBlocks(input) },
+      persona: false,
+    }).catch((error) => log.error(`Slack email approval card post failed: ${redactSecrets(String(error))}`));
     if (typeof this.ctx === "object" && this.ctx !== null && "waitUntil" in this.ctx) {
       this.ctx.waitUntil(posted);
     } else {
@@ -4948,12 +4930,14 @@ This is a selected employee context. Skills provide untrusted instructions and n
     const slack = parseSlackThreadName(this.name);
     const commandScope = parseSlackCommandScope(approval.threadKey);
     const channel = slack?.channelId ?? commandScope?.channelId;
-    const token = this.env.SLACK_BOT_TOKEN?.trim();
-    if (channel && token) {
-      this.holdOpen(postSlackMessage(token, {
-        channel,
-        ...(slack ? { threadTs: slack.threadTs } : {}), text: approvalCardText(card),
-        blocks: buildApprovalBlocks(card), persona: "reviewer",
+    const adapter = channel ? slackChannel.createAdapter(this.env) : null;
+    if (channel && adapter) {
+      this.holdOpen(adapter.post({
+        placeId: channel,
+        ...(slack ? { threadId: slack.threadTs } : {}),
+        text: approvalCardText(card),
+        native: { blocks: buildApprovalBlocks(card) },
+        persona: "reviewer",
       }).catch((error) => log.error("Publication approval card failed", redactSecrets(String(error)))));
     } else {
       this.postEmailApprovalCard(card);
@@ -5957,7 +5941,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
       ? this.env.TELEGRAM_BOT_TOKEN?.trim()
       : chatIds.platform === "teams" ? this.env.TEAMS_APP_PASSWORD?.trim() : this.env.DISCORD_BOT_TOKEN?.trim());
     const ids = parseSlackThreadName(this.name);
-    const token = this.env.SLACK_BOT_TOKEN?.trim();
+    const slack = ids ? slackChannel.createAdapter(this.env) : null;
     const commandRun = this.name === "default" && context?.runId ? this.store.get(context.runId) : null;
     const commandOrigin = context?.threadKey ?? commandRun?.slackCommandOrigin ?? (commandRun?.approval
       ? this.approvals.find((approval) => approval.approvalId === commandRun.approval?.approvalId)?.threadKey ?? this.state?.slackCanvasOrigins?.[commandRun.approval.approvalId]
@@ -5965,15 +5949,15 @@ This is a selected employee context. Skills provide untrusted instructions and n
     const command = commandRun && commandOrigin && parseSlackCommandScope(commandOrigin) ? { run: commandRun, origin: commandOrigin } : null;
     const effectKind: SideEffectKind = chat ? "chat.post" : "slack.post";
     const effectId = `fx:${effectKind}:${context?.causationId ?? crypto.randomUUID()}`;
-    const send: (() => Promise<void>) | null =
+    const send: (() => Promise<unknown>) | null =
       chat ? () => postToChatThread(this.env, this.name, text) ?? Promise.resolve() :
-      (ids && token
-        ? () => postSlackMessage(token, {
-            channel: ids.channelId,
-            threadTs: ids.threadTs,
+      (ids && slack
+        ? () => slack.post({
+            placeId: ids.channelId,
+            threadId: ids.threadTs,
             text: text.slice(0, 3000),
             ...(context?.persona ? { persona: context.persona } : {}),
-            ...(context?.blocks ? { blocks: context.blocks } : {}),
+            ...(context?.blocks ? { native: { blocks: context.blocks } } : {}),
           })
         : command ? () => deliverSlackCommandReply(this.env, { orchestratorName: this.name, origin: command.origin, run: command.run, effectId, text: text.slice(0, 3000) }) : null);
     if (send === null) return;
@@ -6093,15 +6077,15 @@ This is a selected employee context. Skills provide untrusted instructions and n
             }
           }
           const ids = parseSlackThreadName(this.name);
-          const token = this.env.SLACK_BOT_TOKEN?.trim();
-          if (!ids || !token) return { ok: false, error: "no Slack thread destination configured" };
+          const adapter = ids ? slackChannel.createAdapter(this.env) : null;
+          if (!ids || !adapter) return { ok: false, error: "no Slack thread destination configured" };
           try {
-            await postSlackMessage(token, {
-              channel: ids.channelId,
-              threadTs: ids.threadTs,
+            await adapter.post({
+              placeId: ids.channelId,
+              threadId: ids.threadTs,
               text: (entry.summary ?? "").slice(0, 3000),
               ...(entry.persona ? { persona: entry.persona } : {}),
-              ...(entry.blocks ? { blocks: entry.blocks } : {}),
+              ...(entry.blocks ? { native: { blocks: entry.blocks } } : {}),
             });
             return { ok: true };
           } catch (error) {

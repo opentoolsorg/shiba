@@ -188,8 +188,8 @@
 # LOCAL_ADAPTER_TOKEN=
 # PAIRING_SECRET=
 
-# Sole provider; local Worker uses the HTTP fallback without a sibling binding.
-INTEGRATIONS_PROVIDER=openconnector
+# Use the HTTP fallback locally, or set CONNECTOR_PROVIDER=none to opt out.
+CONNECTOR_PROVIDER=openconnector
 # OPEN_CONNECTOR_URL=
 # OPEN_CONNECTOR_ADMIN_TOKEN=
 # OPEN_CONNECTOR_RUNTIME_TOKEN=
