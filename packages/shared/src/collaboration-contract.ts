@@ -56,6 +56,12 @@ export interface CollaborationHandoffEnvelope {
   remainingBudget: number; grantedCapabilities: readonly CollaborationCapability[]; profileVersion?: number;
 }
 export type CollaborationEnvelope = CollaborationMessageEnvelope | CollaborationHandoffEnvelope;
+export interface CollaborationHandoffBudgetState {
+  /** Historical budget recorded when this handoff was created. */
+  remainingBudget: number;
+  /** Current shared budget for the root's entire handoff tree. */
+  currentRootBudget: number;
+}
 export const MAX_HANDOFF_DEPTH = 4;
 export const MAX_HANDOFF_BUDGET = 32;
 export type EnvelopeValidationError = "invalid-envelope" | "invalid-scope" | "invalid-identity" | "invalid-time" | "invalid-profile-version" | "invalid-lineage" | "depth-exceeded" | "budget-exceeded" | "duplicate-handoff-id" | "parent-mismatch" | "authority-widened" | "invalid-budget-propagation" | "profile-version-mismatch";
@@ -122,8 +128,9 @@ export function validateCollaborationHandoff(value: unknown, options: HandoffVal
   if (!p) return bad("parent-mismatch");
   if (!integer(p.remainingBudget) || p.remainingBudget < 0 || p.remainingBudget > MAX_HANDOFF_BUDGET) return bad("budget-exceeded");
   if (p.tenantId !== value.tenantId || p.workspaceId !== value.workspaceId || p.roomId !== value.roomId || p.taskId !== value.taskId ||
-      !sameActor(value.sender, p.recipient) || l.parentHandoffId !== p.handoffId || l.rootHandoffId !== p.lineage.rootHandoffId || l.depth !== p.lineage.depth + 1 || !sameArray(l.ancestorHandoffIds, [...p.lineage.ancestorHandoffIds, p.handoffId])) return bad("parent-mismatch");
-  if (p.recipient.kind === "agent" && p.profileVersion !== options.senderProfileVersion) return bad("profile-version-mismatch");
+      (!sameActor(value.sender, p.recipient) && !sameActor(value.sender, p.sender)) ||
+      l.parentHandoffId !== p.handoffId || l.rootHandoffId !== p.lineage.rootHandoffId || l.depth !== p.lineage.depth + 1 || !sameArray(l.ancestorHandoffIds, [...p.lineage.ancestorHandoffIds, p.handoffId])) return bad("parent-mismatch");
+  if (sameActor(value.sender, p.recipient) && p.recipient.kind === "agent" && p.profileVersion !== options.senderProfileVersion) return bad("profile-version-mismatch");
   if ((value.remainingBudget as number) >= p.remainingBudget) return bad("invalid-budget-propagation");
   if (!subset(value.grantedCapabilities, p.grantedCapabilities)) return bad("authority-widened");
   return { valid: true };

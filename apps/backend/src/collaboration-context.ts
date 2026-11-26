@@ -25,8 +25,11 @@ async function hash(value: unknown): Promise<string> {
 
 function messageValue(message: Partial<CollaborationMessageRow> & Pick<CollaborationMessageRow, "messageId" | "senderActorId" | "createdAt" | "body">) {
   return { id: message.messageId, author: message.senderActorId, createdAt: message.createdAt, body: message.body,
+    // Human-shared deliverables carry artifact refs without a handoff; omitting them desyncs
+    // the freeze hash from the stored row and the write gate rejects every selection.
     ...(message.sourceHandoffId ? { sourceHandoffId: message.sourceHandoffId, sourceRunId: message.sourceRunId,
-      sourceArtifactRefs: message.sourceArtifactRefs ?? [] } : {}),
+      sourceArtifactRefs: message.sourceArtifactRefs ?? [] }
+      : message.sourceArtifactRefs?.length ? { sourceArtifactRefs: message.sourceArtifactRefs } : {}),
     ...(message.sourceSlackEventId ? { slack: { team: message.sourceSlackTeamId, channel: message.sourceSlackChannelId,
       thread: message.sourceSlackThreadTs, user: message.sourceSlackUserId, event: message.sourceSlackEventId } } : {}) };
 }
@@ -151,6 +154,18 @@ async function humanRequestDigest(snapshot: ContextSnapshot): Promise<string> {
     task: snapshot.task, messageRefs: snapshot.messageRefs, memoryRefs: snapshot.memoryRefs });
 }
 
+export async function prepareCollaborationEmployeeContext(
+  env: Env, scope: CollaborationScope, roomId: string, handoffId: string,
+  requestedTask: string, messageIds: unknown, memoryRefs: unknown,
+): Promise<D1PreparedStatement | undefined> {
+  const picked = selection(messageIds, memoryRefs);
+  if (!picked.messageIds.length && !picked.memoryRefs.length) return undefined;
+  await access(env, scope, roomId);
+  const snapshot = await buildContextSnapshot(env, scope, roomId, handoffId, requestedTask, picked);
+  if (!await sourcesCurrent(env, snapshot)) throw new CollaborationStoreError("Selected room sources changed. Reload the room.", 409);
+  return prepareCollaborationContextWrite(env, snapshot);
+}
+
 /** Preflight explicit human instructions/sources before consuming any handoff budget or creating a row. */
 export async function prepareCollaborationHumanAssignment(
   env: Env, scope: CollaborationScope, roomId: string, handoffId: string, recipientActorId: string,
@@ -184,13 +199,18 @@ export async function prepareCollaborationHumanAssignment(
     snapshot.requestDigest = await humanRequestDigest(snapshot);
     if (!await sourcesCurrent(env, snapshot)) throw new CollaborationStoreError("Selected assignment sources changed. Reload the room.", 409);
   }
+  return prepareCollaborationContextWrite(env, snapshot);
+}
+
+async function prepareCollaborationContextWrite(env: Env, snapshot: ContextSnapshot): Promise<D1PreparedStatement> {
+  const { tenantId, workspaceId, roomId, handoffId } = snapshot;
   const expectedMessages = [];
   for (const ref of snapshot.messageRefs) {
     const message = await exactMessage(env, snapshot, ref.id);
-    if (!message || await hash(messageValue(message)) !== ref.sha256) throw new CollaborationStoreError("Selected assignment message changed.", 409);
+    if (!message || await hash(messageValue(message)) !== ref.sha256) throw new CollaborationStoreError("Selected room message changed.", 409);
     expectedMessages.push(messageValue(message));
   }
-  const expectedNotes = await snapshotCollaborationMemory(env, scope, roomId, snapshot.memoryRefs);
+  const expectedNotes = await snapshotCollaborationMemory(env, snapshot, roomId, snapshot.memoryRefs);
   // changes() refers to the immediately preceding handoff/budget write in the D1 batch.
   // Source mismatches deliberately violate NOT NULL, rolling back the entire handoff and budget write.
   return env.AGENT_AUDIT.prepare(`INSERT INTO collaboration_context_snapshots
@@ -214,9 +234,9 @@ export async function prepareCollaborationHumanAssignment(
           AND n.title=json_extract(expected.value,'$.title') AND n.content=json_extract(expected.value,'$.content')
           AND n.created_by_user_id=json_extract(expected.value,'$.createdByUserId')))
       THEN ? ELSE NULL END WHERE changes()=1`)
-    .bind(scope.tenantId, scope.workspaceId, roomId, handoffId,
-      JSON.stringify(expectedMessages), scope.tenantId, scope.workspaceId, roomId,
-      JSON.stringify(expectedNotes), scope.tenantId, scope.workspaceId, roomId, JSON.stringify(snapshot));
+    .bind(tenantId, workspaceId, roomId, handoffId,
+      JSON.stringify(expectedMessages), tenantId, workspaceId, roomId,
+      JSON.stringify(expectedNotes), tenantId, workspaceId, roomId, JSON.stringify(snapshot));
 }
 
 /** Never return a frozen body until both its viewer and every original source remain authorized. */
