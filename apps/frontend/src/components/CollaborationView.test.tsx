@@ -1646,10 +1646,10 @@ describe("coordination cards", () => {
     setup();
     render(<CollaborationView />);
     fireEvent.click(await screen.findByRole("button", { name: /Shiba → Fixer: Fix the README/ }));
-    expect(screen.getByRole("complementary", { name: "Thread" }).textContent).toContain("Child task");
+    expect((await screen.findByRole("complementary", { name: "Thread" })).textContent).toContain("Child task");
     fireEvent.click(screen.getByRole("button", { name: "Close thread" }));
     fireEvent.click(screen.getByRole("button", { name: "Reported result: Done" }));
-    expect(screen.getByRole("complementary", { name: "Thread" }).textContent).toContain("Child task");
+    expect((await screen.findByRole("complementary", { name: "Thread" })).textContent).toContain("Child task");
   });
 
   it("inserts a palette mention into the room composer and sends to the open thread", async () => {
