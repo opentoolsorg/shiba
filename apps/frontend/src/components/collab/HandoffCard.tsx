@@ -40,22 +40,35 @@ export function resolveHandoffStatus(input: {
   return "pending approval";
 }
 
+export interface HandoffCardDetails {
+  runtime?: "sandbox" | "local";
+  destination?: string;
+  owner?: string;
+}
+
 /** "A → B: task" with a status. The control opens the child thread. */
 export function HandoffCard({
   body,
   fromLabel,
   toLabel,
   status,
+  details,
   onOpenThread,
 }: {
   body: string;
   fromLabel?: string;
   toLabel?: string;
   status: HandoffCardStatus;
+  details?: HandoffCardDetails;
   onOpenThread?: () => void;
 }): JSX.Element {
   const parsed = parseHandoffBody(body, fromLabel, toLabel);
   const label = `${parsed.from} → ${parsed.to}: ${parsed.task}`;
+  const facts = [
+    details?.runtime ? `Runtime: ${details.runtime}` : null,
+    details?.destination ? `Destination: ${details.destination}` : null,
+    details?.owner ? `Owner: ${details.owner}` : null,
+  ].filter((fact): fact is string => fact !== null);
   return (
     <button
       type="button"
@@ -63,7 +76,10 @@ export function HandoffCard({
       disabled={!onOpenThread}
       className="mt-2 flex min-h-11 w-full items-center justify-between gap-3 border border-[var(--line)] px-3 py-2 text-left text-sm"
     >
-      <span>{label}</span>
+      <span>
+        {label}
+        {facts.length ? <span className="mt-1 block font-mono text-[10px] text-[var(--ink-2)]">{facts.join(" · ")}</span> : null}
+      </span>
       <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--ink-2)]">{status}</span>
     </button>
   );

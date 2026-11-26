@@ -9,6 +9,7 @@ import {
   listCustomAgents,
   setCustomAgentArchived,
   updateCustomAgent,
+  validateReportsTo,
 } from "./custom-agents-store.js";
 import { decodeCreateCustomAgent, decodeUpdateCustomAgent } from "./custom-agents-schema.js";
 import { resolveHarness } from "./harness/index.js";
@@ -118,6 +119,8 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
         { status: 400 },
       );
     }
+    const reportsToError = await validateReportsTo(env, auth.orgId, null, parsed.config.reportsTo);
+    if (reportsToError) return Response.json({ ok: false, error: "invalid_reports_to", detail: reportsToError }, { status: 400 });
     try {
       const created = await createCustomAgent(env, auth.orgId, parsed.slug, parsed.config);
       if (!auth.principal) {
@@ -162,6 +165,13 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
         { status: 400 },
       );
     }
+    // An unchanged manager (even one archived since) must not block unrelated edits.
+    const current = await getCustomAgentById(env, auth.orgId, agentId);
+    const before = current?.config.reportsTo;
+    const next = parsed.config.reportsTo;
+    const unchanged = before?.kind === "agent" && next?.kind === "agent" && before.agentId === next.agentId;
+    const reportsToError = unchanged ? null : await validateReportsTo(env, auth.orgId, agentId, next);
+    if (reportsToError) return Response.json({ ok: false, error: "invalid_reports_to", detail: reportsToError }, { status: 400 });
     try {
       const updated = await updateCustomAgent(
         env,

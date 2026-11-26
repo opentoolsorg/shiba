@@ -56,10 +56,10 @@ describe("CollaborationView notification sources", () => {
       if (path === "/api/collaboration/rooms/room-2") return Response.json({ ...roomDetail, room: otherRoom, messages: [root, linkedReply] });
       return Response.json({ agents: [], computers: [] });
     }));
-    render(<CollaborationView />);
+    const source = { id: "source-1", roomId: notification.roomId, messageId: notification.messageId };
+    const { rerender } = render(<CollaborationView />);
     const originalMessage = await screen.findByText("Confidential room note");
-    fireEvent.click(await screen.findByRole("button", { name: /Notifications, 1 unread/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "Open source" }));
+    rerender(<CollaborationView incomingMessageSource={source} />);
 
     if (reply) {
       const thread = await screen.findByRole("complementary", { name: "Thread" });
@@ -92,15 +92,14 @@ describe("CollaborationView notification sources", () => {
       }
       return Response.json({ agents: [], computers: [] });
     }));
-    render(<CollaborationView />);
+    const { rerender } = render(<CollaborationView />);
     const openLaunch = () => fireEvent.click(within(screen.getByText(launch.body).closest("article")!).getByRole("button", { name: "Open thread" }));
     await screen.findByText(launch.body);
     openLaunch();
     const input = screen.getByRole("textbox", { name: "Message" });
     fireEvent.change(input, { target: { value: "Unsent launch reply" } });
 
-    fireEvent.click(await screen.findByRole("button", { name: /Notifications, 1 unread/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "Open source" }));
+    rerender(<CollaborationView incomingMessageSource={{ id: "source-1", roomId: notification.roomId, messageId: notification.messageId }} />);
     const preview = source === "room message"
       ? screen.getByText(linked.body).closest("article")
       : within(await screen.findByRole("complementary", { name: "Thread" })).getByText(linked.body);

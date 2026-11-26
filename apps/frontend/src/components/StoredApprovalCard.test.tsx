@@ -139,7 +139,7 @@ describe("StoredApprovalCard", () => {
   it("shows a pending run approval as the current stage with execution not started", () => {
     render(<StoredApprovalCard approval={approval} decided={false} onDecide={vi.fn()} />);
     const items = within(screen.getByRole("list", { name: "Request progress" })).getAllByRole("listitem");
-    expect(items.map((item) => item.textContent)).toEqual(["RequestRecorded", "→ApprovalWaiting for you", "→ExecutionNot started", "→EvidenceAfter execution"]);
+    expect(items.map((item) => item.textContent)).toEqual(["Task briefRecorded", "→ReviewWaiting for you", "→ExecutionNot started", "→ResultsAfter execution"]);
     expect(items[1]?.getAttribute("aria-current")).toBe("step");
     expect(screen.getByText("Waiting for your approval")).toBeTruthy();
   });

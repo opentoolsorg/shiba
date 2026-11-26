@@ -9,6 +9,7 @@ export interface WebThread {
   agentName: string;
   updatedAt: number;
   metadata?: Record<string, unknown>;
+  pausedAt?: number;
 }
 
 /** Create a fresh conversation; never attach an agent to an unrelated existing session. */
@@ -49,6 +50,14 @@ export function applyThreadRename(threads: WebThread[], renamed: RenamedThread):
   return threads.map((thread) => thread.id === renamed.id && renamed.updatedAt >= thread.updatedAt
     ? { ...thread, name: renamed.name, updatedAt: renamed.updatedAt }
     : thread);
+}
+
+export function applyThreadPause(threads: WebThread[], paused: { id: string; updatedAt: number; pausedAt?: number }): WebThread[] {
+  return threads.map((thread) => {
+    if (thread.id !== paused.id) return thread;
+    const { pausedAt: _previous, ...rest } = thread;
+    return { ...rest, updatedAt: Math.max(thread.updatedAt, paused.updatedAt), ...(paused.pausedAt !== undefined ? { pausedAt: paused.pausedAt } : {}) };
+  });
 }
 
 export async function loadThreadMessages(

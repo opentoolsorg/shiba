@@ -358,7 +358,11 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
       const patch = (typeof patchBody === "object" && patchBody !== null ? patchBody : {}) as {
         name?: string;
         metadata?: unknown;
+        paused?: unknown;
       };
+      if (patch.paused !== undefined && typeof patch.paused !== "boolean") {
+        return Response.json({ error: "paused must be a boolean." }, { status: 400 });
+      }
       if (patch.metadata !== undefined) {
         try {
           patch.metadata = sanitizeSessionMetadata(patch.metadata);

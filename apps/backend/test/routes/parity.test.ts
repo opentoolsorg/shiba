@@ -31,6 +31,7 @@ const GET_PARITY: [string, number, number][] = [
   ["/api/personal-execution", 401, 404],
   ["/api/team-model-sessions", 401, 403],
   ["/api/needs-you", 401, 401],
+  ["/api/chief-of-staff", 401, 401],
   ["/api/workspaces/ws_one/work", 401, 404],
   ["/api/workspaces/ws_one/primary-bot", 401, 401],
   ["/api/search", 401, 404],
@@ -79,8 +80,8 @@ const GET_PARITY: [string, number, number][] = [
   ["/api/missing", 401, 404],
 ];
 
-it("retains all 61 GET probes", () => {
-  expect(GET_PARITY).toHaveLength(61);
+it("retains all 62 GET probes", () => {
+  expect(GET_PARITY).toHaveLength(62);
 });
 
 it.each(GET_PARITY)(

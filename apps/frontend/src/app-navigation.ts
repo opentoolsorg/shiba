@@ -101,6 +101,8 @@ export const APP_AREAS: readonly {
     views: ["settings", "integrations", "inbox", "automations", "activity", "analytics", "remote"],
   },
 ];
+/** Views that work inside a team workspace; every other view is personal-only. */
+export const TEAM_WORKSPACE_VIEWS: readonly string[] = ["team", "work", "threads", "collaboration", "custom-agents", "skills", "providers", "integrations", "settings"];
 export function areaForView(view: AppNavView) {
   const area = APP_AREAS.find((item) => item.views.includes(view));
   if (!area) throw new Error(`Unmapped dashboard view: ${view}`);

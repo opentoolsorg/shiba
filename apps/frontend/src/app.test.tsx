@@ -51,10 +51,10 @@ vi.mock("./components/TaskComposer", () => ({ TaskComposer: ({ task, onTaskChang
   <button type="submit" disabled={isSubmitting}>Queue fixture task</button>
 </form> }));
 vi.mock("./components/ChatMessageComposer", () => ({ ChatMessageComposer: ({
-  value, onChange, onPrepareWork, onSubmit, lookups, onToggleLookup,
+  value, onChange, onPrepareWork, onSubmit, lookups, onToggleLookup, locked,
 }: ComponentProps<typeof import("./components/ChatMessageComposer").ChatMessageComposer>) => (
   <form data-testid="chat-composer" onSubmit={onSubmit}>
-    <textarea aria-label="Task draft" value={value} onChange={(event) => onChange(event.target.value)} />
+    <textarea aria-label="Task draft" value={value} disabled={locked} onChange={(event) => onChange(event.target.value)} />
     {onPrepareWork ? <button type="button" onClick={onPrepareWork}>Review as work</button> : null}
     {lookups?.filter((lookup) => lookup.id === "browser").map((lookup) => (
       <button key={lookup.id} type="button" aria-pressed={lookup.on} onClick={() => onToggleLookup?.(lookup.id)}>Toggle fixture browser</button>
@@ -91,6 +91,30 @@ async function openSidebarThread(thread: RegExp, employee: string) {
   }
   fireEvent.click(await screen.findByRole("button", { name: thread }));
 }
+
+describe("global notifications", () => {
+  it("renders the notifications trigger in the app header outside Collaboration", async () => {
+    window.history.replaceState(null, "", "/work/");
+    render(<App />);
+    expect(await screen.findByRole("button", { name: /^Notifications/ })).toBeTruthy();
+  });
+  it("opens a personal room notification in Collaboration and consumes the source", async () => {
+    window.history.replaceState(null, "", "/work/");
+    const notification = { notificationId: "n1", title: "New mention", kind: "mention", body: "", createdAt: 2, roomId: "room-1", messageId: "m1" };
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      const path = String(url);
+      if (path === "/api/whoami") return Response.json({ agent: "test-operator", auth: "access" });
+      if (path === "/api/workspace-notifications") return Response.json({ notifications: [notification] });
+      return Response.json({ workspaces: [], sessions: [], runs: [], approvals: [], decided: [], agents: [], connections: [], computers: [], entries: [], rooms: [] });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /Notifications, 1 unread/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open source" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/collaboration/"));
+    expect(await screen.findByRole("heading", { name: "Team conversations" })).toBeTruthy();
+  });
+});
 
 describe("legacy shell URL preservation", () => {
   it("keeps callback query values and fragments while normalizing a legacy Settings link", async () => {
@@ -233,6 +257,36 @@ describe("app Work and Threads routing", () => {
     fireEvent.click(screen.getByRole("button", { name: /Budget review/ }));
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions/thread-budget/resume", { method: "POST" }));
     expect(fetch).not.toHaveBeenCalledWith("/api/runs", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("disables the composer on a paused thread and Resume re-enables it", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    const originalFetch = fetch;
+    const employee = {
+      id: "employee-1", slug: "finance-auditor", version: 1,
+      config: { name: "Finance Auditor", instructions: "Review supplied records.", harness: "opencode", roleTemplateId: "finance" },
+    };
+    const thread = { id: "thread-budget", name: "Budget review", agentName: "web:test-operator:thread-budget", updatedAt: 123, pausedAt: 100, metadata: { customAgentId: employee.id } };
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path.startsWith("/api/custom-agents")) return Response.json({ agents: [employee] });
+      if (path === "/api/sessions/thread-budget" && options?.method === "PATCH") return Response.json({ session: { ...thread, pausedAt: undefined, updatedAt: 124 } });
+      if (path === "/api/sessions/thread-budget/resume") return Response.json({});
+      if (path.startsWith("/api/sessions") && options?.method !== "POST") return Response.json({ sessions: [thread] });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    const panel = await screen.findByRole("complementary", { name: "Employees" });
+    fireEvent.click(await within(panel).findByRole("button", { name: "Expand Finance Auditor" }));
+    fireEvent.click(await within(panel).findByRole("button", { name: /Budget review/ }));
+    const resume = await screen.findByRole("button", { name: "Resume thread" });
+    expect(await screen.findByText(/This thread is paused/)).toBeTruthy();
+    expect(await screen.findByRole("textbox", { name: "Task draft" })).toHaveProperty("disabled", true);
+    fireEvent.click(resume);
+    await screen.findByRole("button", { name: "Pause thread" });
+    expect(screen.queryByText(/This thread is paused/)).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Task draft" })).toHaveProperty("disabled", false);
   });
 
   it("mounts the browser only in Chat and sends its tool marker only after opt-in", async () => {
@@ -1321,6 +1375,27 @@ describe("app Work and Threads routing", () => {
       await screen.findByRole("button", { name: "Open workspace Finance Auditor" });
       expect(screen.queryByRole("button", { name: "Back to employees" })).toBeNull();
     });
+    it("opens a shared-room conversation from a team employee workspace only with chat access", async () => {
+      const id = `ws_${"f".repeat(24)}`, actor = "owner@example.com";
+      localStorage.setItem(`shiba:team-workspace:${encodeURIComponent(actor)}`, id);
+      localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+      window.history.replaceState(null, "", "/custom-agents/");
+      const originalFetch = fetch;
+      vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+        const path = String(url);
+        if (path === "/api/whoami") return Response.json({ agent: actor, auth: "access" });
+        if (path === "/api/workspaces") return Response.json({ workspaces: [{ workspaceId: id, name: "Team", version: 1, createdAt: 1, membership: { workspaceId: id, userId: actor, role: "owner", version: 1, joinedAt: 1 } }] });
+        if (path.startsWith("/api/governance/employees/employee-1/access")) return Response.json({ level: "chat" });
+        if (path.startsWith("/api/custom-agents")) return Response.json({ agents: [employee] });
+        if (path === "/api/collaboration/rooms") return Response.json({ rooms: [] });
+        return originalFetch(url, options);
+      }));
+      render(<App />);
+      fireEvent.click(await screen.findByRole("button", { name: "Open workspace Finance Auditor" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Open conversation" }));
+      await screen.findByText(/Chat with your team/);
+      expect(screen.queryByRole("button", { name: "Back to employees" })).toBeNull();
+    });
     it("opens that employee's workspace from the Chief of Staff page", async () => {
       window.history.replaceState(null, "", "/chief-of-staff/");
       stub();
@@ -1329,6 +1404,31 @@ describe("app Work and Threads routing", () => {
       fireEvent.click(await screen.findByRole("button", { name: /Finance Auditor/ }));
       await screen.findByRole("button", { name: "Back to employees" });
     });
+  });
+
+  it("loads and saves the personal Chief of Staff name through /api/chief-of-staff", async () => {
+    window.history.replaceState(null, "", "/chief-of-staff/");
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const originalFetch = fetch;
+    let saved: string | null = "Ada";
+    const puts: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path === "/api/whoami") return Response.json({ agent: "owner@example.com", auth: "access" });
+      if (path === "/api/workspaces") return Response.json({ workspaces: [] });
+      if (path === "/api/chief-of-staff") {
+        if (options?.method === "PUT") { const body = JSON.parse(String(options.body)) as { name: string }; puts.push(body); saved = body.name; }
+        return Response.json({ name: saved });
+      }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await screen.findByRole("heading", { name: "Ada" });
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    fireEvent.change(screen.getByLabelText("Chief of staff name"), { target: { value: "Grace" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByRole("heading", { name: "Grace" });
+    expect(puts).toEqual([{ name: "Grace" }]);
   });
 
   it("shows the Chief of Staff page in personal scope and the personal-only notice in a team workspace", async () => {

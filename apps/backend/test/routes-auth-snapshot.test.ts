@@ -317,6 +317,7 @@ const ROUTES: RouteCase[] = [
   post("/api/workspaces/ws_1/work/task_1/archive", 401, "team-work-routes"),
   get("/api/workspaces/ws_1/primary-bot", 401, "collaboration-primary-bot-routes"),
   get("/api/needs-you", 401, "team-work-routes"),
+  get("/api/chief-of-staff", 401, "chief-of-staff-name-routes"),
   get("/api/collaboration/rooms/room_1", 401, "collaboration-room-routes"),
   get("/api/collaboration/rooms/room_1/realtime", 401, "collaboration-room-routes realtime"),
   get("/api/collaboration/handoffs/h_1/artifacts/0", 401, "collaboration-room-routes"),

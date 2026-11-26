@@ -247,13 +247,21 @@ export function AccountSettings({
       <Card>
         <div className="border-b border-[var(--border-1)] px-4 py-3 text-xs font-semibold text-[var(--fg)]">Email verification</div>
         <div className="flex flex-col gap-2 px-4 py-3">
-          <p className="text-xs text-[var(--muted-foreground-2)]">
-            Verification status is shown after you open the link in the email. A verified sender must be configured before a verification email can be sent.
-          </p>
-          <button type="button" disabled={verification === "sending" || !identity.agent.includes("@")} onClick={() => void resendVerification()}
-            className="self-start min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] px-3 text-xs font-semibold disabled:opacity-60">
-            {verification === "sending" ? "Sending…" : "Resend verification email"}
-          </button>
+          {identity.emailVerified === true ? (
+            <p className="text-xs font-semibold text-[var(--fg)]">Email verified</p>
+          ) : (
+            <>
+              <p className="text-xs text-[var(--muted-foreground-2)]">
+                {identity.emailVerified === false
+                  ? "Your email is not verified yet. Open the link in the verification email."
+                  : "Verification status is shown after you open the link in the email. A verified sender must be configured before a verification email can be sent."}
+              </p>
+              <button type="button" disabled={verification === "sending" || !identity.agent.includes("@")} onClick={() => void resendVerification()}
+                className="self-start min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] px-3 text-xs font-semibold disabled:opacity-60">
+                {verification === "sending" ? "Sending…" : "Resend verification email"}
+              </button>
+            </>
+          )}
           {verification === "sent" ? <p role="status" className="text-xs text-[var(--muted-foreground-2)]">Verification email requested. Check your inbox and open the link.</p> : null}
           {verification === "failed" ? <p role="alert" className="text-xs text-[var(--destructive)]">Verification email could not be sent. Try again, or ask your workspace owner to check the email setup.</p> : null}
         </div>

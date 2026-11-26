@@ -55,6 +55,8 @@ export interface WebSessionRecord {
    * rolled back.
    */
   deletingAt?: number;
+  /** Set while the owner has paused the thread: new prompts and runs are refused (409 thread_paused). */
+  pausedAt?: number;
 }
 
 export interface CreateWebSessionOptions {
@@ -199,6 +201,10 @@ export function validateSessionRecordIntegrity(
   if (s.deletingAt !== undefined &&
       (typeof s.deletingAt !== "number" || !Number.isFinite(s.deletingAt) || s.deletingAt < 0)) {
     return "Invalid session deletingAt.";
+  }
+  if (s.pausedAt !== undefined &&
+      (typeof s.pausedAt !== "number" || !Number.isFinite(s.pausedAt) || s.pausedAt < 0)) {
+    return "Invalid session pausedAt.";
   }
   return null;
 }

@@ -14,8 +14,8 @@ import {
 } from "react";
 import { MAX_HANDOFF_DEPTH, type CollabRoomKind, type CollaborationHandoffBudgetState, type TeamWorkspaceDetail, type TeamWorkspaceMembership } from "@shiba/shared";
 import { useCollaborationRoomRealtime } from "../collaboration-room-realtime";
-import { NotificationsPanel } from "./notifications/NotificationsPanel";
 import { resolveHandoffStatus, type HandoffCardStatus } from "./collab/HandoffCard";
+import type { HandoffCardDetails } from "./collab/HandoffCard";
 import { MessageCards } from "./collab/MessageCards";
 import { MessageList } from "./collab/MessageList";
 import { MessageRow } from "./collab/MessageRow";
@@ -160,6 +160,8 @@ interface Handoff extends CollaborationHandoffBudgetState {
     summary?: string;
     error?: string;
     pullUrl?: string;
+    runtime?: "sandbox" | "local";
+    repo?: string;
     unavailable?: boolean;
   };
 }
@@ -276,6 +278,14 @@ function handoffCardStatus(item: Message, detail: RoomDetail): HandoffCardStatus
   });
 }
 
+function handoffCardDetails(item: Message, detail: RoomDetail, members: Array<{ actorId: string; displayName: string }>): HandoffCardDetails | undefined {
+  const handoffId = messageHandoffId(item.payloadJson);
+  const execution = handoffId ? detail.handoffs.find((row) => row.handoffId === handoffId)?.execution : undefined;
+  const ownerId = messagePayload(item.payloadJson).ownerActorId;
+  const owner = typeof ownerId === "string" ? members.find((member) => member.actorId === ownerId)?.displayName : undefined;
+  return execution?.runtime || execution?.repo || owner ? { runtime: execution?.runtime, destination: execution?.repo, owner } : undefined;
+}
+
 export type CollaborationExecutionHandoff = Handoff & { roomId: string };
 export type IncomingTaskDraft = { id: string; workspaceId: string; actorId: string; text: string; source?: "slack" | "team-onboarding"; draftTaskId?: string; draftTaskVersion?: number; progressRevision?: number; expiresAt?: number };
 
@@ -285,7 +295,8 @@ export interface CollaborationViewProps {
   initialHandoffId?: string;
   initialEmployeeId?: string;
   onRoomChange?: (roomId: string) => void;
-  onOpenNotificationPreferences?: () => void;
+  incomingMessageSource?: { id: string; roomId: string; messageId: string };
+  onMessageSourceConsumed?: (id: string) => void;
   incomingTaskDraft?: IncomingTaskDraft | null;
   incomingMention?: { id: string; roomId: string; agentId: string };
   onMentionConsumed?: (id: string) => void;
@@ -463,7 +474,8 @@ function ScopedCollaborationView({
   initialHandoffId,
   initialEmployeeId,
   onRoomChange,
-  onOpenNotificationPreferences,
+  incomingMessageSource,
+  onMessageSourceConsumed,
   incomingTaskDraft,
   incomingMention,
   onMentionConsumed,
@@ -1236,6 +1248,12 @@ function ScopedCollaborationView({
     setActiveRoomId(roomId);
   };
 
+  useEffect(() => {
+    if (!incomingMessageSource) return;
+    openRoomMessage(incomingMessageSource.roomId, incomingMessageSource.messageId);
+    onMessageSourceConsumed?.(incomingMessageSource.id);
+  }, [incomingMessageSource?.id]);
+
   const sendMessage = (event: FormEvent) => {
     event.preventDefault();
     if (!activeRoomId || !message.trim() || !detail || busy) return;
@@ -1386,11 +1404,6 @@ function ScopedCollaborationView({
             <p className="max-w-sm text-xs text-[var(--ink-2)]">
               Chat with your team. Request employee work separately for human approval.
             </p>
-            <NotificationsPanel
-              workspaceId={workspaceId}
-              onOpenSource={(item) => { if (item.roomId && item.messageId) openRoomMessage(item.roomId, item.messageId); }}
-              onOpenPreferences={onOpenNotificationPreferences}
-            />
           </div>
         </header>
 
@@ -1575,6 +1588,7 @@ function ScopedCollaborationView({
                               fromLabel: item.senderKind === "agent" ? (members.find((member) => member.actorId === item.senderActorId)?.displayName ?? "Fixer") : undefined,
                               toLabel: members.find((member) => member.actorId === messagePayload(item.payloadJson).actorId)?.displayName,
                               handoffStatus: item.messageKind === "handoff" ? handoffCardStatus(item, detail) : undefined,
+                              handoffDetails: item.messageKind === "handoff" ? handoffCardDetails(item, detail, members) : undefined,
                               routerCandidates: members
                                 .filter((member) => member.actorKind === "agent" && member.status === "active")
                                 .map((member) => ({ actorId: member.actorId, name: member.displayName })),

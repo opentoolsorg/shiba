@@ -30,6 +30,8 @@ import {
 export { APP_NAV_ITEMS, type AppNavView } from "../app-navigation";
 export interface AppNavRailProps {
   activeView: AppNavView;
+  /** Team scope: only these views are listed; areas with none are hidden. */
+  visibleViews?: readonly AppNavView[];
   onNavigate: (view: AppNavView) => void;
   sidebarPanelId?: string;
   theme?: "dark" | "light";
@@ -109,6 +111,7 @@ const AREA_ICONS = {
 
 export function AppNavRail({
   activeView,
+  visibleViews,
   onNavigate,
   sidebarPanelId,
   variant = "rail",
@@ -299,12 +302,14 @@ export function AppNavRail({
         }
       >
         {APP_AREAS.map((area) => {
+          const views = area.views.filter((view) => !visibleViews || visibleViews.includes(view));
+          if (views.length === 0) return null;
           const Icon = AREA_ICONS[area.id];
           return (
             <div key={area.id} className={sheet ? "pb-2" : "flex justify-center"}>
               <button
                 type="button"
-                onClick={() => go(area.defaultView)}
+                onClick={() => go(views.includes(area.defaultView) ? area.defaultView : views[0]!)}
                 aria-label={area.label}
                 aria-current={activeArea.id === area.id ? "page" : undefined}
                 className={sheet ? "shiba-area-heading" : "shiba-app-rail-button shiba-area-button"}
@@ -323,7 +328,7 @@ export function AppNavRail({
               </button>
               {sheet ? (
                 <div className="pl-4">
-                  {area.views.map((view) => (
+                  {views.map((view) => (
                     <button
                       type="button"
                       key={view}

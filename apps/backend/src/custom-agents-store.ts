@@ -182,3 +182,24 @@ export async function setCustomAgentArchived(
   if (!updated) throw new Error("Agent not found.");
   return updated;
 }
+
+const MAX_REPORTING_DEPTH = 32;
+
+/** Returns an error message when `reportsTo` is not a live, acyclic manager in this scope. */
+export async function validateReportsTo(
+  env: AuditEnv,
+  orgId: string,
+  selfId: string | null,
+  reportsTo: CustomAgentConfig["reportsTo"],
+): Promise<string | null> {
+  if (reportsTo?.kind !== "agent") return null;
+  if (selfId && reportsTo.agentId === selfId) return "An employee cannot report to itself.";
+  let cursor: string | undefined = reportsTo.agentId;
+  for (let depth = 0; cursor && depth < MAX_REPORTING_DEPTH; depth += 1) {
+    if (selfId && cursor === selfId) return "That manager would create a reporting cycle.";
+    const manager: CustomAgentRecord | null = await getCustomAgentById(env, orgId, cursor, { includeArchived: depth > 0 });
+    if (!manager) return depth === 0 ? "Manager must be an existing, active employee in this workspace." : null;
+    cursor = manager.config.reportsTo?.kind === "agent" ? manager.config.reportsTo.agentId : undefined;
+  }
+  return cursor ? "Reporting chain is too deep." : null;
+}

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type OrganizationEmployee, WorkOrganizationView } from "./WorkOrganizationView";
 
@@ -121,5 +121,17 @@ describe("WorkOrganizationView", () => {
 
     fireEvent.click(screen.getByTestId("employee-card-emp-1"));
     expect(onOpen).toHaveBeenCalledWith("emp-1");
+  });
+
+  it("shows the provided chief name and offers rename only when wired", async () => {
+    const onRename = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(<WorkOrganizationView employees={[]} chiefName="Ada" />);
+    expect(screen.getByTestId("organization-chief-card").textContent).toContain("Ada");
+    expect(screen.queryByRole("button", { name: "Rename" })).toBeNull();
+    rerender(<WorkOrganizationView employees={[]} chiefName="Ada" onRenameChief={onRename} />);
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    fireEvent.change(screen.getByLabelText("Chief of staff name"), { target: { value: "Grace" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onRename).toHaveBeenCalledWith("Grace"));
   });
 });

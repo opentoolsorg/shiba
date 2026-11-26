@@ -1,6 +1,7 @@
 import { useEffect, useId, useState, type JSX, type KeyboardEvent } from "react";
-import { departmentForRoleTemplate } from "@shiba/shared";
+import { departmentForRoleTemplate, type EmployeeAccessLevel } from "@shiba/shared";
 import { employeeRole, employeeRoleLabel } from "../employee-templates";
+import { teamWorkspaceHeaders } from "../team-workspaces-client";
 import { AgentAvatar } from "./AgentAvatar";
 import type { CustomAgentWire } from "./CustomAgentsView";
 
@@ -12,6 +13,10 @@ export interface EmployeeWorkspaceProps {
   /** Tool policy is personal-only, so a team workspace passes its id and the policy is never fetched. */
   workspaceId?: string;
   onOpenConversation?: (employeeId: string) => void;
+  /** Starts the approval-gated conversation with a direct report. */
+  onDelegateTask?: (employee: CustomAgentWire) => void;
+  /** Opens a direct report's own workspace. */
+  onOpenEmployee?: (employee: CustomAgentWire) => void;
   /** Absent in team scope: the grant surface is not reachable there. */
   onOpenToolPolicy?: (employeeId: string) => void;
   onOpenOutputs?: (employeeId: string) => void;
@@ -46,13 +51,41 @@ function useActiveTools(employeeId: string, enabled: boolean): PolicyState {
   return result?.employeeId === employeeId ? result.state : { status: "loading" };
 }
 
-export function EmployeeWorkspace({ employee, employees = [], actorId, workspaceId, onOpenConversation, onOpenToolPolicy, onOpenOutputs }: EmployeeWorkspaceProps): JSX.Element {
+export function EmployeeWorkspace({ employee, employees = [], actorId, workspaceId, onOpenConversation, onOpenEmployee, onDelegateTask, onOpenToolPolicy, onOpenOutputs }: EmployeeWorkspaceProps): JSX.Element {
   const [tab, setTab] = useState<TabId>("conversation");
   const baseId = useId();
   const { config } = employee;
   const role = employeeRole(employee.slug, config.roleTemplateId);
   const department = config.department ?? departmentForRoleTemplate(config.roleTemplateId);
   const policy = useActiveTools(employee.id, !workspaceId && tab === "tools");
+  // Team conversations need chat or manage access; hidden while loading or on failure.
+  const [teamLevel, setTeamLevel] = useState<{ employeeId: string; level: EmployeeAccessLevel | null } | null>(null);
+  useEffect(() => {
+    if (!workspaceId) return;
+    let cancelled = false;
+    void fetch(`/api/governance/employees/${encodeURIComponent(employee.id)}/access`, { headers: teamWorkspaceHeaders(workspaceId) })
+      .then(async (response) => response.ok ? ((await response.json()) as { level?: EmployeeAccessLevel }).level ?? null : null)
+      .catch(() => null)
+      .then((level) => { if (!cancelled) setTeamLevel({ employeeId: employee.id, level }); });
+    return () => { cancelled = true; };
+  }, [workspaceId, employee.id]);
+  const canConverse = !workspaceId || (teamLevel?.employeeId === employee.id && (teamLevel.level === "chat" || teamLevel.level === "manage"));
+  const reports = employees.filter((item) => item.config.reportsTo?.kind === "agent" && item.config.reportsTo.agentId === employee.id);
+  // Delegating is a conversation with the report, so team scope needs the same chat or manage access.
+  const reportIds = reports.map((item) => item.id).join("|");
+  const [reportLevels, setReportLevels] = useState<Record<string, EmployeeAccessLevel | null>>({});
+  useEffect(() => {
+    if (!workspaceId || !reportIds) return;
+    let cancelled = false;
+    void Promise.all(reportIds.split("|").map(async (id) => {
+      const level = await fetch(`/api/governance/employees/${encodeURIComponent(id)}/access`, { headers: teamWorkspaceHeaders(workspaceId) })
+        .then(async (response) => response.ok ? ((await response.json()) as { level?: EmployeeAccessLevel }).level ?? null : null)
+        .catch(() => null);
+      return [id, level] as const;
+    })).then((levels) => { if (!cancelled) setReportLevels(Object.fromEntries(levels)); });
+    return () => { cancelled = true; };
+  }, [workspaceId, reportIds]);
+  const canDelegateTo = (id: string) => !workspaceId || reportLevels[id] === "chat" || reportLevels[id] === "manage";
   const manager = config.reportsTo?.kind === "agent" ? employees.find((item) => item.id === (config.reportsTo as { agentId: string }).agentId)?.config.name
     : config.reportsTo?.kind === "user" ? (config.reportsTo.userId === actorId ? "You" : config.reportsTo.userId) : undefined;
 
@@ -81,14 +114,28 @@ export function EmployeeWorkspace({ employee, employees = [], actorId, workspace
     <div role="tabpanel" id={`${baseId}-panel`} aria-labelledby={`${baseId}-tab-${tab}`} className="flex flex-col gap-3 text-sm">
       {tab === "conversation" ? <>
         <p className={MUTED}>Each task starts in a dedicated thread and needs your approval of the exact task before anything runs.</p>
-        {onOpenConversation ? <div><button type="button" className={PRIMARY} onClick={() => onOpenConversation(employee.id)}>Open conversation</button></div> : <p className={`text-xs ${MUTED}`}>Conversations are not available from here.</p>}
+        {onOpenConversation && canConverse ? <div><button type="button" className={PRIMARY} onClick={() => onOpenConversation(employee.id)}>Open conversation</button></div> : <p className={`text-xs ${MUTED}`}>Conversations are not available from here.</p>}
       </> : null}
-      {tab === "role" ? <dl className="grid gap-3 text-xs sm:grid-cols-2">
+      {tab === "role" ? <>
+      <dl className="grid gap-3 text-xs sm:grid-cols-2">
         <div className="sm:col-span-2"><dt className={MUTED}>Instructions</dt><dd className="mt-1 whitespace-pre-wrap break-words text-sm text-[var(--fg)]">{config.instructions}</dd></div>
         <div className="sm:col-span-2"><dt className={MUTED}>Expected deliverables</dt><dd className="break-all font-mono">{config.expectedDeliverables?.length ? config.expectedDeliverables.join(", ") : "None required"}</dd></div>
         <div><dt className={MUTED}>Model</dt><dd className="break-words font-mono">{config.codingModel || "Workspace default"}</dd></div>
         <div><dt className={MUTED}>Reports to</dt><dd>{manager ?? "Not set"}</dd></div>
-      </dl> : null}
+      </dl>
+      {reports.length ? <section aria-labelledby={`${baseId}-team`} className="flex flex-col gap-2">
+        <h3 id={`${baseId}-team`} className={`text-[11px] font-semibold uppercase tracking-wider ${MUTED}`}>Team ({reports.length})</h3>
+        <p className={`text-xs ${MUTED}`}>Delegating opens a conversation with that employee. The task still needs your approval before anything runs.</p>
+        <ul aria-label="Direct reports" className="flex flex-col gap-2">
+          {reports.map((report) => <li key={report.id} className="flex flex-wrap items-center gap-3 rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)] p-3">
+            <AgentAvatar id={report.slug} name={report.config.name} mascotPreset={report.config.mascotPreset} look={report.config.look} avatar={report.config.avatar} role={employeeRole(report.slug, report.config.roleTemplateId)} size={32} decorative />
+            <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-[var(--fg)]">{report.config.name}</span><span className={`block truncate text-xs ${MUTED}`}>{report.config.title || employeeRoleLabel(employeeRole(report.slug, report.config.roleTemplateId))}</span></span>
+            {onOpenEmployee ? <button type="button" className={ACTION} aria-label={`Open ${report.config.name}`} onClick={() => onOpenEmployee(report)}>Open</button> : null}
+            {onDelegateTask && canDelegateTo(report.id) ? <button type="button" className={ACTION} aria-label={`Delegate task to ${report.config.name}`} onClick={() => onDelegateTask(report)}>Delegate task</button> : null}
+          </li>)}
+        </ul>
+      </section> : null}
+      </> : null}
       {tab === "tools" ? <>
         <p className={`text-xs ${MUTED}`}>Hiring or connecting an employee never grants tool access.</p>
         {workspaceId ? <p className={`text-xs ${MUTED}`}>Tool grants are managed in a personal workspace.</p>

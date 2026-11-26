@@ -4,12 +4,15 @@ import { employeeRole, employeeRoleLabel } from "../employee-templates";
 import type { OrganizationEmployee, OrganizationUser } from "./WorkOrganizationView";
 import { AgentAvatar } from "./AgentAvatar";
 import { SHIBA_BRAND_LOOK } from "./ShibaMark";
+import { ChiefRenameForm } from "./ChiefRenameForm";
 
 export interface ChiefOfStaffViewProps {
   employees?: readonly OrganizationEmployee[];
   user?: OrganizationUser;
   /** Name of the workspace chief of staff; defaults to "Shiba". */
   chiefName?: string;
+  /** Persists a new chief name; omit to hide rename. Throws a readable Error on failure. */
+  onRenameChief?: (name: string) => Promise<void>;
   onOpenChief?: () => void;
   /** Hidden where the approvals queue is unavailable (team scope). */
   onOpenApprovals?: () => void;
@@ -25,7 +28,7 @@ const CARD = "rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[v
 const PRIMARY = "inline-flex min-h-11 items-center justify-center rounded-[var(--radius-button)] border border-[var(--primary)] bg-[var(--primary)] px-4 text-xs font-medium text-[var(--primary-text)] hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 const ACTION = "inline-flex min-h-11 items-center justify-center rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-4 text-xs font-medium text-[var(--fg)] hover:bg-[var(--card-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]";
 
-export function ChiefOfStaffView({ employees = [], user, chiefName = "Shiba", onOpenChief, onOpenApprovals, onOpenOutputs, onOpenEmployee, loading = false, error = null, onRetry }: ChiefOfStaffViewProps): JSX.Element {
+export function ChiefOfStaffView({ employees = [], user, chiefName = "Shiba", onRenameChief, onOpenChief, onOpenApprovals, onOpenOutputs, onOpenEmployee, loading = false, error = null, onRetry }: ChiefOfStaffViewProps): JSX.Element {
   const userName = user?.name?.trim();
   const memberLabel = userName ? `${userName}’s Shiba` : "Your Shiba";
   return <section aria-label="Chief of staff" className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-8 sm:px-8">
@@ -34,6 +37,7 @@ export function ChiefOfStaffView({ employees = [], user, chiefName = "Shiba", on
       <div className="min-w-0 flex-1">
         <h1 className="font-[family-name:var(--font-display)] text-2xl font-semibold tracking-tight text-[var(--fg)]">{chiefName}</h1>
         <p className={`text-sm ${MUTED}`}>Workspace chief of staff. Hands work to your employees; humans decide what runs.</p>
+        {onRenameChief ? <ChiefRenameForm key={chiefName} name={chiefName} onSave={onRenameChief} /> : null}
       </div>
     </header>
     {onOpenChief || onOpenApprovals || onOpenOutputs ? <div className="flex flex-wrap gap-2">

@@ -1,7 +1,7 @@
 import type { JSX } from "react";
 import type { PendingApproval } from "../../ui-helpers";
 import { ApprovalCard } from "../ApprovalCard";
-import { HandoffCard, HandoffReport, handoffReason, type HandoffCardStatus } from "./HandoffCard";
+import { HandoffCard, HandoffReport, handoffReason, type HandoffCardDetails, type HandoffCardStatus } from "./HandoffCard";
 import { RouterChip, type RouterCandidate } from "./RouterChip";
 
 export interface ThreadCardMessage {
@@ -11,6 +11,7 @@ export interface ThreadCardMessage {
   toLabel?: string;
   approval?: PendingApproval;
   handoffStatus?: HandoffCardStatus;
+  handoffDetails?: HandoffCardDetails;
   routerCandidates?: RouterCandidate[];
 }
 
@@ -58,6 +59,7 @@ export function MessageCards({
           fromLabel={message.fromLabel}
           toLabel={message.toLabel}
           status={message.handoffStatus ?? "pending approval"}
+          details={message.handoffDetails}
           onOpenThread={onOpenThread}
         />
         {reason && onReassign ? (

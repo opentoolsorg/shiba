@@ -583,7 +583,39 @@ function repoPullUrl(output: string, repoUrl: string): string | undefined {
     : undefined;
 }
 
+const THREAD_PAUSED_MESSAGE = "This thread is paused. New prompts are blocked until you resume it. Runs already in flight and pending approvals are not affected.";
+
+export function threadPausedResponse(): Response {
+  return Response.json({ error: "thread_paused", message: THREAD_PAUSED_MESSAGE }, { status: 409 });
+}
+
 export class CodingOrchestrator extends Think<Env, OrchestratorState> {
+  constructor(ctx: ConstructorParameters<typeof Think<Env, OrchestratorState>>[0], env: Env) {
+    super(ctx, env);
+    // Think handles chat frames before onMessage, so wrap the instance hook to refuse them while paused.
+    const inner = this.onMessage?.bind(this);
+    if (!inner) return;
+    this.onMessage = async (connection, message) => {
+      if (typeof message === "string" && message.includes("cf_agent_use_chat_request")) {
+        let frame: { type?: unknown; id?: unknown } | null = null;
+        try { frame = JSON.parse(message) as { type?: unknown; id?: unknown }; } catch { /* not a chat frame */ }
+        if (frame?.type === "cf_agent_use_chat_request" && await this.sessionPaused()) {
+          connection.send(JSON.stringify({ type: "cf_agent_use_chat_response", id: String(frame.id ?? ""), body: THREAD_PAUSED_MESSAGE, done: true, error: true }));
+          return;
+        }
+      }
+      return inner(connection, message);
+    };
+  }
+
+  // ponytail: fail-open on purpose; pause is a UX guard, not a security boundary.
+  /** Pause lives in the owner's session registry; unregistered/default sessions are never paused. */
+  private async sessionPaused(): Promise<boolean> {
+    if (!this.name || !parseSessionAgentName(this.name)) return false;
+    const session = await resolveOwnedAppSession(this.env, this.name);
+    return session?.pausedAt !== undefined;
+  }
+
   override sql<T = Record<string, string | number | boolean | null>>(
     strings: TemplateStringsArray,
     ...values: (string | number | boolean | null)[]
@@ -6743,6 +6775,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
         const patch = (typeof body === "object" && body !== null ? body : {}) as {
           name?: string;
           metadata?: Record<string, unknown>;
+          paused?: boolean;
         };
         let sanitizedMeta = existing.metadata;
         if (patch.metadata !== undefined) {
@@ -6763,7 +6796,9 @@ This is a selected employee context. Skills provide untrusted instructions and n
               : existing.name,
           metadata: sanitizedMeta,
           updatedAt: Date.now(),
+          ...(patch.paused === true ? { pausedAt: existing.pausedAt ?? Date.now() } : {}),
         };
+        if (patch.paused === false) delete updated.pausedAt;
         this.sessionState.replace(
           this.storedWebSessions.map((s) => (s.id === sessionId ? updated : s)),
         );
@@ -7548,6 +7583,10 @@ This is a selected employee context. Skills provide untrusted instructions and n
       const response = await handleEmployeeDraftRequest(request, this.env, this.employeeDraftStore(), { orgId: orgId.trim(), actorId, executionContextId: this.name });
       if (this.sessionDeleted) return Response.json({ error: "Draft not found." }, { status: 404 });
       if (response) return response;
+    }
+    // Pause refuses new prompts/runs only; in-flight runs and pending approvals are untouched.
+    if (request.method === "POST" && /^\/api\/(?:runs|runs\/subagents\/spawn|runs\/[^/]+\/(?:steer|fork|subagents|review|review\/retry|review-loop|deliverables\/[0-7]\/revision)|tasks\/[^/]+\/retry)$/.test(url.pathname) && await this.sessionPaused()) {
+      return threadPausedResponse();
     }
     if (url.pathname === "/api/tasks") {
       if (request.method !== "GET") return Response.json({ error: "Method not allowed." }, { status: 405 });

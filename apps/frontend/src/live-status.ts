@@ -166,6 +166,7 @@ export function useAgentsDirectory(enabled = true): {
 export interface WhoamiWire {
   agent: string;
   auth?: "better-auth" | "access" | "none";
+  emailVerified?: boolean;
 }
 
 export function useWhoami(): {

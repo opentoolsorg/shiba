@@ -15,7 +15,7 @@ describe("runStages", () => {
   });
 
   it("never infers an approval that was not recorded", () => {
-    expect(runStages({})[1]).toEqual({ label: "Approval", state: "upcoming", note: "Not recorded" });
+    expect(runStages({})[1]).toEqual({ label: "Review", state: "upcoming", note: "Not recorded" });
   });
 
   it("blocks at a rejection and says the run will not start", () => {
@@ -52,7 +52,7 @@ describe("RunStageRail", () => {
   it("spells out every stage in text and marks only the current one", () => {
     render(<RunStageRail stages={runStages({ approval: "rejected" })} />);
     const items = within(screen.getByRole("list", { name: "Request progress" })).getAllByRole("listitem");
-    expect(items.map((item) => item.textContent)).toEqual(["RequestRecorded", "→ApprovalRejected", "→ExecutionWill not run", "→EvidenceAfter execution"]);
+    expect(items.map((item) => item.textContent)).toEqual(["Task briefRecorded", "→ReviewRejected", "→ExecutionWill not run", "→ResultsAfter execution"]);
     expect(items.filter((item) => item.getAttribute("aria-current") === "step")).toHaveLength(0);
     cleanup();
     render(<RunStageRail stages={runStages({ approval: "waiting" })} />);

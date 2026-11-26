@@ -61,6 +61,20 @@ describe("AccountSettings", () => {
     expect(JSON.parse(String(call?.[1]?.body))).toEqual({ email: "user@example.test", callbackURL: "/app/?email_verified=1" });
   });
 
+  it("shows Email verified without a resend button when the server says so", async () => {
+    stubFetch();
+    render(<AccountSettings identity={{ ...identity, emailVerified: true }} />);
+    expect(await screen.findByText("Email verified")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Resend verification email" })).toBeNull();
+  });
+
+  it("shows an unverified notice with resend when the server says unverified", async () => {
+    stubFetch();
+    render(<AccountSettings identity={{ ...identity, emailVerified: false }} />);
+    expect(await screen.findByText(/not verified yet/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Resend verification email" })).toBeTruthy();
+  });
+
   it("shows a retryable alert when the verification email cannot be sent", async () => {
     stubFetch(500);
     render(<AccountSettings identity={identity} />);

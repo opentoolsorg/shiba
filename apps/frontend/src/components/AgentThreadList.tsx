@@ -88,7 +88,9 @@ export function AgentThreadList({
               />
               <span className="min-w-0 flex-1 truncate">{thread.name || "Untitled thread"}</span>
               <span className={`shrink-0 text-[10px] ${stateText[state]}`}>
-                {state !== "idle"
+                {thread.pausedAt !== undefined
+                  ? "Paused"
+                  : state !== "idle"
                   ? stateLabel[state]
                   : thread.updatedAt
                     ? formatTimeAgo(thread.updatedAt)
