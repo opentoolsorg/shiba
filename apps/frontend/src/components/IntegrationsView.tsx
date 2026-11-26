@@ -144,7 +144,6 @@ function linearChip(linear: SetupStatus["linear"] | undefined, loading: boolean)
 
 interface IntegrationsViewProps {
   onNavigate?: (view: AppNavView) => void;
-  onOpenSettings?: (section: "connected-apps") => void;
   initialTab?: "skills" | "mcp" | "connectors";
   actorId?: string | null;
   nativeSession?: boolean;
@@ -251,7 +250,6 @@ function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspace
 
 function PersonalIntegrationsView({
   onNavigate,
-  onOpenSettings,
   initialTab,
   actorId,
   scope = "personal",
@@ -727,10 +725,10 @@ function PersonalIntegrationsView({
           <section aria-labelledby="connection-management-heading" className="mx-4 mt-4 shrink-0 rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)] p-4 shadow-[var(--sh-card)] lg:mx-8">
             <h2 id="connection-management-heading" className="text-sm font-semibold text-[var(--fg)]">Connection management</h2>
             <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-[var(--muted-foreground-2)]">Connection status, account scope, and employee permissions are separate. Connecting an app does not grant any employee access.</p>
-            {onNavigate ? (
+            {!showSetupDetails || onNavigate ? (
               <div className="mt-3 flex flex-wrap gap-2">
-                <button type="button" onClick={() => onOpenSettings ? onOpenSettings("connected-apps") : onNavigate("settings")} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--button)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--button-hover)]">Review app setup</button>
-                <button type="button" onClick={() => onNavigate("employee-tools")} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--button)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--button-hover)]">Review employee permissions</button>
+                {!showSetupDetails ? <button type="button" onClick={() => setShowSetupDetails(true)} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--button)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--button-hover)]">Review app setup</button> : null}
+                {onNavigate ? <button type="button" onClick={() => onNavigate("employee-tools")} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--button)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--button-hover)]">Review employee permissions</button> : null}
               </div>
             ) : null}
           </section>
