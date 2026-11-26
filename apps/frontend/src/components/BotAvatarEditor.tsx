@@ -151,7 +151,7 @@ export function BotAvatarEditor({ name, current, busy = false, error = null, onS
         <header className="flex items-start justify-between gap-3 border-b border-[var(--border-1)] px-4 py-3">
           <div className="min-w-0">
             <h2 id={`${base}-title`} className="text-balance text-[15px] font-semibold leading-tight">Edit avatar</h2>
-            <p className="mt-1 text-pretty text-[11px] leading-snug text-[var(--muted-foreground-2)]">Choose how {name || "this bot"} looks everywhere it appears.</p>
+            <p className="mt-1 text-pretty text-[11px] leading-snug text-[var(--muted-foreground-2)] [overflow-wrap:anywhere]">Choose how {name || "this bot"} looks everywhere it appears.</p>
           </div>
           <button ref={firstControl} type="button" className={QUIET} onClick={onCancel} disabled={busy}>Cancel</button>
         </header>

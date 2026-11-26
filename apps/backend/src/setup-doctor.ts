@@ -6,6 +6,7 @@ import { getSsoReadiness } from "@shiba/auth/better-auth";
 import { AGENT_ROLES, type AgentRole } from "@shiba/shared";
 import { describeRoleModels } from "./agents/roles.js";
 import type { Env } from "./env.js";
+import { flag } from "./config/flags.js";
 import { agentCliCatalog } from "./harness/catalog.js";
 import { isGitHubPublishConfigured, resolveGitHubCredential } from "./github-auth.js";
 import { assertRunPreflight, type RunPreflightInput } from "./run-preflight.js";
@@ -239,7 +240,7 @@ async function checkSandboxProvider(env: Env, findings: DoctorFinding[]): Promis
         "Use cloudflare (default) for production, or opt in only on trusted dev hosts.",
       );
     }
-    if (provider.id === "computesdk" && !env.SHIBA_COMPUTESDK_RUNNER_URL?.trim()) {
+    if (provider.id === "computesdk" && !flag(env, "SHIBA_COMPUTESDK_RUNNER_URL")?.trim()) {
       push(
         findings,
         "sandbox.computesdk.runner",

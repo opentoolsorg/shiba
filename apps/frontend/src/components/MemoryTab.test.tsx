@@ -197,6 +197,47 @@ describe("MemoryTab", () => {
   it("shows empty state when facts list is empty", async () => {
     render(<MemoryTab initialFacts={[]} initialSessions={[]} />);
 
-    expect(screen.getByText("No banked facts yet")).toBeDefined();
+    expect(screen.getByText("No memories yet")).toBeDefined();
+  });
+  it("shows the memory skeleton while loading and replaces it with rows", async () => {
+    let resolve!: (response: Response) => void;
+    const pending = new Promise<Response>((done) => { resolve = done; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input).endsWith("/facts") ? pending : json({ sessions: [] })));
+    render(<MemoryTab />);
+    expect(screen.getByRole("status", { name: "Loading memories" })).toBeDefined();
+    resolve(json({ facts: mockFacts }));
+    await screen.findByText(/User prefers pnpm/);
+    expect(screen.queryByTestId("memories-loading")).toBeNull();
+    expect(screen.getAllByTestId("memory-row")).toHaveLength(2);
+  });
+
+  it("opens private sources from the empty facts state", () => {
+    const onSelectView = vi.fn();
+    render(<MemoryTab initialFacts={[]} initialSessions={[]} onSelectView={onSelectView} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Manage private sources" }));
+    expect(onSelectView).toHaveBeenCalledWith("sources");
+  });
+
+  it("filters recorded sessions by agent from the sessions tab", () => {
+    const sessions: MemorySession[] = [
+      ...mockSessions,
+      { id: "sess_2", agent: "assistant", summary: "Triaged the shared mailbox.", started_at: Date.now() - 400_000 },
+    ];
+    render(<MemoryTab initialViewMode="sessions" initialFacts={mockFacts} initialSessions={sessions} />);
+
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "assistant" } });
+    expect(screen.getByText(/Session sess_2/)).toBeDefined();
+    expect(screen.queryByText(/Session sess_1/)).toBeNull();
+  });
+
+  it("offers a conversations link from the empty sessions state only when navigation is wired", () => {
+    const onNavigate = vi.fn();
+    const { rerender } = render(<MemoryTab initialViewMode="sessions" initialFacts={[]} initialSessions={[]} />);
+    expect(screen.queryByRole("button", { name: "Open conversations" })).toBeNull();
+
+    rerender(<MemoryTab initialViewMode="sessions" initialFacts={[]} initialSessions={[]} onNavigate={onNavigate} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open conversations" }));
+    expect(onNavigate).toHaveBeenCalledWith("threads");
   });
 });

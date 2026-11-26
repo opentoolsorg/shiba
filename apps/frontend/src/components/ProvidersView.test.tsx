@@ -266,4 +266,25 @@ describe("ProvidersView sign-in", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy());
   });
+
+  it("explains connection stages and links to model routing only on the standalone page when wired", async () => {
+    const fetcher = vi.fn(async (url: string) => ({ ok: true, json: async () => url === "/api/providers" ? snapshot() : { connections: [], connectionOrder: [], policy: { version: 1, models: {}, updatedAt: 0 }, purposes: [] } }));
+    vi.stubGlobal("fetch", fetcher);
+    const onOpenSettings = vi.fn();
+    const { unmount } = render(<ProvidersView />);
+    const stages = await screen.findByRole("region", { name: "Connection stages" });
+    expect(stages.textContent).toContain("A connected badge means it is stored, not that it works.");
+    expect(stages.textContent).toContain("It does not delete your agents.");
+    expect(screen.queryByRole("button", { name: "Model routing" })).toBeNull();
+    unmount();
+
+    const embedded = render(<ProvidersView embedded onOpenSettings={onOpenSettings} />);
+    await screen.findByText("Coding connections");
+    expect(screen.queryByRole("region", { name: "Connection stages" })).toBeNull();
+    embedded.unmount();
+
+    render(<ProvidersView onOpenSettings={onOpenSettings} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Model routing" }));
+    expect(onOpenSettings).toHaveBeenCalledWith("models");
+  });
 });

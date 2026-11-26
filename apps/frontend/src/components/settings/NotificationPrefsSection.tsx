@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type JSX } from "react";
 import type { WorkspaceNotificationPrefs } from "@shiba/shared";
+import type { AppNavView } from "../AppNavRail";
 import { LoadErrorState } from "../LoadErrorState";
 import { Card } from "../settings-ui";
 
@@ -9,7 +10,26 @@ const PREFS: Array<{ key: keyof WorkspaceNotificationPrefs; label: string; blurb
   { key: "agentApprovals", label: "Agent approvals", blurb: "When an employee needs human approval." },
 ];
 
-export function NotificationPrefsSection(): JSX.Element {
+/** Preference toggles plus the reminder that muting an alert never approves work. */
+export function NotificationPrefsSection({ onNavigate }: { onNavigate?: (view: AppNavView) => void }): JSX.Element {
+  return (
+    <>
+      <NotificationPrefsCard />
+      <section role="note" aria-label="Preferences do not grant approval" className="border border-[color-mix(in_oklch,var(--warning)_30%,transparent)] bg-[var(--warning-subtle)] px-4 py-3 text-xs leading-relaxed text-[var(--fg)]">
+        <p className="font-medium">Preferences do not grant approval</p>
+        <p className="mt-1">Muting a notification does not approve a run or publish a pull request. Decisions remain in the approval queue.</p>
+        {onNavigate ? (
+          <div className="mt-1 flex flex-wrap gap-x-4">
+            <button type="button" onClick={() => onNavigate("collaboration")} className="min-h-11 font-semibold text-[var(--primary)]">Open notification inbox →</button>
+            <button type="button" onClick={() => onNavigate("approvals")} className="min-h-11 font-semibold text-[var(--primary)]">Review approvals →</button>
+          </div>
+        ) : null}
+      </section>
+    </>
+  );
+}
+
+function NotificationPrefsCard(): JSX.Element {
   const [prefs, setPrefs] = useState<WorkspaceNotificationPrefs | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);

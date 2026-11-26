@@ -8,6 +8,7 @@ import {
   listExtensionSkillDirectory,
 } from "./extension-skills-store.js";
 import type { ToolRegistry } from "./mcp-gateway.js";
+import { log } from "./obs/log.js";
 
 const DIRECTORY_CHAR_BUDGET = 1_500;
 const scopeSchema = z.enum(["personal", "workspace"]).optional();
@@ -60,7 +61,7 @@ export async function extensionSkillDirectoryContext(
     // Keep an optional library from blocking the turn, while making the
     // failure visible to operators and preventing the agent from treating it
     // as an empty directory.
-    console.error("Extension skill directory unavailable.", error);
+    log.error("Extension skill directory unavailable.", error);
     return "\n\nThe user-configured skill directory is temporarily unavailable. Do not assume that no skills are configured.";
   }
 }

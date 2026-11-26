@@ -242,8 +242,8 @@ export function ExtensionSkillsView({
         </div>
       </header>
 
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#e4e4e7] px-4 py-2.5 dark:border-zinc-800">
-        <div role="tablist" aria-label="Skill scope" className="flex items-center gap-0.5 rounded-md bg-[#f4f4f5] p-0.5 dark:bg-zinc-800/80">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[#e4e4e7] px-4 py-2.5 dark:border-zinc-800">
+        <div role="tablist" aria-label="Skill scope" className="flex flex-wrap items-center gap-0.5 rounded-md bg-[#f4f4f5] p-0.5 dark:bg-zinc-800/80">
           {VIEWS.map((item) => (
             <button
               key={item.id}
@@ -266,14 +266,14 @@ export function ExtensionSkillsView({
           ))}
         </div>
 
-        <div className="relative flex items-center">
+        <div className="relative ml-auto flex min-w-0 flex-[1_1_12rem] items-center sm:grow-0">
           <Search className="pointer-events-none absolute left-2.5 size-3.5 text-[#71717a] dark:text-zinc-400" />
           <input
             aria-label="Search skills"
             placeholder="Search skills…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="min-h-11 w-48 rounded-md border border-[#e4e4e7] bg-[#f4f4f5] pl-8 pr-2.5 text-xs text-[#0a0a0a] placeholder:text-[#71717a] focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+            className="min-h-11 w-full min-w-0 rounded-md border border-[#e4e4e7] bg-[#f4f4f5] pl-8 pr-2.5 text-xs text-[#0a0a0a] placeholder:text-[#71717a] focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-800 dark:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
           />
         </div>
       </div>

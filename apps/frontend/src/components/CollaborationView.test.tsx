@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CollaborationView } from "./CollaborationView";
 import { personalFixture, PERSONAL_WORKSPACE } from "../personal-execution-fixtures";
@@ -37,6 +37,86 @@ const roomDetail = {
   ],
   handoffs: [],
 };
+
+describe("CollaborationView notification sources", () => {
+  it.each([false, true])("focuses the exact linked message (different room reply: %s)", async (reply) => {
+    const otherRoom = { ...roomDetail.room, roomId: "room-2", title: "Other room" };
+    const root = { ...roomDetail.messages[0]!, messageId: "root", body: "Earlier discussion" };
+    const linkedReply = { ...root, messageId: "reply", body: "Linked reply", threadRootId: root.messageId };
+    const notification = {
+      notificationId: "notification-1", title: "New mention", kind: "mention", body: "", createdAt: 2,
+      roomId: reply ? otherRoom.roomId : roomDetail.room.roomId,
+      messageId: reply ? linkedReply.messageId : roomDetail.messages[0]!.messageId,
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/workspace-notifications") return Response.json({ notifications: [notification] });
+      if (path === "/api/collaboration/rooms") return Response.json({ rooms: [roomDetail.room, otherRoom] });
+      if (path === "/api/collaboration/rooms/room-1") return Response.json(roomDetail);
+      if (path === "/api/collaboration/rooms/room-2") return Response.json({ ...roomDetail, room: otherRoom, messages: [root, linkedReply] });
+      return Response.json({ agents: [], computers: [] });
+    }));
+    render(<CollaborationView />);
+    const originalMessage = await screen.findByText("Confidential room note");
+    fireEvent.click(await screen.findByRole("button", { name: /Notifications, 1 unread/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open source" }));
+
+    if (reply) {
+      const thread = await screen.findByRole("complementary", { name: "Thread" });
+      const message = within(thread).getByText(linkedReply.body);
+      expect(screen.getByRole("heading", { name: otherRoom.title })).toBeTruthy();
+      await waitFor(() => expect(document.activeElement).toBe(message));
+    } else {
+      await waitFor(() => expect(document.activeElement).toBe(originalMessage.closest("article")));
+      expect(screen.getByText("Confidential room note")).toBe(originalMessage);
+    }
+  });
+
+  it.each(["room message", "different thread"])("preserves an unsent reply when opening a %s source", async (source) => {
+    const launch = { ...roomDetail.messages[0]!, messageId: "launch", body: "Launch thread" };
+    const budget = { ...launch, messageId: "budget", body: "Budget discussion" };
+    const reply = { ...budget, messageId: "reply", body: "Linked budget reply", threadRootId: budget.messageId };
+    const linked = source === "room message" ? budget : reply;
+    const notification = { notificationId: "n1", title: "Mention", kind: "mention", body: "", createdAt: 2,
+      roomId: roomDetail.room.roomId, messageId: linked.messageId };
+    const sent = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/workspace-notifications") return Response.json({ notifications: [notification] });
+      if (path === "/api/collaboration/rooms") return Response.json({ rooms: [roomDetail.room] });
+      if (path === "/api/collaboration/rooms/room-1") return Response.json({ ...roomDetail, messages: [launch, budget, reply] });
+      if (path === "/api/collaboration/rooms/room-1/messages") {
+        const payload = JSON.parse(String(init?.body));
+        sent(payload);
+        return Response.json({ message: { ...reply, ...payload } });
+      }
+      return Response.json({ agents: [], computers: [] });
+    }));
+    render(<CollaborationView />);
+    const openLaunch = () => fireEvent.click(within(screen.getByText(launch.body).closest("article")!).getByRole("button", { name: "Open thread" }));
+    await screen.findByText(launch.body);
+    openLaunch();
+    const input = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.change(input, { target: { value: "Unsent launch reply" } });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Notifications, 1 unread/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open source" }));
+    const preview = source === "room message"
+      ? screen.getByText(linked.body).closest("article")
+      : within(await screen.findByRole("complementary", { name: "Thread" })).getByText(linked.body);
+    await waitFor(() => expect(document.activeElement).toBe(preview));
+    expect(input).toHaveProperty("value", "");
+    expect(screen.getByRole("button", { name: "Send" })).toHaveProperty("disabled", true);
+    expect(sent).not.toHaveBeenCalled();
+
+    openLaunch();
+    expect(input).toHaveProperty("value", "Unsent launch reply");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(sent).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      body: "Unsent launch reply", threadRootMessageId: launch.messageId,
+    })));
+  });
+});
 
 describe("CollaborationView explicit funded model setup", () => {
   it("mounts funding and account verification once only after their explicit controls are opened", async () => {
@@ -1571,10 +1651,10 @@ describe("coordination cards", () => {
     setup();
     render(<CollaborationView />);
     fireEvent.click(await screen.findByRole("button", { name: /Shiba → Fixer: Fix the README/ }));
-    expect(screen.getByLabelText("Thread").textContent).toContain("Child task");
+    expect((await screen.findByRole("complementary", { name: "Thread" })).textContent).toContain("Child task");
     fireEvent.click(screen.getByRole("button", { name: "Close thread" }));
     fireEvent.click(screen.getByRole("button", { name: "Reported result: Done" }));
-    expect(screen.getByLabelText("Thread").textContent).toContain("Child task");
+    expect((await screen.findByRole("complementary", { name: "Thread" })).textContent).toContain("Child task");
   });
 
   it("inserts a palette mention into the room composer and sends to the open thread", async () => {

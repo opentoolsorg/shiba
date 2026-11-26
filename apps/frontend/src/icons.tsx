@@ -40,6 +40,7 @@ import {
   Clock01Icon,
   Clock03Icon,
   CloudIcon,
+  CommandIcon,
   ComputerTerminal01Icon,
   ContainerIcon,
   Copy01Icon,
@@ -65,6 +66,8 @@ import {
   GitPullRequestIcon,
   Globe02Icon,
   HashIcon,
+  Heading01Icon,
+  Heading02Icon,
   HelpCircleIcon,
   HistoryIcon,
   Home01Icon,
@@ -75,6 +78,7 @@ import {
   LaptopIcon,
   LayoutGridIcon,
   LeftToRightListDashIcon,
+  LeftToRightListNumberIcon,
   LicensePinIcon,
   Link02Icon,
   ListChecksIcon,
@@ -101,7 +105,9 @@ import {
   PlugIcon,
   PlusSignIcon,
   Presentation01Icon,
+  QuoteDownIcon,
   RadioIcon,
+  Redo02Icon,
   RefreshCwIcon,
   RobotIcon,
   RotateCcwIcon,
@@ -119,10 +125,15 @@ import {
   SquareChartGanttIcon,
   StickyNote01Icon,
   Sun03Icon,
+  TextBoldIcon,
+  TextFontIcon,
+  TextItalicIcon,
+  TextStrikethroughIcon,
   Tick02Icon,
   TickDouble02Icon,
   ToggleLeftIcon,
   ToggleRightIcon,
+  Undo02Icon,
   Upload01Icon,
   UserAdd01Icon,
   UserCheck01Icon,
@@ -164,6 +175,7 @@ export const ArrowUpRight = defineIcon("ArrowUpRight", ArrowUpRight01Icon);
 export const AtSign = defineIcon("AtSign", AtSignIcon);
 export const Ban = defineIcon("Ban", BanIcon);
 export const Bell = defineIcon("Bell", BellIcon);
+export const Bold = defineIcon("Bold", TextBoldIcon);
 export const BookOpen = defineIcon("BookOpen", BookOpen01Icon);
 export const Brain = defineIcon("Brain", Brain01Icon);
 export const Building2 = defineIcon("Building2", Building02Icon);
@@ -190,13 +202,17 @@ export const FolderPlus = defineIcon("FolderPlus", FolderPlusIcon);
 export const GitCompareArrows = defineIcon("GitCompareArrows", GitCompareArrowsIcon);
 export const Globe2 = defineIcon("Globe2", Globe02Icon);
 export const Hash = defineIcon("Hash", HashIcon);
+export const Heading1 = defineIcon("Heading1", Heading01Icon);
+export const Heading2 = defineIcon("Heading2", Heading02Icon);
 export const History = defineIcon("History", HistoryIcon);
+export const Italic = defineIcon("Italic", TextItalicIcon);
 export const KeyRound = defineIcon("KeyRound", KeyRoundIcon);
 export const Laptop = defineIcon("Laptop", LaptopIcon);
 export const LayoutGrid = defineIcon("LayoutGrid", LayoutGridIcon);
 export const Link2 = defineIcon("Link2", Link02Icon);
 export const List = defineIcon("List", LeftToRightListDashIcon);
 export const ListChecks = defineIcon("ListChecks", ListChecksIcon);
+export const ListOrdered = defineIcon("ListOrdered", LeftToRightListNumberIcon);
 export const Loader2 = defineIcon("Loader2", Loading03Icon);
 export const LoaderCircle = defineIcon("LoaderCircle", LoaderCircleIcon);
 export const Lock = defineIcon("Lock", LockIcon);
@@ -216,7 +232,9 @@ export const Pin = defineIcon("Pin", LicensePinIcon);
 export const Plug = defineIcon("Plug", PlugIcon);
 export const Plus = defineIcon("Plus", PlusSignIcon);
 export const Presentation = defineIcon("Presentation", Presentation01Icon);
+export const Quote = defineIcon("Quote", QuoteDownIcon);
 export const Radio = defineIcon("Radio", RadioIcon);
+export const Redo2 = defineIcon("Redo2", Redo02Icon);
 export const RefreshCw = defineIcon("RefreshCw", RefreshCwIcon);
 export const Search = defineIcon("Search", Search01Icon);
 export const Server = defineIcon("Server", ServerIcon);
@@ -228,7 +246,10 @@ export const Sparkles = defineIcon("Sparkles", AiSparklesIcon);
 export const Square = defineIcon("Square", Square01Icon);
 export const SquareArrowOutUpRight = defineIcon("SquareArrowOutUpRight", SquareArrowOutUpRightIcon);
 export const StickyNote = defineIcon("StickyNote", StickyNote01Icon);
+export const Strikethrough = defineIcon("Strikethrough", TextStrikethroughIcon);
 export const Terminal = defineIcon("Terminal", ComputerTerminal01Icon);
+export const Type = defineIcon("Type", TextFontIcon);
+export const Undo2 = defineIcon("Undo2", Undo02Icon);
 export const Upload = defineIcon("Upload", Upload01Icon);
 export const UserPlus = defineIcon("UserPlus", UserAdd01Icon);
 export const Users = defineIcon("Users", UserMultiple02Icon);
@@ -255,6 +276,7 @@ export const CheckCircle2 = defineIcon("CheckCircle2", CheckmarkCircle02Icon);
 export const CircleCheck = CheckCircle2;
 export const Circle = defineIcon("Circle", CircleIcon);
 export const Cloud = defineIcon("Cloud", CloudIcon);
+export const Command = defineIcon("Command", CommandIcon);
 export const Clock3 = defineIcon("Clock3", Clock03Icon);
 export const Container = defineIcon("Container", ContainerIcon);
 export const CornerLeftUp = defineIcon("CornerLeftUp", CornerLeftUpIcon);

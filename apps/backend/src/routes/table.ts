@@ -40,6 +40,7 @@ export const ROUTES: readonly RouteEntry[] = [
   route("share-read", "ingress", "GET", "^(?:/share/[cf]/[^/]+|/api/share/file/[^/]+)$", "public", handlers.publicShareResponse, "Token capability read; unknown/expired tokens fail closed."),
   route("share-early-management", "ingress", "*", "^/api/share$", "session", handlers.publicShareResponse, "Management retains its own session verification."),
   route("employeeAccessResponse", "authenticated", "*", "^/api/governance/employees/[^/]+/access/?$", "session", handlers.employeeAccessResponse),
+  route("adminFlagsResponse", "authenticated", "GET", "^/api/admin/flags$", "session", handlers.adminFlagsResponse, "Deployment-operator read of the runtime flag registry; secret values are never exposed."),
   route("observabilityResponse", "authenticated", "*", "^/api/observability$", "session", handlers.observabilityResponse),
   route("outputArchiveResponse", "authenticated", "*", "^/api/run-output-archives(?:/|$)", "session", handlers.outputArchiveResponse),
   route("slackInstallationResponse", "authenticated", "*", "^/api/slack/installations(?:/|$)", "session", handlers.slackInstallationResponse),
@@ -169,11 +170,15 @@ export function matchesRoute(route: RouteEntry, request: Request): boolean {
 export async function dispatchRoutes(
   phase: RoutePhase,
   context: RequestContext,
+  onResponse?: (routeId: string) => void,
 ): Promise<Response | null> {
   for (const entry of ROUTES) {
     if (entry.phase !== phase || !matchesRoute(entry, context.request)) continue;
     const response = await entry.handler(context);
-    if (response) return response;
+    if (response) {
+      onResponse?.(entry.id);
+      return response;
+    }
   }
   return null;
 }

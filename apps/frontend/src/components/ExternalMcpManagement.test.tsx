@@ -279,4 +279,20 @@ describe("ExternalMcpManagement persisted state", () => {
       ),
     ).toBe(false);
   });
+
+  it("explains import, review and activation and separates the gateway from integrations", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/v1/mcp/servers") return Response.json({ servers: [] });
+      if (path === "/api/agents") return Response.json({ principals: [] });
+      return Response.json({ error: "unexpected request" }, { status: 404 });
+    }));
+    render(<ExternalMcpManagement />);
+    const steps = screen.getByRole("list", { name: "Server review workflow" });
+    expect(steps.textContent).toContain("Import:");
+    expect(steps.textContent).toContain("Review:");
+    expect(steps.textContent).toContain("Activate:");
+    expect(screen.getByText(/The Shiba MCP gateway is separate/)).toBeTruthy();
+    await screen.findByText(/No external MCP servers registered/);
+  });
 });

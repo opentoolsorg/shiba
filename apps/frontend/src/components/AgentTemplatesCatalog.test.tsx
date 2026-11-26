@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AgentTemplatesCatalog } from "./AgentTemplatesCatalog";
-import { AGENT_TEMPLATES } from "@shiba/shared";
+import { AGENT_TEMPLATES, CURATED_MCP_VENDORS } from "@shiba/shared";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -100,6 +100,19 @@ describe("AgentTemplatesCatalog", () => {
     expect(JSON.parse(String(request.mock.calls[1]?.[1]?.body)).recipe.profile.provenance).toEqual({ kind: "employee", id: "cag-old", revision: "4" });
   });
 
+  it("keeps the detail dialog open with the error when hiring fails, and closes it once hiring succeeds", async () => {
+    const onUse = vi.fn().mockRejectedValueOnce(new Error("Name already used")).mockResolvedValueOnce(undefined);
+    render(<AgentTemplatesCatalog onUse={onUse} />);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Details/ })[0]!);
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Hire/ }));
+    expect((await within(dialog).findByRole("status")).textContent).toContain("Name already used");
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Hire/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(onUse).toHaveBeenCalledTimes(2);
+  });
+
   it("copies a JSON and Markdown pack and imports it through custom-agent creation", async () => {
     let copied = "";
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn(async (value: string) => { copied = value; }) } });
@@ -180,5 +193,87 @@ describe("AgentTemplatesCatalog", () => {
 
     expect((await screen.findByRole("status")).textContent).toContain("Could not copy this pack. Check clipboard access and try again.");
     expect(screen.queryByText(/pack copied\./)).toBeNull();
+  });
+
+  it("switches between employee templates and the read-only MCP server list", () => {
+    const request = vi.fn();
+    vi.stubGlobal("fetch", request);
+    render(<AgentTemplatesCatalog onUse={vi.fn()} />);
+    const employees = screen.getByRole("tab", { name: "Employee templates" });
+    const servers = screen.getByRole("tab", { name: "MCP servers" });
+    expect(employees.getAttribute("aria-selected")).toBe("true");
+    expect(servers.getAttribute("aria-selected")).toBe("false");
+    fireEvent.click(servers);
+    expect(servers.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(servers.id);
+    expect(document.querySelectorAll(".agent-template-card")).toHaveLength(0);
+    expect(screen.queryByRole("searchbox", { name: "Search templates" })).toBeNull();
+    const list = within(screen.getByRole("region", { name: "MCP servers" }));
+    expect(list.getAllByRole("listitem")).toHaveLength(CURATED_MCP_VENDORS.length);
+    expect(list.getAllByRole("link", { name: /^Docs for / })[0]?.getAttribute("href")).toBe(CURATED_MCP_VENDORS[0]?.docsUrl);
+    expect(screen.getByText(/Connecting a server does not give any employee access/).textContent).toBe("Connecting a server does not give any employee access. Grant access separately in Tool policy.");
+    expect(request).not.toHaveBeenCalled();
+    fireEvent.click(employees);
+    expect(document.querySelectorAll(".agent-template-card")).toHaveLength(12);
+  });
+
+  it("moves between kind tabs with the arrow keys", () => {
+    render(<AgentTemplatesCatalog onUse={vi.fn()} />);
+    const employees = screen.getByRole("tab", { name: "Employee templates" });
+    fireEvent.keyDown(employees, { key: "ArrowRight" });
+    const servers = screen.getByRole("tab", { name: "MCP servers" });
+    expect(servers.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(servers);
+    expect(servers.tabIndex).toBe(0);
+    expect(employees.tabIndex).toBe(-1);
+    fireEvent.keyDown(servers, { key: "ArrowLeft" });
+    expect(employees.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("opens a template detail panel with recommendations marked not installed and no grant claims", () => {
+    render(<AgentTemplatesCatalog onUse={vi.fn()} />);
+    const template = AGENT_TEMPLATES.find((item) => item.id === "coding-coworker");
+    if (!template) throw new Error("Expected the Coding Coworker template.");
+    const card = screen.getByRole("heading", { name: template.name, level: 3 }).closest("article");
+    if (!card) throw new Error("Expected a template card.");
+    const opener = within(card).getByRole("button", { name: `Details for ${template.name}` });
+    opener.focus();
+    fireEvent.click(opener);
+    const dialog = within(screen.getByRole("dialog", { name: template.name }));
+    expect(dialog.getByText(template.description)).toBeTruthy();
+    expect(dialog.getByText("Recommended, not installed")).toBeTruthy();
+    expect(dialog.getByText("repository work")).toBeTruthy();
+    expect(dialog.getByText("Not included: credentials, network access, or external permissions")).toBeTruthy();
+    expect(screen.getByRole("dialog").textContent).not.toMatch(/verified|rating|installs|downloads/i);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it("hires and copies from the detail panel through the existing actions", async () => {
+    let copied = "";
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn(async (value: string) => { copied = value; }) } });
+    const onUse = vi.fn().mockResolvedValue(undefined);
+    render(<AgentTemplatesCatalog onUse={onUse} />);
+    const template = AGENT_TEMPLATES[0];
+    const details = screen.getAllByRole("button", { name: /^Details for / })[0];
+    if (!template || !details) throw new Error("Expected a template with a details action.");
+    fireEvent.click(details);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Copy pack" }));
+    await waitFor(() => expect(copied).toContain("--- INSTRUCTIONS.md ---"));
+    expect(within(screen.getByRole("dialog")).getByRole("status").textContent).toBe(`${template.name} pack copied.`);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Hire" }));
+    await waitFor(() => expect(onUse).toHaveBeenCalledExactlyOnceWith(template));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect((await screen.findByRole("status")).textContent).toContain(`${template.name} added to your bots`);
+  });
+
+  it("states that imported bundles arrive archived with no grants", () => {
+    render(<AgentTemplatesCatalog onUse={vi.fn()} />);
+    const share = within(screen.getByRole("region", { name: "Share an employee" }));
+    expect(share.getByText(/creates an archived bot with no grants/).textContent).toContain("no tool access is given");
+    expect(share.getByText(/templates\/ directory/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "MCP servers" }));
+    expect(screen.queryByRole("region", { name: "Share an employee" })).toBeNull();
   });
 });

@@ -14,7 +14,7 @@ import { WorkBoardView } from "./WorkBoardView";
 import { WorkDetailModal } from "./WorkDetailModal";
 import { WorkHeader, type WorkHeaderViewMode } from "./WorkHeader";
 import { WorkLeftPanel, type WorkLeftPanelProps, type WorkScope } from "./WorkLeftPanel";
-import { WorkListView, workListGroup } from "./WorkListView";
+import { WorkListFooter, WorkListView, workListGroup } from "./WorkListView";
 import { type OrganizationEmployee, type OrganizationUser, WorkOrganizationView } from "./WorkOrganizationView";
 import { WorkPeek, type WorkPeekProps } from "./WorkPeek";
 import { WorkQuickAdd } from "./WorkQuickAdd";
@@ -55,6 +55,8 @@ export interface WorkViewProps {
   onMissingSelection?: (task: string) => void;
   pendingApprovals?: ChatPendingApproval[];
   onSelectTask?: (id: string, kind: WorkTask["kind"]) => void;
+  /** Opens a run on a given peek tab (used by publication approvals, which only know the run id). */
+  onOpenRunTab?: (runId: string, tab: "diff" | "steps") => void;
   onNewTask?: () => void;
   /** Why task creation is unavailable while onNewTask is absent. */
   newTaskBlockedReason?: string;
@@ -68,6 +70,8 @@ export interface WorkViewProps {
   sharedTasksLoading?: boolean;
   sharedTasksError?: string;
   onOpenSharedTask?: (task: TeamWorkItem) => void;
+  /** Opens the approval review for a task; the detail panel itself never decides. Falls back to onOpenSharedTask. */
+  onReviewDecision?: (task: TeamWorkItem) => void;
   onOpenTeam?: () => void;
   view?: WorkViewMode;
   onViewChange?: (view: WorkViewMode) => void;
@@ -75,10 +79,14 @@ export interface WorkViewProps {
   onToggleSidebar?: () => void;
   employees?: OrganizationEmployee[];
   onOpenEmployee?: (id: string) => void;
+  onOpenApprovals?: () => void;
+  onOpenChief?: () => void;
+  onHireEmployee?: () => void;
+  onOpenOutputs?: () => void;
   /** Renders the Work left panel (scope tabs, nav, task sections) inside this view when given. */
   onScopeChange?: (scope: WorkScope) => void;
-  /** Workspace scope: resolves to the created task, or null on failure (draft is kept). */
-  onCreateTask?: (title: string) => Promise<TeamWorkItem | null>;
+  /** Workspace scope: resolves to the created task, or null on failure (draft is kept). `patch` holds only optional fields the user filled in. */
+  onCreateTask?: (title: string, patch?: WorkTaskPatch) => Promise<TeamWorkItem | null>;
   onUpdateTask?: (id: string, patch: WorkTaskPatch) => unknown;
   onArchiveTask?: (id: string) => unknown;
   onCommentTask?: (id: string, text: string) => unknown;
@@ -267,6 +275,10 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
     onToggleSidebar,
     employees = [],
     onOpenEmployee,
+    onOpenApprovals,
+    onOpenChief,
+    onHireEmployee,
+    onOpenOutputs,
   } = props;
 
   const routineState = useRoutines(Boolean(props.routinesEnabled), props.routinesRefreshToken);
@@ -422,13 +434,15 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
             type="button"
             onClick={() => props.onOpenPeek(task)}
             aria-haspopup="dialog"
-            className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded px-3 text-left hover:bg-[var(--card-hover)] focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+            className="grid min-h-11 min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded px-3 py-2 text-left hover:bg-[var(--card-hover)] focus-visible:outline-2 focus-visible:outline-[var(--ring)] sm:flex"
           >
             <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${dotClass}`} />
-            <span className="min-w-0 flex-1 text-[13px] text-[var(--fg)]">{task.title}</span>
-            {task.routine ? <span title={`Routine: ${task.routine.name}`} className="rounded border border-[var(--border-1)] px-2 py-0.5 text-[11px]">Routine · {routineCadence(task.routine.schedule, task.routine.timezone)}</span> : null}
-            {task.repo ? <span className="shrink-0 font-mono text-xs text-[var(--muted-foreground-2)]">{task.repo}</span> : null}
-            <span className="rounded-full bg-[var(--section)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground-1)]">{task.stateLabel}</span>
+            <span className="min-w-0 flex-1 text-[13px] text-[var(--fg)] [overflow-wrap:anywhere]">{task.title}</span>
+            <span className="col-start-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 sm:justify-end">
+              {task.routine ? <span title={`Routine: ${task.routine.name}`} className="rounded border border-[var(--border-1)] px-2 py-0.5 text-[11px]">Routine · {routineCadence(task.routine.schedule, task.routine.timezone)}</span> : null}
+              {task.repo ? <span className="min-w-0 font-mono text-xs text-[var(--muted-foreground-2)] [overflow-wrap:anywhere]">{task.repo}</span> : null}
+              <span className="rounded-full bg-[var(--section)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground-1)]">{task.stateLabel}</span>
+            </span>
           </button>
           {task.group === "needs-approval" && task.rawStatus !== "needs-provider" && onReviewApproval ? (
             <button type="button" onClick={() => props.onOpenPeek(task, "approval")} className={viewButtonClass}>
@@ -556,6 +570,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
                   </section>
                 );
               })}
+              {onNewTask ? <WorkListFooter onNewTask={onNewTask} /> : null}
             </div>
           )}
         </section>
@@ -585,6 +600,10 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
           <WorkOrganizationView
             employees={employees}
             onOpen={onOpenEmployee}
+            onOpenApprovals={onOpenApprovals}
+            onOpenChief={onOpenChief}
+            onHireEmployee={onHireEmployee}
+            onOpenOutputs={onOpenOutputs}
             user={props.user}
           />
         </section>
@@ -609,6 +628,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
       onClose={props.onClosePeek}
       onOpenFull={onSelectTask ? () => onSelectTask(selected.id, selected.kind) : undefined}
       onReviewApproval={onReviewApproval ? () => onReviewApproval(selected.id) : undefined}
+      onOpenRun={props.onOpenRunTab}
       sessionId={props.peekSessionId}
       notice={ambiguousRun ? ambiguityNotice : props.peekNotice}
       decisions={props.approvalDecisions}
@@ -648,6 +668,10 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
     agents = [],
     employees = [],
     onOpenEmployee,
+    onOpenApprovals,
+    onOpenChief,
+    onHireEmployee,
+    onOpenOutputs,
     user,
     taskId,
     onTaskChange,
@@ -658,7 +682,12 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
   const focusSearch = useCallback((input: HTMLInputElement | null) => { input?.focus(); }, []);
 
   // An authorization/loading failure must never leave cached room data visible.
-  const all = selectTeamWorkItems(sharedTasksError ? [] : sharedTasks, workspaceId, "all", currentActorId);
+  const agentNames = new Map(agents.map((agent) => [agent.id, agent.name]));
+  const all = selectTeamWorkItems(sharedTasksError ? [] : sharedTasks, workspaceId, "all", currentActorId).map((task) => {
+    const actorId = task.assigneeActorId ?? task.ownerId;
+    const name = actorId ? agentNames.get(actorId) : undefined;
+    return !task.assigneeName && name ? { ...task, assigneeName: name } : task;
+  });
   const q = query.trim().toLowerCase();
   const tasks = all.filter((task) => !q || `${task.title} ${task.assigneeName ?? ""}`.toLowerCase().includes(q));
   const open = all.filter((task) => workListGroup(task.status) !== "done");
@@ -724,7 +753,8 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
           {view !== "organization" ? (
             <div ref={quickAddRef} className="shrink-0 px-4 pt-3 pb-2">
               <WorkQuickAdd
-                onSubmit={async (title) => (onCreateTask ? (await onCreateTask(title)) !== null : false)}
+                onSubmit={async (title, patch) => (onCreateTask ? (await (patch ? onCreateTask(title, patch) : onCreateTask(title))) !== null : false)}
+                fields={{ owners: agents, tasks: all.filter((task) => !task.archived) }}
                 disabled={!onCreateTask}
                 failureMessage="Could not create the task. Your draft has been kept. Try again."
               />
@@ -732,10 +762,11 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
           ) : null}
           {view === "list" ? (
             <section aria-label="List view" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-              <WorkListView agents={agents} tasks={tasks} selectedId={selected?.id} onOpen={onTaskChange} onToggleDone={toggleDone} />
+              <WorkListView agents={agents} tasks={tasks} selectedId={selected?.id} onOpen={onTaskChange} onToggleDone={toggleDone} onNewTask={onCreateTask || onNewTask ? newTask : undefined} />
             </section>
           ) : view === "board" ? (
             <section aria-label="Board view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              {onUpdateTask ? <p className="shrink-0 px-4 pt-2 text-xs text-[var(--muted-foreground-2)]">Moving a card changes planning status only; execution approval stays separate.</p> : null}
               <WorkBoardView
                 agents={agents}
                 tasks={tasks}
@@ -746,11 +777,16 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
             </section>
           ) : view === "timeline" ? (
             <section aria-label="Timeline view" className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-4">
-              <WorkTimelineView tasks={tasks} onOpen={onTaskChange} className="h-full" />
+              <WorkTimelineView
+                tasks={tasks.map((task) => ({ ...task, canSchedule: task.roomId === "" && !task.archived }))}
+                onOpen={onTaskChange}
+                onSchedule={onUpdateTask ? onTaskChange : undefined}
+                className="h-full"
+              />
             </section>
           ) : (
             <section aria-label="Organization view" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-              <WorkOrganizationView employees={employees} onOpen={onOpenEmployee} user={user} />
+              <WorkOrganizationView employees={employees} onOpen={onOpenEmployee} onOpenApprovals={onOpenApprovals} onOpenChief={onOpenChief} onHireEmployee={onHireEmployee} onOpenOutputs={onOpenOutputs} user={user} />
             </section>
           )}
       </div>
@@ -758,6 +794,7 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
   );
 
   const closeTask = () => onTaskChange(null);
+  const reviewDecision = props.onReviewDecision ?? props.onOpenSharedTask;
   const detail = selected
     ? {
         onClose: closeTask,
@@ -773,6 +810,8 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
               closeTask();
             }}
             onClose={closeTask}
+            onReviewDecision={reviewDecision ? () => reviewDecision(selected) : undefined}
+            onOpenConversation={props.onOpenSharedTask && selected.roomId ? () => props.onOpenSharedTask?.(selected) : undefined}
           />
         ),
       }

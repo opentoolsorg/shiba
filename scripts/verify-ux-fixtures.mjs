@@ -12,7 +12,7 @@ import { openAppView, selectRepositoryTask } from "../.cursor/skills/verify-shib
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.SHIBA_PLAYWRIGHT_MODULE || "../.cursor/skills/verify-shiba/node_modules/playwright");
-const canonicalViews = ["work", "dashboard", "tasks", "threads", "activity", "analytics", "diff", "approvals", "swarm", "collaboration", "team", "agents", "inbox", "memory", "automations", "providers", "employee-tools", "integrations", "skills", "spaces", "custom-agents", "remote", "settings"];
+const canonicalViews = ["work", "dashboard", "tasks", "threads", "activity", "analytics", "diff", "approvals", "swarm", "collaboration", "team", "agents", "inbox", "memory", "automations", "providers", "employee-tools", "integrations", "skills", "spaces", "custom-agents", "remote", "settings", "outputs"];
 let origin = process.env.SHIBA_UX_ORIGIN || "http://localhost:5173";
 let staticServer;
 if (process.argv.includes("--built")) {
@@ -52,8 +52,20 @@ runs[1].diff = "diff --git a/fixture.txt b/fixture.txt\n--- a/fixture.txt\n+++ b
 runs[1].summary = "Retained fixture output; no live provider execution occurred.";
 const approval = { approvalId: "ux-approval", threadKey: "", task: "Frozen approval fixture", repoUrl: "https://github.com/fixture/example", kind: "run", status: "pending", createdAt: now, payload: { repoUrl: "https://github.com/fixture/example", task: "FROZEN_UX_PAYLOAD", baseBranch: "main", publishPullRequest: false } };
 const approvals = [approval];
+const longEmployee = "InternationalReleaseReadinessAndIncidentCommunicationsCoordinator";
+const automationId = "international-release-readiness-and-incident-communications-coordinator";
+const shortScreenThread = { id: "6e340627-c763-4a8c-88fe-e755355b339a", name: "Release review on a short screen", updatedAt: now, agentName: "web:ux-fixture:6e340627-c763-4a8c-88fe-e755355b339a" };
+const shortScreenMessages = [
+  { id: "ux-short-user", role: "user", parts: [{ type: "text", text: "Summarize the fixture release checklist." }] },
+  { id: "ux-short-reply", role: "assistant", parts: [{ type: "text", text: "Synthetic release checklist ready for review." }] },
+];
+const artifacts = Array.from({ length: 15 }, (_, index) => ({
+  id: `ux-artifact-${index}`, kind: "run-deliverable", title: `Deliverables for fixture ${index + 1}`,
+  mime: "application/zip", createdAt: now, downloadPath: `/api/outputs/download/ux-${index}`,
+}));
 let allowQueueFixture = false;
 let allowDecisionFixture = false;
+let useShortScreenThread = false;
 const empty = { workspaces: [], sessions: [], runs: [], approvals: [], decided: [], agents: [], principals: [], connections: [], computers: [], entries: [], sources: [], projects: [], spaces: [], tasks: [], items: [], members: [], providers: [], facts: [], mailboxes: [], automations: [], events: [], outbox: [], skills: [], servers: [] };
 const setup = { slack: { signingSecret: false, botToken: false, approvers: 0, channelRepos: false }, github: { token: false, app: false, publish: false, webhookSecret: false }, linear: { webhookSecret: false, apiToken: false, defaultRepo: false }, slackVerification: { signingSecret: false }, gateway: { id: "", token: false, reachable: "unknown" }, access: { required: true }, betterAuth: { configured: false }, models: { orchestrator: "", coding: "", harness: "opencode", roles: [] }, automations: { enabled: false, typeSafe: false }, mailbox: { addressOverride: false, sendEnabled: false }, doctor: { ok: false, checkedAt: now, findings: [], roles: [] } };
 const evidence = { sha: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(), trackedChanges: execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], { encoding: "utf8" }).trim(), builtAssets: Boolean(staticServer), fixtureOnly: true, liveProviderE2E: false, checks: [], consoleErrors: [], pageErrors: [], unexpectedWrites: [], permittedFixtureWrites: [], externalRequests: [], unavailableFixtureReads: [] };
@@ -64,7 +76,17 @@ await context.addInitScript(() => {
   localStorage.setItem("onboarding", "done");
   sessionStorage.setItem("shiba:first-run-seed:ux-fixture", "1");
 });
-await context.routeWebSocket("**/agents/**", (socket) => socket.close());
+await context.routeWebSocket("**/agents/**", (socket) => {
+  const name = decodeURIComponent(new URL(socket.url()).pathname.split("/").at(-1));
+  if (!useShortScreenThread || !name.endsWith(shortScreenThread.id)) return socket.close();
+  const identify = () => socket.send(JSON.stringify({ type: "cf_agent_identity", agent: "coding-orchestrator", name }));
+  socket.onMessage((message) => {
+    if (typeof message === "string" && JSON.parse(message).type === "cf_agent_identity") identify();
+  });
+  const identityTimer = setTimeout(identify, 100);
+  const messageTimer = setTimeout(() => socket.send(JSON.stringify({ type: "cf_agent_chat_messages", messages: shortScreenMessages })), 300);
+  socket.onClose(() => { clearTimeout(identityTimer); clearTimeout(messageTimer); });
+});
 await context.routeWebSocket("**/api/**", (socket) => socket.close());
 await context.route("**/*", async (route) => {
   const request = route.request();
@@ -75,6 +97,14 @@ await context.route("**/*", async (route) => {
   }
   if (!url.pathname.startsWith("/api/") && !/^\/agents\/[^/]+\//.test(url.pathname)) return route.continue();
   if (!["GET", "HEAD"].includes(request.method())) {
+    const agentPath = decodeURIComponent(url.pathname);
+    if (request.method() === "POST" && (agentPath === "/agents/coding-orchestrator/ux-fixture/chat-suggestions" ||
+      (useShortScreenThread && agentPath === `/agents/coding-orchestrator/${shortScreenThread.agentName}/chat-suggestions`))) {
+      return route.fulfill({ json: { suggestions: [] } });
+    }
+    if (useShortScreenThread && request.method() === "POST" && url.pathname === `/api/sessions/${shortScreenThread.id}/resume`) {
+      return route.fulfill({ json: { resumed: true } });
+    }
     if (allowDecisionFixture && request.method() === "POST" && url.pathname === "/api/approvals") {
       const body = request.postDataJSON();
       const record = approvals.find((item) => item.approvalId === "ux-queued-from-chat");
@@ -102,10 +132,20 @@ await context.route("**/*", async (route) => {
   }
   let body = empty;
   if (url.pathname === "/api/whoami") body = { agent: "ux-fixture", auth: "access" };
+  else if (url.pathname === "/api/sessions/browser") body = { state: "none" };
+  else if (useShortScreenThread && url.pathname === "/api/sessions") body = { sessions: [shortScreenThread], defaultSessionId: "default" };
+  else if (useShortScreenThread && url.pathname.endsWith("/get-messages") && url.pathname.includes(shortScreenThread.id)) body = shortScreenMessages;
   else if (url.pathname === "/api/approvals") body = { approvals, decided: [] };
   else if (/\/runs$/.test(url.pathname)) body = { runs };
   else if (/\/runs\/ux-/.test(url.pathname)) body = { run: runs.find((run) => url.pathname.endsWith(run.runId)) };
-  else if (url.pathname === "/api/custom-agents") body = { agents: [{ id: "ux-employee", slug: "ux-employee", version: 1, config: { name: "Fixture employee", instructions: "Fixture instructions only", harness: "opencode" } }] };
+  else if (url.pathname === "/api/custom-agents") body = { agents: [
+    { id: "ux-employee", slug: "ux-employee", version: 1, config: { name: "Fixture employee", instructions: "Fixture instructions only", harness: "opencode" } },
+    { id: "ux-long-employee", slug: "ux-long-employee", version: 1, config: { name: longEmployee, instructions: "Fixture instructions only", harness: "opencode" } },
+  ] };
+  else if (url.pathname === "/api/automations") body = { automations: [{ id: automationId, name: "Release readiness review", prompt: "Review the fixture.", enabled: true, repoUrl: "https://github.com/fixture/example-release-readiness", runCount: 1, triggers: [{ kind: "manual" }, { kind: "schedule", cron: "0 9 * * 1-5", timezone: "UTC" }, { kind: "github" }] }] };
+  else if (url.pathname === "/api/outputs") body = { items: artifacts };
+  else if (url.pathname === "/api/outputs/media-options") body = { imageModels: [], imageAspectRatios: [] };
+  else if (url.pathname === "/api/api-keys") body = { keys: [{ keyId: "ux-synthetic-key", label: longEmployee, scopes: ["read"], createdAt: now, revoked: false }] };
   else if (url.pathname === "/api/setup/status") body = setup;
   return route.fulfill({ json: body });
 });
@@ -113,6 +153,7 @@ const page = await context.newPage();
 page.on("console", (message) => { if (message.type() === "error") evidence.consoleErrors.push(message.text()); });
 page.on("pageerror", (error) => evidence.pageErrors.push(error.message));
 async function check(name, action) {
+  if (process.argv.includes("--responsive-only") && !name.startsWith("responsive ")) return;
   const errorStart = evidence.consoleErrors.length;
   try { await action(); assert(!evidence.consoleErrors.slice(errorStart).some((message) => /Dashboard render error|The above error occurred/.test(message)), "React error boundary caught a render failure"); evidence.checks.push({ name, passed: true }); }
   catch (error) { evidence.checks.push({ name, passed: false, error: String(error) }); await page.screenshot({ path: path.join(output, `failure-${evidence.checks.length}.png`) }); }
@@ -121,6 +162,21 @@ async function check(name, action) {
 async function open(target) {
   await page.goto(origin + target);
   await page.waitForFunction(() => document.querySelector("main") || document.querySelector("nav"));
+}
+async function horizontallyFits(locator) {
+  await locator.waitFor({ state: "visible", timeout: 3000 });
+  assert(await locator.evaluate((node) => {
+    const bounds = node.getBoundingClientRect();
+    let left = 0;
+    let right = window.innerWidth;
+    for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+      if (getComputedStyle(parent).overflowX === "visible") continue;
+      const clip = parent.getBoundingClientRect();
+      left = Math.max(left, clip.left + parent.clientLeft);
+      right = Math.min(right, clip.left + parent.clientLeft + parent.clientWidth);
+    }
+    return bounds.width >= node.scrollWidth - 1 && bounds.left >= left - 1 && bounds.right <= right + 1;
+  }), "Element is clipped or spills outside its scroll region");
 }
 try {
   await check("legacy app entry and fixture work statuses", async () => {
@@ -249,8 +305,7 @@ try {
     await page.waitForURL((url) => url.pathname === "/threads/");
     await open("/app/?prompt=UX_FIXTURE_DRAFT_ONLY");
     await page.waitForURL((url) => url.pathname === "/threads/");
-    await page.locator("textarea").filter({ visible: true }).first().waitFor();
-    assert((await page.locator("textarea").evaluateAll((nodes) => nodes.map((node) => node.value))).includes("UX_FIXTURE_DRAFT_ONLY"));
+    await page.waitForFunction(() => Array.from(document.querySelectorAll("textarea")).some((node) => node.value === "UX_FIXTURE_DRAFT_ONLY"));
     assert(!new URL(page.url()).searchParams.has("prompt"), "Consumed prompt remains in address");
   });
   await check("Chat draft moves to existing Work review without dispatch", async () => {
@@ -368,6 +423,114 @@ try {
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "Close navigation", exact: true }).waitFor({ state: "detached" });
     assert(await trigger.evaluate((node) => node === document.activeElement));
+  });
+  for (const theme of ["light", "dark"]) {
+    await check(`responsive approval search fits at 320px in ${theme}`, async () => {
+      await page.setViewportSize({ width: 320, height: 700 });
+      await open("/approvals/");
+      await page.evaluate((value) => localStorage.setItem("shiba-theme", value), theme);
+      await page.reload();
+      await page.getByRole("button", { name: "Search approvals", exact: true }).click();
+      const search = page.getByRole("searchbox", { name: "Search approvals", exact: true });
+      assert(await search.evaluate((node) => node === document.activeElement));
+      await page.screenshot({ path: path.join(output, `approval-search-${theme}-320.png`) });
+      await horizontallyFits(page.getByRole("heading", { name: "Approvals", exact: true }));
+      await horizontallyFits(search);
+      await horizontallyFits(page.getByRole("button", { name: "Refresh", exact: true }).first());
+      await search.fill("Frozen approval fixture");
+      await page.getByRole("button", { name: "Approve", exact: true }).click({ trial: true });
+    });
+    await check(`responsive Chat menu fits and restores focus at 320px in ${theme}`, async () => {
+      await open("/threads/");
+      const trigger = page.getByRole("button", { name: "Conversation actions", exact: true });
+      await trigger.click();
+      const menu = page.getByRole("menu", { name: "Conversation actions", exact: true });
+      await page.screenshot({ path: path.join(output, `chat-menu-${theme}-320.png`) });
+      await horizontallyFits(menu);
+      await menu.getByRole("menuitem", { name: "Edit agent", exact: true }).click({ trial: true });
+      await page.keyboard.press("Escape");
+      assert(await trigger.evaluate((node) => node === document.activeElement));
+    });
+  }
+  await check("responsive Outputs gallery scrolls by wheel at 320px", async () => {
+    await open("/outputs/");
+    const last = page.getByRole("link", { name: "Download", exact: true }).last();
+    await last.waitFor();
+    const before = (await last.boundingBox()).y;
+    await page.mouse.move(160, 550);
+    await page.mouse.wheel(0, 600);
+    await page.waitForFunction((y) => {
+      const link = [...document.querySelectorAll("a[download]")].at(-1);
+      return link && link.getBoundingClientRect().y < y - 100;
+    }, before, { timeout: 3000 });
+    assert.equal(await page.evaluate(() => window.scrollY), 0);
+    await last.click({ trial: true });
+    await page.screenshot({ path: path.join(output, "outputs-scroll-320.png") });
+  });
+  await check("responsive populated Chat composer is reachable by wheel on a short phone", async () => {
+    useShortScreenThread = true;
+    try {
+      await page.setViewportSize({ width: 320, height: 568 });
+      await open(`/threads/?session=${shortScreenThread.id}`);
+      await page.getByText(shortScreenMessages[1].parts[0].text, { exact: true }).waitFor({ timeout: 10000 });
+      const composer = page.getByRole("form", { name: "Chat composer" });
+      const send = composer.getByRole("button", { name: "Send message" });
+      await send.waitFor();
+      await page.mouse.move(160, 480);
+      await page.mouse.wheel(0, 2400);
+      await page.waitForFunction(() => {
+        const button = document.querySelector('button[aria-label="Send message"]');
+        if (!button) return false;
+        const b = button.getBoundingClientRect();
+        return b.top >= 0 && b.bottom <= innerHeight &&
+          button.contains(document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2));
+      }, null, { timeout: 3000 });
+      assert.equal(await page.evaluate(() => window.scrollY), 0);
+      await composer.getByRole("textbox").fill("Fixture draft, never sent");
+      await send.click({ trial: true });
+      await page.screenshot({ path: path.join(output, "chat-composer-320.png") });
+    } finally {
+      useShortScreenThread = false;
+      await page.setViewportSize({ width: 320, height: 700 });
+    }
+  });
+  await check("responsive Automation details and Settings repository controls fit at 320px", async () => {
+    await open("/automations/");
+    const automation = page.getByRole("region", { name: "Deployed automations" }).getByText(automationId, { exact: true });
+    await horizontallyFits(automation);
+    assert((await automation.boundingBox()).width >= 150, "The automation name has no usable line length");
+    await page.getByRole("button", { name: "Run now", exact: true }).click({ trial: true });
+    await page.screenshot({ path: path.join(output, "automations-320.png") });
+    await open("/settings/?section=repositories");
+    const save = page.getByRole("button", { name: "Save repo", exact: true });
+    await save.waitFor();
+    assert(await save.evaluate((node) => node.getBoundingClientRect().right <= node.parentElement.getBoundingClientRect().right + 1));
+    await save.click({ trial: true });
+    await page.screenshot({ path: path.join(output, "settings-repositories-320.png") });
+    await open("/settings/?section=api-keys");
+    await horizontallyFits(page.getByText(longEmployee, { exact: true }));
+    await page.getByRole("button", { name: `Revoke ${longEmployee}`, exact: true }).click({ trial: true });
+  });
+  await check("responsive Employees profile stays inside its card and scroll region at 320px", async () => {
+    await open("/custom-agents/");
+    const profile = page.getByRole("button", { name: `View profile ${longEmployee}`, exact: true });
+    await horizontallyFits(profile);
+    await profile.click();
+    assert(await page.evaluate(() => window.scrollY === 0 && document.documentElement.scrollHeight <= innerHeight));
+    const openAvatar = page.getByRole("button", { name: "Edit avatar", exact: true });
+    await openAvatar.click();
+    const avatar = page.getByRole("dialog", { name: "Edit avatar", exact: true });
+    await horizontallyFits(avatar);
+    await avatar.getByRole("button", { name: "Save avatar", exact: true }).click({ trial: true });
+    await page.screenshot({ path: path.join(output, "employee-avatar-320.png") });
+  });
+  await check("responsive Skills tabs and search fit at 320px", async () => {
+    await open("/skills/");
+    const search = page.getByRole("textbox", { name: "Search skills", exact: true });
+    await horizontallyFits(search);
+    await search.fill("synthetic");
+    await page.getByRole("tab", { name: "Archived", exact: true }).click({ trial: true });
+    await page.screenshot({ path: path.join(output, "skills-320.png") });
   });
   for (const theme of ["light", "dark"]) for (const width of [390, 768, 1440]) {
     await check(`responsive ${theme} theme at ${width}px`, async () => {

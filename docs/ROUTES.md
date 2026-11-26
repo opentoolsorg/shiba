@@ -22,6 +22,7 @@ Phase boundaries preserve precedence: `capability` runs before identity verifica
 | share-read | ingress | `GET` | `^(?:/share/[cf]/[^/]+\|/api/share/file/[^/]+)$` | public | Token capability read; unknown/expired tokens fail closed. |
 | share-early-management | ingress | `*` | `^/api/share$` | session | Management retains its own session verification. |
 | employeeAccessResponse | authenticated | `*` | `^/api/governance/employees/[^/]+/access/?$` | session |  |
+| adminFlagsResponse | authenticated | `GET` | `^/api/admin/flags$` | session | Deployment-operator read of the runtime flag registry; secret values are never exposed. |
 | observabilityResponse | authenticated | `*` | `^/api/observability$` | session |  |
 | outputArchiveResponse | authenticated | `*` | `^/api/run-output-archives(?:/\|$)` | session |  |
 | slackInstallationResponse | authenticated | `*` | `^/api/slack/installations(?:/\|$)` | session |  |

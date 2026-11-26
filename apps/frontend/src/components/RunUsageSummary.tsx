@@ -16,7 +16,7 @@ function tokenCount(value?: number): string {
   return String(value);
 }
 
-export function formatRunUsageLine(run: RetainedRun): string | null {
+export function formatRunUsageLine(run: Pick<RetainedRun, "usage">): string | null {
   const usage = run.usage;
   if (!usage) return null;
   const parts: string[] = [];

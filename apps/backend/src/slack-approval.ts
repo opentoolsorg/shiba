@@ -21,6 +21,7 @@ import { redactSecrets } from "./security.js";
 import { slackTransport } from "./channels/slack/index.js";
 import { buildSlackThreadName, parseSlackCommandScope, parseSlackThreadName, slackApprovalOrchestratorName } from "./slack-thread.js";
 import { answerSlackUiBlock, type SlackUiPayload } from "./slack-ui-blocks.js";
+import { log } from "./obs/log.js";
 
 export const SLACK_INTERACT_PATH = "/api/slack/interact";
 
@@ -635,11 +636,11 @@ export async function handleSlackInteract(
         return;
       }
       await replaceCardWithDecision(interaction, approved ? "approved" : "rejected", deps.replaceCard).catch((error: unknown) => {
-        console.error("Slack employee approval card update failed", redactSecrets(String(error)));
+        log.error("Slack employee approval card update failed", redactSecrets(String(error)));
       });
     })();
     const reported = work.catch((error: unknown) => {
-      console.error("Slack employee approval dispatch failed", redactSecrets(String(error)));
+      log.error("Slack employee approval dispatch failed", redactSecrets(String(error)));
       return respondEphemeral(
         interaction.responseUrl,
         "The decision could not be recorded. Contact the installation administrator.",
@@ -695,13 +696,13 @@ export async function handleSlackInteract(
     // The dispatch landed — retire the buttons and show the recorded outcome,
     // not the clicked action (stale/concurrent cards can disagree).
     await replaceCardWithDecision(interaction, outcome, deps.replaceCard).catch((error: unknown) => {
-      console.error("Slack approval card update failed", redactSecrets(String(error)));
+      log.error("Slack approval card update failed", redactSecrets(String(error)));
     });
   })();
   // The ack already went out, so a dispatch failure must surface to the human
   // in Slack rather than vanish into an unhandled rejection.
   const reported = work.catch((error: unknown) => {
-    console.error("Slack approval dispatch failed", redactSecrets(String(error)));
+    log.error("Slack approval dispatch failed", redactSecrets(String(error)));
     return respondEphemeral(
       interaction.responseUrl,
       `The ${approvedRun ? "approval" : "rejection"} could not be recorded. Contact the installation administrator.`,

@@ -53,6 +53,7 @@ import { registerExternalMcpTools } from "./external-mcp.js";
 import type { Env } from "./env.js";
 import { MCP_PRINCIPAL_HEADER } from "./mcp-principal.js";
 import { redactSecrets } from "./security.js";
+import { log } from "./obs/log.js";
 
 /**
  * Worker-injected header carrying the verified TokenRecord JSON. The worker
@@ -425,7 +426,7 @@ async function buildMcpServer(env: Env, mcpCtx: McpRequestContext): Promise<McpS
   const principal = principalFor(mcpCtx.requestInfo);
   if (principal) {
     try { await registerExternalMcpTools(registry, env, principal); }
-    catch { console.warn("External MCP capability catalog unavailable; upstream capabilities withheld."); }
+    catch { log.warn("External MCP capability catalog unavailable; upstream capabilities withheld."); }
   }
   for (const tool of visibleToolsForPrincipal(registry.tools(), principal)) {
     server.registerTool(
@@ -452,7 +453,7 @@ async function buildMcpServer(env: Env, mcpCtx: McpRequestContext): Promise<McpS
     await registerExtensionSkillMcpPrompts(server, env, principal,
       (ctx) => principalFor(ctx.http?.req ?? mcpCtx.requestInfo));
   } catch {
-    console.warn("MCP skill directory unavailable; skill prompts withheld.");
+    log.warn("MCP skill directory unavailable; skill prompts withheld.");
   }
   return server;
 }

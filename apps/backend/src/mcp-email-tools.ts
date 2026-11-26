@@ -61,6 +61,7 @@ import {
 } from "./mailbox-verification.js";
 import type { ToolRegistry } from "./mcp-gateway.js";
 import { InputError } from "./security.js";
+import { log } from "./obs/log.js";
 
 /** Matches the `ROUTE_BASE` convention the inbound handler uses for stub.fetch. */
 const ROUTE_BASE = "https://internal/internal/mailbox";
@@ -810,12 +811,10 @@ export function registerEmailTools(registry: ToolRegistry, env: Env): void {
             `/drafts/${encodeURIComponent(draft.id)}/unqueue`,
             jsonPost({}),
           ).catch((unqueueError: unknown) => {
-            console.warn(
-              `draft unqueue failed after approval mint error ${JSON.stringify({
-                draft_id: draft.id,
-                error: unqueueError instanceof Error ? unqueueError.message : String(unqueueError),
-              })}`,
-            );
+            log.warn("draft unqueue failed after approval mint error", {
+              draft_id: draft.id,
+              error: unqueueError instanceof Error ? unqueueError.message : String(unqueueError),
+            });
           });
           throw error;
         }

@@ -33,6 +33,8 @@ export interface TeamWorkspaceViewProps {
   onOpenChat?: () => void;
   onOpenWork?: () => void;
   onOpenApps?: () => void;
+  onOpenAgents?: () => void;
+  onOpenToolPolicy?: () => void;
 }
 
 export type TeamWorkspaceTab = "people" | "invitations" | "roles" | "settings";
@@ -67,6 +69,8 @@ function TeamWorkspaceSurface({
   onOpenChat,
   onOpenWork,
   onOpenApps,
+  onOpenAgents,
+  onOpenToolPolicy,
   isCurrent,
 }: TeamWorkspaceViewProps & { isCurrent: () => boolean }): JSX.Element {
   const [workspace, setWorkspace] = useState<TeamWorkspaceDetail | null>(null);
@@ -559,6 +563,7 @@ function TeamWorkspaceSurface({
                   {onOpenApps && <button type="button" className="mt-2 min-h-11 border border-[var(--line)] px-3 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]" onClick={onOpenApps}>Open Slack setup</button>}
                 </li>
               </ol>
+              {onOpenAgents && <button type="button" className="mt-4 min-h-11 border border-[var(--line)] px-3 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]" onClick={onOpenAgents}>Set up the team’s agents</button>}
             </section>
             {/* General Settings Tab (Workspace name & info) */}
             <div className={`${PANEL} ${activeTab === "settings" ? "block" : "hidden"}`}>
@@ -687,6 +692,15 @@ function TeamWorkspaceSurface({
                     Create a link for one exact email address. It expires after 24 hours. Share it
                     yourself; Shiba sends no invitation email.
                   </p>
+                </div>
+                <div className="mt-4">
+                  <h4 className="text-xs font-medium text-[#0a0a0a] dark:text-zinc-100">What happens after you create a link?</h4>
+                  <ol className="mt-1.5 list-decimal space-y-0.5 pl-4 text-xs text-[#71717a] dark:text-zinc-400">
+                    <li>Copy the invitation while it is visible in this session.</li>
+                    <li>Share it with the exact invited address.</li>
+                    <li>The recipient signs in and verifies that email.</li>
+                    <li>Acceptance adds the member with the selected role.</li>
+                  </ol>
                 </div>
                 <form onSubmit={invite} className="mt-4 grid items-end gap-2.5 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
                   <label className="flex min-w-0 flex-1 flex-col gap-1.5 text-xs font-medium text-[#0a0a0a] dark:text-zinc-200">
@@ -826,6 +840,17 @@ function TeamWorkspaceSurface({
                   <p className="text-xs text-[#71717a] dark:text-zinc-400 mt-1">
                     Can participate in team chats, view shared work, and leave the workspace. Cannot invite new users or edit roles.
                   </p>
+                </div>
+                <div className="rounded-lg border border-[#e4e4e7] dark:border-zinc-800 p-3.5 bg-white dark:bg-zinc-900">
+                  <h4 className="text-xs font-medium text-[#0a0a0a] dark:text-zinc-200">Tool access is a separate decision</h4>
+                  <p className="text-xs text-[#71717a] dark:text-zinc-400 mt-1">
+                    Employee tool grants and exact-payload approvals are not inherited from a teammate’s role. Review each agent’s bounded capabilities explicitly.
+                  </p>
+                  {onOpenToolPolicy ? (
+                    <button type="button" className={`${BUTTON_SECONDARY} mt-2`} onClick={onOpenToolPolicy}>
+                      Review employee tool policy
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </div>

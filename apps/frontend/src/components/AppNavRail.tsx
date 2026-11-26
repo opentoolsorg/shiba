@@ -222,9 +222,9 @@ export function AppNavRail({
     document.addEventListener("keydown", trapFocus);
     return () => document.removeEventListener("keydown", trapFocus);
   }, [sheet]);
-  function moveThread(key: string) {
-    if (!onSelectSession || !filteredSessions.length) return;
-    const current = filteredSessions.findIndex((session) => session.id === selectedSessionId);
+  function moveThread(key: string, target: EventTarget) {
+    if (!filteredSessions.length) return;
+    const current = filteredSessions.findIndex((session) => target instanceof HTMLElement && target.id === `${navigationId}-thread-${session.id}`);
     const last = filteredSessions.length - 1;
     const nextIndex =
       key === "Home"
@@ -236,7 +236,6 @@ export function AppNavRail({
             : Math.max(0, current - 1);
     const next = filteredSessions[nextIndex];
     if (!next) return;
-    onSelectSession(next.id);
     document.getElementById(`${navigationId}-thread-${next.id}`)?.focus();
   }
   return (
@@ -393,7 +392,7 @@ export function AppNavRail({
                 onKeyDown={(event) => {
                   if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
                     event.preventDefault();
-                    moveThread(event.key);
+                    moveThread(event.key, event.target);
                   }
                 }}
               >

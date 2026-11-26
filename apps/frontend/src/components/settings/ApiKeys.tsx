@@ -124,7 +124,7 @@ export function ApiKeysSettingsPanel(): JSX.Element {
               key={key.keyId}
               className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-1)] px-4 py-3 last:border-b-0"
             >
-              <div>
+              <div className="min-w-0 max-w-full [overflow-wrap:anywhere]">
                 <div className="text-sm font-semibold text-[var(--fg)]">{key.label}</div>
                 <div className="text-[11px] font-mono text-[var(--muted-foreground-2)]">
                   {key.tokenPrefix ?? key.keyId} · {key.scopes.join(", ")}
@@ -138,7 +138,7 @@ export function ApiKeysSettingsPanel(): JSX.Element {
                   aria-label={`Revoke ${key.label}`}
                   disabled={busy}
                   onClick={() => void revoke(key.keyId)}
-                  className="text-[11px] font-mono border border-[var(--border-1)] px-2 py-1"
+                  className="min-h-11 text-[11px] font-mono border border-[var(--border-1)] px-2 py-1 sm:min-h-0 touch:min-h-11"
                 >
                   Revoke
                 </button>

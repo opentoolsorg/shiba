@@ -6,17 +6,17 @@ import { SHIBA_BRAND_LOOK, ShibaMark } from "./ShibaMark";
 afterEach(cleanup);
 
 describe("Shiba brand mark", () => {
-  it("draws the public mark: sesame coat, resting face, no accessory", () => {
+  it("renders the cool-blue pointed visor mascot", () => {
     render(<ShibaMark />);
     const logo = screen.getByRole("img", { name: "Shiba" });
     const svg = logo.querySelector("svg.shiba-agent-mascot");
     expect(svg?.getAttribute("data-shape")).toBe("pointed");
-    expect(svg?.getAttribute("data-color")).toBe("#c4a574");
-    expect(svg?.getAttribute("data-eyes")).toBe("happy");
-    expect(svg?.getAttribute("data-acc")).toBe("none");
+    expect(svg?.getAttribute("data-color")).toBe("#899bd0");
+    expect(svg?.getAttribute("data-eyes")).toBe("big");
+    expect(svg?.getAttribute("data-acc")).toBe("headset");
+    expect(svg?.querySelector('[data-part="visor"]')).toBeTruthy();
     expect(svg?.getAttribute("viewBox")).toBe("0 0 64 64");
-    expect(logo.querySelector("img")).toBeNull();
-    expect(SHIBA_BRAND_LOOK).toEqual({ shape: "pointed", color: "#c4a574", eyes: "happy", acc: "none" });
+    expect(SHIBA_BRAND_LOOK).toEqual({ shape: "pointed", color: "#899bd0", eyes: "big", acc: "headset" });
   });
 
   it("keeps the mark unsheeted so it sits on any surface", () => {

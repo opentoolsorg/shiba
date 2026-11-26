@@ -101,13 +101,64 @@ describe("AutomationsView", () => {
     fireEvent.click(screen.getByRole("button", { name: "New automation" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Search automations" }), { target: { value: "Repository audit" } });
     fireEvent.click(screen.getByRole("button", { name: "Use recipe" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm and create" }));
     expect(screen.getByRole("status").textContent).toContain("Enter a GitHub repository URL first.");
     fireEvent.change(screen.getByRole("textbox", { name: "Repository URL" }), { target: { value: "https://github.com/acme/app" } });
     fireEvent.change(screen.getByRole("combobox", { name: "Bot for new automations" }), { target: { value: "bot-1" } });
-    fireEvent.click(screen.getByRole("button", { name: "Use recipe" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm and create" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/automations", expect.objectContaining({ method: "POST", body: expect.any(String) })));
     const call = fetchMock.mock.calls.find((entry) => entry[1]?.method === "POST");
     expect(JSON.parse(call?.[1].body)).toMatchObject({ id: "manual-audit", repoUrl: "https://github.com/acme/app", enabled: true, customAgentId: "bot-1", triggers: [{ kind: "manual" }] });
+  });
+
+  it("reviews a recipe before creating it and lets the user cancel without a request", async () => {
+    respond();
+    render(<AutomationsView />);
+    await screen.findByText("No automations yet. Start with a recipe.");
+    fireEvent.click(screen.getByRole("button", { name: "New automation" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Search automations" }), { target: { value: "Nightly lint" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Repository URL" }), { target: { value: "https://github.com/acme/app" } });
+    expect(screen.queryByRole("region", { name: "Review recipe" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Use recipe" }));
+    const review = screen.getByRole("region", { name: "Review recipe" });
+    expect(review.textContent).toContain("Trigger: 0 3 * * *");
+    expect(review.textContent).toContain("Repository: https://github.com/acme/app · Bot: No bot");
+    expect(review.textContent).toContain("Run the repository's linter.");
+    expect(review.textContent).toContain("Runs wait for your approval before execution.");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("region", { name: "Review recipe" })).toBeNull();
+    expect(fetchMock.mock.calls.some((entry) => entry[1]?.method === "POST")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Use recipe" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm and create" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/automations", expect.objectContaining({ method: "POST" })));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Review recipe" })).toBeNull());
+  });
+
+  it("shows Receive, Queue, Review steps and only claims configured when setup status says so", async () => {
+    fetchMock.mockImplementation(async (url: string) => Response.json(url === "/api/setup/status"
+      ? { github: { webhookSecret: true }, slack: { signingSecret: true, botToken: false } }
+      : { automations: [] }));
+    render(<AutomationsView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Triggers" }));
+    const steps = screen.getByRole("list", { name: "From event to reviewed work" });
+    expect(steps.textContent).toContain("1. Receive");
+    expect(steps.textContent).toContain("2. Queue");
+    expect(steps.textContent).toContain("Receiving a webhook is not approval.");
+    const status = screen.getByRole("list", { name: "Trigger setup status" });
+    await waitFor(() => expect(status.textContent).toContain("GitHub webhooks: Configured"));
+    expect(status.textContent).toContain("Slack: Not configured");
+  });
+
+  it("reports unavailable setup status instead of claiming a trigger is configured", async () => {
+    fetchMock.mockImplementation(async (url: string) => url === "/api/setup/status"
+      ? { ok: false, status: 500, json: async () => ({}) }
+      : Response.json({ automations: [] }));
+    render(<AutomationsView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Triggers" }));
+    const status = screen.getByRole("list", { name: "Trigger setup status" });
+    await waitFor(() => expect(status.textContent).toContain("GitHub webhooks: Status unavailable"));
+    expect(status.textContent).not.toContain("Configured");
   });
 
   it("keeps webhook signing secrets out of the dashboard UI", async () => {

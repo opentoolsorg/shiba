@@ -94,6 +94,17 @@ function stubIntegrationsFetch(setup = defaultSetup(), unconfigured = false) {
 }
 
 describe("IntegrationsView native catalog", () => {
+  it("opens connector setup in Integrations without routing to external MCP grants", async () => {
+    stubIntegrationsFetch();
+    const onNavigate = vi.fn();
+    render(<IntegrationsView onNavigate={onNavigate} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review app setup" }));
+    expect(screen.getByRole("searchbox", { name: "Search integrations" })).toBeTruthy();
+    expect(onNavigate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Hide setup details" }));
+    expect(await screen.findByRole("heading", { name: "Configured connections" })).toBeTruthy();
+  });
+
   it.each([
     ["pending-review", "Check for a pending installation below", "pending"],
     ["cancelled", "Slack authorization was cancelled", "revoked"],
@@ -149,6 +160,19 @@ describe("IntegrationsView native catalog", () => {
     await screen.findByRole("heading", { name: "Configured connections" });
     expect(screen.queryByRole("heading", { name: "Set up integrations" })).toBeNull();
   });
+
+  it("presents connection management separately from app status and links employee permissions", async () => {
+    stubIntegrationsFetch();
+    const onNavigate = vi.fn();
+    render(<IntegrationsView onNavigate={onNavigate} />);
+    expect(await screen.findByRole("heading", { name: "Connection management" })).toBeTruthy();
+    expect(screen.getByText(/Connecting an app does not grant any employee access/)).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "Review employee permissions" })[0]!);
+    expect(onNavigate).toHaveBeenCalledWith("employee-tools");
+    expect(screen.getByRole("heading", { name: "Configured connections" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Discover and set up" })).toBeTruthy();
+  });
+
   it("focuses discovery rather than account filtering from Search connectors", async () => {
     stubIntegrationsFetch();
     render(<IntegrationsView />);
@@ -203,11 +227,18 @@ describe("IntegrationsView native catalog", () => {
 
   it("preserves setup detail panels behind Show setup details", async () => {
     stubIntegrationsFetch();
-    render(<IntegrationsView />);
+    const onNavigate = vi.fn();
+    const onOpenSettings = vi.fn();
+    render(<IntegrationsView onNavigate={onNavigate} onOpenSettings={onOpenSettings} />);
     await screen.findByRole("heading", { name: "Configured connections" });
     fireEvent.click(screen.getByRole("button", { name: "Show setup details" }));
     expect(await screen.findByTestId("integration-linear")).toBeTruthy();
     expect(screen.getAllByText("GitHub").length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "Connection management" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Review app setup" }));
+    expect(onOpenSettings).toHaveBeenCalledWith("connected-apps");
+    fireEvent.click(screen.getByRole("button", { name: "Review employee permissions" }));
+    expect(onNavigate).toHaveBeenCalledWith("employee-tools");
   });
 });
 

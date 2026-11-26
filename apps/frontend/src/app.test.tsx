@@ -33,6 +33,7 @@ vi.mock("@tanstack/react-router", () => ({ useRouter: () => mocks.router }));
 vi.mock("./socket-liveness", () => ({ useSocketLiveness: vi.fn() }));
 vi.mock("./auth-client", () => ({ authClient: { signOut: vi.fn() } }));
 vi.mock("./components/FirstRunWizard", () => ({ FirstRunWizard: () => null, ONBOARDING_STORAGE_KEY: "onboarding" }));
+vi.mock("./components/knowledge/NotesEditor", () => ({ NotesEditor: () => null }));
 vi.mock("./components/ThemeProvider", () => ({ useTheme: () => ({ resolvedTheme: "light", setTheme: vi.fn() }) }));
 vi.mock("./components/InboxTab", () => ({ InboxTab: () => <div data-testid="private-mailbox">PRIVATE-MAILBOX-CONTENT</div> }));
 vi.mock("./components/TaskComposer", () => ({ TaskComposer: ({ task, onTaskChange, onSubmit, onExecutionTargetKindChange, onArtifactDeliverablesChange, isSubmitting, runTarget, onRunTargetChange, harness, onHarnessChange }: {
@@ -76,6 +77,20 @@ beforeEach(() => {
   }));
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
+
+/**
+ * The Threads panel groups threads under their employee. A row holding the open thread is
+ * expanded; any other stays collapsed until its Expand control is used, as a person would.
+ */
+/** An employee's main row, not the Pin, New thread or Expand controls beside it (its status badge also joins the name). */
+const employeeRowName = (employee: string) => (name: string) => name.includes(employee) && !/^(Pin|Unpin|New thread|Expand|Collapse)\b/.test(name);
+
+async function openSidebarThread(thread: RegExp, employee: string) {
+  if (screen.queryAllByRole("button", { name: thread }).length === 0) {
+    fireEvent.click(await screen.findByRole("button", { name: `Expand ${employee}` }));
+  }
+  fireEvent.click(await screen.findByRole("button", { name: thread }));
+}
 
 describe("legacy shell URL preservation", () => {
   it("keeps callback query values and fragments while normalizing a legacy Settings link", async () => {
@@ -186,6 +201,40 @@ describe("app employee onboarding", () => {
 });
 
 describe("app Work and Threads routing", () => {
+  it("shows employee threads in personal Chat despite a legacy collapsed sidebar preference", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    localStorage.setItem("shiba:sidebar-collapsed", "true");
+    localStorage.removeItem("shiba:personal-threads-sidebar-collapsed");
+    window.history.replaceState(null, "", "/threads/");
+    const originalFetch = fetch;
+    const employee = {
+      id: "employee-1",
+      slug: "finance-auditor",
+      version: 1,
+      config: { name: "Finance Auditor", instructions: "Review supplied records.", harness: "opencode", roleTemplateId: "finance" },
+    };
+    const thread = {
+      id: "thread-budget",
+      name: "Budget review",
+      agentName: "web:test-operator:thread-budget",
+      updatedAt: 123,
+      metadata: { customAgentId: employee.id },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path.startsWith("/api/custom-agents")) return Response.json({ agents: [employee] });
+      if (path === "/api/sessions" && options?.method !== "POST") return Response.json({ sessions: [thread] });
+      if (path === "/api/sessions/thread-budget/resume") return Response.json({});
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await waitFor(() => expect(document.querySelector('aside[aria-label="Employees"]')).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Expand Finance Auditor" }));
+    fireEvent.click(screen.getByRole("button", { name: /Budget review/ }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions/thread-budget/resume", { method: "POST" }));
+    expect(fetch).not.toHaveBeenCalledWith("/api/runs", expect.objectContaining({ method: "POST" }));
+  });
+
   it("mounts the browser only in Chat and sends its tool marker only after opt-in", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", "/threads/");
@@ -213,6 +262,138 @@ describe("app Work and Threads routing", () => {
     } finally {
       mocks.chat.sendMessage.mockClear();
     }
+  });
+
+  it("lists employee threads and resumes the selected thread without queueing work", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    const originalFetch = fetch;
+    const employee = {
+      id: "employee-1",
+      slug: "finance-auditor",
+      version: 1,
+      config: { name: "Finance Auditor", instructions: "Review supplied records.", harness: "opencode", roleTemplateId: "finance" },
+    };
+    const thread = {
+      id: "thread-budget",
+      name: "Budget review",
+      agentName: "web:test-operator:thread-budget",
+      updatedAt: 123,
+      metadata: { customAgentId: employee.id },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path.startsWith("/api/custom-agents")) return Response.json({ agents: [employee] });
+      if (path.startsWith("/api/sessions") && options?.method !== "POST") return Response.json({ sessions: [thread] });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+
+    const panel = await screen.findByRole("complementary", { name: "Employees" });
+    fireEvent.click(await within(panel).findByRole("button", { name: "Expand Finance Auditor" }));
+    fireEvent.click(await within(panel).findByRole("button", { name: /Budget review/ }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions/thread-budget/resume", { method: "POST" }));
+    expect(fetch).not.toHaveBeenCalledWith("/api/runs", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("opens the runs list from Chat after visiting the Work organization chart", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const originalFetch = fetch;
+    const run = {
+      runId: "recent-run", task: "Review the workspace report", status: "completed",
+      repoUrl: "", sandboxId: "fixture-sandbox", baseBranch: "main", publishPullRequest: false,
+      generation: 1, createdAt: 1, updatedAt: 2,
+    };
+    vi.stubGlobal("fetch", vi.fn((url: string | URL | Request, options?: RequestInit) =>
+      String(url).startsWith("/api/runs")
+        ? Promise.resolve(Response.json({ runs: [run] }))
+        : originalFetch(url, options)));
+    render(<App />);
+
+    const views = await screen.findByRole("group", { name: "Work views" });
+    fireEvent.click(within(views).getByRole("button", { name: "Organization" }));
+    await screen.findByRole("region", { name: "Organization view" });
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+    const recent = await screen.findByRole("region", { name: "Recent runs" });
+    fireEvent.click(within(recent).getByRole("button", { name: /Open all runs/ }));
+
+    expect(await within(await screen.findByRole("region", { name: "List view" })).findByText(run.task)).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Organization view" })).toBeNull();
+  });
+
+  it.each([false, true])("opens Analytics focused on the selected Recent run (setup guide open: %s)", async (openSetup) => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    const originalFetch = fetch;
+    const run = {
+      runId: "recent-run",
+      task: "Review the workspace report",
+      status: "completed",
+      repoUrl: "",
+      sandboxId: "fixture-sandbox",
+      baseBranch: "main",
+      publishPullRequest: false,
+      generation: 1,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const otherRun = { ...run, runId: "other-run", task: "Review a different report", createdAt: 3, updatedAt: 4 };
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path === "/api/whoami" && openSetup) return Response.json({ agent: "test-operator", auth: "better-auth" });
+      if (path === "/api/onboarding/progress" && openSetup) {
+        return Response.json({
+          revision: 1, currentStep: "channels", dismissedAt: 1, activatedAt: 1,
+          connectionVerifiedAt: null, firstSuccessfulRunAt: null, acceptedArtifactAt: null,
+          draftTaskId: null, draftTask: null,
+          evidence: { connectedProvider: false, successfulRun: false, acceptedDeliverable: false },
+        });
+      }
+      if (path.startsWith("/api/runs?") || path === "/api/runs") {
+        return Response.json({ runs: [otherRun, run] });
+      }
+      if (path.startsWith("/api/usage?") || path === "/api/usage") {
+        return Response.json({ generatedAt: 1, timezone: "UTC", budgetUsd: null, days: [] });
+      }
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+
+    if (openSetup) {
+      const rail = await screen.findByRole("complementary", { name: "Primary Left Rail" });
+      fireEvent.click(within(rail).getByRole("button", { name: "Search" }));
+      fireEvent.click(await screen.findByRole("option", { name: "Open setup guide" }));
+      await screen.findByRole("region", { name: "Guided onboarding" });
+    }
+    const recent = await screen.findByRole("region", { name: "Recent runs" });
+    fireEvent.click(within(recent).getByRole("button", { name: new RegExp(run.task) }));
+    expect(await screen.findByRole("heading", { name: "Usage" })).toBeTruthy();
+    await screen.findByText("No token usage reported yet");
+    const selected = await screen.findByRole("row", { name: new RegExp(run.task) });
+    expect(selected.getAttribute("aria-current")).toBe("true");
+    expect(document.activeElement).toBe(selected);
+    expect(window.location.search).toBe(`?inspectRun=${run.runId}`);
+    expect(screen.getByRole("row", { name: new RegExp(otherRun.task) }).hasAttribute("aria-current")).toBe(false);
+    expect(screen.queryByRole("region", { name: "Guided onboarding" })).toBeNull();
+    expect(fetch).not.toHaveBeenCalledWith("/api/sessions/recent-run/resume", { method: "POST" });
+
+    const insights = within(screen.getByRole("navigation", { name: "Insights navigation" }));
+    fireEvent.click(insights.getByRole("button", { name: "Pull requests" }));
+    const diffRun = await screen.findByRole("combobox", { name: "Select run for diff inspection" });
+    fireEvent.change(diffRun, { target: { value: otherRun.runId } });
+    fireEvent.click(insights.getByRole("button", { name: "Usage" }));
+    const usageRow = await screen.findByRole("row", { name: new RegExp(otherRun.task) });
+    expect(usageRow.hasAttribute("aria-current")).toBe(false);
+    expect(document.activeElement).not.toBe(usageRow);
+    expect(window.location.search).toBe("");
+
+    await act(async () => { window.history.back(); });
+    await screen.findByRole("combobox", { name: "Select run for diff inspection" });
+    await act(async () => { window.history.back(); });
+    await screen.findByRole("heading", { name: "Usage" });
+    const restored = await screen.findByRole("row", { name: new RegExp(run.task) });
+    expect(restored.getAttribute("aria-current")).toBe("true");
+    expect(window.location.search).toBe(`?inspectRun=${run.runId}`);
   });
 
   it("opens the returned approval from Chat and follows its server-linked run after approval", async () => {
@@ -338,6 +519,14 @@ describe("app Work and Threads routing", () => {
     expect(fetch).not.toHaveBeenCalledWith("/api/runs", expect.objectContaining({ method: "POST" }));
   });
 
+  it("opens the settings overview when no section is selected", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/settings/");
+    render(<App />);
+    await screen.findByRole("heading", { name: "Settings overview" });
+    expect(new URLSearchParams(window.location.search).get("section")).toBe("overview");
+  });
+
   it("restores the Settings section on history navigation without dispatching work", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", "/settings/?section=appearance");
@@ -356,6 +545,31 @@ describe("app Work and Threads routing", () => {
     await screen.findByRole("heading", { name: "Settings" });
     expect(new URLSearchParams(window.location.search).get("section")).toBe("appearance");
     expect(fetch).not.toHaveBeenCalledWith("/api/runs", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("lands a bare /settings/ on Overview, on first load and on history navigation, and keeps explicit sections", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const section = () => new URLSearchParams(window.location.search).get("section");
+    const travel = async (url: string) => {
+      await act(async () => {
+        window.history.pushState(null, "", url);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      });
+    };
+    window.history.replaceState(null, "", "/settings/");
+    render(<App />);
+    await screen.findByRole("heading", { name: "Settings" });
+    await waitFor(() => expect(section()).toBe("overview"));
+    await travel("/work/?view=timeline");
+    await screen.findByRole("region", { name: "Timeline view" });
+    await travel("/settings/?section=appearance");
+    await screen.findByRole("heading", { name: "Settings" });
+    expect(section()).toBe("appearance");
+    await travel("/work/?view=timeline");
+    await screen.findByRole("region", { name: "Timeline view" });
+    await travel("/settings/");
+    await screen.findByRole("heading", { name: "Settings" });
+    await waitFor(() => expect(section()).toBe("overview"));
   });
 
   it("preserves an explicit local artifact selection instead of silently switching to sandbox", async () => {
@@ -781,6 +995,58 @@ describe("app Work and Threads routing", () => {
     expect(fetch).toHaveBeenCalledWith("/api/collaboration/rooms", expect.objectContaining({ headers: expect.objectContaining({ "X-Shiba-Workspace": id }) }));
   });
 
+  it("uses workspace actor IDs to assign and edit a team task with employee profiles", async () => {
+    const workspaceId = `ws_${"a".repeat(24)}`;
+    const actor = "owner@example.com";
+    const builder = { id: `cag-${"b".repeat(24)}`, slug: "builder", version: 1, config: { name: "Builder", instructions: "Build.", harness: "opencode" } };
+    const reviewer = { id: `cag-${"c".repeat(24)}`, slug: "reviewer", version: 1, config: { name: "Reviewer", instructions: "Review.", harness: "opencode" } };
+    const builderActor = `agent:${builder.id}`;
+    const reviewerActor = `agent:${reviewer.id}`;
+    const workPath = `/api/workspaces/${workspaceId}/work`;
+    const task = { id: `task_${"d".repeat(24)}`, workspaceId, roomId: "", roomTitle: "", title: "Ship the release", status: "todo", updatedAt: 1, assigneeKind: "agent", assigneeActorId: builderActor, ownerId: builderActor };
+    const createTask = vi.fn((body: unknown) => {
+      const ownerId = (body as { ownerId?: string }).ownerId;
+      return ownerId === builderActor ? Response.json({ task }, { status: 201 }) : Response.json({ error: "Invalid actor ID" }, { status: 400 });
+    });
+    const editTask = vi.fn((body: { patch: { reviewerId: string } }) => Response.json({ task: { ...task, reviewerId: body.patch.reviewerId } }));
+    localStorage.setItem(`shiba:team-workspace:${encodeURIComponent(actor)}`, workspaceId);
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path === "/api/whoami") return Response.json({ agent: actor, auth: "access" });
+      if (path === "/api/workspaces") return Response.json({ workspaces: [{ workspaceId, name: "Design team", version: 1, createdAt: 1, membership: { workspaceId, userId: actor, role: "owner", version: 1, joinedAt: 1 } }] });
+      if (path === "/api/custom-agents" && new Headers(options?.headers).get("X-Shiba-Workspace") === workspaceId) return Response.json({ agents: [builder, reviewer] });
+      if (path === workPath) {
+        return options?.method === "POST" ? createTask(JSON.parse(String(options.body))) : Response.json({ workspaceId, currentActorId: `human:${actor}`, tasks: [], truncated: false });
+      }
+      if (path === `${workPath}/${task.id}` && options?.method === "PATCH") return editTask(JSON.parse(String(options.body)));
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add details" }));
+    const assignee = screen.getByRole("combobox", { name: "Assignee" });
+    const builderOption = await within(assignee).findByRole<HTMLOptionElement>("option", { name: "Builder" });
+    fireEvent.change(assignee, { target: { value: builderOption.value } });
+    const title = screen.getByRole("textbox", { name: "Add a task and press Enter" });
+    fireEvent.change(title, { target: { value: task.title } });
+    fireEvent.keyDown(title, { key: "Enter" });
+    await waitFor(() => expect(createTask).toHaveBeenCalledExactlyOnceWith({ title: task.title, ownerId: builderActor }));
+    await waitFor(() => expect(title).toHaveProperty("value", ""));
+
+    const list = screen.getByRole("region", { name: "List view" });
+    const row = within(list).getByRole("button", { name: /^Ship the release\b/ });
+    expect(within(row).getByRole("img", { name: "Builder" })).toBeTruthy();
+    fireEvent.click(row);
+    const detail = await screen.findByRole("complementary", { name: "Task details" });
+    expect(within(detail).getByRole("combobox", { name: "Owner" })).toHaveProperty("value", builderActor);
+    const reviewerSelect = within(detail).getByRole("combobox", { name: "Reviewer" });
+    const reviewerOption = within(reviewerSelect).getByRole<HTMLOptionElement>("option", { name: "Reviewer" });
+    fireEvent.change(reviewerSelect, { target: { value: reviewerOption.value } });
+    await waitFor(() => expect(editTask).toHaveBeenCalledExactlyOnceWith({ patch: { reviewerId: reviewerActor } }));
+  });
+
   it("returns to a linked room after selecting another room in legacy Collaboration", async () => {
     const id = `ws_${"a".repeat(24)}`;
     const actor = "owner@example.com";
@@ -946,6 +1212,42 @@ describe("app Work and Threads routing", () => {
     await screen.findAllByRole("button", { name: "Back to app" });
     expect(window.location.pathname).toBe("/settings/");
     expect(window.location.search).toContain("section=");
+  });
+
+  it("preselects the new hire in Tool policy and clears the selection for later visits", async () => {
+    window.history.replaceState(null, "", "/custom-agents/");
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const builder = { id: "cag-builder", slug: "builder", version: 1, config: { name: "Builder", instructions: "Build.", harness: "opencode" } };
+    const scout = { id: "cag-scout", slug: "scout", version: 1, config: { name: "Scout", instructions: "Review the supplied data.", harness: "opencode" } };
+    let hired = false;
+    const originalFetch = fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (/^\/api\/employee-tools\/[^/]+\/policy$/.test(path)) return Response.json({ grants: [], toolScopes: [] });
+      if (path !== "/api/custom-agents") return originalFetch(url, options);
+      if (options?.method === "POST") {
+        hired = true;
+        return Response.json({ agent: scout }, { status: 201 });
+      }
+      return Response.json({ agents: hired ? [builder, scout] : [builder] });
+    }));
+    render(<App />);
+    await screen.findByRole("heading", { name: "Your employee roster" });
+    fireEvent.click(screen.getByRole("button", { name: "Hire employee" }));
+    const name = screen.getByLabelText("Name");
+    expect(document.activeElement).toBe(name);
+    fireEvent.change(name, { target: { value: scout.config.name } });
+    fireEvent.change(screen.getByLabelText("Instructions"), { target: { value: scout.config.instructions } });
+    fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Set up tool access" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Employee" })).toHaveProperty("value", scout.id));
+
+    await act(async () => {
+      window.history.pushState(null, "", "/settings/?section=overview");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Manage employee access" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Employee" })).toHaveProperty("value", builder.id));
   });
 
   it("switches destinations with Alt+number shortcuts", async () => {
@@ -1582,6 +1884,176 @@ describe("bot page without a thread", () => {
     expect(screen.queryByRole("heading", { name: "Engineering bot has no thread yet" })).toBeNull();
   });
 
+  it("resumes an employee's newest thread from the Threads panel without creating one", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    const OLDER_RESEARCH_THREAD = "33333333-3333-4333-8333-333333333333";
+    const olderResearchThread = { ...researchThread, id: OLDER_RESEARCH_THREAD, name: "Older brief", agentName: `web:test-operator:${OLDER_RESEARCH_THREAD}`, createdAt: 1, updatedAt: 1 };
+    window.history.replaceState(null, "", "/threads/");
+    mocks.chat.messages = [];
+    const bots = stubBots(undefined, true);
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) =>
+      String(url) === "/api/sessions" && options?.method !== "POST"
+        ? Response.json({ sessions: [olderResearchThread, researchThread, engineeringThreadRecord], defaultSessionId: "default" })
+        : bots(url, options)));
+    const urlSession = () => new URLSearchParams(window.location.search).get("session");
+    const created = () => bots.mock.calls.filter(([url, options]) => String(url) === "/api/sessions" && (options as RequestInit | undefined)?.method === "POST");
+    render(<App />);
+
+    // A ready personal registry lists employees in place of the flat chat list; their threads stay collapsed.
+    const employees = async () => within(await screen.findByRole("list", { name: "Employees" }));
+    expect((await employees()).queryByText("Older brief")).toBeNull();
+    fireEvent.click(await (await employees()).findByRole("button", { name: "Expand Research bot" }));
+    expect((await employees()).getByRole("group", { name: "Research bot threads" })).toBeTruthy();
+    expect((await employees()).getByText("Competitor brief")).toBeTruthy();
+    expect((await employees()).getByText("Older brief")).toBeTruthy();
+
+    // Choosing an employee resumes its newest thread, not an older one.
+    fireEvent.click(await (await employees()).findByRole("button", { name: employeeRowName("Research bot") }));
+    await waitFor(() => expect(urlSession()).toBe(RESEARCH_THREAD));
+    expect(bots).toHaveBeenCalledWith(`/api/sessions/${RESEARCH_THREAD}/resume`, expect.objectContaining({ method: "POST" }));
+    expect(bots).not.toHaveBeenCalledWith(`/api/sessions/${OLDER_RESEARCH_THREAD}/resume`, expect.anything());
+
+    fireEvent.click((await employees()).getByRole("button", { name: employeeRowName("Engineering bot") }));
+    await waitFor(() => expect(urlSession()).toBe(ENGINEERING_THREAD));
+    expect(bots).toHaveBeenCalledWith(`/api/sessions/${ENGINEERING_THREAD}/resume`, expect.objectContaining({ method: "POST" }));
+    expect(created()).toHaveLength(0);
+
+    // An older thread is still reachable directly from the same list.
+    fireEvent.click((await employees()).getByText("Older brief"));
+    await waitFor(() => expect(urlSession()).toBe(OLDER_RESEARCH_THREAD));
+    expect(created()).toHaveLength(0);
+
+    // New chat and global search stay in this panel.
+    expect(screen.getByRole("button", { name: "New chat" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Search all" }));
+    expect(await screen.findByRole("dialog", { name: "Search" })).toBeTruthy();
+  });
+
+  it("opens an employee with no thread on its own empty page instead of creating a thread", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    const request = stubBots();
+    render(<App />);
+    // The panel can re-mount while the registry settles, so look it up fresh each time.
+    const engineeringRow = await waitFor(() => within(screen.getByRole("list", { name: "Employees" })).getByRole("button", { name: employeeRowName("Engineering bot") }));
+    fireEvent.click(engineeringRow);
+    await screen.findByRole("heading", { name: "Engineering bot has no thread yet" });
+    expect(request.mock.calls.filter(([url, options]) => String(url) === "/api/sessions" && (options as RequestInit | undefined)?.method === "POST")).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Start a thread with Engineering bot" })).toBeTruthy();
+  });
+
+  it("opens the general composer only after New chat succeeds from a threadless employee", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    const bots = stubBots();
+    const newThreadId = "66666666-6666-4666-8666-666666666666";
+    const createGeneralThread = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(Response.json({
+        session: { id: newThreadId, name: "New chat", agentName: `web:test-operator:${newThreadId}`, updatedAt: 5 },
+      }, { status: 201 }));
+    vi.stubGlobal("fetch", vi.fn((url: string | URL | Request, options?: RequestInit) =>
+      String(url) === "/api/sessions" && options?.method === "POST"
+        ? createGeneralThread(options.body)
+        : bots(url, options)));
+    render(<App />);
+
+    const emptyPage = { name: "Engineering bot has no thread yet" };
+    const employees = await screen.findByRole("list", { name: "Employees" });
+    fireEvent.click(within(employees).getByRole("button", { name: employeeRowName("Engineering bot") }));
+    await screen.findByRole("heading", emptyPage);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "New chat" })); });
+
+    expect(createGeneralThread).toHaveBeenCalledExactlyOnceWith("{}");
+    expect(screen.getByRole("heading", emptyPage)).toBeTruthy();
+    expect(screen.queryByTestId("chat-composer")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    await screen.findByTestId("chat-composer");
+    expect(screen.queryByRole("heading", emptyPage)).toBeNull();
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(newThreadId));
+    expect(createGeneralThread.mock.calls).toEqual([["{}"], ["{}"]]);
+  });
+
+  it("opens Analytics without resuming a thread when selecting a recent run", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    mocks.chat.messages = [];
+    const bots = stubBots();
+    const run = { runId: "recent-run", task: "Compile the weekly brief", status: "completed", repoUrl: "", sandboxId: "s", baseBranch: "main", publishPullRequest: false, generation: 1, createdAt: 1, updatedAt: 2 };
+    vi.stubGlobal("fetch", vi.fn((url: string | URL | Request, options?: RequestInit) =>
+      String(url).startsWith("/api/runs") ? Promise.resolve(Response.json({ runs: [run] })) : bots(url, options)));
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Compile the weekly brief/ }));
+    await screen.findByRole("heading", { name: "Usage" });
+    await waitFor(() => expect(window.location.pathname).toBe("/analytics/"));
+    expect(bots.mock.calls.some(([url]) => String(url).endsWith("/resume"))).toBe(false);
+  });
+
+  it("shows the conversation's unarchived run in both progress and Work details, not a newer archived run", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
+    mocks.chat.messages = [];
+    const bots = stubBots();
+    const run = { runId: "retained-review-run", task: "Compile the weekly brief", status: "completed", repoUrl: "", sandboxId: "s", baseBranch: "main", publishPullRequest: false, generation: 1, createdAt: 1, updatedAt: 2 };
+    const archived = { ...run, runId: "archived-review-run", task: "Archived brief", updatedAt: 8, archivedAt: 8 };
+    vi.stubGlobal("fetch", vi.fn((url: string | URL | Request, options?: RequestInit) => {
+      const path = new URL(String(url), window.location.origin);
+      if (path.pathname !== "/api/runs") return bots(url, options);
+      return Promise.resolve(Response.json({ runs: path.searchParams.get("session") === RESEARCH_THREAD ? [run, archived] : [] }));
+    }));
+    render(<App />);
+
+    const progress = await screen.findByTestId("run-progress");
+    expect(within(progress).getByText(run.task)).toBeTruthy();
+    expect(within(progress).queryByText(archived.task)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Task details" }));
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/work/");
+      const params = new URLSearchParams(window.location.search);
+      expect(params.get("task")).toBe(run.runId);
+      expect(params.get("taskKind")).toBe("run");
+    });
+  });
+
+  it("omits Task details for shared work in default chat but still lists that work on Work", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/threads/");
+    mocks.chat.messages = [];
+    const bots = stubBots();
+    const run = {
+      runId: "shared-automation", task: "Shared automation result", status: "completed", repoUrl: "", sandboxId: "s",
+      baseBranch: "main", publishPullRequest: false, generation: 1, createdAt: 1, updatedAt: 2, fromSharedStore: true,
+    };
+    vi.stubGlobal("fetch", vi.fn((url: string | URL | Request, options?: RequestInit) =>
+      String(url).startsWith("/api/runs") ? Promise.resolve(Response.json({ runs: [run] })) : bots(url, options)));
+    render(<App />);
+
+    expect(within(await screen.findByTestId("run-progress")).getByText(run.task)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Task details" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Work" }));
+    const list = await screen.findByRole("region", { name: "List view" });
+    expect(await within(list).findByText(run.task)).toBeTruthy();
+  });
+
+  it("keeps an employee's thread reachable from Tasks when the directory fails", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/tasks/");
+    mocks.chat.messages = [];
+    const bots = stubBots();
+    vi.stubGlobal("fetch", vi.fn((url: string | URL | Request, options?: RequestInit) =>
+      String(url) === "/api/custom-agents" ? Promise.resolve(new Response(null, { status: 503 })) : bots(url, options)));
+    render(<App />);
+
+    await openSidebarThread(/Competitor brief/, "Unavailable employee");
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+    expect(bots).toHaveBeenCalledWith(`/api/sessions/${RESEARCH_THREAD}/resume`, expect.objectContaining({ method: "POST" }));
+  });
+
   it("does not leave the previous bot's composer live when a bot's thread fails to resume", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
@@ -1603,7 +2075,7 @@ describe("bot page without a thread", () => {
     expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
   });
 
-  it("stays inert while a bot's thread opens and never sends the previous draft", async () => {
+  it.each(["roster", "Chat sidebar"])("opens bot details from the %s without leaving the previous composer live", async (source) => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     window.history.replaceState(null, "", `/threads/?session=${RESEARCH_THREAD}`);
     mocks.chat.messages = [];
@@ -1617,8 +2089,22 @@ describe("bot page without a thread", () => {
     render(<App />);
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
 
-    await openBotFromAgentsView(/Engineering bot/);
+    const closeDetails = screen.queryByRole("button", { name: "Close agent details" });
+    if (closeDetails) fireEvent.click(closeDetails);
+    expect(screen.queryByRole("complementary", { name: "Agent details" })).toBeNull();
+    expect(screen.getByTestId("chat-composer")).toBeTruthy();
+
+    if (source === "roster") await openBotFromAgentsView(/Engineering bot/);
+    else {
+      const employees = await screen.findByRole("list", { name: "Employees" });
+      fireEvent.click(within(employees).getByRole("button", { name: employeeRowName("Engineering bot") }));
+    }
+    const details = screen.getByRole("complementary", { name: "Agent details" });
+    expect(within(details).getByRole("heading", { name: "Engineering bot" })).toBeTruthy();
     await screen.findByRole("heading", { name: /Opening Engineering bot/ });
+    if (source === "Chat sidebar") {
+      expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD);
+    }
     expect(screen.queryByTestId("task-composer")).toBeNull();
     expect(screen.queryByTestId("chat-composer")).toBeNull();
     mocks.chat.sendMessage.mockClear();
@@ -1627,6 +2113,11 @@ describe("bot page without a thread", () => {
 
     await act(async () => { release?.(); await held; });
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(ENGINEERING_THREAD));
+    expect(await screen.findByRole("button", { name: "Hide details panel" })).toBeTruthy();
+    if (source === "Chat sidebar") {
+      await act(async () => { window.history.back(); });
+      await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
+    }
   });
 
   it("keeps Engineering as the recovery bot when its named thread was removed", async () => {
@@ -1678,7 +2169,7 @@ describe("bot page without a thread", () => {
     await openBotFromAgentsView(/Engineering bot/);
     await screen.findByRole("heading", { name: /Opening Engineering bot/ });
 
-    fireEvent.click(await screen.findByRole("button", { name: /Competitor brief/ }));
+    await openSidebarThread(/Competitor brief/, "Research bot");
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
     await act(async () => { release?.(); await held; });
     await act(async () => { await Promise.resolve(); });
@@ -1696,7 +2187,7 @@ describe("bot page without a thread", () => {
     const held = new Promise<void>((resolve) => { release = resolve; });
     stubBots(async () => { await held; return Response.json({ session: researchThread, resumed: true }); });
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: /Competitor brief/ }));
+    await openSidebarThread(/Competitor brief/, "Research bot");
     await openBotFromAgentsView(/Engineering bot/);
     await screen.findByRole("heading", { name: "Engineering bot has no thread yet" });
 
@@ -1868,7 +2359,7 @@ describe("bot thread links", () => {
     mocks.chat.messages = [];
     stubThreads();
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: /Flaky test triage/ }));
+    await openSidebarThread(/Flaky test triage/, "Engineering bot");
     await waitFor(() => expect(screen.getAllByText("Flaky test triage").length).toBeGreaterThan(1));
     const crumbs = screen.getAllByRole("navigation", { name: "Breadcrumb" }).map((nav) => nav.textContent ?? "").join(" ");
     expect(crumbs).toContain("Engineering bot");
@@ -1908,9 +2399,9 @@ describe("bot thread links", () => {
     mocks.chat.messages = [];
     stubThreads();
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: /Flaky test triage/ }));
+    await openSidebarThread(/Flaky test triage/, "Engineering bot");
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(ENGINEERING_THREAD));
-    fireEvent.click(await screen.findByRole("button", { name: /Competitor brief/ }));
+    await openSidebarThread(/Competitor brief/, "Research bot");
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
 
     await act(async () => { window.history.back(); });

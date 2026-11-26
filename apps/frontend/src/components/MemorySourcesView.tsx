@@ -1,7 +1,9 @@
 /** Owner-scoped, self-hostable memory notes and source references in clean panel style. */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type JSX } from "react";
 import { Database, } from "lucide-react";
+import { MemoriesLoadingState } from "./knowledge/MemoriesLoadingState";
 import { EmptyState } from "./ui/ContextPanel";
+import type { AppNavView } from "./AppNavRail";
 import { AssistantContextImport } from "./AssistantContextImport";
 
 type SourceKind = "note" | "document" | "conversation" | "reference" | "other";
@@ -62,7 +64,8 @@ const PRIMARY =
   "bg-[#0a0a0a] dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-1.5 text-xs font-medium rounded-lg hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 transition-colors shadow-xs touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 const KINDS: SourceKind[] = ["note", "document", "conversation", "reference", "other"];
 
-export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts: { sources: number }) => void } = {}): JSX.Element {
+export function MemorySourcesView({ onCountsChange, onNavigate }: { onCountsChange?: (counts: { sources: number }) => void; onNavigate?: (view: AppNavView) => void } = {}): JSX.Element {
+  const [loading, setLoading] = useState(true);
   const [sources, setSources] = useState<MemorySource[]>([]);
   useEffect(() => {
     onCountsChange?.({ sources: sources.length });
@@ -109,6 +112,7 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
   const load = useCallback(async () => {
     downloadRequest.current?.abort();
     const epoch = ++recallEpoch.current;
+    setLoading(true);
     setHits([]);
     setSearchActive(false);
     try {
@@ -123,6 +127,8 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Memory sources could not be loaded.");
+    } finally {
+      if (epoch === recallEpoch.current) setLoading(false);
     }
   }, []);
   useEffect(() => {
@@ -201,6 +207,7 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
   };
   const save = async (event: FormEvent) => {
     event.preventDefault();
+    if (busy) return;
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -382,8 +389,102 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
     [sources],
   );
 
+  const sourceForm = (
+    <form
+      ref={noteSection} tabIndex={-1} aria-label="Save memory source"
+      onSubmit={(event) => void save(event)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          if (!busy) event.currentTarget.requestSubmit();
+        }
+        if (event.key === "Escape" && editing && !busy) resetForm();
+      }}
+      className="flex flex-col gap-2.5 border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-4 shadow-xs"
+    >
+      <h3 className="text-base font-semibold text-[#0a0a0a] dark:text-zinc-100">{editing ? "Edit source" : "Add to memory"}</h3>
+      {editingVersion !== null ? <p className="text-xs text-[#71717a] dark:text-zinc-400">Current source version: {editingVersion}. Saving corrections creates a new immutable version.</p> : null}
+      <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
+        TITLE
+        <input
+          required
+          maxLength={200}
+          className={`${FIELD} mt-1 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]`}
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+        />
+      </label>
+      <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
+        SOURCE TYPE
+        <select
+          className={`${FIELD} mt-1 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]`}
+          value={kind}
+          onChange={(event) => setKind(event.target.value as SourceKind)}
+        >
+          {KINDS.map((value) => (
+            <option key={value} value={value}>
+              {value}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
+        TEXT TO REMEMBER
+        <textarea
+          required
+          maxLength={40_000}
+          rows={7}
+          className={`${FIELD} mt-1 resize-y font-sans touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]`}
+          value={content}
+          onChange={(event) => setContent(event.target.value)}
+          placeholder="Paste a note or the relevant text here. Shiba does not fetch linked pages."
+        />
+      </label>
+      <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
+        REFERENCE URL{" "}
+        <span className="font-sans text-[11px] text-[#71717a] dark:text-zinc-500">
+          (optional provenance link; never fetched)
+        </span>
+        <input
+          type="url"
+          pattern="https://.*"
+          className={`${FIELD} mt-1 font-sans touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]`}
+          value={referenceUrl}
+          onChange={(event) => setReferenceUrl(event.target.value)}
+          placeholder="https://…"
+        />
+      </label>
+      <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
+        RETENTION
+        <select
+          className={`${FIELD} mt-1 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]`}
+          value={retentionDays}
+          onChange={(event) => setRetentionDays(event.target.value)}
+        >
+          <option value="30">30 days</option>
+          <option value="90">90 days</option>
+          <option value="365">365 days (default)</option>
+          <option value="730">2 years</option>
+          <option value="manual">Keep until deleted</option>
+        </select>
+      </label>
+      {editing ? <p className="text-xs text-[var(--muted-foreground-2)]">⌘Enter to save · Esc to cancel</p> : null}
+      <div className="flex gap-2 pt-1">
+        <button type="submit" disabled={busy} className={PRIMARY}>
+          {busy ? "Saving…" : editing ? "Save changes" : "Add source"}
+        </button>
+        {editing ? (
+          <button type="button" className={BUTTON} onClick={resetForm}>
+            Cancel
+          </button>
+        ) : null}
+      </div>
+    </form>
+  );
+
   return (
     <section
+      data-testid="memory-sources"
       aria-label="Workspace memory sources"
       className="mx-auto flex w-full max-w-7xl min-w-0 flex-col gap-4 text-[var(--ink)]"
     >
@@ -468,88 +569,7 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
       </section> : null}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,0.8fr)]">
-        <form
-          ref={noteSection} tabIndex={-1} aria-label="Save memory source"
-          onSubmit={(event) => void save(event)}
-          className="flex flex-col gap-2.5 border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-4 shadow-xs"
-        >
-          <h3 className="text-base font-semibold text-[#0a0a0a] dark:text-zinc-100">{editing ? "Edit source" : "Add to memory"}</h3>
-          {editingVersion !== null ? <p className="text-xs text-[#71717a] dark:text-zinc-400">Current source version: {editingVersion}. Saving corrections creates a new immutable version.</p> : null}
-          <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
-            TITLE
-            <input
-              required
-              maxLength={200}
-              className={`${FIELD} mt-1 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]`}
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-            />
-          </label>
-          <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
-            SOURCE TYPE
-            <select
-              className={`${FIELD} mt-1 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]`}
-              value={kind}
-              onChange={(event) => setKind(event.target.value as SourceKind)}
-            >
-              {KINDS.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
-            TEXT TO REMEMBER
-            <textarea
-              required
-              maxLength={40_000}
-              rows={7}
-              className={`${FIELD} mt-1 resize-y font-sans touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]`}
-              value={content}
-              onChange={(event) => setContent(event.target.value)}
-              placeholder="Paste a note or the relevant text here. Shiba does not fetch linked pages."
-            />
-          </label>
-          <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
-            REFERENCE URL{" "}
-            <span className="font-sans text-[11px] text-[#71717a] dark:text-zinc-500">
-              (optional provenance link; never fetched)
-            </span>
-            <input
-              type="url"
-              pattern="https://.*"
-              className={`${FIELD} mt-1 font-sans touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]`}
-              value={referenceUrl}
-              onChange={(event) => setReferenceUrl(event.target.value)}
-              placeholder="https://…"
-            />
-          </label>
-          <label className="text-xs font-mono text-[#71717a] dark:text-zinc-400">
-            RETENTION
-            <select
-              className={`${FIELD} mt-1 touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]`}
-              value={retentionDays}
-              onChange={(event) => setRetentionDays(event.target.value)}
-            >
-              <option value="30">30 days</option>
-              <option value="90">90 days</option>
-              <option value="365">365 days (default)</option>
-              <option value="730">2 years</option>
-              <option value="manual">Keep until deleted</option>
-            </select>
-          </label>
-          <div className="flex gap-2 pt-1">
-            <button type="submit" disabled={busy} className={PRIMARY}>
-              {busy ? "Saving…" : editing ? "Save changes" : "Add source"}
-            </button>
-            {editing ? (
-              <button type="button" className={BUTTON} onClick={resetForm}>
-                Cancel
-              </button>
-            ) : null}
-          </div>
-        </form>
+        {!editing ? sourceForm : null}
 
         <div className="flex flex-col gap-3">
           <form
@@ -642,6 +662,9 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
             Projects select existing sources and employee defaults. Nothing is fetched from
             reference URLs. Edits affect future approvals; approved tasks keep their frozen
             snapshots.
+            {onNavigate ? <>{" "}
+              <button type="button" onClick={() => onNavigate("projects")} className="font-medium text-[#0a0a0a] dark:text-zinc-100 underline underline-offset-2">Organize project context</button>
+            </> : null}
           </p>
         </div>
         <form onSubmit={(event) => void saveProject(event)} className="grid gap-3 md:grid-cols-2">
@@ -769,7 +792,7 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
           <h3 className="text-base font-semibold text-[#0a0a0a] dark:text-zinc-100">Sources you control</h3>
           <span className="font-mono text-[11px] text-[#71717a] dark:text-zinc-400">{sources.length} stored</span>
         </div>
-        {sources.length === 0 ? (
+        {loading ? <MemoriesLoadingState /> : sources.length === 0 ? (
           <EmptyState
             icon={Database}
             title="No private sources saved"
@@ -782,6 +805,7 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
             return (
               <article
                 key={source.id}
+                data-testid="memory-source-row"
                 className="border border-[#e4e4e7] dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-4 shadow-xs"
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -836,12 +860,14 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
                     </button>
                   </div>
                 </div>
+                {editing === source.id ? sourceForm : null}
+                {editing !== source.id ? <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-[var(--fg)]">{source.content}</p> : null}
                 <details className="mt-2.5">
                   <summary className="cursor-pointer text-xs text-[#71717a] dark:text-zinc-400 hover:text-[#0a0a0a] dark:hover:text-zinc-100">
-                    Inspect stored text
+                    Source details
                   </summary>
                   <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words border border-[#e4e4e7] dark:border-zinc-800 rounded-lg bg-[#fafafa] dark:bg-zinc-800/60 p-2.5 text-xs font-sans text-[#0a0a0a] dark:text-zinc-200">
-                    {source.content}
+                    Created {new Date(source.createdAt).toLocaleString()} · Updated {new Date(source.updatedAt).toLocaleString()}
                   </pre>
                 </details>
               </article>

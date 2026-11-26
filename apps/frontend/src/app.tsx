@@ -155,6 +155,10 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return Boolean(el?.closest?.("input, textarea, select, [contenteditable]"));
 }
 
+function canInspectThreadRun(run: RetainedRun | undefined): boolean {
+  return run !== undefined && !run.fromSharedStore && run.archivedAt === undefined;
+}
+
 function useRetainedRuns(
   refreshToken: number,
   sessionId: string,
@@ -364,6 +368,13 @@ function toolRunInput(run: ToolRunRecord): Record<string, unknown> {
 
 type MainView = AppNavView;
 const DEFAULT_VIEW: MainView = "tasks";
+/**
+ * A bare /settings/ lands on Overview; an explicit ?section= deep-link keeps its section.
+ * normalizeSettingsSection validates the requested section against the settings nav.
+ */
+function settingsSectionFromSearch(search: string): string {
+  return normalizeSettingsSection(new URLSearchParams(search).get("section") || "overview");
+}
 /** Views that work inside a team workspace; every other view is personal-only. */
 /** Views that render their own MainCard, so the shell must not add a second one. */
 const SELF_CARDED_VIEWS: readonly string[] = ["dashboard", "activity", "analytics", "diff", "approvals", "automations", "providers", "spaces", "integrations"];
@@ -387,6 +398,7 @@ function workViewFromUrl(): WorkViewMode {
 }
 
 const SETUP_TOTAL_STEPS = 6;
+const ANALYTICS_RUN_PARAM = "inspectRun";
 
 const STARTER_TEMPLATES = [
   {
@@ -484,6 +496,7 @@ export function App(): React.JSX.Element {
   };
   const [projectContextId, setProjectContextId] = useState("");
   const [initialEmployeeId, setInitialEmployeeId] = useState<string | null>(null);
+  const [toolPolicyIntent, setToolPolicyIntent] = useState<{ scope: string; employeeId: string } | null>(null);
   const [initialEmployeeTemplateId, setInitialEmployeeTemplateId] = useState<EmployeeTemplate["id"] | null>(null);
   const [codingModel, setCodingModel] = useState("");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | "">("");
@@ -536,12 +549,18 @@ export function App(): React.JSX.Element {
   const [automationList, setAutomationList] = useState<AutomationRecord[]>([]);
   // Settings is a full page; the section lives in ?section= and "Back to app" returns to the previous view.
   const [settingsSection, setSettingsSection] = useState<string>(() =>
-    typeof window === "undefined" ? "account" : normalizeSettingsSection(new URLSearchParams(window.location.search).get("section")));
+    settingsSectionFromSearch(typeof window === "undefined" ? "" : window.location.search));
   const previousViewRef = useRef<MainView>(DEFAULT_VIEW);
   const clearRoomIntentRef = useRef<() => void>(() => {});
+  const [analyticsRunId, setAnalyticsRunId] = useState<string | null>(() =>
+    mainView === "analytics" && typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get(ANALYTICS_RUN_PARAM)
+      : null,
+  );
   const openView = useCallback((view: AppNavView) => {
     if (view !== "threads") clearRoomIntentRef.current();
     setShowFirstRun(false);
+    setAnalyticsRunId(null);
     if (view === "settings") previousViewRef.current = currentNavigation.current.view === "settings" ? previousViewRef.current : currentNavigation.current.view;
     setMainView(view);
   }, []);
@@ -554,6 +573,11 @@ export function App(): React.JSX.Element {
   if (mainView === "inbox" && !inboxMounted) setInboxMounted(true);
   const [setupDone, setSetupDone] = useState<number | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const openRunInAnalytics = useCallback((runId: string) => {
+    openView("analytics");
+    setSelectedRunId(runId);
+    setAnalyticsRunId(runId);
+  }, [openView]);
   const [selectedSessionId, setSelectedSessionId] = useState<string>("default");
   // A thread link is applied only once the registry confirms this viewer may open
   // it. Until then the composer stays shut: a draft restored into a socket that
@@ -689,9 +713,14 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       mobileNavTriggerRef.current?.focus();
     }
   }, [mobileNavOpen]);
-  const [sessionsCollapsed, setSessionsCollapsed] = useState(() =>
+  const [globalSessionsCollapsed, setGlobalSessionsCollapsed] = useState(() =>
     typeof window !== "undefined"
       ? localStorage.getItem("shiba:sidebar-collapsed") === "true"
+      : false,
+  );
+  const [personalThreadsCollapsed, setPersonalThreadsCollapsed] = useState(() =>
+    typeof window !== "undefined"
+      ? localStorage.getItem("shiba:personal-threads-sidebar-collapsed") === "true"
       : false,
   );
   const [workPanelCollapsed, setWorkPanelCollapsed] = useState(() =>
@@ -704,20 +733,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   useEffect(() => {
     if (mainView !== "work") setWorkInspectionRequest(undefined);
   }, [mainView]);
-
-  const toggleSessionsCollapsed = useCallback(() => {
-    setSessionsCollapsed((current) => {
-      const next = !current;
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("shiba:sidebar-collapsed", String(next));
-        } catch {
-          // Ignore storage quota or access errors in private mode
-        }
-      }
-      return next;
-    });
-  }, []);
 
   const toggleWorkPanelCollapsed = useCallback(() => {
     setWorkPanelCollapsed((current) => {
@@ -732,9 +747,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       return next;
     });
   }, []);
-
-  // The rail toggle and the keyboard shortcut collapse whichever sidebar the current view shows.
-  const toggleActiveSidebar = mainView === "work" ? toggleWorkPanelCollapsed : toggleSessionsCollapsed;
 
   // The view itself is read in the useState initializers; only the run pick needs an effect.
   useEffect(() => {
@@ -814,6 +826,32 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }, [roomRoute.clearIntent]);
   const workspaceAuthorityReady = roomRoute.ready && (!teamIdentityAvailable || teamDirectory.verified);
   const teamWorkspaceId = teamDirectory.selectedWorkspaceId;
+  const toolPolicyScope = JSON.stringify([orchestratorName, teamWorkspaceId]);
+  useEffect(() => {
+    setToolPolicyIntent((intent) => mainView === "employee-tools" && intent?.scope === toolPolicyScope ? intent : null);
+  }, [mainView, toolPolicyScope]);
+  const openEmployeeToolPolicy = (employeeId?: string) => {
+    setToolPolicyIntent(employeeId ? { scope: toolPolicyScope, employeeId } : null);
+    openView("employee-tools");
+  };
+  const personalThreads = mainView === "threads" && !teamWorkspaceId;
+  const sessionsCollapsed = personalThreads ? personalThreadsCollapsed : globalSessionsCollapsed;
+  const toggleSessionsCollapsed = useCallback(() => {
+    const setCollapsed = personalThreads ? setPersonalThreadsCollapsed : setGlobalSessionsCollapsed;
+    setCollapsed((current) => {
+      const next = !current;
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(personalThreads ? "shiba:personal-threads-sidebar-collapsed" : "shiba:sidebar-collapsed", String(next));
+        } catch {
+          // Ignore storage quota or access errors in private mode
+        }
+      }
+      return next;
+    });
+  }, [personalThreads]);
+  // The rail toggle and the keyboard shortcut collapse whichever sidebar the current view shows.
+  const toggleActiveSidebar = mainView === "work" ? toggleWorkPanelCollapsed : toggleSessionsCollapsed;
   const urlSynced = useRef(false);
   const syncedView = useRef<MainView | null>(null);
   const historyTraversal = useRef(false);
@@ -850,6 +888,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       // it now would drop the selector the reader just followed. A shared
       // destination has nothing to confirm and drops the stray selector at once.
       if (threadLinkPending && !shared) { urlSynced.current = true; return; }
+      // A resume from Chat must keep the previous entry intact for Back.
+      if (botPage === "pending" && !shared && !viewChanged) return;
       // Query state belongs to the view that set it, so a view change starts
       // clean — except when the browser itself restored the query.
       const kept = traversing || first || !viewChanged ? window.location.search : "";
@@ -865,11 +905,25 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       else router.history.replace(path + window.location.hash);
       return;
     }
+    if (mainView === "analytics") {
+      urlSynced.current = true;
+      if (traversing) return;
+      const keep = first || !viewChanged;
+      const params = new URLSearchParams(keep ? window.location.search : "");
+      if (analyticsRunId) params.set(ANALYTICS_RUN_PARAM, analyticsRunId);
+      else params.delete(ANALYTICS_RUN_PARAM);
+      const query = params.toString();
+      const target = `${base}${query ? `?${query}` : ""}${keep ? window.location.hash : ""}`;
+      if (window.location.pathname + window.location.search + window.location.hash === target) return;
+      if (first) router.history.replace(target);
+      else router.history.push(target);
+      return;
+    }
     urlSynced.current = true;
     if (window.location.pathname === base) return;
     if (first) router.history.replace(base + window.location.search + window.location.hash);
     else router.history.push(base);
-  }, [mainView, settingsSection, selectedSessionId, botPage, teamWorkspaceId, threadLinkPending, router]);
+  }, [mainView, settingsSection, selectedSessionId, analyticsRunId, botPage, teamWorkspaceId, threadLinkPending, router]);
 
   useEffect(() => {
     const onPop = () => {
@@ -877,8 +931,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setWorkLocationTick((tick) => tick + 1);
       const view = viewFromUrl();
       setWorkViewMode(workViewFromUrl());
+      setAnalyticsRunId(view === "analytics" ? new URLSearchParams(window.location.search).get(ANALYTICS_RUN_PARAM) : null);
       setMainView(view ?? DEFAULT_VIEW);
-      if (view === "settings") setSettingsSection(normalizeSettingsSection(new URLSearchParams(window.location.search).get("section")));
+      if (view === "analytics") return;
+      if (view === "settings") setSettingsSection(settingsSectionFromSearch(window.location.search));
       if (readRoomLink(window.location.search) !== null) return;
       const linked = readThreadLink(window.location.search);
       // A dead link — deleted, or never ours to open — restores the default
@@ -2693,6 +2749,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         ...(r.deliverables !== undefined ? { deliverables: r.deliverables } : {}),
         ...(r.artifactBundle !== undefined ? { artifactBundle: r.artifactBundle } : {}),
         ...(r.executionTarget !== undefined ? { executionTarget: r.executionTarget } : {}),
+        ...(r.approval !== undefined ? { approval: r.approval } : {}),
         status: r.status,
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,
@@ -2733,25 +2790,18 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     return Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
   }, [retainedRuns, toolRuns, seenAt]);
 
-  const reviewThreadId = useMemo(() => {
-    if (selectedRunId && allRuns.some((run) => run.runId === selectedRunId)) return selectedRunId;
-    // Retained runs are already scoped to the selected conversation. Their
-    // update timestamps are authoritative; delegated tool runs from other
-    // conversations receive a local first-seen timestamp and must not steal
-    // the task screen's review panels from the active thread.
-    const selectedSessionRuns = retainedRuns
-      .map((run) => allRuns.find((candidate) => candidate.runId === run.runId))
-      .filter((run): run is VMRun => run !== undefined)
-      .sort((left, right) => right.updatedAt - left.updatedAt);
-    if (selectedSessionRuns[0]) return selectedSessionRuns[0].runId;
-    const newest = [...allRuns].sort((a, b) => b.updatedAt - a.updatedAt);
-    return newest.find((run) => run.pullUrl)?.runId ?? newest[0]?.runId ?? null;
-  }, [allRuns, retainedRuns, selectedRunId]);
-
   const reviewRun = useMemo(() => {
-    if (!reviewThreadId) return undefined;
-    return allRuns.find((run) => run.runId === reviewThreadId);
-  }, [allRuns, reviewThreadId]);
+    const selected = allRuns.find((run) => run.runId === selectedRunId);
+    if (selected) return selected;
+    const retainedNewestFirst = [...retainedRuns].sort((left, right) => right.updatedAt - left.updatedAt);
+    const retained = retainedNewestFirst.find(canInspectThreadRun) ?? retainedNewestFirst[0];
+    if (retained) return allRuns.find((run) => run.runId === retained.runId);
+    const newest = [...allRuns].sort((a, b) => b.updatedAt - a.updatedAt);
+    return newest.find((run) => run.pullUrl) ?? newest[0];
+  }, [allRuns, retainedRuns, selectedRunId]);
+  const reviewThreadId = reviewRun?.runId ?? null;
+  const retainedReviewRun = retainedRuns.find((run) => run.runId === reviewThreadId);
+  const chatDetailsRunId = canInspectThreadRun(retainedReviewRun) ? reviewThreadId : null;
 
   const threadHasWork = chat.messages.length > 0 || reviewThreadId !== null;
   const pendingApprovalCount = pendingApprovals.length + visibleStoredApprovals.length;
@@ -2899,9 +2949,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       if (!session && id !== "default") {
         // A run row is not a chat session: inspect it without disturbing the
         // selected chat session or its session-scoped run list.
-        setSelectedRunId(id);
         setMobileSessionsOpen(false);
-        setMainView("analytics");
+        openRunInAnalytics(id);
         return "ok";
       }
       if (session && id !== "default") {
@@ -2964,7 +3013,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setMainView("threads");
       return "ok";
     },
-    [visibleWebSessions, privateDataEnabled, pushThreadUrl],
+    [visibleWebSessions, privateDataEnabled, pushThreadUrl, openRunInAnalytics],
   );
 
   sessionsNavRef.current = sessions;
@@ -3024,6 +3073,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       ]);
       setSelectedSessionId(body.session.id);
       writeRememberedSessionId(body.session.id);
+      setSelectedRunId(null);
+      setBotPage("chat");
+      setBotPageMessage(null);
       setCustomAgentId("");
       setNotice(null);
       setMobileSessionsOpen(false);
@@ -3307,34 +3359,52 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   let destinationPanel: React.ReactNode = null;
   if (personalOnlyNotice) {
     destinationPanel = null;
-  } else if (mainView === "custom-agents" || mainView === "employee-tools" || mainView === "swarm" || mainView === "tasks") {
+  } else if (
+    mainView === "custom-agents" ||
+    mainView === "employee-tools" ||
+    mainView === "swarm" ||
+    mainView === "tasks" ||
+    (mainView === "threads" && !teamWorkspaceId && privateData)
+  ) {
     destinationPanel = (
       <AgentsPanel
         {...panelProps}
-        active={mainView === "custom-agents" ? customAgentId : mainView}
+        active={mainView === "custom-agents" ? customAgentId : mainView === "threads" ? selectedRunId ?? selectedSessionId : mainView}
         onSelect={(id) => { if (id === "employee-tools" || id === "swarm" || id === "tasks") openView(id); }}
         agents={signedIn && workspaceAuthorityReady && !teamDirectory.error ? customAgentRecords : []}
         threads={visibleWebSessions}
+        threadsLoading={mainView === "threads" && threadsLoading}
+        runs={mainView === "threads" ? sessions.filter((session) => !session.webSession) : []}
+        onLoadMoreRuns={mainView === "threads" ? () => {
+          setWorkViewMode("list");
+          openView("work");
+        } : undefined}
         // Only the open thread has a live stream; the rest fall back to stored session metadata.
         threadStates={{ [selectedSessionId]: chat.isStreaming || chat.status === "streaming" || chat.status === "submitted" ? "working" : pendingApprovals.length > 0 ? "waiting" : "idle" }}
         ownerName={orchestratorName ?? undefined}
         workspaceName={teamWorkspace?.name}
         loading={customAgentsLoading}
         error={customAgentsError}
-        onSelectAgent={(id) => { setInitialEmployeeId(id); openView("custom-agents"); }}
-        onOpenAgent={openBotPanel}
+        onSelectAgent={mainView === "threads" ? openBotPanel : (id) => {
+          setInitialEmployeeId(id);
+          openView("custom-agents");
+        }}
+        onOpenAgent={mainView === "threads" ? undefined : openBotPanel}
         onSelectThread={(id) => { void handleSelectSession(id); openView("threads"); }}
+        onSelectRun={openRunInAnalytics}
         onNewThread={(agentId) => { void startSidebarAgentThread(customAgentRecords.find((profile) => profile.id === agentId)); }}
+        onNewChat={mainView === "threads" ? () => { void handleNewTask(); } : undefined}
+        onSearchAll={mainView === "threads" ? () => setCommandMenuOpen(true) : undefined}
         newThreadDisabledReason={taskCreationBlocker ?? undefined}
-        onNewAgent={() => openView("custom-agents")}
+        onNewAgent={mainView === "custom-agents" ? undefined : () => openView("custom-agents")}
       />
     );
-  } else if (mainView === "threads" || mainView === "collaboration") {
+  } else if (mainView === "collaboration" || mainView === "threads") {
     destinationPanel = (
       <ChatsPanel
         {...panelProps}
         active={selectedRunId ?? selectedSessionId}
-        onSelect={(id) => { void handleSelectSession(id); openView("threads"); }}
+        onSelect={(id) => { openView("threads"); void handleSelectSession(id); }}
         showWorkspaceGroups={false}
         loading={privateData && threadsLoading}
         sessions={privateData ? sessions : []}
@@ -3533,6 +3603,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               onNewAgentThread={(profile) => { startSidebarAgentThread(profile); setMobileNavOpen(false); }}
               onOpenAgent={(agentId) => { openBotPanel(agentId); setMobileNavOpen(false); }}
               onOpenSearch={() => {
+                mobileNavWasOpen.current = false;
+                mobileNavTriggerRef.current?.focus();
                 setMobileNavOpen(false);
                 setCommandMenuOpen(true);
               }}
@@ -3583,7 +3655,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 type="button"
                 onClick={() => setCommandMenuOpen(true)}
                 aria-label="Open command menu"
-                className="shiba-command-trigger min-h-11 sm:min-h-9 justify-center rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] flex items-center gap-2 px-3 text-xs transition-colors"
+                className="shiba-command-trigger min-h-11 sm:min-h-9 touch:min-h-11 justify-center rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] flex items-center gap-2 px-3 text-xs transition-colors"
               >
                 <svg
                   aria-hidden="true"
@@ -3728,6 +3800,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             <section className="m-4 min-w-0 border border-[var(--border-1)] bg-[var(--card)] p-6 text-sm text-[var(--fg)]" aria-label="Workspace verification"><h1 className="text-xl font-medium">{teamDirectory.loading || roomRoute.pending ? "Checking workspace access…" : "Workspace access could not be verified"}</h1>{teamDirectory.error || !roomRoute.ready && !teamDirectory.loading ? <><p className="mt-3 text-[var(--muted-foreground-2)]">{teamDirectory.error ?? "This room link is invalid or its workspace is unavailable to your account. Links do not grant access."}</p><button type="button" className="mt-4 min-h-11 border border-[var(--border-1)] px-4" onClick={() => { void teamDirectory.refresh(); }}>Retry workspace access</button><button type="button" className="ml-3 min-h-11 border border-[var(--border-1)] px-4" onClick={() => { roomRoute.clear(); teamDirectory.selectWorkspace(""); }}>Open personal workspace</button></> : <p role="status" className="mt-3">Your selected workspace is being checked before conversations load.</p>}</section>
           ) : restrictedTeamMember && !teamWorkspaceId && !["team", "providers", "memory"].includes(mainView) ? (
             <TeamWorkspaceView actorId={orchestratorName?.trim().toLowerCase() ?? null} invitationToken={invitationToken}
+              onOpenAgents={() => openView("custom-agents")} onOpenToolPolicy={teamWorkspaceId ? undefined : () => openView("employee-tools")}
               onInvitationAccepted={(id) => { setInvitationToken(""); void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }}
               onSelectWorkspace={(id) => { roomRoute.clear(); void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }} onChanged={() => { void teamDirectory.refresh(); }} />
           ) : personalOnlyNotice ? (
@@ -3750,17 +3823,23 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   employees={workEmployees}
                   // Browsing the org chart must not rewrite the composer's bot or model settings.
                   onOpenEmployee={(id) => { setInitialEmployeeId(id); openView("custom-agents"); }}
+                  // The approvals queue is personal-only; team workspaces would land on a notice.
+                  onOpenApprovals={teamWorkspaceId ? undefined : () => setMainView("approvals")}
+                  onOpenChief={teamWorkspaceId ? undefined : () => { void handleSelectSession("default"); openView("threads"); }}
+                  // In a team workspace only owners and admins configure employees.
+                  onHireEmployee={teamWorkspaceId && teamWorkspace?.membership.role !== "owner" && teamWorkspace?.membership.role !== "admin" ? undefined : () => openView("custom-agents")}
+                  onOpenOutputs={teamWorkspaceId ? undefined : () => openView("outputs")}
                   workspaceId={teamWorkspaceId || undefined}
                   workspaceName={teamWorkspace?.name}
                   currentActorId={orchestratorName ? `human:${orchestratorName.trim().toLowerCase()}` : undefined}
                   sharedTasks={sharedWork.tasks}
                   sharedTasksLoading={sharedWork.loading}
                   sharedTasksError={sharedWork.error ?? undefined}
-                  onCreateTask={(title) => sharedWork.create(title)}
+                  onCreateTask={(title, patch) => sharedWork.create(title, patch)}
                   onUpdateTask={(id, patch) => { void sharedWork.update(id, patch); }}
                   onArchiveTask={(id) => { void sharedWork.archive(id); }}
                   onCommentTask={(id, text) => { void sharedWork.comment(id, text); }}
-                  agents={mentionableAgents}
+                  agents={teamWorkspaceId ? mentionableAgents.map((agent) => ({ ...agent, id: `agent:${agent.id}` })) : mentionableAgents}
                   onOpenTeam={() => openView("team")}
                   onOpenSharedTask={(item) => { setSharedRoomId(item.roomId); setSharedHandoffId(item.id); setMainView("threads"); }}
                   runs={retainedRuns}
@@ -3808,6 +3887,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                     writeDraft(scope, taskText);
                     setTask(taskText);
                     return true;
+                  }}
+                  onOpenRunTab={(runId, tab) => {
+                    // Stay in Work: select the run itself so its steps and diff are loaded.
+                    applyWorkSelection({ view: workViewMode, task: runId, taskKind: "run", tab }, "push");
                   }}
                   onReviewApproval={(approvalId) => {
                     // Stay in Work: the review is a tab on the same receipt.
@@ -3903,13 +3986,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               runsError={runsError}
               onNavigate={openView}
               onNewTask={handleNewTask}
-              onInspectRun={(runId) => {
-                setSelectedRunId(runId);
-                setMainView("analytics");
-              }}
+              onInspectRun={openRunInAnalytics}
             />
           ) : mainView === "threads" && teamWorkspaceId ? (
-            <CollaborationView key={`${orchestratorName}:${teamWorkspaceId}`} workspaceId={teamWorkspaceId} initialRoomId={roomRoute.roomId ?? sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} incomingMention={incomingRoomMention} onMentionConsumed={(id) => setRoomMention((current) => current?.id === id ? undefined : current)} incomingTaskDraft={currentSlackTask ?? undefined} onTaskDraftConsumed={(id) => setIncomingSlackTask((current) => current?.id === id ? null : current)} onRoomChange={(id) => { setSharedRoomId(id); roomRoute.onRoomChange(id); }}
+            <CollaborationView key={`${orchestratorName}:${teamWorkspaceId}`} workspaceId={teamWorkspaceId} initialRoomId={roomRoute.roomId ?? sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} incomingMention={incomingRoomMention} onMentionConsumed={(id) => setRoomMention((current) => current?.id === id ? undefined : current)} incomingTaskDraft={currentSlackTask ?? undefined} onTaskDraftConsumed={(id) => setIncomingSlackTask((current) => current?.id === id ? null : current)} onRoomChange={(id) => { setSharedRoomId(id); roomRoute.onRoomChange(id); }} onOpenNotificationPreferences={teamWorkspaceId ? undefined : () => { setSettingsSection("notifications"); openView("settings"); }}
               renderApproval={(handoff) => teamWorkspaceId && handoff.senderActorId === `human:${orchestratorName?.trim().toLowerCase()}` ? <RoomApprovalReview workspaceId={teamWorkspaceId} workspaceName={teamWorkspace?.name} roomId={handoff.roomId} handoffId={handoff.handoffId} actorId={orchestratorName?.trim().toLowerCase() ?? null} /> : null}
               renderExecution={(handoff) => <RoomExecutionPanel key={`${handoff.handoffId}:${handoff.runId}:${handoff.execution?.approvalStatus}`} workspaceId={teamWorkspaceId} roomId={handoff.roomId} handoffId={handoff.handoffId} runId={handoff.runId} />} />
           ) : mainView === "threads" ? (
@@ -3954,7 +4034,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
               {/* CENTER: conversation timeline + composer */}
               <main
-                className="group/thread flex min-h-full min-w-0 flex-1 shrink-0 flex-col overflow-hidden bg-[var(--bg)] xl:min-h-0"
+                className={`group/thread flex min-h-full min-w-0 shrink-0 flex-col bg-[var(--bg)] xl:min-h-0 ${conversationMode === "chat" ? "flex-[1_0_auto] xl:flex-1 xl:overflow-y-auto" : "flex-1 overflow-hidden"}`}
                 aria-busy={busy}
               >
                 {botPage !== "chat" ? (
@@ -3985,6 +4065,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   participants={[{ id: "you", name: "You" }, { id: chatAgent.id, name: chatAgent.name }]}
                   panelOpen={agentDetailsOpen}
                   onTogglePanel={() => setAgentDetailsOpen((open) => !open)}
+                  // Only offer task details when this thread is backed by a real run.
+                  onOpenTaskDetails={chatDetailsRunId ? () => {
+                    applyWorkSelection({ view: "board", task: chatDetailsRunId, taskKind: "run", tab: "steps" }, "push");
+                    setMainView("work");
+                  } : undefined}
                   workspaceLabel={teamWorkspace?.name ?? "Personal"}
                   actions={[
                     ...(sessionsCollapsed ? [{ label: "Show sidebar", onSelect: toggleSessionsCollapsed }] : []),
@@ -4252,17 +4337,14 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                       error={taskHistoryError}
                       onRetry={retryTaskHistory}
                       onCancel={cancelTaskHistory}
-                      onSelectRun={(runId) => {
-                        setSelectedRunId(runId);
-                        setMainView("analytics");
-                      }}
+                      onSelectRun={openRunInAnalytics}
                     />
                   </div>
                 </details>
 
                 {/* TIMELINE (scrollable) — hidden on the empty-state hero */}
                 <div
-                  className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 sm:px-5 xl:px-8 py-5 ${threadHasWork ? "" : "hidden"}`}
+                  className={`min-h-0 px-3 sm:px-5 xl:px-8 py-5 ${conversationMode === "chat" ? "flex-auto xl:flex-1 xl:overflow-y-auto xl:overscroll-contain" : "flex-1 overflow-y-auto overscroll-contain"} ${threadHasWork ? "" : "hidden"}`}
                 >
                   {conversationMode === "chat" ? <RemoteAgentStream stream={realtimeRemoteStream} /> : null}
                   {privateDataEnabled && chatAgentName && conversationMode !== "chat" ? <UiBlockQuestions key={chatAgentName} runId={chatAgentName} sessionId={selectedSessionId} /> : null}
@@ -4285,12 +4367,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                       <RunProgressCard
                         run={reviewRun}
                         sessionId={selectedSessionId}
-                        onCancel={
-                          reviewRun && retainedRuns.some((run) => run.runId === reviewRun.runId)
-                            ? cancelRun
-                            : undefined
-                        }
+                        onCancel={retainedReviewRun ? cancelRun : undefined}
                         cancelling={cancellingRunId === reviewRun?.runId}
+                        publicationApprovals={storedApprovals}
+                        onReviewPublication={(approvalId) => {
+                          applyWorkSelection({ view: "board", task: approvalId, taskKind: "approval", tab: "approval" }, "push");
+                          setMainView("work");
+                        }}
                       />
                       <RunUsageCard runs={retainedRuns} />
                       <PullRequestCard
@@ -4316,8 +4399,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 <div
                   className={
                     chat.messages.length === 0 && !reviewThreadId
-                      ? "flex-1 flex flex-col min-h-0"
-                      : `border-t border-[var(--border-1)] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-8 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0 ${conversationMode === "chat" ? "max-h-[50dvh] overflow-y-auto sm:max-h-none sm:overflow-visible" : ""}`
+                      ? `flex flex-col min-h-0 ${conversationMode === "chat" ? "flex-auto xl:flex-1" : "flex-1"}`
+                      : "border-t border-[var(--border-1)] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-8 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0"
                   }
                 >
                   {conversationMode === "chat" ? (
@@ -4356,11 +4439,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   {conversationMode === "chat" ? (
                     <div className={
                       chat.messages.length === 0 && !reviewThreadId
-                        ? "flex-1 min-h-0 flex flex-col items-center [justify-content:safe_center] overflow-y-auto gap-5 px-3 sm:px-5 xl:px-8 py-5"
+                        ? "flex min-h-0 flex-auto flex-col items-center [justify-content:safe_center] gap-5 px-3 sm:px-5 xl:flex-1 xl:overflow-y-auto xl:px-8 py-5"
                         : "shrink-0 px-3 sm:px-5 xl:px-8 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
                     }>
                       {chat.messages.length === 0 ? (
-                        <div className="contents group-has-[[data-browser-expanded]]/thread:hidden"><AgentChatEmptyState agent={chatAgent} /></div>
+                        <div className="contents group-has-[[data-browser-expanded]]/thread:hidden"><AgentChatEmptyState agent={chatAgent} onOpenToolPolicy={teamWorkspaceId ? undefined : () => openView("employee-tools")} /></div>
                       ) : null}
                       {privateDataEnabled && chatAgentName && !busy && !chat.error &&
                         (chat.messages.length === 0 || chat.messages.at(-1)?.role === "assistant") ? (
@@ -4520,9 +4603,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   pendingApprovals={botPendingApprovals}
                   runOutputs={botRunOutputs}
                   runsScope={botRunsScope}
-                  onOpenRun={(runId) => { setSelectedRunId(runId); setMainView("analytics"); }}
+                  onOpenRun={openRunInAnalytics}
                   onOpenApprovals={() => setMainView("approvals")}
-                  onManageTools={activeEmployee ? () => { setInitialEmployeeId(activeEmployee.id); openView("employee-tools"); } : undefined}
+                  onManageTools={activeEmployee ? () => openEmployeeToolPolicy(activeEmployee.id) : undefined}
                   onConfigSave={activeEmployee ? (edit) => saveBotConfigEdit(activeEmployee.id, edit) : undefined}
                   onLibrarySave={activeEmployee ? (deliverables) => saveBotLibrary(activeEmployee.id, deliverables) : undefined}
                   onClose={() => setAgentDetailsOpen(false)}
@@ -4541,6 +4624,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 key={selectedSessionId}
                 sessionId={selectedSessionId}
                 sessionApiAvailable={sessionApiAvailable}
+                onNavigate={openView}
               />
               <div className="flex h-[max(520px,70vh)] flex-col">
                 <ActivityView
@@ -4553,10 +4637,12 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ) : mainView === "analytics" ? (
             <AnalyticsView
               runs={retainedRuns}
+              selectedRun={retainedRuns.find((run) => run.runId === analyticsRunId) ?? allRuns.find((run) => run.runId === analyticsRunId)}
               error={runsError}
               sessionId={selectedSessionId}
               sessionApiAvailable={sessionApiAvailable}
               onNavigate={openView}
+              onOpenSettings={(section) => { setSettingsSection(section); openView("settings"); }}
             />
           ) : mainView === "diff" ? (
             <DiffView
@@ -4569,6 +4655,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               onSelectRun={(id) => setSelectedRunId(id)}
               onOpenInWork={(runId) => {
                 applyWorkSelection({ view: "board", task: runId, taskKind: "run", tab: "diff" }, "push");
+                setMainView("work");
+              }}
+              onOpenEvidence={(runId) => {
+                applyWorkSelection({ view: "board", task: runId, taskKind: "run", tab: "steps" }, "push");
                 setMainView("work");
               }}
               loading={!runsDetailReady}
@@ -4593,6 +4683,14 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 applyWorkSelection({ view: "board", task: approval.approvalId, taskKind: "approval", tab: "approval" }, "push");
                 setMainView("work");
               }}
+              onInspectRunDiff={(runId) => {
+                applyWorkSelection({ view: "board", task: runId, taskKind: "run", tab: "diff" }, "push");
+                setMainView("work");
+              }}
+              onOpenRunEvidence={(runId) => {
+                applyWorkSelection({ view: "board", task: runId, taskKind: "run", tab: "steps" }, "push");
+                setMainView("work");
+              }}
               liveHarness
             />
           ) : mainView === "memory" ? (
@@ -4602,20 +4700,25 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               sidebarCollapsed={sessionsCollapsed}
               scope={scope}
               onCountsChange={handleMemoryCountsChange}
+              onNavigate={openView}
             />
           ) : mainView === "files" ? (
-            <FilesView />
+            <FilesView onNavigate={(view) => { if (view === "memory") setMemoryView("sources"); openView(view); }} />
           ) : mainView === "notes" ? (
-            <NotesEditor workspaceId={teamWorkspaceId || null} />
+            <NotesEditor workspaceId={teamWorkspaceId || null} onNavigate={(view) => { if (view === "memory") setMemoryView("sources"); openView(view); }} />
           ) : mainView === "projects" ? (
-            <ProjectsView />
+            <ProjectsView onNavigate={openView} />
           ) : mainView === "outputs" ? (
-            <OutputsView />
+            <OutputsView onNavigate={openView} />
           ) : mainView === "automations" ? (
             <AutomationsView initialDraft={automationDraft} onDraftSaved={() => setAutomationDraft(null)} scope={scope} sidebarCollapsed={sessionsCollapsed} onToggleSidebar={toggleSessionsCollapsed} selectedAutomationId={selectedAutomationId} onSelectAutomation={setSelectedAutomationId} onAutomationsChange={setAutomationList} />
           ) : mainView === "swarm" ? (
             <SwarmDeskView
               runs={retainedRuns}
+              onOpenRun={(runId) => {
+                applyWorkSelection({ view: "board", task: runId, taskKind: "run", tab: "steps" }, "push");
+                setMainView("work");
+              }}
               onResolve={async (runId) => {
                 const params = new URLSearchParams();
                 if (selectedSessionId) params.set("session", selectedSessionId);
@@ -4647,18 +4750,19 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               }}
             />
           ) : mainView === "collaboration" ? (
-            <CollaborationView key={`legacy:${orchestratorName}:${teamWorkspaceId || "personal"}`} workspaceId={teamWorkspaceId || undefined} initialRoomId={sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} incomingMention={incomingRoomMention} onMentionConsumed={(id) => setRoomMention((current) => current?.id === id ? undefined : current)} incomingTaskDraft={currentSlackTask ?? undefined} onTaskDraftConsumed={(id) => setIncomingSlackTask((current) => current?.id === id ? null : current)} onRoomChange={(id) => { setSharedRoomId(id); }}
+            <CollaborationView key={`legacy:${orchestratorName}:${teamWorkspaceId || "personal"}`} workspaceId={teamWorkspaceId || undefined} initialRoomId={sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} incomingMention={incomingRoomMention} onMentionConsumed={(id) => setRoomMention((current) => current?.id === id ? undefined : current)} incomingTaskDraft={currentSlackTask ?? undefined} onTaskDraftConsumed={(id) => setIncomingSlackTask((current) => current?.id === id ? null : current)} onRoomChange={(id) => { setSharedRoomId(id); }} onOpenNotificationPreferences={teamWorkspaceId ? undefined : () => { setSettingsSection("notifications"); openView("settings"); }}
               renderApproval={(handoff) => teamWorkspaceId && handoff.senderActorId === `human:${orchestratorName?.trim().toLowerCase()}` ? <RoomApprovalReview workspaceId={teamWorkspaceId} workspaceName={teamWorkspace?.name} roomId={handoff.roomId} handoffId={handoff.handoffId} actorId={orchestratorName?.trim().toLowerCase() ?? null} /> : null}
               renderExecution={(handoff) => <RoomExecutionPanel key={`${handoff.handoffId}:${handoff.runId}:${handoff.execution?.approvalStatus}`} workspaceId={teamWorkspaceId || undefined} roomId={handoff.roomId} handoffId={handoff.handoffId} runId={handoff.runId} />} />
           ) : mainView === "team" ? (
             <TeamWorkspaceView actorId={signedIn ? orchestratorName?.trim().toLowerCase() ?? null : null} workspaceId={teamWorkspaceId || undefined} invitationToken={invitationToken}
+              onOpenAgents={() => openView("custom-agents")} onOpenToolPolicy={teamWorkspaceId ? undefined : () => openView("employee-tools")}
               onInvitationAccepted={(id) => { setInvitationToken(""); void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }}
               onSelectWorkspace={(id) => { roomRoute.clear(); void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }} onChanged={() => { void teamDirectory.refresh(); }}
               onOpenChat={() => openView("threads")} onOpenWork={() => openView("work")} onOpenApps={() => openView("integrations")} />
           ) : mainView === "providers" ? (
-            restrictedTeamMember ? <section className="m-4 border border-[var(--border-1)] bg-[var(--card)] p-6 text-sm text-[var(--fg)]" aria-label="Personal provider setup unavailable"><h1 className="text-xl font-medium">Personal provider setup needs an explicit account grant</h1><p className="mt-3 max-w-xl text-[var(--muted-foreground-2)]">Your invitation gives you team collaboration access. Connecting Claude or Codex and launching employee execution are unavailable for invited accounts until an owned provider and its billing permissions are verified. A deployment operator can request approved work and share its results in your team room.</p><p className="mt-3 max-w-xl text-[var(--muted-foreground-2)]">Your account will not fall back to a deployment credential. You can continue using shared chat, selected context, workspace membership and permitted employee recipes.</p></section> : <ProvidersView onProviderStateChanged={refreshProviderReadiness} />
+            restrictedTeamMember ? <section className="m-4 border border-[var(--border-1)] bg-[var(--card)] p-6 text-sm text-[var(--fg)]" aria-label="Personal provider setup unavailable"><h1 className="text-xl font-medium">Personal provider setup needs an explicit account grant</h1><p className="mt-3 max-w-xl text-[var(--muted-foreground-2)]">Your invitation gives you team collaboration access. Connecting Claude or Codex and launching employee execution are unavailable for invited accounts until an owned provider and its billing permissions are verified. A deployment operator can request approved work and share its results in your team room.</p><p className="mt-3 max-w-xl text-[var(--muted-foreground-2)]">Your account will not fall back to a deployment credential. You can continue using shared chat, selected context, workspace membership and permitted employee recipes.</p></section> : <ProvidersView onProviderStateChanged={refreshProviderReadiness} onOpenSettings={(section) => { setSettingsSection(section); openView("settings"); }} />
           ) : mainView === "skills" ? (
-            <SkillsView key={`${orchestratorName}:${teamWorkspaceId || "personal"}`} workspaceId={teamWorkspaceId || undefined} actorId={orchestratorName ?? undefined} workspaceRole={teamWorkspace?.membership.role} />
+            <SkillsView key={`${orchestratorName}:${teamWorkspaceId || "personal"}`} workspaceId={teamWorkspaceId || undefined} actorId={orchestratorName ?? undefined} workspaceRole={teamWorkspace?.membership.role} onNavigate={openView} />
           ) : mainView === "spaces" ? (
             <SpacesView />
           ) : mainView === "custom-agents" ? (
@@ -4679,11 +4783,12 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               threads={visibleWebSessions}
               threadsLoading={!sessionsLoaded}
               threadsUnavailable={sessionsLoaded && !sessionApiAvailable}
+              onOpenToolPolicy={openEmployeeToolPolicy}
               onOpenThread={(id) => { void handleSelectSession(id); }}
             />
             </div>
           ) : mainView === "employee-tools" ? (
-            <EmployeeToolPolicyView />
+            <EmployeeToolPolicyView initialEmployeeId={toolPolicyIntent?.scope === toolPolicyScope ? toolPolicyIntent.employeeId : null} />
           ) : mainView === "agents" ? (
             <AgentsView />
           ) : mainView === "integrations" ? (
@@ -4768,6 +4873,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               openView("settings");
             }}
             onOpenChecklist={() => setShowOnboardingModal(true)}
+            onOpenEnvironments={() => {
+              setSettingsSection("environments");
+              openView("settings");
+            }}
           /> : null}
 
           {privateDataEnabled ? <OnboardingModal

@@ -144,6 +144,7 @@ function linearChip(linear: SetupStatus["linear"] | undefined, loading: boolean)
 
 interface IntegrationsViewProps {
   onNavigate?: (view: AppNavView) => void;
+  onOpenSettings?: (section: "connected-apps") => void;
   initialTab?: "skills" | "mcp" | "connectors";
   actorId?: string | null;
   nativeSession?: boolean;
@@ -250,6 +251,7 @@ function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspace
 
 function PersonalIntegrationsView({
   onNavigate,
+  onOpenSettings,
   initialTab,
   actorId,
   scope = "personal",
@@ -624,8 +626,8 @@ function PersonalIntegrationsView({
   const crumbs = [scopeCrumb, "Extensions", sectionCrumb];
 
   return (
-    <MainCard className="bg-white dark:bg-zinc-900">
-      <header className="flex h-12 min-h-[48px] shrink-0 items-center justify-between border-b border-[#e4e4e7] px-4 select-none dark:border-zinc-800">
+    <MainCard className="bg-[var(--card)]">
+      <header className="flex h-12 min-h-[48px] shrink-0 items-center justify-between border-b border-[var(--border-1)] bg-[var(--card)] px-4 select-none">
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 min-w-0">
           <ol className="flex items-center gap-1.5 min-w-0">
             {crumbs.map((crumb, idx) => {
@@ -633,10 +635,10 @@ function PersonalIntegrationsView({
               return (
                 <li key={`${crumb}-${idx}`} className="flex items-center gap-1.5 min-w-0">
                   {idx > 0 ? (
-                    <ChevronRight className="size-3.5 text-[#71717a] shrink-0 dark:text-zinc-500" strokeWidth={1.5} aria-hidden="true" />
+                    <ChevronRight className="size-3.5 text-[var(--muted-foreground-2)] shrink-0" strokeWidth={1.5} aria-hidden="true" />
                   ) : null}
                   <span
-                    className={isLast ? "truncate text-[14px] font-medium text-[#0a0a0a] dark:text-zinc-100" : "truncate text-[14px] text-[#71717a] dark:text-zinc-400"}
+                    className={isLast ? "truncate text-sm font-medium text-[var(--fg)]" : "truncate text-sm text-[var(--muted-foreground-2)]"}
                     aria-current={isLast ? "page" : undefined}
                   >
                     {crumb}
@@ -658,7 +660,7 @@ function PersonalIntegrationsView({
                   input.scrollIntoView({ behavior: "smooth", block: "center" });
                 }
               }}
-              className="inline-flex h-7 max-lg:min-h-11 items-center gap-1.5 rounded-md bg-[#0a0a0a] px-3 text-xs font-medium text-white shadow-sm hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-button)] bg-[var(--fg)] px-3 text-xs font-medium text-[var(--bg)] shadow-sm hover:opacity-90"
             >
               <Search className="size-3.5" aria-hidden="true" /> Search connectors
             </button>
@@ -667,13 +669,13 @@ function PersonalIntegrationsView({
       </header>
 
       <div ref={bodyRef} className="min-h-0 min-w-0 w-full flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
-        <div className="min-w-0 border-b border-[var(--border-1)] bg-[var(--panel)] px-4 lg:px-8 py-4 shrink-0 flex flex-col items-start justify-between gap-3 lg:flex-row lg:gap-4">
+        <div className="min-w-0 border-b border-[var(--border-1)] bg-[var(--panel)] px-4 py-6 shrink-0 flex flex-col items-start justify-between gap-4 lg:px-8 lg:flex-row lg:gap-6">
           <div className="min-w-0 flex-1">
-            <h2 className="text-base font-semibold text-[var(--fg)] flex items-center gap-2">
-              <span>Integrations</span>
+            <h2 className="text-xl font-semibold text-[var(--fg)] text-balance flex items-center gap-2">
+              <span>{activeTab === "connectors" ? "Connect your workspace" : activeTab === "mcp" ? "MCP servers" : "Skills"}</span>
             </h2>
-            <p className="text-xs text-[var(--muted-foreground-2)]">
-              Connect apps, review their tools, and choose which employees can use them.
+            <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-[var(--muted-foreground-2)] text-pretty">
+              {activeTab === "connectors" ? "Connect apps, review their tools, then decide which agents may use them." : activeTab === "mcp" ? "Review configured MCP servers and their available tools." : "Review the instructions and saved procedures available to your agents."}
             </p>
           </div>
           {activeTab === "connectors" ? <div className="flex min-w-0 w-full flex-wrap gap-2 lg:w-auto lg:max-w-[60%] lg:justify-end">
@@ -721,6 +723,18 @@ function PersonalIntegrationsView({
             </button>
           ))}
         </div>
+        {activeTab === "connectors" && !showCapabilityCatalog && showSetupDetails ? (
+          <section aria-labelledby="connection-management-heading" className="mx-4 mt-4 shrink-0 rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)] p-4 shadow-[var(--sh-card)] lg:mx-8">
+            <h3 id="connection-management-heading" className="text-sm font-semibold text-[var(--fg)]">Connection management</h3>
+            <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-[var(--muted-foreground-2)]">Connection status, account scope, and employee permissions are separate. Connecting an app does not grant any employee access.</p>
+            {onOpenSettings && onNavigate ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" onClick={() => onOpenSettings("connected-apps")} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--button)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--button-hover)]">Review app setup</button>
+                <button type="button" onClick={() => onNavigate("employee-tools")} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--button)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--button-hover)]">Review employee permissions</button>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
         {activeTab === "logins" ? (
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 lg:px-8">
             <BrowserLoginVault key={actorId ?? "personal"} />
@@ -896,7 +910,21 @@ function PersonalIntegrationsView({
               <LoadErrorState message={failed.message} onRetry={reloadAll} />
             </div>
           ) : null}
-          <WorkspaceConnectorsPanel bindingInputs={bindingInputs} actorId={actorId} onManagePermissions={() => onNavigate?.("employee-tools")} onChooseWorkspace={onChooseWorkspace} onChanged={() => setCatalogRefresh((value) => value + 1)} />
+          <div className="flex-1 overflow-y-auto p-4 lg:p-8">
+            <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+              <section aria-labelledby="connection-management-heading" className="rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)] p-4 shadow-[var(--sh-card)] sm:p-5">
+                <h2 id="connection-management-heading" className="text-base font-semibold text-[var(--fg)]">Connection management</h2>
+                <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-[var(--muted-foreground-2)]">
+                  Connection status, account scope, and employee permissions are separate. Connecting an app does not grant any employee access.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button type="button" onClick={() => setShowSetupDetails(true)} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--card-hover)]">Review app setup</button>
+                  <button type="button" onClick={() => onNavigate?.("employee-tools")} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--card-hover)]">Review employee permissions</button>
+                </div>
+              </section>
+              <WorkspaceConnectorsPanel bindingInputs={bindingInputs} actorId={actorId} onManagePermissions={() => onNavigate?.("employee-tools")} onChooseWorkspace={onChooseWorkspace} onChanged={() => setCatalogRefresh((value) => value + 1)} />
+            </div>
+          </div>
         </>
       )}
       </div>

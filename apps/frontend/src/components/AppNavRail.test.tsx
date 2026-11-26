@@ -188,6 +188,15 @@ describe("mobile navigation", () => {
         ]}
       />,
     );
+    const first = screen.getByRole("option", { name: /Fix checkout/ });
+    const second = screen.getByRole("option", { name: /Add audit/ });
+    first.focus();
+    fireEvent.keyDown(first, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(second);
+    expect(onSelectSession).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.keyDown(second, { key: "Home" });
+    expect(document.activeElement).toBe(first);
     fireEvent.change(screen.getByRole("textbox", { name: "Search threads" }), {
       target: { value: "acme/api" },
     });

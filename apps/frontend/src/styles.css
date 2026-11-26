@@ -43,6 +43,10 @@
   --muted-foreground-2: var(--ink-2);
   --muted-foreground-3: #a1a1aa;
   --icon-muted: #71717a;
+  --knowledge-muted: #71717a;
+  --muted-light: #a1a1aa;
+  --surface-subtle: #f0f0f0;
+  --sidebar-surface: #f5f5f5;
   --text-link: var(--primary);
   --border-1: var(--line);
   --border-2: #e4e4e7;
@@ -366,7 +370,7 @@ select:focus-visible,
   animation: enter-slide-x var(--dur-fast) var(--ease-out) both;
 }
 
-.employee-directory :is(button, input, select) {
+.employee-directory :is(button, input, select):not(.sr-only) {
   min-height: 44px;
 }
 
@@ -414,7 +418,7 @@ select:focus-visible,
 .agent-catalog-tools p { margin-top: 4px; font-size: 12px; color: var(--muted-foreground-2); }
 .agent-search { display: flex; gap: 8px; align-items: center; min-height: 44px; border: 1px solid var(--border-1); border-radius: 10px; padding: 0 12px; background: var(--card); color: var(--muted-foreground-2); }
 .agent-search input { width: 190px; min-width: 0; border: 0; background: transparent; color: var(--fg); outline-offset: 4px; font-size: 12px; }
-.agent-filter-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 24px; }
+.agent-filter-row { position: relative; display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 24px; }
 .agent-filter-row button { min-height: 40px; border: 1px solid transparent; padding: 8px 13px; border-radius: 999px; color: var(--muted-foreground-1); font-size: 12px; text-transform: capitalize; }
 .agent-filter-row button[aria-pressed="true"] { background: var(--primary); color: var(--primary-text); }
 .agent-filter-row button:hover:not([aria-pressed="true"]) { background: var(--secondary); }
@@ -1286,3 +1290,14 @@ select:focus-visible,
     border: 0;
   }
 }
+
+.note-writing-surface .ProseMirror > * + * { margin-top: 0.75em; }
+.note-writing-surface h1 { font-size: 2em; font-weight: 700; }
+.note-writing-surface h2 { font-size: 1.5em; font-weight: 600; }
+.note-writing-surface h3 { font-size: 1.25em; font-weight: 600; }
+.note-writing-surface ul { list-style: disc; padding-left: 1.5em; }
+.note-writing-surface ol { list-style: decimal; padding-left: 1.5em; }
+.note-writing-surface blockquote { border-left: 3px solid var(--border-1); padding-left: 1em; }
+.note-writing-surface pre { background: var(--panel); border-radius: 12px; padding: 1em; overflow-x: auto; }
+.note-writing-surface .is-editor-empty:first-child::before { content: attr(data-placeholder); float: left; height: 0; pointer-events: none; color: var(--muted-light); }
+.dark { --knowledge-muted: #a1a1aa; --muted-light: #71717a; --surface-subtle: #27272a; --sidebar-surface: #18181b; }

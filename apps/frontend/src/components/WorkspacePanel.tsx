@@ -8,6 +8,7 @@ import { describeRoute } from "@shiba/shared";
 import { formatTimeAgo, statusChipClass, storedApprovalUsesCloudComputer } from "../ui-helpers";
 import type { StoredApproval } from "../types";
 import { RunOutputArchivePolicy } from "./RunOutputArchivePolicy";
+import { RunStageRail, runStages } from "./RunStageRail";
 
 const ACCENT_BUTTON =
   "text-sm bg-[var(--inverse)] hover:bg-[var(--inverse-hover)] text-[var(--inverse-text)] font-medium min-h-11 min-w-11 px-4 rounded-lg transition-colors disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
@@ -56,6 +57,9 @@ export function StoredApprovalCard({
   onDecide,
   conflict,
   onClaimChoice,
+  onInspectDiff,
+  onOpenEvidence,
+  showStages = true,
 }: {
   approval: StoredApproval;
   decided: boolean;
@@ -64,6 +68,10 @@ export function StoredApprovalCard({
   onDecide: (approval: StoredApproval, ok: boolean) => void;
   conflict?: { actorId: string; branch: string; repo: string; runId: string } | null;
   onClaimChoice?: (choice: "queue" | "new_branch" | "cancel") => void;
+  onInspectDiff?: (runId: string) => void;
+  onOpenEvidence?: (runId: string) => void;
+  /** Hosts that already show the stage rail (WorkPeek header) pass false. */
+  showStages?: boolean;
 }): JSX.Element {
   const frozen =
     approval.payload ??
@@ -87,6 +95,14 @@ export function StoredApprovalCard({
     } satisfies Record<string, unknown>);
   return (
     <section tabIndex={-1} data-approval-id={approval.approvalId} aria-label={`${storedApprovalKind(approval)} approval`} className="bg-[var(--bg)] p-4 outline-none">
+      {showStages && (approval.kind === undefined || approval.kind === "run") ? (
+        <RunStageRail
+          className="mb-3"
+          stages={runStages({
+            approval: decision !== undefined ? (decision ? "approved" : "rejected") : approval.status === "approved" ? "approved" : approval.status === "rejected" ? "rejected" : "waiting",
+          })}
+        />
+      ) : null}
       <p role="status" className="mb-3 text-xs text-[var(--muted-foreground-2)]">
         {decided && decision !== undefined
           ? decision
@@ -113,7 +129,17 @@ export function StoredApprovalCard({
       ) : null}
       {approval.publishPullRequest ? <p className="text-xs text-[var(--fg)] mb-2">A pull request is requested. Publishing requires a separate approval after the changes are ready.</p> : null}
       {approval.outputArchive && <RunOutputArchivePolicy policy={approval.outputArchive} />}
-      {approval.kind === "pr_publish" ? <p className="text-xs text-[var(--fg)] mb-2">Approve pushing this frozen snapshot and publishing its pull request.</p> : null}
+      {approval.kind === "pr_publish" ? (() => {
+        const payload = typeof approval.payload === "object" && approval.payload !== null && !Array.isArray(approval.payload) ? approval.payload as Record<string, unknown> : {};
+        const runId = typeof payload.runId === "string" ? payload.runId : "";
+        return <div className="mb-3 space-y-2 text-xs text-[var(--fg)]">
+          <p>Approve pushing this frozen snapshot and publishing its pull request.</p>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 break-all">
+            {([ ["Repository", payload.repoUrl], ["Base branch", payload.baseBranch], ["Run ID", payload.runId], ["SHA-256", payload.sha256], ["Bytes", payload.bytes], ["Files", payload.fileCount] ] as const).map(([label, value]) => typeof value === "string" || typeof value === "number" ? <div key={label} className="contents"><dt className="text-[var(--muted-foreground-2)]">{label}</dt><dd>{value}</dd></div> : null)}
+          </dl>
+          <div className="flex gap-3">{runId && onInspectDiff ? <button type="button" className="min-h-11 underline" onClick={() => onInspectDiff(runId)}>Inspect diff</button> : null}{runId && onOpenEvidence ? <button type="button" className="min-h-11 underline" onClick={() => onOpenEvidence(runId)}>Evidence</button> : null}</div>
+        </div>;
+      })() : null}
       {approval.customAgentVersion !== undefined ? <p className="text-xs text-[var(--muted-foreground-2)] mb-1">Bot profile v{approval.customAgentVersion}</p> : null}
       {approval.expectedDeliverables?.length ? (
         <div className="text-xs text-[var(--muted-foreground-2)] mb-2">
@@ -162,7 +188,9 @@ export function StoredApprovalCard({
         {JSON.stringify(frozen, null, 2)}
       </pre>
       <p className="text-[11px] text-[var(--muted-foreground-2)] mb-2">
-        Approve to start the run with the frozen payload above. Reject to discard it — nothing executes.
+        {approval.kind === "pr_publish"
+          ? "Approve to push the frozen snapshot above and publish its pull request. Reject to discard it — nothing is published."
+          : "Approve to start the run with the frozen payload above. Reject to discard it — nothing executes."}
       </p>
       <div className="flex items-center gap-2">
         <button

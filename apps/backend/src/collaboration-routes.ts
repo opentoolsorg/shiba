@@ -96,6 +96,7 @@ import {
   upsertReadCursor,
 } from "./collaboration-engagement-store.js";
 import { getTaskThread, listRoomTasks, openTaskThread, postTaskReply } from "./collaboration-task-threads.js";
+import { log } from "./obs/log.js";
 
 const PREFIX = "/api/collaboration";
 const BODY_LIMIT = 16 * 1024;
@@ -916,7 +917,7 @@ export async function handleCollaboration(
       try {
         await deps.onSlackDeliveryIntent?.(intent);
       } catch (error) {
-        console.error("Slack room delivery intent adapter failed", error instanceof Error ? error.message : String(error));
+        log.error("Slack room delivery intent adapter failed", error instanceof Error ? error.message : String(error));
       }
       return json({ intent, sent: false }, 202);
     }
@@ -1664,7 +1665,7 @@ export async function handleCollaboration(
     const message = error instanceof Error ? error.message : String(error);
     if (/UNIQUE constraint failed|PRIMARY KEY constraint failed/i.test(message))
       return json({ error: "Duplicate collaboration id." }, 409);
-    console.error("collaboration route failed", message);
+    log.error("collaboration route failed", message);
     return json({ error: "Collaboration operation failed." }, 503);
   }
 }

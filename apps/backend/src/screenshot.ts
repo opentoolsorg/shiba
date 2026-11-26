@@ -13,6 +13,7 @@ import type { Env } from "./env.js";
 import { artifactAccessAgentMetadata } from "./artifact-access.js";
 import { gotoPreview, withStaticPreview, type StaticPreviewDeps } from "./preview/with-static-preview.js";
 import { PREVIEW_PORT } from "./preview/types.js";
+import { log } from "./obs/log.js";
 
 export { PREVIEW_PORT };
 
@@ -76,7 +77,7 @@ export async function captureRunPreview(
       screenshotKey,
     };
   } catch (error) {
-    console.error(
+    log.error(
       `Preview screenshot capture failed for sandbox ${input.sandboxId}:`,
       error instanceof Error ? error.message : String(error),
     );

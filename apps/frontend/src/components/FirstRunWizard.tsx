@@ -166,6 +166,7 @@ export function FirstRunWizard({
   onStartEmployeeSetup,
   onOpenModels,
   onOpenChecklist,
+  onOpenEnvironments,
   progress,
   onStepChange,
   onDismiss,
@@ -178,6 +179,7 @@ export function FirstRunWizard({
   onStartEmployeeSetup?: (template: EmployeeTemplate) => void;
   onOpenModels?: () => void;
   onOpenChecklist?: () => void;
+  onOpenEnvironments?: () => void;
   progress?: FirstRunProgressSnapshot | null;
   onStepChange?: (step: FirstRunStepId) => Promise<void>;
   onDismiss?: (step: FirstRunStepId) => Promise<void>;
@@ -317,19 +319,34 @@ export function FirstRunWizard({
       footer={
         <>
           <Footer step={step} setStep={changeStep} onFinish={dismiss} activated={progress?.activatedAt !== null && progress?.activatedAt !== undefined} saving={savingProgress} />
-          {onOpenChecklist ? (
-            <p className="mt-3 border-t border-[var(--border-1)]/60 pt-3">
-              <button
-                type="button"
-                disabled={savingProgress}
-                onClick={() => {
-                  void dismiss(onOpenChecklist);
-                }}
-                className="font-mono text-[10px] text-[var(--muted-foreground-2)] hover:text-[var(--text)]"
-              >
-                Operator? Open the deployment checklist →
-              </button>
-            </p>
+          {onOpenChecklist || onOpenEnvironments ? (
+            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-[var(--border-1)]/60 pt-3">
+              {onOpenChecklist ? (
+                <button
+                  type="button"
+                  disabled={savingProgress}
+                  onClick={() => {
+                    void dismiss(onOpenChecklist);
+                  }}
+                  className="font-mono text-[10px] text-[var(--muted-foreground-2)] hover:text-[var(--text)]"
+                >
+                  Operator? Open the deployment checklist →
+                </button>
+              ) : null}
+              {onOpenEnvironments ? (
+                <button
+                  type="button"
+                  disabled={savingProgress}
+                  title="Opens Settings → Environments"
+                  onClick={() => {
+                    void dismiss(onOpenEnvironments);
+                  }}
+                  className="font-mono text-[10px] text-[var(--muted-foreground-2)] hover:text-[var(--text)]"
+                >
+                  Check environment readiness →
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </>
       }

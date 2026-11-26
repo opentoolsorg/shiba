@@ -23,9 +23,7 @@ jobs:
       # biome ci: lint-only for now — formatting is adopted incrementally
       # (config enables it for `pnpm format`), not retro-applied repo-wide.
       - run: pnpm exec biome ci --formatter-enabled=false --assist-enabled=false .
-      # Baseline: 6 known findings listed in the PR (utils.ts, 4 unused
-      # backend exports). max-issues gates regressions while they're triaged.
-      - run: pnpm exec knip --reporter compact --max-issues 6
+      - run: pnpm check:knip
     timeout-minutes: 30
   check:
     if: "${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' }}"
@@ -51,6 +49,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm lint:imports
+      - run: node --test scripts/schema-snapshot.test.mjs
       - run: pnpm test
       - name: Verify personal native account isolation and daemon controls
         run: pnpm test:personal-daemon

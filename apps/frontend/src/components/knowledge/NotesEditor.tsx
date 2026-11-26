@@ -1,91 +1,89 @@
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEditor } from "@tiptap/react";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { knowledgeNoteSchema, type KnowledgeNote, type KnowledgeScope } from "@shiba/shared";
+import type { AppNavView } from "../AppNavRail";
 import { LoadErrorState } from "../LoadErrorState";
 import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 import { toast } from "sonner";
 import { useWorkspaceEvents } from "../../state/workspace-events";
 import { optimisticMutation } from "../../state/optimistic";
 import { patchNotes } from "../../state/note-events";
-import { MainCard } from "../ui/ContextPanel";
 import { NoteChatPanel } from "./NoteChatPanel";
-
-const SLASH_COMMANDS = [
-  { id: "heading", label: "Heading", prefix: "## " },
-  { id: "list", label: "Bullet list", prefix: "- " },
-  { id: "todo", label: "Todo", prefix: "- [ ] " },
-  { id: "code", label: "Code block", prefix: "```\n\n```" },
-  { id: "quote", label: "Quote", prefix: "> " },
-] as const;
+import { NoteDocument } from "./NoteDocument";
+import { parseNoteMarkdown, serializeNoteMarkdown } from "./note-markdown";
 
 function editorMarkdown(editor: NonNullable<ReturnType<typeof useEditor>>): string {
-  const lines: string[] = [];
-  editor.state.doc.forEach((node) => {
-    if (node.type.name === "heading") {
-      lines.push(`${"#".repeat(node.attrs.level as number)} ${node.textContent}`);
-    } else if (node.type.name === "bulletList") {
-      node.forEach((item) => lines.push(`- ${item.textContent}`));
-    } else if (node.type.name === "codeBlock") {
-      lines.push("```", node.textContent, "```");
-    } else if (node.type.name === "blockquote") {
-      lines.push(`> ${node.textContent}`);
-    } else {
-      const text = node.textContent.trim();
-      if (text) lines.push(text);
-    }
-  });
-  return `${lines.join("\n")}\n`;
+  return serializeNoteMarkdown(editor.getJSON());
 }
 
-export function NotesEditor({ workspaceId = null }: { workspaceId?: string | null }): JSX.Element {
+function loadEditorBody(editor: NonNullable<ReturnType<typeof useEditor>>, markdown: string) {
+  editor.commands.setContent(parseNoteMarkdown(markdown), false);
+  return { markdown, doc: editor.state.doc };
+}
+
+async function readNoteBody(id: string, workspaceId: string | null) {
+  const response = await fetch(`/api/notes/${encodeURIComponent(id)}/body`, { credentials: "same-origin", cache: "no-store", headers: teamWorkspaceHeaders(workspaceId ?? undefined) });
+  if (!response.ok) throw new Error("Note body unavailable.");
+  return response.text();
+}
+
+class NoteVersionConflict extends Error {}
+
+export function NotesEditor({ workspaceId = null, onNavigate }: { workspaceId?: string | null; onNavigate?: (view: AppNavView) => void }): JSX.Element {
   const [scope, setScope] = useState<KnowledgeScope>("personal");
   const [notes, setNotes] = useState<KnowledgeNote[]>([]);
+  const notesRef = useRef(notes);
+  notesRef.current = notes;
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [title, setTitle] = useState("Untitled");
-  const [version, setVersion] = useState(1);
-  const activeVersionRef = useRef(version);
-  activeVersionRef.current = version;
+  const [title, setTitleState] = useState("Untitled");
+  const titleRef = useRef(title);
+  const setTitle = useCallback((value: string) => {
+    titleRef.current = value;
+    setTitleState(value);
+  }, []);
+  const activeVersionRef = useRef(1);
+  const [loading, setLoading] = useState(true);
   const [bodyLoading, setBodyLoading] = useState(false);
-  const [menu, setMenu] = useState<typeof SLASH_COMMANDS[number] | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  const [openingMemory, setOpeningMemory] = useState(false);
+  const [saveStatus, setSaveStatus] = useState("Saved");
   const [error, setError] = useState<string | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
-  const saving = useRef(false);
+  const saving = useRef<Promise<boolean> | null>(null);
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
   const bodyReady = useRef(false);
+  const savedBody = useRef<{ markdown: string; doc: ProseMirrorNode } | null>(null);
   const [bodyRevision, setBodyRevision] = useState(0);
   const dirty = useRef(false);
+  const conflicted = useRef(false);
   const draftRevision = useRef(0);
-  const persistRef = useRef<(ed: NonNullable<ReturnType<typeof useEditor>>) => Promise<void>>(async () => {});
+  const latestSave = useRef<() => Promise<boolean>>(async () => false);
   const eventRevision = useRef(0);
   const pendingIdsRef = useRef(new Set<string>());
   const context = `${workspaceId}:${scope}`;
   const contextRef = useRef(context);
   contextRef.current = context;
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const editor = useEditor({
-    extensions: [
-      StarterKit,
-      Placeholder.configure({ placeholder: "Start writing. Type / for commands." }),
-    ],
+    extensions: [StarterKit, Placeholder.configure({ placeholder: "Write something, or press '/' for commands…" })],
     content: "<p></p>",
-    onUpdate: ({ editor: ed }) => {
-      if (!bodyReady.current) return;
-      dirty.current = true;
-      draftRevision.current++;
-      const text = ed.getText();
-      if (text.endsWith("/")) setMenu(SLASH_COMMANDS[0] ?? null);
-      else setMenu(null);
-      if (!activeId) return;
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => {
-        void persist(ed);
-      }, 600);
-    },
+    editable: false,
+    onUpdate: () => { if (bodyReady.current) markDirty(); },
   });
+
+  function markDirty() {
+    dirty.current = true;
+    draftRevision.current++;
+    if (conflicted.current) return;
+    setSaveStatus("Unsaved changes");
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => { void latestSave.current(); }, 600);
+  }
 
   const loadNotes = useCallback(async () => {
     const revision = eventRevision.current;
@@ -105,11 +103,11 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
     const selected = loaded.find((note) => note.id === activeIdRef.current);
     if (selected && !dirty.current && !pendingIdsRef.current.has(selected.id) && selected.version > activeVersionRef.current) {
       activeVersionRef.current = selected.version;
-      setTitle(selected.title); setVersion(selected.version); setBodyRevision((value) => value + 1);
+      setTitle(selected.title); setBodyRevision((value) => value + 1);
     }
-  }, [scope, workspaceId, context]);
+  }, [scope, workspaceId, context, setTitle]);
 
-  useEffect(() => { void loadNotes().catch((err: unknown) => setError(err instanceof Error ? err.message : "Notes failed to load.")); }, [loadNotes]);
+  useEffect(() => { setLoading(true); void loadNotes().catch((err: unknown) => setError(err instanceof Error ? err.message : "Notes failed to load.")).finally(() => setLoading(false)); }, [loadNotes]);
 
   const live = useWorkspaceEvents({
     workspaceId, enabled: Boolean(workspaceId),
@@ -123,7 +121,7 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
         const note = parsed.success ? parsed.data : undefined;
         if (note?.scope === scope && note.workspaceId === workspaceId && note.id === event.entityId && note.version > activeVersionRef.current) {
           activeVersionRef.current = note.version;
-          setTitle(note.title); setVersion(note.version); setBodyRevision((value) => value + 1);
+          setTitle(note.title); setBodyRevision((value) => value + 1);
         }
       }
     },
@@ -140,22 +138,27 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
 
   useEffect(() => {
     bodyReady.current = false;
+    savedBody.current = null;
     dirty.current = false;
+    conflicted.current = false;
     if (!editor) return;
     editor.setEditable(false, false);
     if (!activeId) { setBodyLoading(false); return; }
     setBodyLoading(true);
+    setSaveStatus("Saved");
     let stopped = false;
-    void fetch(`/api/notes/${encodeURIComponent(activeId)}/body`, { credentials: "same-origin", cache: "no-store", headers: teamWorkspaceHeaders(workspaceId ?? undefined) })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Note body unavailable.");
-        const markdown = await response.text();
+    void readNoteBody(activeId, workspaceId)
+      .then((markdown) => {
         if (stopped) return;
-        editor.commands.setContent({ type: "doc", content: markdown.split("\n").map((text) => ({ type: "paragraph", ...(text ? { content: [{ type: "text", text }] } : {}) })) });
+        savedBody.current = loadEditorBody(editor, markdown);
         bodyReady.current = true;
         editor.setEditable(true, false);
         setBodyLoading(false);
-      }).catch(() => { if (!stopped) toast.error("Note body could not be loaded."); });
+      }).catch((cause: unknown) => {
+        if (stopped) return;
+        setBodyLoading(false);
+        setError(cause instanceof Error ? cause.message : "Note body unavailable.");
+      });
     return () => { stopped = true; if (saveTimer.current) clearTimeout(saveTimer.current); };
   }, [activeId, workspaceId, bodyRevision, editor]);
 
@@ -170,55 +173,117 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
     });
   }
 
-  async function persist(ed: NonNullable<typeof editor>) {
-    if (!activeId || !bodyReady.current || !dirty.current || activeId.startsWith("pending:") || saving.current) return;
-    const id = activeId;
-    const previous = notes.find((note) => note.id === id);
-    const markdown = editorMarkdown(ed);
-    const savedRevision = draftRevision.current;
-    saving.current = true;
-    pending(id, true);
-    const saved = await optimisticMutation({
-      apply: () => setNotes((current) => current.map((note) => note.id === id ? { ...note, title, updatedAt: Date.now() } : note)),
-      commit: async () => {
-        const response = await fetch(`/api/notes/${encodeURIComponent(id)}`, {
-          method: "PATCH", credentials: "same-origin", headers: { ...teamWorkspaceHeaders(workspaceId ?? undefined), "Content-Type": "application/json" },
-          body: JSON.stringify({ title, markdown, expectedVersion: version }),
-        });
-        const body = await response.json() as { note?: KnowledgeNote; error?: string };
-        if (!response.ok || !body.note) throw new Error(body.error ?? "Autosave failed.");
-        return body.note;
-      },
-      reconcile: (note) => {
-        if (contextRef.current !== context) return;
-        if (activeIdRef.current === id) { setVersion(note.version); if (draftRevision.current === savedRevision) dirty.current = false; }
-        setNotes((current) => current.map((item) => item.id === id ? note : item));
-      },
-      rollback: () => {
-        if (previous) setNotes((current) => current.map((note) => note.id === id ? previous : note));
-      },
-      onError: () => toast.error("Note could not be saved. Your draft is still in the editor."),
-    });
-    pending(id, false);
-    saving.current = false;
-    if (saved && dirty.current && activeIdRef.current === id) saveTimer.current = setTimeout(() => void persistRef.current(ed), 600);
+  function draftMarkdown(ed: NonNullable<typeof editor>) {
+    const saved = savedBody.current;
+    return saved?.doc.eq(ed.state.doc) ? saved.markdown : editorMarkdown(ed);
   }
-  persistRef.current = persist;
 
-  async function createNote() {
+  async function persist(ed: NonNullable<typeof editor>): Promise<boolean> {
+    if (saving.current) return saving.current;
+    if (!dirty.current) return true;
+    const id = activeIdRef.current;
+    if (!id || !bodyReady.current || conflicted.current || id.startsWith("pending:")) return false;
+    const stillEditing = () => activeIdRef.current === id && contextRef.current === context && !ed.isDestroyed;
+    const flushDraft = async () => {
+      let previous = notesRef.current.find((note) => note.id === id);
+      while (stillEditing() && dirty.current) {
+        const doc = ed.state.doc;
+        const markdown = draftMarkdown(ed);
+        const title = titleRef.current;
+        const expectedVersion = activeVersionRef.current;
+        const savedRevision = draftRevision.current;
+        const beforeSave = previous;
+        setSaveStatus("Saving…");
+        const saved = await optimisticMutation({
+          apply: () => setNotes((current) => current.map((note) => note.id === id ? { ...note, title, updatedAt: Date.now() } : note)),
+          commit: async () => {
+            const response = await fetch(`/api/notes/${encodeURIComponent(id)}`, {
+              method: "PATCH", credentials: "same-origin", headers: { ...teamWorkspaceHeaders(workspaceId ?? undefined), "Content-Type": "application/json" },
+              body: JSON.stringify({ title, markdown, expectedVersion }),
+            });
+            if (response.status === 409) throw new NoteVersionConflict();
+            const body = await response.json() as { note?: KnowledgeNote; error?: string };
+            if (!response.ok || !body.note) throw new Error(body.error ?? "Autosave failed.");
+            return body.note;
+          },
+          reconcile: (note) => {
+            if (contextRef.current !== context) return;
+            if (stillEditing()) {
+              savedBody.current = { markdown, doc };
+              activeVersionRef.current = note.version;
+              if (draftRevision.current === savedRevision) dirty.current = false;
+            }
+            setNotes((current) => current.map((item) => item.id === id ? note : item));
+          },
+          rollback: () => {
+            if (beforeSave && contextRef.current === context) setNotes((current) => current.map((note) => note.id === id ? beforeSave : note));
+          },
+          onError: (cause) => {
+            if (!stillEditing()) return;
+            if (cause instanceof NoteVersionConflict) {
+              conflicted.current = true;
+              if (saveTimer.current) clearTimeout(saveTimer.current);
+            } else {
+              toast.error("Note could not be saved. Your draft is still in the editor.");
+            }
+          },
+        });
+        if (!saved) {
+          if (stillEditing()) setSaveStatus(conflicted.current ? "Version conflict" : "Save failed");
+          return false;
+        }
+        previous = saved;
+      }
+      if (!stillEditing()) return false;
+      setSaveStatus("Saved");
+      return true;
+    };
+    pending(id, true);
+    saving.current = flushDraft().finally(() => {
+      pending(id, false);
+      saving.current = null;
+    });
+    return saving.current;
+  }
+
+  latestSave.current = async () => editor ? persist(editor) : !dirty.current;
+
+  // Resolves true once nothing unsaved remains, so callers never navigate away from a draft that failed to save.
+  async function saveDraft(): Promise<boolean> {
+    const id = activeIdRef.current;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    do {
+      if (!await latestSave.current()) return false;
+      if (contextRef.current !== context || activeIdRef.current !== id || editor?.isDestroyed) return false;
+    } while (dirty.current);
+    return true;
+  }
+
+  async function openMemory() {
+    if (!onNavigate || openingMemory) return;
+    if (!dirty.current && !saving.current) { onNavigate("memory"); return; }
+    setOpeningMemory(true);
+    try {
+      if (await saveDraft()) onNavigate("memory");
+    } finally {
+      setOpeningMemory(false);
+    }
+  }
+
+  async function createNote(draft = { title: "Untitled", markdown: "" }) {
     const id = `pending:${crypto.randomUUID()}`;
     const now = Date.now();
     const optimistic: KnowledgeNote = {
-      id, workspaceId: workspaceId ?? "", scope, title: "Untitled", sha256: "", projectId: null,
+      id, workspaceId: workspaceId ?? "", scope, title: draft.title, sha256: "", projectId: null,
       version: 1, createdBy: "", createdAt: now, updatedAt: now, ingestion: { state: "pending" },
     };
     pending(id, true);
-    await optimisticMutation({
+    const created = await optimisticMutation({
       apply: () => setNotes((current) => [optimistic, ...current]),
       commit: async () => {
         const response = await fetch(`/api/notes?scope=${scope}`, {
           method: "POST", credentials: "same-origin", headers: { ...teamWorkspaceHeaders(workspaceId ?? undefined), "Content-Type": "application/json" },
-          body: JSON.stringify({ title: "Untitled", markdown: "" }),
+          body: JSON.stringify(draft),
         });
         const body = await response.json() as { note?: KnowledgeNote; error?: string };
         if (!response.ok || !body.note) throw new Error(body.error ?? "Create note failed.");
@@ -227,68 +292,127 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
       reconcile: (note) => {
         if (contextRef.current !== context) return;
         setNotes((current) => [note, ...current.filter((item) => item.id !== id && item.id !== note.id)]);
-        setActiveId(note.id); setTitle(note.title); setVersion(note.version);
-        editor?.commands.setContent("<p></p>");
       },
       rollback: () => setNotes((current) => current.filter((note) => note.id !== id)),
       onError: () => toast.error("Note could not be created."),
     });
     pending(id, false);
+    return created;
   }
 
-  function applySlash(command: typeof SLASH_COMMANDS[number]) {
-    if (!editor) return;
-    if (command.id === "heading") editor.chain().focus().toggleHeading({ level: 2 }).run();
-    if (command.id === "list") editor.chain().focus().toggleBulletList().run();
-    if (command.id === "todo") editor.chain().focus().insertContent("<p>- [ ] </p>").run();
-    if (command.id === "code") editor.chain().focus().toggleCodeBlock().run();
-    if (command.id === "quote") editor.chain().focus().toggleBlockquote().run();
-    setMenu(null);
+  function selectNote(note: KnowledgeNote) {
+    setActiveId(note.id); setTitle(note.title); activeVersionRef.current = note.version;
+  }
+
+  async function openNote(note: KnowledgeNote) {
+    if (activeIdRef.current === note.id) return;
+    if (dirty.current && !await saveDraft()) return;
+    selectNote(note);
+  }
+
+  async function newNote() {
+    if (creating || (dirty.current && !await saveDraft())) return;
+    setCreating(true);
+    try {
+      const note = await createNote();
+      if (note && contextRef.current === context) selectNote(note);
+    }
+    finally { setCreating(false); }
+  }
+
+  async function recoverConflict(action: "copy" | "reload") {
+    const id = activeIdRef.current;
+    if (!editor || !id || !conflicted.current || recovering) return;
+    const revision = draftRevision.current;
+    const isCurrent = () => contextRef.current === context && activeIdRef.current === id;
+    setRecovering(true);
+    try {
+      if (action === "copy") {
+        const note = await createNote({ title: `${titleRef.current.trim() || "Untitled"} (copy)`, markdown: draftMarkdown(editor) });
+        if (note && isCurrent()) {
+          if (draftRevision.current === revision) selectNote(note);
+          else toast.info("Draft copied. Your newer changes are still in the editor.");
+        }
+        return;
+      }
+      const response = await fetch(`/api/notes/${encodeURIComponent(id)}`, {
+        credentials: "same-origin", cache: "no-store", headers: teamWorkspaceHeaders(workspaceId ?? undefined),
+      });
+      if (!response.ok) throw new Error("Note unavailable.");
+      const { note } = await response.json() as { note?: KnowledgeNote };
+      if (note?.id !== id) throw new Error("Note unavailable.");
+      const markdown = await readNoteBody(id, workspaceId);
+      if (!isCurrent()) return;
+      if (draftRevision.current !== revision) {
+        toast.info("The draft changed while reloading and was kept.");
+        return;
+      }
+      savedBody.current = loadEditorBody(editor, markdown);
+      activeVersionRef.current = note.version;
+      setTitle(note.title);
+      setNotes((current) => current.map((item) => item.id === id && item.version <= note.version ? note : item));
+      conflicted.current = false;
+      dirty.current = false;
+      setSaveStatus("Saved");
+    } catch {
+      if (isCurrent()) toast.error("Could not reload the latest note. Your draft is still in the editor.");
+    } finally {
+      setRecovering(false);
+    }
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 lg:flex-row">
-      <aside className="w-full shrink-0 lg:w-64">
-        <MainCard>
-          <header className="mb-3">
-            <h1 className="text-lg font-medium">Notes</h1>
-            <p className="text-sm text-[var(--muted-foreground-2)]">Rich notes with slash commands and autosave.</p>
-          </header>
-          <label className="mb-3 block text-xs text-[var(--muted-foreground-2)]">
-            Scope
-            <select className="ml-2 border border-[var(--border-1)] bg-[var(--card)] px-2 py-1 text-sm" value={scope} onChange={(e) => setScope(e.target.value as KnowledgeScope)}>
-              <option value="personal">Personal</option>
-              <option value="workspace">Workspace</option>
-            </select>
-          </label>
-          <button type="button" className="mb-3 w-full rounded border border-[var(--border-1)] px-2 py-1 text-sm" onClick={() => void createNote().catch((err: unknown) => setError(err instanceof Error ? err.message : "Create failed."))}>New note</button>
-          <ul className="space-y-1 text-sm">
-            {notes.map((note) => (
-              <li key={note.id} className={pendingIds.has(note.id) ? "opacity-60" : undefined} aria-busy={pendingIds.has(note.id)}>
-                <button type="button" disabled={note.id.startsWith("pending:")} className={`w-full truncate rounded px-2 py-1 text-left ${activeId === note.id ? "bg-[var(--panel)]" : ""}`} onClick={() => { setActiveId(note.id); setTitle(note.title); setVersion(note.version); }}>
-                  {note.title}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </MainCard>
-      </aside>
-      <section className="min-h-[24rem] flex-1 rounded border border-[var(--border-1)] bg-[var(--card)] p-4">
-        {error ? <LoadErrorState message={error} onRetry={() => void loadNotes()} /> : null}
-        <input className="mb-3 w-full border-0 border-b border-[var(--border-1)] bg-transparent text-lg font-medium outline-none" value={title} onChange={(e) => { dirty.current = true; draftRevision.current++; setTitle(e.target.value); }} onBlur={() => { if (editor) void persist(editor); }} readOnly={bodyLoading || !activeId} aria-label="Note title" />
-        {menu ? (
-          <div className="mb-2 flex flex-wrap gap-1 rounded border border-[var(--border-1)] bg-[var(--panel)] p-2 text-xs">
-            {SLASH_COMMANDS.map((command) => (
-              <button key={command.id} type="button" className="rounded px-2 py-1 hover:bg-[var(--card)]" onClick={() => applySlash(command)}>{command.label}</button>
-            ))}
+    <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      <div data-testid="notes-workspace" className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--card)] text-[var(--fg)] md:flex-row">
+        <aside data-testid="secondary-panel" aria-label="Notes" className="flex w-full shrink-0 flex-col border-b border-[var(--border-1)] bg-[var(--sidebar-surface)] md:w-52 md:border-b-0 md:border-r">
+          <div className="flex min-h-16 items-center gap-2 border-b border-[var(--border-1)] px-3">
+            <button type="button" disabled={creating} className="flex-1 rounded-xl border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-left text-xs disabled:opacity-50" onClick={() => void newNote()}>+ New note</button>
           </div>
-        ) : null}
-        <EditorContent editor={editor} className="prose prose-sm max-w-none min-h-[18rem] text-[var(--fg)] [&_.ProseMirror]:min-h-[18rem] [&_.ProseMirror]:outline-none" />
-      </section>
-      {activeId ? <NoteChatPanel key={`${workspaceId}:${scope}:${activeId}`} noteId={activeId} notes={notes} scope={scope} workspaceId={workspaceId} disabled={bodyLoading || !editor} getDraftBody={() => (editor ? editorMarkdown(editor).slice(0, 24000) : "")} onAdd={(text) => {
-        if (!editor || !bodyReady.current) return;
-        editor.commands.insertContentAt(editor.state.doc.content.size, text.split("\n").map((line) => ({ type: "paragraph", ...(line ? { content: [{ type: "text", text: line }] } : {}) })));
-      }} /> : null}
+          <label className="px-3 py-2 text-xs text-[var(--knowledge-muted)]">Scope
+            <select aria-label="Scope" className="ml-2 rounded-xl border border-[var(--border-1)] bg-[var(--card)] p-1" value={scope} onChange={(event) => {
+              const next = event.target.value as KnowledgeScope;
+              if (!dirty.current) setScope(next);
+              else void saveDraft().then((clean) => { if (clean) setScope(next); });
+            }}><option value="personal">Personal</option><option value="workspace">Workspace</option></select>
+          </label>
+          <div className="max-h-48 overflow-y-auto p-2 md:max-h-none md:flex-1">
+            {loading && !notes.length ? <div role="status" aria-label="Loading notes" className="space-y-2 p-2">{[0, 1, 2].map((i) => <div key={i} className="h-6 rounded-md bg-[var(--surface-subtle)] motion-safe:animate-pulse" />)}</div> : notes.length ? <ul className="space-y-0.5">{notes.map((note) => <li key={note.id} className={pendingIds.has(note.id) ? "opacity-60" : undefined} aria-busy={pendingIds.has(note.id)}>
+              <button type="button" disabled={note.id.startsWith("pending:")} aria-current={activeId === note.id ? "page" : undefined} onClick={() => void openNote(note)} className={`w-full truncate rounded-md px-2.5 py-1.5 text-left text-xs ${activeId === note.id ? "bg-[var(--surface-subtle)] text-[var(--fg)]" : "text-[var(--knowledge-muted)] hover:bg-[var(--surface-subtle)]"}`}>{note.title || "Untitled"}</button>
+            </li>)}</ul> : <p className="p-2 text-xs text-[var(--knowledge-muted)]">No notes yet</p>}
+          </div>
+        </aside>
+        <section data-testid="note-editor" aria-label="Note editor" className="flex min-h-[28rem] min-w-0 flex-1 flex-col">
+          {saveStatus === "Version conflict" && <div className="border-b border-[var(--border-1)] px-5 py-2 text-sm">
+            <p role="alert">This note changed elsewhere. Your draft is still here.</p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" disabled={recovering} className="min-h-11 px-2 underline disabled:opacity-50" onClick={() => void recoverConflict("copy")}>Save draft as a copy</button>
+              <button type="button" disabled={recovering} className="min-h-11 px-2 underline disabled:opacity-50" onClick={() => void recoverConflict("reload")}>Discard draft and reload</button>
+            </div>
+          </div>}
+          {error && <LoadErrorState message={error} onRetry={() => {
+            setError(null);
+            if (!dirty.current) setBodyRevision((value) => value + 1);
+            void loadNotes().catch((err: unknown) => setError(err instanceof Error ? err.message : "Notes failed to load."));
+          }} />}
+          {activeId && editor ? <NoteDocument editor={editor} notes={notes} title={title} loading={bodyLoading} saveStatus={saveStatus}
+            onTitleChange={(value) => { setTitle(value); markDirty(); }} onSave={async () => { await saveDraft(); }} /> : <div className="flex flex-1 items-center justify-center px-6 py-16 text-center"><div>
+              <h1 className="mb-2 text-3xl">notes</h1>
+              <p className="mb-4 text-sm text-[var(--knowledge-muted)]">Select a note or create a new one</p>
+              <button type="button" disabled={creating} onClick={() => void newNote()} className="rounded-xl border border-[var(--border-1)] px-3 py-2 text-sm">+ New Note</button>
+            </div></div>}
+          {onNavigate && <p className="border-t border-[var(--border-1)] px-5 py-2 text-xs text-[var(--knowledge-muted)]">
+            Notes are not memory until you add them as a source.{" "}
+            <button type="button" disabled={openingMemory} className="min-h-11 font-medium text-[var(--fg)] underline underline-offset-2 disabled:opacity-50" onClick={() => void openMemory()}>Save reviewed text as a memory source</button>
+          </p>}
+        </section>
+      </div>
+      {activeId ? <div className="border-t border-[var(--border-1)] p-3 lg:border-l lg:border-t-0">
+        <NoteChatPanel key={`${workspaceId}:${scope}:${activeId}`} noteId={activeId} notes={notes} scope={scope} workspaceId={workspaceId} disabled={bodyLoading || !editor} getDraftBody={() => (editor ? editorMarkdown(editor).slice(0, 24000) : "")} onAdd={(text) => {
+          if (!editor || !bodyReady.current) return;
+          // Parsed, not inserted as plain text: the serializer escapes literal Markdown characters.
+          editor.commands.insertContentAt(editor.state.doc.content.size, parseNoteMarkdown(text).content ?? []);
+        }} />
+      </div> : null}
     </div>
   );
 }
