@@ -1,306 +1,204 @@
-# Architecture: `ai-intern` (shiba)
+# Architecture as built
 
-Measured, not remembered. Every number below was read from the tree at commit
-`4bc346f2` on `main`, 2026-11-16. Where this document disagrees with
-`ARCHITECTURE.md`, this document is the measurement and the other is the prose.
+Measured snapshot refreshed on 2026-11-25 from the current branch. This document
+is evidence, not the product target. Read `ARCHITECTURE.md` for the living
+employee-platform architecture and `docs/product/ai-employees.md` for the product
+contract. Where this file disagrees with older prose, this file is the measured
+state at the date above.
 
-Package name is `shiba`. Deploy name is `shiba-ai-coworker`. License AGPL-3.0-only.
+## 1. Current shape
 
----
+One Cloudflare Worker is the API, static host, control plane, integration host,
+and execution coordinator. Durable Objects coordinate live state. D1 holds shared
+domain records. R2 stores private artifact bytes. KV stores token lookups.
+Vectorize stores embeddings. Queues and Workflows carry asynchronous work.
 
-## 1. The one-paragraph version
+The current implementation still uses legacy orchestration names:
 
-One Cloudflare Worker is both the API and the static host for a React dashboard.
-Eight Durable Objects hold all authoritative state. A parent orchestrator agent
-plans and delegates but never edits a repo. Approved work runs in an ephemeral
-Cloudflare Container, one per run, which clones a GitHub repo and executes exactly
-one of five agent CLIs. The container holds a dummy provider key; the real
-credential is injected at the Worker egress boundary. Nothing starts until a human
-approves the frozen input. Result comes back as a diff, an exit code, receipts, and
-a draft PR.
+- `CodingOrchestrator` is the main orchestration Durable Object. Architecturally
+  it acts as the Employee Orchestrator, but large parts of its execution contract
+  still use coding-run terminology.
+- `OpenCodeAgent` is the sandbox-side execution child. Architecturally it is a
+  Run Execution Agent. It is not an OpenCode-only product boundary.
 
----
+The system already supports more than repository runs. The measured execution
+input supports repository targets, artifact-workspace targets, and a future
+connected-app target schema. Connected-app execution is still constrained by
+adapter and permission readiness. Employee app-tool turns can run worker-side
+without a repository sandbox when the selected employee and grants allow them.
 
-## 2. Topology
+## 2. Measured numbers
 
-```
-                       ┌──────────── ingress (one Worker) ────────────┐
-  Dashboard ──────────▶│  /api/*            Cloudflare Access          │
-  Slack ──────────────▶│  /api/slack/*      signature-verified          │
-  Telegram ───────────▶│  /api/telegram/*   header secret               │
-  Discord ────────────▶│  /api/discord/*    signature-verified          │
-  Email ──────────────▶│  /api/emails|drafts  provider-verified         │
-  GitHub ─────────────▶│  /api/github/webhook  signature-verified       │
-  Cron (*/5 * * * *) ─▶│  automations sweep                            │
-  MCP clients ────────▶│  /mcp            OAuth or static bearer       │
-  Sandbox (container) ▶│  /agents/*, /internal/*                        │
-                       └──────────────────────┬──────────────────────────┘
-                                              ▼
-   ┌──────────────── Durable Objects — the only authoritative state ─────┐
-   │ CodingOrchestrator  1793 LOC  plans, delegates, never edits        │
-   │ OpenCodeAgent                  sandbox-side coding sub-agent       │
-   │ Sandbox                         container lifecycle per run        │
-   │ Automations                     cron/webhook triggers + budget    │
-   │ Mailbox                         inbound email                      │
-   │ Memory            1184 LOC     banked facts + Vectorize recall    │
-   │ ModelConfig                     model connections + purpose policy │
-   │ Waitlist                        signups                            │
-   └──────────────────────────────┬─────────────────────────────────────┘
-                                  ▼  delegate_coding_task (approved)
-   ┌──────────── Sandbox container — ephemeral, one per run ─────────────┐
-   │ scoped clone → configure → ONE harness CLI → collect diff          │
-   │ egress deny-by-default: selected harness's provider host + git only │
-   │ image pins 5 CLIs; dummy key inside, real key at Worker egress     │
-   │ max_instances: 5, instance_type: standard-1                        │
-   └──────────────────────────────┬─────────────────────────────────────┘
-                                  ▼
-   AI Gateway (BYOK)  ←  Workers AI (planning)  ←  TypeSafe (run_when)
-   GitHub API (PR)    ←  R2 attachments  ←  D1 audit  ←  KV agent tokens
-   Browser Rendering  ←  preview screenshots (T33)
+Command used for the source counts:
+
+```sh
+python3 - <<'PY'
+import os
+files=[]
+for dp,_,fs in os.walk('apps/backend/src'):
+  for f in fs:
+    if f.endswith(('.ts','.tsx')):
+      p=os.path.join(dp,f)
+      files.append((sum(1 for _ in open(p,errors='ignore')),p))
+print(len(files), sum(x for x,_ in files))
+print(sorted(files, reverse=True)[:12])
+PY
 ```
 
----
+| Measure | Current value |
+|---|---:|
+| Backend TypeScript/TSX files | 699 |
+| Backend source lines | 112,313 |
+| Backend test files | 581 |
+| D1 SQL migrations | 76 |
+| Durable Object bindings | 16 |
+| Largest backend file | `apps/backend/src/agents/orchestrator.ts`, 8,057 lines |
+| Other large files | `runtime.ts` 1,741 · `collaboration-routes.ts` 1,669 · `collaboration-store.ts` 1,641 · `memory-do.ts` 1,469 · `mailbox-store.ts` 1,449 |
+| Deploy paths | `alchemy.run.ts` primary, `apps/backend/wrangler.jsonc` rollback |
 
-## 3. The numbers
+These numbers supersede the older 21k-line/eight-Durable-Object snapshot.
 
-| Measure | Value |
+## 3. Durable Objects currently bound
+
+From `apps/backend/wrangler.jsonc`:
+
+| Binding | Class |
 |---|---|
-| Backend source | 21,330 LOC, 60 modules |
-| Largest modules | `orchestrator.ts` 1793 · `index.ts` 1677 · `mailbox-store.ts` 1422 · `memory-do.ts` 1184 |
-| `index.ts` | 1677 LOC, 20 route branches — the concentration risk |
-| Test files | 79, all in `apps/backend/test/` (not colocated) |
-| Harnesses registered | 7 |
-| Harnesses runnable in sandbox | 5 |
-| Durable Objects | 8 |
-| Supporting stores | 4 (D1, KV, R2, Vectorize) |
-| Deploy paths | 2 (`alchemy.run.ts` primary, `wrangler.jsonc` rollback) |
-| Ingress surfaces | 8 |
-| Live-verified harnesses | 1 (OpenCode only) |
+| `CodingOrchestrator` | `CodingOrchestrator` |
+| `OpenCodeAgent` | `OpenCodeAgent` |
+| `Sandbox` | `Sandbox` |
+| `Automations` | `Automations` |
+| `Mailbox` | `Mailbox` |
+| `Memory` | `Memory` |
+| `Waitlist` | `Waitlist` |
+| `ModelConfig` | `ModelConfig` |
+| `LocalDispatch` | `LocalDispatch` |
+| `ChatGptAuth` | `ChatGptAuth` |
+| `UserProviderOAuth` | `UserProviderOAuth` |
+| `Spaces` | `Spaces` |
+| `ConversationRoom` | `ConversationRoom` |
+| `WorkspaceEvents` | `WorkspaceEvents` |
+| `DISCORD_GATEWAY` | `DiscordGateway` |
+| `BrowserSession` | `BrowserSession` |
 
----
+`wrangler.jsonc` also declares Slack import/media workflows and an automation-run
+workflow. Those are workflow bindings, not Durable Object namespaces.
 
-## 4. Bindings, as declared
+## 4. Execution targets currently represented
 
-From `apps/backend/wrangler.jsonc`, compatibility date `2026-06-01`,
-`nodejs_compat` on.
+`packages/shared/src/execution-target.ts` defines three target kinds:
 
-| Binding | Kind | Notes |
-|---|---|---|
-| `ASSETS` | static assets | `../../public`, 404-page fallback, serves the dashboard |
-| `AI` | Workers AI | parent planning model |
-| `BROWSER` | Browser Rendering | headless Chromium for T33 screenshots |
-| `LOADER` | worker loader | |
-| `SEND_EMAIL` | email sending | recipients come from approved frozen payloads |
-| `CodingOrchestrator` | DO | |
-| `OpenCodeAgent` | DO | |
-| `Sandbox` | DO + Container | `shiba-ai-coworker-sandbox`, `./Dockerfile` |
-| `Automations` `Mailbox` `Memory` `Waitlist` `ModelConfig` | DO | |
-| `ATTACHMENTS` | R2 | email bodies > 256KB |
-| `AGENT_TOKENS` | KV | keyed `tok_<sha256(raw)>` |
-| `AGENT_AUDIT` | D1 | MCP tool-call audit, arg hashes never args |
-| `MEMORY_VECTORS` | Vectorize | 768-dim cosine, `agent` metadata index |
-| cron `*/5 * * * *` | trigger | automation sweep |
-
-Vars: `GATEWAY_ID=default`, `ORCHESTRATOR_MODEL=@cf/zai-org/glm-4.7-flash`,
-`CODING_MODEL=google/gemini-3.5-flash-lite`, `RUNTIME=sandbox`,
-`INSTANCE_TYPE=standard-1`, `WORKER_HOSTNAME` (empty disables PR screenshots,
-capture fails safe and never fails the run).
-
-`preview_urls: false` — version preview URLs are deliberately not exposed, because
-the header-only Worker gate is not authentication.
-
----
-
-## 5. The five security invariants
-
-This is the real contract. Steps 3 and 6 of the run lifecycle are load-bearing;
-everything else is replaceable.
-
-1. **Approval before execution.** No sandbox starts without a human approving the
-   *frozen* input. `ApprovedRoute` freezes what was approved and revalidates at
-   dispatch.
-2. **Deny-by-default egress.** `allowedHosts` is the selected harness's provider
-   host plus git. Never the union across harnesses.
-3. **Scoped git credentials.** `github.com` defaults to refusal;
-   `approveRepoScope("/owner/repo")` installs a repo-scoped forwarder before the
-   clone, so repo code cannot reach another repo the token can see.
-4. **Secrets stay out** of the container, logs, URLs, and UI. Dummy key inside,
-   real key at egress. Automation webhooks are header-only.
-5. **Per-surface authentication.** Access-gated APIs, signature-verified Slack and
-   GitHub, header-secret Telegram/Discord/email, OAuth or static bearer on `/mcp`
-   (`apps/backend/src/oauth-mcp.ts`, `apps/backend/src/mcp-gateway.ts`), plus a
-   narrow explicit bypass list. A new surface adds its own mechanism, never
-   inherits one.
-
----
-
-## 6. Run lifecycle, nine steps
-
-```
-1  ingress    surface auth, then dispatch
-2  intent     orchestrator plans; prose becomes structured delegate_coding_task
-3  gate       approval card with exact frozen arguments; human approves
-              (automations: approval by default, narrow unattended opt-in)
-4  dispatch   approved input frozen; route revalidated at dispatch
-5  sandbox    ephemeral container: scoped clone, configure, run harness CLI
-6  egress     Worker swaps dummy key for the real provider key
-7  collect    diff, exit code, structured envelope (error is never completed)
-8  publish    branch + PR; optional screenshot via Browser Rendering
-9  cleanup    container destroyed, short sleep tail, receipts recorded
-```
-
-Steps 3 and 6 are the ones that must not drift. Every parity feature that touches
-ingress is a chance to weaken one of them, which is why they are acceptance
-criteria rather than context.
-
----
-
-## 7. Harnesses
-
-One image ships five CLIs. A run selects exactly one. Registered defaults live in
-`harness/index.ts`; versions are pinned in the Dockerfile and mirrored in
-`harness/catalog.ts` — **bump both**.
-
-| Harness | Binary | Default model | Credential | Runnable |
-|---|---|---|---|---|
-| `opencode` | `opencode` | `google/gemini-3.5-flash-lite` | AI Gateway BYOK | yes |
-| `claude-code` | `claude` | `anthropic/claude-sonnet-4-6` | AI Gateway BYOK | yes |
-| `codex` | `codex` | `openai/gpt-5.3-codex` | AI Gateway BYOK | yes |
-| `grok` | `grok` | `xai/grok-4.6` | AI Gateway BYOK | yes |
-| `devin` | `devin` | `devin/swe-2` | `DEVIN_API_KEY` secret | yes |
-| `cursor` | `cursor` | `cursor/claude-4-5-sonnet` | — | **no** |
-| `antigravity` | `agy` | `google/gemini-3.5-flash` | — | **no** |
-
-`resolveHarness` refuses cursor and antigravity **before** the approval card, so a
-bad selection never surfaces as an exec error inside the container. Cursor is a
-remote-executor connection whose API-key→token exchange stores tokens in the
-container and cannot hold the dummy-key invariant. That is the reason, not a gap.
-
-Grok runs verified headless print mode (`--single` + `streaming-json`) pinned to
-the `api.x.ai` forwarder via `GROK_MODELS_BASE_URL`; the shared ACP transport was
-tried and dropped.
-
-`coding-model.ts` asserts the configured model is not on a retired deny-list at
-first request. Defaults are not availability guarantees.
-
----
-
-## 8. Module map
-
-```
-apps/backend/src/
-  index.ts            1677  ingress router, hand-rolled, 20 route branches
-  orchestrator.ts*    1793  approval gate, delegation, planning
-  mailbox-store.ts    1422  email persistence
-  memory-do.ts        1184  banked facts, Vectorize recall
-  mcp-email-tools.ts   885  MCP surface over email
-  automations.ts       828  trigger evaluation, budget, kill switch
-  runtime.ts           489  RuntimeAdapter seam, diff/porcelain parsing
-  slack-approval.ts    443  approval cards in Slack
-  opencode-agent.ts    336  sandbox-side agent
-  oauth-mcp.ts               OAuth 2.1 discovery, PKCE, refresh for /mcp
-  mcp-gateway.ts       324  stateless MCP (T29a); static bearer + OAuth tokens
-  egress.ts                  egress handlers, GATEWAY_PROVIDERS
-  provider-gateway.ts        dummy key, header sanitation
-  security.ts                boundTail, redactSecrets
-  runs.ts / receipts.ts      run state, append-only evidence log
-  sandbox.ts, sandbox/lifecycle.ts   container lifecycle
-  harness/                   7 adapters + registry + types
-  *-do.ts                    Automations, Mailbox, Memory, Waitlist, ModelConfig
-
-apps/frontend/src/
-  routes/            __root.tsx, app.tsx (TanStack Router, 2 route files)
-  components/        21 components: ApprovalCard, DiffViewer, StepTimeline,
-                     RunRegistryView, MissionsView, GatesView, MemoryTab,
-                     WorkspacePanel, VMInspector, AuditPanel, TaskComposer
-  ui/                design-system primitives
-
-apps/web/src/        Astro: content/docs, content/journal, pages/blog
-packages/shared/src/ run, receipt, approval, steering, chat, mailbox, mcp,
-                     memory, model, audit, run-errors types
-apps/backend/test/   79 test files, vitest.config.ts
-alchemy.run.ts      primary deploy     wrangler.jsonc  rollback path
-```
-
-`index.ts` at 1677 LOC with 20 hand-rolled route branches is the largest
-structural risk in the codebase. It is a concentration point for auth logic, which
-is exactly the thing invariant 5 says must stay per-surface.
-
----
-
-## 9. Where new work goes
-
-| If the change is… | It belongs in | Because |
-|---|---|---|
-| a new way in | ingress + a lane module | every surface authenticates independently |
-| a new agent CLI | `harness/` + Dockerfile + catalog | one image, per-run selection, per-harness egress |
-| a new stateful thing | a new DO + migration tag | DOs are the only authoritative state |
-| a new model or provider | `model-connections` / AI Gateway | credentials stay at the egress boundary |
-
-The ongoing cost of the bring-your-own-agent differentiator is real: every harness
-multiplies the risk that a CLI changed its stream format. Treat format changes as
-breaking and pin versions.
-
----
-
-## 10. Known gaps, recorded so they are not rediscovered
-
-### Architecture-risk references
-
-These `docs/` files record acceptance limits, recovery bounds, and audit
-findings — not a feature list:
-
-| Topic | Doc |
+| Target kind | Status |
 |---|---|
-| Open gaps vs `PLAN.md` claims | `VERIFICATION_PLAN.md` |
-| Control-plane acceptance matrix | `docs/control-plane-acceptance.md` |
-| Live cloud acceptance blockers | `docs/control-plane-live-acceptance.md` |
-| Execution and browser replay limits | `docs/control-plane-execution-recovery.md` |
-| Upstream reference baseline gaps | `docs/control-plane-reference-audit.md` |
-| Production workflow configuration | `docs/production-workflow-audit-20261106.md` |
+| `repository` | Production execution path. Carries `repoUrl` and `baseBranch`. |
+| `artifact-workspace` | Implemented no-repository output path. Requires expected deliverables or an ephemeral workspace identity. Ephemeral workspace outputs must stay under `out/`. |
+| `connected-app` | Schema exists for future work. It describes a requested action but does not grant permission or prove executability. Intake must reject it until a permissioned adapter and action approval exist. |
 
-### Recorded gaps
+`workspaceTarget` is the user-facing selection. It freezes into
+`executionTarget` before approval and dispatch.
 
-- **`/mcp` supports OAuth and static bearer.** `apps/backend/src/oauth-mcp.ts`
-  serves RFC 8414/9728 discovery, dynamic registration, authorize+PKCE, token
-  exchange with rotating refresh, and revoke; `apps/backend/src/index.ts` wires
-  `handleOAuth`. Documented owner path remains static `shb_` bearer tokens
-  (`apps/backend/src/agent-tokens.js`). Treat the consent surface as young, not
-  settled.
-- **Interactive web chat is realtime, not poll-only.** `ConversationRoom`
-  (`apps/backend/src/conversation-room-do.ts`) holds WebSocket rooms with
-  messages, typing, cursors, and run-event replay. Owner sessions upgrade at
-  `GET /api/sessions/:id/realtime` (`apps/backend/src/sessions-routes.ts`).
-  Team rooms use `GET /api/collaboration/rooms/:id/realtime`
-  (`apps/backend/src/collaboration-room-routes.ts`). Shared run streaming uses
-  `apps/backend/src/collaboration-live-routes.ts`. Dashboard clients include
-  `apps/frontend/src/collaboration-room-realtime.ts` and
-  `apps/frontend/src/components/CollaborationView.tsx`.
-- GitHub is the only repo provider, by decision. The approval gate is already
-  provider-agnostic, so adding one is a layer, not a redesign.
-- Single-tenant by contract. Reversing it is a product decision for
-  `spec/GOAL.md`. **Decision pending (Prince).**
-- **Monorepo vs prose docs.** The tree is a pnpm+turbo monorepo:
-  `apps/{backend,frontend,web}`, `pnpm-workspace.yaml`, `alchemy.run.ts` —
-  recorded in `spec/GOAL.md`. **Contradiction for Prince:** `ARCHITECTURE.md`
-  still says `spec/GOAL.md` forbids a monorepo; GOAL was amended (T27) but that
-  architecture prose was not fully reconciled.
-- **No dated live acceptance.** Everything is unit-tested and dry-run verified.
-  Only OpenCode has completed a live run. The others are unit-tested against
-  documented stream formats. Honest status stays "local prototype".
-- `wrangler deploy --dry-run` needs a running Docker daemon and currently fails
-  without one.
+## 5. End-to-end execution path as implemented
 
----
+### Repository and artifact sandbox path
 
-## 11. Reading order
+1. A dashboard, channel, automation, or API caller creates work.
+2. The Employee Orchestrator implementation (`CodingOrchestrator`) resolves the
+   selected employee/custom agent, composer pin, project context, attachments,
+   environment, target, harness, model route, runtime, and organization scope.
+3. `resolveRoute` freezes the harness/model route. `assertRunPreflight` rejects
+   inadmissible combinations before the approval card.
+4. The approval freezes the exact execution input. The sandbox does not start
+   before approval.
+5. Dispatch goes to the Run Execution Agent implementation (`OpenCodeAgent`).
+6. `SandboxRuntimeAdapter` prepares either a repository checkout or an isolated
+   artifact workspace.
+7. Exactly one selected harness runs through the scoped executor.
+8. The adapter captures checkpoints, progress signals, files, diffs, test
+   evidence, deliverables, and errors.
+9. Artifact workspace results can be privately archived. Expected deliverables
+   are verified against the produced files.
+10. Pull request publication uses its own approval/publication path when
+    requested. Execution success alone is not publication authority.
 
-| To understand | Read |
-|---|---|
-| the request pipeline | `index.ts` → `agents/orchestrator.ts` |
-| how a run executes | `agents/opencode-agent.ts` → `harness/index.ts` → `harness/types.ts` |
-| the security boundary | `egress.ts`, `sandbox.ts`, `security.ts` |
-| state and persistence | the 8 DO classes, `runs.ts`, `receipts.ts` |
-| every ingress surface | `slack-routes.ts`, `chat-lane.ts`, `telegram.ts`, `discord.ts`, `email-handler.ts` |
-| what is planned and why | `PLAN.md` §17 parity roadmap, §4 for what was cut |
-| what is proven | `VERIFICATION.md`, gaps in `VERIFICATION_PLAN.md` |
+### Local runtime path
+
+`LocalRuntimeAdapter` uses `LocalDispatch` as a mailbox. The Worker does not
+execute on the operator machine. A paired daemon claims approved work and posts
+back the same result shape. Local artifact work has stricter rules: no
+repository target, matching nonempty approved deliverables, no personal
+repository grant, and no publication. Attachments and per-run environment
+variables are not supported there yet.
+
+### Employee app-tool path
+
+A turn pinned to a custom employee can use worker-side app tools without a
+repository sandbox. `beforeTurn` resolves the selected employee, actor,
+workspace, profile/version, grants, selected skill versions, and onboarding
+context. Search or catalog visibility never grants execution. Tool policy is
+checked by the Worker. Skills are untrusted instructions and never grant tools
+or approve actions.
+
+This path can retain internal drafts from approved/read sources. It does not by
+itself prove connected-app mutation execution is production-ready.
+
+## 6. Harness state
+
+The harness seam is real and broader than OpenCode. The image and registry carry
+multiple CLI and ACP lanes. Harness selection is a runtime input, not the
+architecture owner. The run execution envelope still uses coding terminology in
+several types because the repository lane was built first.
+
+Important harness facts:
+
+- egress hosts are selected per harness, not as a union;
+- error envelopes throw so errors cannot silently become success;
+- scoped execution gates sandbox commands;
+- subscription lanes use separate harnesses and explicit deployment flags;
+- capabilities now matter because harnesses differ in runtime support,
+  reasoning levels, verification, and local execution support.
+
+## 7. Security state
+
+The original core invariants still hold:
+
+- no sandbox before approval;
+- credentials never enter the container;
+- repository credentials are scoped to the approved repository path;
+- sandbox egress is policy-controlled;
+- each ingress surface authenticates independently.
+
+The employee platform adds current authority planes: workspace membership,
+employee profile/version, exact tool grants, artifact provenance, browser and
+computer session authority, integration receipts, and separate publication
+approval. These are architectural requirements, not optional UI wording.
+
+## 8. Current architectural risks
+
+1. **`orchestrator.ts` is too large.** At 8,057 lines it owns conversation,
+   employee policy, composer intake, approval, dispatch, recovery, artifacts,
+   publication, channel behavior, and tooling. This is the primary
+   maintainability risk.
+2. **Implementation names lag product roles.** `CodingOrchestrator` and
+   `OpenCodeAgent` are live bindings. Documentation can label the roles, but a
+   real rename requires a migration plan.
+3. **State ownership is split.** Docs that say Durable Objects hold all state
+   are wrong. D1 owns many durable workspace/domain records.
+4. **Connected-app execution is not proven by schema presence.** The schema is
+   explicit that it does not grant permission or establish executability.
+5. **Employee collaboration is not proven by employee profiles.** The current
+   coordination contract remains review-only until its activation gates pass.
+6. **Artifact and local lanes need independent verification.** Do not use a
+   successful repository run as proof for every lane.
+
+## 9. Reading order
+
+1. `ARCHITECTURE.md` — living target and compatibility labels.
+2. `docs/product/ai-employees.md` — product contract.
+3. `docs/architecture/structure.md` — domain model and layers.
+4. `docs/architecture/topology.md` — control and execution topology.
+5. `docs/architecture/durable-objects.md` — state ownership.
+6. `docs/architecture/request-lifecycle.md` — shared work lifecycle.
+7. `docs/architecture/security-model.md` — authority invariants.
+8. `INFRA-AUTH-HARNESS-MONOREPO.md` — infrastructure and runtime seams.
+9. `UI-ARCHITECTURE.md` — client target shape.
+10. `PLAN.md` and `VERIFICATION.md` — dated implementation evidence.

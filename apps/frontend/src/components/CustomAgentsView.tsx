@@ -6,7 +6,7 @@ import { LoadErrorState } from "./LoadErrorState";
 import { EmptyState, SkeletonLines, StatusNotice } from "./surface";
 import { agentThreads, type WebThread } from "../agent-threads";
 import { formatTimeAgo } from "../ui-helpers";
-import { AGENT_MASCOT_ACCS, AGENT_MASCOT_EYES, AGENT_MASCOT_SHAPES, CUSTOM_AGENT_MASCOT_PRESETS, defaultLookFor, formLook, normalizeMascotColor, sanitizeCustomAgentSlug, type CustomAgentConfig, type CustomAgentRoleTemplateId, type AgentAvatarChoice } from "@shiba/shared";
+import { AGENT_MASCOT_ACCS, AGENT_MASCOT_EYES, AGENT_MASCOT_SHAPES, CUSTOM_AGENT_DEPARTMENTS, CUSTOM_AGENT_MASCOT_PRESETS, defaultLookFor, departmentForRoleTemplate, formLook, normalizeMascotColor, sanitizeCustomAgentSlug, type CustomAgentConfig, type CustomAgentDepartment, type CustomAgentRoleTemplateId, type AgentAvatarChoice } from "@shiba/shared";
 import { AgentLookStyler } from "./AgentLookStyler";
 import { codingModelOptions, type ConnectionOption } from "../live-status";
 import { EMPLOYEE_TEMPLATES, employeeRole, employeeRoleLabel, type EmployeeTemplate } from "../employee-templates";
@@ -48,15 +48,29 @@ const EMPTY_FORM = {
   sandboxProvider: "",
   defaultRepoUrl: "",
   expectedDeliverables: "",
+  title: "",
+  managerSelection: "",
+  slackIdentity: "",
+  discordIdentity: "",
+  emailIdentity: "",
 };
+
+const employeeManagerValue = (id: string) => `agent:${id}`;
+
+function managerSelectionFor(reportsTo: CustomAgentConfig["reportsTo"], actorId?: string): string {
+  if (reportsTo?.kind === "agent") return employeeManagerValue(reportsTo.agentId);
+  if (reportsTo?.kind === "user") return reportsTo.userId === actorId ? "self" : "saved";
+  return "";
+}
 
 function readRoleDraft(scope?: string): typeof EMPTY_FORM {
   if (!scope) return EMPTY_FORM;
   try {
     const draft = JSON.parse(localStorage.getItem(`shiba-role-draft-v1:${scope}`) ?? "null");
-    if (draft && Object.keys(EMPTY_FORM).every((key) => key === "roleTemplateId" || key === "mascotPreset" || key.startsWith("look") || typeof draft[key] === "string")) {
+    if (draft && Object.keys(EMPTY_FORM).every((key) => key === "roleTemplateId" || key === "mascotPreset" || key.startsWith("look") || draft[key] === undefined || typeof draft[key] === "string")) {
       return {
-        ...Object.fromEntries(Object.keys(EMPTY_FORM).map((key) => [key, draft[key]])),
+        ...Object.fromEntries(Object.keys(EMPTY_FORM).map((key) => [key, typeof draft[key] === "string" ? draft[key] : ""])),
+        managerSelection: draft.managerSelection ?? (typeof draft.reportsToAgentId === "string" && draft.reportsToAgentId ? employeeManagerValue(draft.reportsToAgentId) : ""),
         mascotPreset: CUSTOM_AGENT_MASCOT_PRESETS.includes(draft.mascotPreset) ? draft.mascotPreset : "",
         lookShape: (AGENT_MASCOT_SHAPES as readonly string[]).includes(draft.lookShape) ? draft.lookShape : "",
         lookColor: normalizeMascotColor(draft.lookColor) ?? "",
@@ -112,6 +126,7 @@ function ScopedCustomAgentsView({
   onInitialAgentApplied,
   draftScope,
   workspaceId,
+  actorId,
   isCurrent,
 }: CustomAgentsViewProps & { isCurrent: () => boolean }): JSX.Element {
   const alive = useRef(true);
@@ -151,6 +166,23 @@ function ScopedCustomAgentsView({
   const visibleAgents = agents?.filter((agent) => [agent.config.name, agent.slug, agent.config.harness,
     agent.config.codingModel ?? "", employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))]
     .some((value) => value.toLocaleLowerCase().includes(rosterQuery)));
+  const agentsByDepartment = new Map<CustomAgentDepartment, CustomAgentWire[]>();
+  for (const agent of visibleAgents ?? []) {
+    const department = agent.config.department ?? departmentForRoleTemplate(agent.config.roleTemplateId);
+    agentsByDepartment.set(department, [...(agentsByDepartment.get(department) ?? []), agent]);
+  }
+  const departmentOrder: readonly CustomAgentDepartment[] = [...CUSTOM_AGENT_DEPARTMENTS.filter((dept) => dept !== "general"), "general"];
+  const agentNameById = new Map((agents ?? []).map((agent) => [agent.id, agent.config.name]));
+  const reportsLabelFor = (config: CustomAgentConfig): string | null => {
+    if (config.reportsTo?.kind === "agent") {
+      const manager = agentNameById.get(config.reportsTo.agentId);
+      return manager ? `reports to ${manager}` : null;
+    }
+    if (config.reportsTo?.kind === "user") {
+      return config.reportsTo.userId === actorId ? "reports to you" : `reports to ${config.reportsTo.userId}`;
+    }
+    return null;
+  };
   const [form, setForm] = useState(() => readRoleDraft(draftScope));
   const [draftStorageAvailable, setDraftStorageAvailable] = useState(true);
   const [expectedVersion, setExpectedVersion] = useState<number | undefined>(undefined);
@@ -160,6 +192,30 @@ function ScopedCustomAgentsView({
   const [startingAgentId, setStartingAgentId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [editingConfig, setEditingConfig] = useState<CustomAgentConfig | null>(null);
+  const managerOptions = new Map<string, { label: string; reportsTo?: CustomAgentConfig["reportsTo"] }>();
+  managerOptions.set("", { label: "No manager" });
+  // "default" is the whoami fallback when no auth lane identifies a person;
+  // self-assignment must not persist it as a fictitious manager.
+  if (actorId && actorId !== "default") {
+    managerOptions.set("self", { label: "Directly to you", reportsTo: { kind: "user", userId: actorId } });
+  }
+  for (const agent of agents ?? []) {
+    if (agent.id !== editingId) {
+      managerOptions.set(employeeManagerValue(agent.id), {
+        label: `${agent.config.name} (${agent.config.department ?? departmentForRoleTemplate(agent.config.roleTemplateId)})`,
+        reportsTo: { kind: "agent", agentId: agent.id },
+      });
+    }
+  }
+  const savedManager = editingConfig?.reportsTo;
+  const savedManagerSelection = managerSelectionFor(savedManager, actorId);
+  if (savedManager && !managerOptions.has(savedManagerSelection)) {
+    managerOptions.set(savedManagerSelection, {
+      label: savedManager.kind === "user" ? `Keep saved manager (${savedManager.userId})` : "Keep saved manager (unavailable employee)",
+      reportsTo: savedManager,
+    });
+  }
+  const selectedManager = managerOptions.get(form.managerSelection);
   const [access, setAccess] = useState<"only-me" | "workspace">("workspace");
   const [conflict, setConflict] = useState(false);
   const directoryRequest = useRef(0);
@@ -311,6 +367,11 @@ function ScopedCustomAgentsView({
       sandboxProvider: agent.config.sandboxProvider ?? "",
       defaultRepoUrl: agent.config.defaultRepoUrl ?? "",
       expectedDeliverables: agent.config.expectedDeliverables?.join("\n") ?? "",
+      title: agent.config.title ?? "",
+      managerSelection: managerSelectionFor(agent.config.reportsTo, actorId),
+      slackIdentity: agent.config.channelIdentities?.slack ?? "",
+      discordIdentity: agent.config.channelIdentities?.discord ?? "",
+      emailIdentity: agent.config.channelIdentities?.email ?? "",
     });
   };
 
@@ -390,6 +451,10 @@ function ScopedCustomAgentsView({
       setNotice({ tone: "err", text: "Use at most 8 required deliverable paths, one per line." });
       return;
     }
+    if (!selectedManager) {
+      setNotice({ tone: "err", text: "The selected manager is unavailable. Choose another manager or No manager." });
+      return;
+    }
     savingAgent.current = true;
     setBusy(true);
     setNotice(null);
@@ -408,13 +473,39 @@ function ScopedCustomAgentsView({
       ...(form.sandboxProvider ? { sandboxProvider: form.sandboxProvider as CustomAgentConfig["sandboxProvider"] } : {}),
       ...(form.defaultRepoUrl.trim() ? { defaultRepoUrl: form.defaultRepoUrl.trim() } : {}),
       ...(expectedDeliverables.length ? { expectedDeliverables } : {}),
+      ...(form.title.trim() ? { title: form.title.trim() } : {}),
     };
     // Clearing an optional field must clear its old value while other saved
     // settings survive an edit of the visible fields.
-    for (const key of ["emoji", "mascotPreset", "roleTemplateId", "codingModel", "connectionId", "sandboxProvider", "defaultRepoUrl", "expectedDeliverables"] as const) {
+    for (const key of ["emoji", "mascotPreset", "roleTemplateId", "codingModel", "connectionId", "sandboxProvider", "defaultRepoUrl", "expectedDeliverables", "title"] as const) {
       if (!form[key].trim()) delete config[key];
     }
     if (!look) delete config.look;
+    if (EMPLOYEE_TEMPLATES.some((template) => template.id === form.roleTemplateId)) {
+      // An explicit department survives edits that leave the role alone; a role
+      // change (or a missing value) re-derives it from the template.
+      const roleChanged = (editingConfig?.roleTemplateId ?? "") !== form.roleTemplateId;
+      if (roleChanged || !editingConfig?.department) {
+        config.department = departmentForRoleTemplate(form.roleTemplateId as CustomAgentRoleTemplateId);
+      } else {
+        config.department = editingConfig.department;
+      }
+    }
+    if (selectedManager.reportsTo) {
+      config.reportsTo = selectedManager.reportsTo;
+    } else {
+      delete config.reportsTo;
+    }
+    const channelIdentities = {
+      ...(form.slackIdentity.trim() ? { slack: form.slackIdentity.trim() } : {}),
+      ...(form.discordIdentity.trim() ? { discord: form.discordIdentity.trim() } : {}),
+      ...(form.emailIdentity.trim() ? { email: form.emailIdentity.trim() } : {}),
+    };
+    if (Object.keys(channelIdentities).length) {
+      config.channelIdentities = channelIdentities;
+    } else {
+      delete config.channelIdentities;
+    }
     try {
       const response = editingId
         ? await fetch(`/api/custom-agents/${encodeURIComponent(editingId)}`, {
@@ -632,14 +723,30 @@ function ScopedCustomAgentsView({
             </div>
           ) : null}
           {agents && agents.length > 0 ? (
-            <ul aria-label="Saved employees" className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              {visibleAgents?.map((agent) => (
+            <ul aria-label="Saved employees" className="flex flex-col gap-6">
+              {departmentOrder.map((department) => {
+                const group = agentsByDepartment.get(department);
+                if (!group?.length) return null;
+                return (
+                  <li key={department} role="group" aria-label={`${department} department`}>
+                    <h2 className="mb-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-[var(--ink-2)]">
+                      {department}
+                      <span className="border border-[var(--line)] px-1.5 text-[9px]">{group.length}</span>
+                    </h2>
+                    <ul aria-label={`${department} saved employees`} className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                      {group.map((agent) => (
                 <li
                   key={agent.id}
                   className="flex min-w-0 flex-col justify-between gap-4 border border-[var(--line)] bg-[var(--card)] p-4 shadow-[2px_2px_0_var(--paper-shadow)]"
                 >
                   <div className="min-w-0">
-                    <div className="mb-3 flex items-center gap-3"><AgentAvatar agentId={agent.id} name={agent.config.name} mascotPreset={agent.config.mascotPreset} look={agent.config.look} avatar={agent.config.avatar} slug={agent.slug} role={employeeRole(agent.slug, agent.config.roleTemplateId)} /><span className="text-xs font-medium text-[var(--muted-foreground-2)]">{employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))}</span></div>
+                    <div className="mb-3 flex items-center gap-3"><AgentAvatar agentId={agent.id} name={agent.config.name} mascotPreset={agent.config.mascotPreset} look={agent.config.look} avatar={agent.config.avatar} slug={agent.slug} role={employeeRole(agent.slug, agent.config.roleTemplateId)} /><span className="text-xs font-medium text-[var(--muted-foreground-2)]">{[agent.config.title, employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))].filter(Boolean).join(" · ")}</span>{agent.config.channelIdentities && (agent.config.channelIdentities.slack || agent.config.channelIdentities.discord || agent.config.channelIdentities.email) ? (
+                      <span className="ml-auto flex gap-1" role="group" aria-label="Employee channels">
+                        {agent.config.channelIdentities.slack ? <span title={`slack: ${agent.config.channelIdentities.slack}`} className="border border-[var(--line)] px-1 font-mono text-[9px] text-[var(--ink-2)]">S</span> : null}
+                        {agent.config.channelIdentities.discord ? <span title={`discord: ${agent.config.channelIdentities.discord}`} className="border border-[var(--line)] px-1 font-mono text-[9px] text-[var(--ink-2)]">D</span> : null}
+                        {agent.config.channelIdentities.email ? <span title={`email: ${agent.config.channelIdentities.email}`} className="border border-[var(--line)] px-1 font-mono text-[9px] text-[var(--ink-2)]">@</span> : null}
+                      </span>
+                    ) : null}</div>
                     <div className="flex flex-wrap items-center gap-2">
                       <button type="button" onClick={(event) => { profileTrigger.current = event.currentTarget; focusProfile.current = true; setSelectedAgentId(agent.id); }} aria-label={`View profile ${agent.config.name}`}
                         className="min-h-11 break-words text-left font-serif text-xl text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]">{agent.config.name}</button>
@@ -647,6 +754,9 @@ function ScopedCustomAgentsView({
                         {agent.slug}
                         {` · v${agent.version}`}
                       </span>
+                      {reportsLabelFor(agent.config) ? (
+                        <span className="text-[10px] font-mono text-[var(--muted-foreground-3)]">{reportsLabelFor(agent.config)}</span>
+                      ) : null}
                     </div>
                     <div className="text-[11px] text-[var(--muted-foreground-2)] mt-0.5 line-clamp-2">
                       {agent.config.instructions}
@@ -727,7 +837,11 @@ function ScopedCustomAgentsView({
                     )}
                   </div>
                 </li>
-              ))}
+                      ))}
+                    </ul>
+                  </li>
+                );
+              })}
             </ul>
           ) : null}
           {notice ? <StatusNotice tone={notice.tone}>{notice.text}</StatusNotice> : null}
@@ -806,6 +920,64 @@ function ScopedCustomAgentsView({
                   className={FIELD}
                 />
               </label>
+
+              <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+                Job title
+                <input
+                  type="text"
+                  value={form.title}
+                  onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                  placeholder="Support lead"
+                  className={FIELD}
+                />
+              </label>
+
+              <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+                Reports to
+                <select
+                  value={form.managerSelection}
+                  onChange={(e) => setForm((f) => ({ ...f, managerSelection: e.target.value }))}
+                  className={FIELD}
+                >
+                  {!selectedManager && <option value={form.managerSelection} disabled>Selected manager unavailable</option>}
+                  {[...managerOptions].map(([value, { label }]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+                  Slack handle
+                  <input
+                    type="text"
+                    value={form.slackIdentity}
+                    onChange={(e) => setForm((f) => ({ ...f, slackIdentity: e.target.value }))}
+                    placeholder="@seba-support"
+                    className={FIELD}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+                  Discord handle
+                  <input
+                    type="text"
+                    value={form.discordIdentity}
+                    onChange={(e) => setForm((f) => ({ ...f, discordIdentity: e.target.value }))}
+                    placeholder="seba#1234"
+                    className={FIELD}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+                  Work email
+                  <input
+                    type="email"
+                    value={form.emailIdentity}
+                    onChange={(e) => setForm((f) => ({ ...f, emailIdentity: e.target.value }))}
+                    placeholder="seba@tuempresa.cl"
+                    className={FIELD}
+                  />
+                </label>
+              </div>
 
               <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
                 Instructions

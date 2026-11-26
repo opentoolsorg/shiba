@@ -8,6 +8,7 @@ import {
   AGENT_MASCOT_SHAPES,
   CUSTOM_AGENT_MASCOT_PRESETS,
   CUSTOM_AGENT_SANDBOX_PROVIDERS,
+  CUSTOM_AGENT_DEPARTMENTS,
   CUSTOM_AGENT_ROLE_TEMPLATE_IDS,
   MAX_BOT_LIBRARY_FILES,
   BOT_LIBRARY_FILE_ID,
@@ -19,6 +20,18 @@ const Bounded = (max: number) => Schema.String.check(Schema.isMinLength(1), Sche
 
 export const CustomAgentConfigSchema = Schema.Struct({
   name: Bounded(120),
+  title: Schema.optional(Bounded(120)),
+  department: Schema.optional(Schema.Literals(CUSTOM_AGENT_DEPARTMENTS)),
+  reportsTo: Schema.optional(Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("user"), userId: Bounded(254) }),
+    Schema.Struct({ kind: Schema.Literal("agent"), agentId: Bounded(120) }),
+  ])),
+  channelIdentities: Schema.optional(Schema.Struct({
+    slack: Schema.optional(Bounded(120)),
+    discord: Schema.optional(Bounded(120)),
+    email: Schema.optional(Bounded(320)),
+  })),
+  primaryComputerId: Schema.optional(Bounded(120)),
   emoji: Schema.optional(Bounded(16)),
   mascotPreset: Schema.optional(Schema.Literals(CUSTOM_AGENT_MASCOT_PRESETS)),
   look: Schema.optional(Schema.Struct({

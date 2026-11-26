@@ -1,6 +1,6 @@
 # shiba
 
-Self-hosted, approval-gated coding agent on Cloudflare Workers + Sandbox. Architecture: `ARCHITECTURE.md`. Plan and status: `PLAN.md`. Product contract: `spec/GOAL.md`. Verification evidence: `VERIFICATION.md`; open gaps and how to check them: `VERIFICATION_PLAN.md`.
+Shiba is a self-hosted, approval-first workspace for AI employees. Start with the [product contract](docs/product/ai-employees.md) and [architecture](ARCHITECTURE.md). See `PLAN.md` for dated implementation plans, `VERIFICATION.md` for evidence, and `VERIFICATION_PLAN.md` for open gaps and how to check them.
 
 ```bash
 # Gate — always required:
@@ -23,4 +23,4 @@ Default five-role vocabulary, recorded as a `Status:` word in the §2.0 table. S
 
 ### Domain docs
 
-Single-context: `CONTEXT.md` at the root + `apps/web/docs/adr/`, with `spec/GOAL.md` as standing constraints. See `apps/web/docs/agents/domain.md`.
+See the [domain guide](apps/web/docs/agents/domain.md) for the glossary, ADRs, and standing constraints retained from the original coding spine.

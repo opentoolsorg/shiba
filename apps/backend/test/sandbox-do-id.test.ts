@@ -1,6 +1,6 @@
 import { resolveSandboxDurableObjectId } from "@shiba/shared";
 import { describe, expect, it } from "vitest";
-import { Sandbox } from "../src/sandbox/durable-object.js";
+import { Sandbox } from "../src/adapters/sandbox/cloudflare/durable-object.js";
 
 describe("resolveSandboxDurableObjectId", () => {
   const namespace = {

@@ -1,4 +1,4 @@
-import { getSandboxInstance } from "../sandbox/provider.js";
+import { getSandboxInstance, type SandboxRegistry } from "../ports/sandbox/registry.js";
 import { instanceToPreviewSandbox } from "../sandbox/preview-bridge.js";
 import type { Env } from "../env.js";
 import { isValidSandboxId } from "../sandbox-routes.js";
@@ -26,6 +26,7 @@ import type { SandboxSelectionContext } from "../sandbox/selection.js";
 
 export interface StaticPreviewDeps extends PreviewBrowserDeps {
   sandbox?: PreviewSandbox;
+  registry?: Pick<SandboxRegistry, "get">;
   selection?: SandboxSelectionContext;
 }
 
@@ -45,7 +46,7 @@ export async function withStaticPreview<T>(
 
   const raw =
     deps.sandbox ??
-    instanceToPreviewSandbox(await getSandboxInstance(env, input.sandboxId, deps.selection ?? {}));
+    instanceToPreviewSandbox(await (deps.registry ? deps.registry.get(input.sandboxId, deps.selection ?? {}) : getSandboxInstance(env, input.sandboxId, deps.selection ?? {})));
   const portSource = raw as PreviewSandbox & SandboxPortForwardSource;
   const portGateway =
     typeof raw.expose === "function" ? raw : createSandboxPortGateway(portSource);
