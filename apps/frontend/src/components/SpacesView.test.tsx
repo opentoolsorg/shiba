@@ -117,4 +117,65 @@ describe("SpacesView", () => {
     expect(nav.textContent).toContain("Apps");
     expect(screen.getByRole("button", { name: /New Space/i })).toBeDefined();
   });
+
+  it("adds and removes items, then refreshes the detail", async () => {
+    let items: Array<{ kind: string; ref: string; addedAt: number }> = [];
+    const calls: Array<[string, string, string | undefined]> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/spaces") return Response.json({ spaces: [] });
+      if (url === "/api/spaces/templates") return Response.json({ templates: [] });
+      if (url === `/api/spaces/${firstId}/items`) {
+        calls.push([url, init?.method ?? "GET", init?.body as string | undefined]);
+        const body = JSON.parse(String(init?.body)) as { kind: string; ref: string };
+        items = init?.method === "DELETE" ? [] : [{ ...body, addedAt: 1 }];
+        return Response.json({ ok: true });
+      }
+      return Response.json({ space: { ...spaceDetail(firstId, "Desk"), items } });
+    }));
+    window.history.replaceState(null, "", `/spaces/${firstId}/`);
+    render(<SpacesView />);
+    await screen.findByRole("heading", { name: "Desk" });
+    fireEvent.change(screen.getByLabelText("Kind"), { target: { value: "repo" } });
+    fireEvent.change(screen.getByLabelText("Reference"), { target: { value: "acme/web" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await screen.findByText("repo · acme/web");
+    expect(calls[0]).toEqual([`/api/spaces/${firstId}/items`, "POST", JSON.stringify({ kind: "repo", ref: "acme/web" })]);
+    fireEvent.click(screen.getByRole("button", { name: "Remove repo acme/web" }));
+    await screen.findByText("No items yet.");
+    expect(calls[1]![1]).toBe("DELETE");
+  });
+
+  it("shows API errors when adding fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo) => {
+      const url = String(input);
+      if (url === "/api/spaces") return Response.json({ spaces: [] });
+      if (url === "/api/spaces/templates") return Response.json({ templates: [] });
+      if (url.endsWith("/items")) return Response.json({ error: "invalid_item" }, { status: 400 });
+      return Response.json({ space: spaceDetail(firstId, "Desk") });
+    }));
+    window.history.replaceState(null, "", `/spaces/${firstId}/`);
+    render(<SpacesView />);
+    await screen.findByRole("heading", { name: "Desk" });
+    fireEvent.change(screen.getByLabelText("Reference"), { target: { value: "x" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("invalid_item");
+  });
+
+  it("says the change was saved when only the refresh fails", async () => {
+    let posted = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo) => {
+      const url = String(input);
+      if (url === "/api/spaces") return Response.json({ spaces: [] });
+      if (url === "/api/spaces/templates") return Response.json({ templates: [] });
+      if (url.endsWith("/items")) { posted = true; return Response.json({ ok: true }); }
+      return posted ? Response.json({ error: "down" }, { status: 500 }) : Response.json({ space: spaceDetail(firstId, "Desk") });
+    }));
+    window.history.replaceState(null, "", `/spaces/${firstId}/`);
+    render(<SpacesView />);
+    await screen.findByRole("heading", { name: "Desk" });
+    fireEvent.change(screen.getByLabelText("Reference"), { target: { value: "x" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    expect((await screen.findByRole("alert")).textContent).toMatch(/^Saved, but the list could not refresh/);
+  });
 });

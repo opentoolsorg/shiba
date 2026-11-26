@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type JSX } from "react";
+import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { ChevronRight, ExternalLink, Plus } from "lucide-react";
 import { LoadErrorState } from "./LoadErrorState";
 import { MainCard, type Scope } from "./ui/ContextPanel";
@@ -19,6 +19,8 @@ interface SpaceTemplate {
   label: string;
   description: string;
 }
+
+const ITEM_KINDS = ["skill", "repo", "automation", "run"] as const;
 
 function spaceIdFromPath(): string | null {
   if (typeof window === "undefined") return null;
@@ -44,6 +46,7 @@ export function SpacesView({ scope = "personal" }: SpacesViewProps = {}): JSX.El
   const [error, setError] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(() => spaceIdFromPath());
   const [detail, setDetail] = useState<SpaceDetail | null>(null);
+  const detailAbort = useRef<AbortController | null>(null);
 
   const loadIndex = useCallback(async () => {
     const [spacesRes, templatesRes] = await Promise.all([
@@ -88,19 +91,60 @@ export function SpacesView({ scope = "personal" }: SpacesViewProps = {}): JSX.El
       setDetail(null);
       return;
     }
+    detailAbort.current?.abort();
     const controller = new AbortController();
+    detailAbort.current = controller;
     void loadDetail(detailId, controller.signal).catch((cause) => {
       if (!controller.signal.aborted) {
         setError(cause instanceof Error ? cause.message : "Space detail could not be loaded.");
       }
     });
-    return () => controller.abort();
+    return () => { controller.abort(); detailAbort.current?.abort(); };
   }, [detailId, loadDetail]);
 
   const openSpace = (id: string) => {
     const path = `/spaces/${encodeURIComponent(id)}/`;
     window.history.pushState(window.history.state, "", path);
     setDetailId(id);
+  };
+
+  const [itemKind, setItemKind] = useState<(typeof ITEM_KINDS)[number]>("skill");
+  const [itemRef, setItemRef] = useState("");
+  const [itemError, setItemError] = useState<string | null>(null);
+  const [itemBusy, setItemBusy] = useState(false);
+
+  // Add/remove share one request shape; refresh the detail after either.
+  const changeItem = async (method: "POST" | "DELETE", kind: string, ref: string) => {
+    if (!detailId) return;
+    setItemBusy(true);
+    setItemError(null);
+    let saved = false;
+    try {
+      const response = await fetch(`/api/spaces/${encodeURIComponent(detailId)}/items`, {
+        method,
+        headers: { "content-type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ kind, ref }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error ?? `Request failed (${response.status}).`);
+      }
+      saved = true;
+      if (method === "POST") setItemRef("");
+      detailAbort.current?.abort();
+      const controller = new AbortController();
+      detailAbort.current = controller;
+      try {
+        await loadDetail(detailId, controller.signal);
+      } catch {
+        if (!controller.signal.aborted) setItemError("Saved, but the list could not refresh. Reload to see the latest items.");
+      }
+    } catch (cause) {
+      if (!saved) setItemError(cause instanceof Error ? cause.message : "Item could not be updated.");
+    } finally {
+      setItemBusy(false);
+    }
   };
 
   const createSpace = async () => {
@@ -169,11 +213,23 @@ export function SpacesView({ scope = "personal" }: SpacesViewProps = {}): JSX.El
               {detail.items.length === 0 ? (
                 <li className="text-xs text-[var(--muted-foreground-2)]">No items yet.</li>
               ) : detail.items.map((item) => (
-                <li key={`${item.kind}:${item.ref}`} className="rounded border border-[var(--border-1)] px-3 py-2 text-xs font-mono">
-                  {item.kind} · {item.ref}
+                <li key={`${item.kind}:${item.ref}`} className="flex items-center justify-between gap-2 rounded border border-[var(--border-1)] px-3 py-2 text-xs font-mono">
+                  <span className="min-w-0 [overflow-wrap:anywhere]">{item.kind} · {item.ref}</span>
+                  <button type="button" disabled={itemBusy} aria-label={`Remove ${item.kind} ${item.ref}`} onClick={() => void changeItem("DELETE", item.kind, item.ref)} className="min-h-11 shrink-0 px-3 font-sans disabled:opacity-50">Remove</button>
                 </li>
               ))}
             </ul>
+            <form className="flex flex-wrap items-end gap-2 text-xs" onSubmit={(event) => { event.preventDefault(); if (itemRef.trim()) void changeItem("POST", itemKind, itemRef.trim()); }}>
+              <label className="flex flex-col gap-1"><span className="text-[var(--muted-foreground-2)]">Kind</span>
+                <select value={itemKind} onChange={(event) => setItemKind(event.target.value as (typeof ITEM_KINDS)[number])} className="min-h-11 rounded border border-[var(--border-1)] bg-[var(--section)] px-3">
+                  {ITEM_KINDS.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+                </select></label>
+              <label className="flex min-w-0 flex-1 flex-col gap-1"><span className="text-[var(--muted-foreground-2)]">Reference</span>
+                <input value={itemRef} maxLength={256} onChange={(event) => setItemRef(event.target.value)} className="min-h-11 rounded border border-[var(--border-1)] bg-[var(--section)] px-3" /></label>
+              <button type="submit" disabled={itemBusy || !itemRef.trim()} className="min-h-11 rounded bg-[var(--primary)] px-4 font-semibold text-[var(--primary-text)] disabled:opacity-50">Add</button>
+            </form>
+            <p className="text-xs text-[var(--muted-foreground-2)]">Adding an item links it to this space. It does not grant tool access.</p>
+            {itemError ? <p role="alert" className="text-xs text-[var(--danger,#b42318)]">{itemError}</p> : null}
           </div>
         </div>
       </MainCard>

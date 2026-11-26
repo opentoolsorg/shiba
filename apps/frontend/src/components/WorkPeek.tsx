@@ -195,6 +195,7 @@ export function WorkPeek(props: WorkPeekProps) {
             expected={run.expectedDeliverables}
             deliverables={run.deliverables}
             sessionId={props.sessionId}
+            onOpenEvidence={props.onOpenRun ? (runId) => props.onOpenRun?.(runId, "steps") : undefined}
           />
         </div>
       ) : (

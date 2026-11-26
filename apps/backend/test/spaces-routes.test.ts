@@ -188,6 +188,16 @@ describe("spaces routes", () => {
     expect(sqlite.prepare("SELECT updated_at FROM spaces_index WHERE id = ?").get(space.id)).toEqual({ updated_at: 100 });
   });
 
+  it("rejects item deletion with an unknown kind", async () => {
+    const bindings = spacesEnv();
+    const created = await handleSpaces(createRequest(), bindings);
+    const { space } = await created?.json() as { space: { id: string } };
+    const response = await handleSpaces(new Request(`https://shiba.test/api/spaces/${space.id}/items`, {
+      method: "DELETE", headers: headers(), body: JSON.stringify({ kind: "bogus", ref: "x" }),
+    }), bindings);
+    expect(response?.status).toBe(400);
+  });
+
   it("creates a code-review space with draft skill items and blocks cross-org reads", async () => {
     const bindings = spacesEnv();
     authState.dashboard = false;

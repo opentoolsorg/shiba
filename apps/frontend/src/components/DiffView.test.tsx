@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { DiffView } from "./DiffView";
 import type { VMRun } from "../types";
 
@@ -52,6 +52,22 @@ describe("DiffView", () => {
 
     expect(screen.getByRole("region", { name: "Diff for run-receipt" })).toBeTruthy();
     expect(screen.queryByText("No diff yet")).toBeNull();
+  });
+
+  it("shows a navigation-only publication review action only for pending approvals", () => {
+    const onOpenApproval = vi.fn();
+    const selected = run({ runId: "run-publish", status: "completed", diff: patch });
+    const { rerender } = render(
+      <DiffView runs={[selected]} publicationApproval={{ id: "pr-publish:run-publish", status: "pending" }} onOpenApproval={onOpenApproval} />,
+    );
+    const review = screen.getByRole("button", { name: "Review publication" });
+    fireEvent.click(review);
+    expect(onOpenApproval).toHaveBeenCalledWith("pr-publish:run-publish");
+
+    rerender(<DiffView runs={[selected]} publicationApproval={{ id: "pr-publish:run-publish", status: "approved" }} onOpenApproval={onOpenApproval} />);
+    expect(screen.queryByRole("button", { name: "Review publication" })).toBeNull();
+    rerender(<DiffView runs={[selected]} publicationApproval={{ id: "pr-publish:run-publish", status: "pending" }} />);
+    expect(screen.queryByRole("button", { name: "Review publication" })).toBeNull();
   });
 
   it("explains a selected run that has not written a diff", () => {

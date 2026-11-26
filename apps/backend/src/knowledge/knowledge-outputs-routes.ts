@@ -23,6 +23,7 @@ export interface OutputItem {
   bytes?: number;
   downloadPath: string;
   createdAt: number;
+  runId?: string;
   media?: MediaGeneration & { label: string };
   documentKind?: "report" | "page";
 }
@@ -73,6 +74,7 @@ export async function handleKnowledgeOutputs(request: Request, env: Env): Promis
           mime: "application/zip",
           downloadPath: `/api/run-output-archives/${row.id}`,
           createdAt: row.created_at,
+          runId: row.run_id,
         });
       }
     }

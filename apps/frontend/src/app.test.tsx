@@ -1283,6 +1283,28 @@ describe("app Work and Threads routing", () => {
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url) === "/api/sessions")).toBe(false);
   });
 
+  it("shows the Chief of Staff page in personal scope and the personal-only notice in a team workspace", async () => {
+    const id = `ws_${"e".repeat(24)}`, actor = "owner@example.com";
+    window.history.replaceState(null, "", "/chief-of-staff/");
+    const originalFetch = fetch;
+    const mock = (workspaces: unknown[]) => vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const requested = String(url);
+      if (requested === "/api/whoami") return Response.json({ agent: actor, auth: "access" });
+      if (requested === "/api/workspaces") return Response.json({ workspaces });
+      return originalFetch(url, options);
+    }));
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    mock([]);
+    const personal = render(<App />);
+    await screen.findByRole("region", { name: "Chief of staff" });
+    expect(screen.queryByRole("heading", { name: "Open this feature in your personal workspace" })).toBeNull();
+    personal.unmount();
+    mock([{ workspaceId: id, name: "Design team", version: 1, createdAt: 1, membership: { workspaceId: id, userId: actor, role: "owner", version: 1, joinedAt: 1 } }]);
+    localStorage.setItem(`shiba:team-workspace:${encodeURIComponent(actor)}`, id);
+    render(<App />);
+    await screen.findByRole("heading", { name: "Open this feature in your personal workspace" });
+  });
+
   it.each(["/inbox/", "/memory/"])("never fetches or shows personal %s data in a team workspace", async (path) => {
     const id = `ws_${"f".repeat(24)}`, actor = "owner@example.com";
     window.history.replaceState(null, "", path);
