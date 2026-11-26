@@ -1,4 +1,5 @@
 import type { Env } from "../env.js";
+import { flag } from "../config/flags.js";
 import { randomHex } from "../mailbox-store.js";
 import { getConsumedReasonNetworkPayload } from "./approval-store.js";
 import { D1ReasonNetworkOperationStore, REASON_NETWORK_RECOVERY_WINDOW_MS } from "./operation-store.js";
@@ -9,7 +10,7 @@ async function bodyObject(request:Request):Promise<Record<string,unknown>|null>{
 /** Private, paired-machine-only v1 companion lane. Caller auth is verified by handleLocalAdapter. */
 export async function handleReasonNetworkCompanion(request:Request,env:Env,machineId:string|undefined):Promise<Response>{
   const url=new URL(request.url);const path=url.pathname.replace(/^\/api\/local\/reason-network\/v1\/?/,"");
-  if(env.REASON_NETWORK_ENABLED!=="1"||env.SHIBA_LOCAL_RUNTIME!=="1"||!env.AGENT_AUDIT)return json({error:"Reason Network companion dispatch is disabled."},404);
+  if(env.REASON_NETWORK_ENABLED!=="1"||flag(env,"SHIBA_LOCAL_RUNTIME")!=="1"||!env.AGENT_AUDIT)return json({error:"Reason Network companion dispatch is disabled."},404);
   if(!machineId)return json({error:"A paired machine credential is required; shared deployment tokens cannot claim Reason operations."},403);
   const store=new D1ReasonNetworkOperationStore({AGENT_AUDIT:env.AGENT_AUDIT});
   if(path==="claim"&&request.method==="POST"){

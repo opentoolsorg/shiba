@@ -11,11 +11,11 @@ export const Route = createRootRoute({
   head: () => ({
     meta: [
       { charSet: "utf-8" },
+      { name: "theme-color", content: "#fafafa" },
       {
         name: "viewport",
         content: "width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content",
       },
-      { name: "theme-color", content: "#191a18" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-title", content: "Shiba" },
@@ -55,10 +55,11 @@ export const Route = createRootRoute({
 
 function RootComponent() {
   return (
-    // next-themes, and browser extensions, rewrite <html> before React hydrates.
-    <html lang="en" className="dark" suppressHydrationWarning>
+    // The blocking bootstrap reads the shared theme before the first paint.
+    <html lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
+        <script src="/assets/theme-bootstrap.js" />
       </head>
       <body className="bg-[var(--bg)] text-[var(--fg)] antialiased selection:bg-[var(--primary)] selection:text-[var(--primary-text)] font-sans">
         <Outlet />

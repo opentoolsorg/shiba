@@ -16,6 +16,7 @@ import {
   useActivityReport,
 } from "../live-status";
 import { parseRepoName } from "../ui-helpers";
+import type { AppNavView } from "./AppNavRail";
 import { LoadErrorState } from "./LoadErrorState";
 import { ViewEmpty, ViewGroup } from "./ui/ViewChrome";
 import { MainCard, type Scope } from "./ui/ContextPanel";
@@ -302,8 +303,10 @@ function MemberPrBars({ rows }: { rows: { member: string; count: number }[] }): 
 
 function PullRequestsSection({
   pullRequests,
+  onNavigate,
 }: {
   pullRequests: ActivityReportWire["pullRequests"];
+  onNavigate?: (view: AppNavView) => void;
 }): JSX.Element {
   const [view, setView] = useState<"total" | "member">("total");
   const totalCount = pullRequests.total.reduce((sum, day) => sum + day.count, 0);
@@ -314,15 +317,26 @@ function PullRequestsSection({
         <h3 className="text-xs font-semibold text-[#0a0a0a] dark:text-zinc-100">
           Agent pull requests
         </h3>
-        <SegmentedControl
-          label="Pull request breakdown"
-          options={[
-            { value: "total", label: "Total" },
-            { value: "member", label: "By member" },
-          ]}
-          value={view}
-          onChange={setView}
-        />
+        <div className="flex items-center gap-3">
+          {onNavigate ? (
+            <button
+              type="button"
+              onClick={() => onNavigate("diff")}
+              className="text-xs font-medium text-[#0a0a0a] underline underline-offset-2 dark:text-zinc-100"
+            >
+              Open pull requests
+            </button>
+          ) : null}
+          <SegmentedControl
+            label="Pull request breakdown"
+            options={[
+              { value: "total", label: "Total" },
+              { value: "member", label: "By member" },
+            ]}
+            value={view}
+            onChange={setView}
+          />
+        </div>
       </header>
       {empty || (view === "member" && pullRequests.byMember.length === 0) ? (
         <ViewEmpty>No pull requests in this period</ViewEmpty>
@@ -355,6 +369,7 @@ export function ActivityReportView({
   scope = "personal",
   sidebarCollapsed = false,
   onToggleSidebar,
+  onNavigate,
   className = "",
 }: {
   sessionId: string;
@@ -362,6 +377,7 @@ export function ActivityReportView({
   scope?: Scope;
   sidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
+  onNavigate?: (view: AppNavView) => void;
   className?: string;
 }): JSX.Element {
   const [period, setPeriod] = useState<Period>("30");
@@ -547,7 +563,7 @@ export function ActivityReportView({
 
               <ContributionSection days={report.contribution} />
 
-              <PullRequestsSection pullRequests={report.pullRequests} />
+              <PullRequestsSection pullRequests={report.pullRequests} onNavigate={onNavigate} />
             </>
           ) : null}
         </div>

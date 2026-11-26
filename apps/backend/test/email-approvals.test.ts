@@ -1396,10 +1396,10 @@ describe("email approval Slack card", () => {
     // Email approvals mint with no Slack thread to post into; the
     // configured channel is where their pointer buttons become
     // decidable from Slack, matching the dashboard's card.
-    const bodies: Array<{ channel?: string; text?: string; blocks?: unknown[] }> = [];
+    const bodies: Record<string, unknown>[] = [];
     const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
-      bodies.push(JSON.parse(String(init?.body ?? "{}")) as { channel?: string; text?: string; blocks?: unknown[] });
-      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      bodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+      return Response.json({ ok: true, channel: "C0APPROVALS", ts: "111.222" });
     });
     vi.stubGlobal("fetch", fetchMock);
     const { env, settled } = agentWithMailbox({ slackApprovalsChannel: "C0APPROVALS" });
@@ -1413,6 +1413,9 @@ describe("email approval Slack card", () => {
     expect(String(fetchMock.mock.calls[0]![0])).toBe("https://slack.com/api/chat.postMessage");
     const body = bodies[0]!;
     expect(body.channel).toBe("C0APPROVALS");
+    expect(body).not.toHaveProperty("thread_ts");
+    expect(body).not.toHaveProperty("username");
+    expect(body).not.toHaveProperty("icon_emoji");
     const text = JSON.stringify(body.blocks);
     // Spec copy: "Agent X requests email send to Y: subject" — the
     // mailbox stands in for X when the registration carries no agent.
@@ -1433,7 +1436,7 @@ describe("email approval Slack card", () => {
     const bodies: Array<{ text?: string; blocks?: unknown[] }> = [];
     vi.stubGlobal("fetch", vi.fn(async (_input: unknown, init?: RequestInit) => {
       bodies.push(JSON.parse(String(init?.body ?? "{}")) as { text?: string; blocks?: unknown[] });
-      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      return Response.json({ ok: true, channel: "C0APPROVALS", ts: "111.222" });
     }));
     const { env, settled } = agentWithMailbox({ slackApprovalsChannel: "C0APPROVALS" });
     const body_text = `Hi <!channel> & team. ${"x".repeat(600)}TAIL`;

@@ -19,7 +19,7 @@ Shiba supports several ways to pay for model inference. Pick the mode that match
 
 ## ChatGPT subscription (Sign in with ChatGPT)
 
-Primary flow (t3code-style token sharing):
+Primary flow (reference-style token sharing):
 
 1. Set `MODEL_CREDENTIAL_KEY` (64 hex) on the Worker.
 2. Each user gets a stable `ext_agent_host_id` (`urn:uuid:…`) stored encrypted.

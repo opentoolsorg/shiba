@@ -3,6 +3,7 @@ import { avatarLook, normalizeAgentAvatar, type AgentAvatarChoice, type AgentMas
 import { mascotExpression, resolveAgentLook, type AgentAvatarStatus } from "../agent-mascots";
 import { employeeRole, type EmployeeRole } from "../employee-templates";
 import { AgentMascot } from "./AgentMascot";
+import { SHIBA_BRAND_LOOK } from "./ShibaMark";
 
 export type { AgentAvatarStatus };
 
@@ -42,13 +43,13 @@ export function AgentAvatar({ id, name, size = 40, status, role, mascotPreset, l
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const known = role ?? employeeRole(id);
   const choice = normalizeAgentAvatar(avatar);
-  const resolved = avatarLook(choice) ?? resolveAgentLook({
+  const resolved = avatarLook(choice) ?? (id === "shiba" && !mascotPreset && !look ? SHIBA_BRAND_LOOK : resolveAgentLook({
     id,
     role: known === "custom" ? undefined : known,
     fallbackId: id,
     preset: mascotPreset,
     look,
-  });
+  }));
   const expression = mascotExpression(status, resolved.eyes);
   const portrait = choice?.kind === "upload" ? `/api/files/${choice.fileId}/download` : imageSrc;
   const showImage = Boolean(portrait) && failedSrc !== portrait;

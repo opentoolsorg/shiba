@@ -9,6 +9,7 @@ import {
 import {
   ArrowLeft,
   Box,
+  Building2,
   ChevronRight,
   Cpu,
   Download,
@@ -16,18 +17,21 @@ import {
   Key,
   Webhook,
   Laptop,
+  LayoutGrid,
   Bell,
   Mail,
   Palette,
+  Plug,
   Search,
   Server,
   ShieldCheck,
   Sliders,
+  Sparkles,
   User,
   Users,
   Zap,
 } from "lucide-react";
-import type { AppNavView } from "./AppNavRail";
+import { pathForView, type AppNavView } from "../app-navigation";
 import {
   ContextPanel,
   MainCard,
@@ -47,7 +51,7 @@ import { SharingSettings } from "./settings/Sharing";
 import { ArchivedSettings } from "./settings/Archived";
 import { AdminSettings } from "./settings/Admin";
 
-export type SettingsPageSectionId = SettingsSectionId | "team" | "remote" | "groups" | "sharing" | "archived" | "admin";
+export type SettingsPageSectionId = SettingsSectionId | "overview" | "team" | "remote" | "groups" | "sharing" | "archived" | "admin";
 
 export interface SettingsNavGroup {
   heading: string;
@@ -60,6 +64,12 @@ export interface SettingsNavGroup {
 }
 
 export const SETTINGS_PAGE_NAV_GROUPS: SettingsNavGroup[] = [
+  {
+    heading: "Start here",
+    items: [
+      { id: "overview", label: "Overview", blurb: "Settings categories & approval boundary", icon: LayoutGrid },
+    ],
+  },
   {
     heading: "Your account",
     items: [
@@ -100,7 +110,6 @@ export const SETTINGS_PAGE_NAV_GROUPS: SettingsNavGroup[] = [
   {
     heading: "Deployment",
     items: [
-      { id: "experimental", label: "Experimental", blurb: SETTINGS_SECTION_LABELS.experimental.blurb, icon: Sliders },
       { id: "deployment", label: "Deployment", blurb: SETTINGS_SECTION_LABELS.deployment.blurb, icon: ShieldCheck },
     ],
   },
@@ -132,7 +141,7 @@ export function SettingsPanel({
   onScopeChange,
   className = "",
 }: SettingsPanelProps): JSX.Element {
-  const currentActive = active ?? activeSection ?? "account";
+  const currentActive = active ?? activeSection ?? "overview";
   const handleSelect = useCallback(
     (id: string) => {
       onSelect?.(id);
@@ -244,18 +253,245 @@ export interface SettingsPageProps extends Partial<TeamWorkspaceViewProps> {
 
 const SETTINGS_PAGE_SECTION_IDS: readonly string[] = SETTINGS_PAGE_NAV_GROUPS.flatMap((group) => group.items.map((item) => item.id));
 
+/** Experimental flags now live in Deployment; the retired id keeps resolving for old deep links. */
+const canonicalSection = (id: string): string => (id === "experimental" ? "deployment" : id);
+
 /** Returns `id` when it names a known settings section, otherwise "account". */
 export function normalizeSettingsSection(id: string | null | undefined): string {
-  return id && SETTINGS_PAGE_SECTION_IDS.includes(id) ? id : "account";
+  const section = id ? canonicalSection(id) : id;
+  return section && SETTINGS_PAGE_SECTION_IDS.includes(section) ? section : "account";
 }
 
 function getSectionLabel(id: string): string {
+  if (id === "overview") return "Overview";
   if (id === "team") return "Team";
   if (id === "remote") return "Remote access";
   if (id in SETTINGS_SECTION_LABELS) {
     return SETTINGS_SECTION_LABELS[id as SettingsSectionId].label;
   }
   return id.charAt(0).toUpperCase() + id.slice(1);
+}
+
+/** Shown in place of personal or deployment settings while a team workspace (or blocked private data) is active. */
+function PersonalWorkspaceNotice({
+  message,
+  onOpenPersonalWorkspace,
+  className,
+}: {
+  message: string;
+  onOpenPersonalWorkspace?: () => void;
+  className: string;
+}): JSX.Element {
+  return (
+    <section aria-label="Personal workspace setting" className={className}>
+      <h2 className="text-base font-medium">Open this setting in your personal workspace</h2>
+      <p className="mt-2 text-[#71717a] dark:text-zinc-400">{message}</p>
+      {onOpenPersonalWorkspace ? <button
+        type="button"
+        onClick={onOpenPersonalWorkspace}
+        className="mt-4 min-h-11 rounded-lg border border-[#e4e4e7] px-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] dark:border-zinc-800"
+      >
+        Switch to personal workspace
+      </button> : null}
+    </section>
+  );
+}
+
+interface OverviewAction {
+  label: string;
+  run: () => void;
+}
+
+interface OverviewCategory {
+  id: string;
+  title: string;
+  description: string;
+  icon: SettingsNavGroup["items"][number]["icon"];
+  actions: OverviewAction[];
+  note?: string;
+}
+
+/**
+ * Settings overview: one card per supported settings area. Every action reuses an
+ * existing section id or app view, so the overview adds no data, endpoints or
+ * state of its own. In a team workspace only the Team card applies.
+ */
+function SettingsOverview({
+  guarded,
+  providersBlocked,
+  onSelectSection,
+  onNavigate,
+  onOpenPersonalWorkspace,
+}: {
+  guarded: boolean;
+  providersBlocked: boolean;
+  onSelectSection: (section: SettingsPageSectionId) => void;
+  onNavigate?: (view: AppNavView) => void;
+  onOpenPersonalWorkspace?: () => void;
+}): JSX.Element {
+  const section = (label: string, id: SettingsPageSectionId): OverviewAction => ({ label, run: () => onSelectSection(id) });
+  const view = (label: string, target: AppNavView): OverviewAction[] =>
+    onNavigate ? [{ label, run: () => onNavigate(target) }] : [];
+
+  const categories: OverviewCategory[] = guarded
+    ? [
+        {
+          id: "workspace",
+          title: "Workspace",
+          description: "Members, invitations and roles for the selected team.",
+          icon: Building2,
+          actions: [section("Team", "team")],
+        },
+      ]
+    : [
+        {
+          id: "account",
+          title: "Account",
+          description: "Your identity, sign-in method and sign out.",
+          icon: User,
+          actions: [section("Manage account", "account")],
+        },
+        {
+          id: "repositories",
+          title: "Repositories",
+          description: "Saved GitHub repositories that appear as picks in the task composer.",
+          icon: GitBranch,
+          actions: [section("Manage repositories", "repositories")],
+        },
+        {
+          id: "providers-models",
+          title: "Providers & models",
+          description: "Your AI provider accounts, default provider and per-role model routing.",
+          icon: Cpu,
+          note: providersBlocked ? "Provider setup needs an explicit account grant for invited accounts." : undefined,
+          actions: [
+            ...(providersBlocked ? [] : [section("Review providers", "providers")]),
+            section("Review model routing", "models"),
+          ],
+        },
+        {
+          id: "connected-apps",
+          title: "Connected apps",
+          description: "External apps you have authorized to connect to this deployment over MCP.",
+          icon: Plug,
+          actions: [section("Review connected apps", "connected-apps")],
+        },
+        ...(onNavigate
+          ? [
+              {
+                id: "employee-access",
+                title: "Employee access",
+                description: "Grant tools per employee. A connection never grants access by itself.",
+                icon: ShieldCheck,
+                actions: view("Manage employee access", "employee-tools"),
+              },
+            ]
+          : []),
+        {
+          id: "workspace",
+          title: "Workspace",
+          description: "Manage workspace membership and sandbox configuration.",
+          icon: Building2,
+          actions: [section("Team", "team"), section("Sandbox", "sandbox")],
+        },
+        {
+          id: "appearance-notifications",
+          title: "Appearance & notifications",
+          description: "Theme, and in-app alerts for mentions, thread replies and approvals.",
+          icon: Palette,
+          actions: [section("Appearance", "appearance"), section("Notifications", "notifications")],
+        },
+        ...(onNavigate
+          ? [
+              {
+                id: "skills",
+                title: "Skills",
+                description: "Review the skills you have saved.",
+                icon: Sparkles,
+                actions: view("Open skills", "skills"),
+              },
+            ]
+          : []),
+      ];
+
+  return (
+    <div className="flex flex-col gap-6">
+      <header>
+        <h2 className="text-xl font-semibold text-[var(--fg)]">Settings overview</h2>
+        <p className="mt-1.5 max-w-prose text-sm leading-relaxed text-[var(--muted-foreground-2)]">
+          {guarded
+            ? "Team settings apply to the selected workspace. Other settings belong to your personal workspace."
+            : "Manage your account, connected tools and employee access from one place."}
+        </p>
+      </header>
+
+      {guarded ? (
+        <PersonalWorkspaceNotice
+          message="Account, provider, repository and deployment settings apply to your account or this deployment, not to the selected team."
+          onOpenPersonalWorkspace={onOpenPersonalWorkspace}
+          className="max-w-xl text-sm text-[var(--fg)]"
+        />
+      ) : null}
+
+      <section aria-label="Settings categories">
+        <ul className="m-0 grid list-none grid-cols-[repeat(auto-fit,minmax(min(100%,17.5rem),1fr))] gap-3.5 p-0">
+          {categories.map((category) => {
+            const Icon = category.icon;
+            const headingId = `settings-overview-${category.id}`;
+            return (
+              <li key={category.id} className="min-w-0">
+                <article
+                  aria-labelledby={headingId}
+                  className="flex h-full flex-col gap-3 rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)] p-5 shadow-[var(--sh-card)] transition-colors hover:border-[var(--border-3)]"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="flex size-9 items-center justify-center rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)] text-[var(--fg)]"
+                  >
+                    <Icon className="size-[18px]" strokeWidth={1.7} aria-hidden="true" />
+                  </span>
+                  <h3 id={headingId} className="text-sm font-semibold text-[var(--fg)]">{category.title}</h3>
+                  <p className="text-xs leading-relaxed text-[var(--muted-foreground-2)]">{category.description}</p>
+                  {category.note ? (
+                    <p className="text-xs leading-relaxed text-[var(--muted-foreground-1)]">{category.note}</p>
+                  ) : null}
+                  <div className="mt-auto flex flex-wrap gap-2 pt-1">
+                    {category.actions.map((action) => (
+                      <button
+                        key={action.label}
+                        type="button"
+                        onClick={action.run}
+                        className="inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--button)] px-3 text-xs font-semibold text-[var(--fg)] transition-colors hover:bg-[var(--button-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+                      >
+                        {action.label}
+                        <span aria-hidden="true">→</span>
+                      </button>
+                    ))}
+                  </div>
+                </article>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+
+      <section
+        role="note"
+        aria-labelledby="settings-approval-boundary"
+        className="flex gap-3 rounded-[var(--radius-card)] border border-[color-mix(in_oklch,var(--warning)_40%,transparent)] bg-[var(--warning-subtle)] p-4 sm:p-5"
+      >
+        <ShieldCheck className="mt-0.5 size-4 shrink-0 text-[var(--warning-fg)]" strokeWidth={1.8} aria-hidden="true" />
+        <div className="min-w-0">
+          <h3 id="settings-approval-boundary" className="text-sm font-semibold text-[var(--fg)]">Approval boundary</h3>
+          <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground-1)]">
+            A connection does not grant any employee access by itself. Read grants allow only the scoped
+            reads you select. Interactive tasks require approval of exact inputs; unattended automations
+            follow their configured allowlists.
+          </p>
+        </div>
+      </section>
+    </div>
+  );
 }
 
 /**
@@ -265,7 +501,7 @@ function getSectionLabel(id: string): string {
  */
 export function SettingsPage({
   section,
-  initialSection = "account",
+  initialSection = "overview",
   onSectionChange,
   onBack,
   onNavigate,
@@ -289,7 +525,7 @@ export function SettingsPage({
   className = "",
 }: SettingsPageProps): JSX.Element {
   const [internalSection, setInternalSection] = useState(initialSection);
-  const activeSection = section ?? internalSection;
+  const activeSection = canonicalSection(section ?? internalSection);
 
   const handleSectionChange = useCallback(
     (nextSection: string) => {
@@ -300,6 +536,42 @@ export function SettingsPage({
   );
 
   const currentLabel = getSectionLabel(activeSection);
+  const guarded = Boolean(onOpenPersonalWorkspace || personalDataBlocked);
+  const sectionAction = (label: string, id: SettingsPageSectionId) => ({ label, onClick: () => handleSectionChange(id) });
+  const viewAction = (label: string, view: AppNavView) => onNavigate ? [{ label, onClick: () => onNavigate(view) }] : [];
+  const overviewActionClass = "inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--button)] px-3 text-xs font-semibold text-[var(--fg)] hover:bg-[var(--button-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
+  const overviewCards: {
+    title: string;
+    description: string;
+    icon: ComponentType<{ className?: string; strokeWidth?: number; "aria-hidden"?: boolean | "true" }>;
+    actions: ({ label: string; onClick: () => void } | { label: string; href: string })[];
+    note?: string;
+  }[] = guarded
+    ? [{ title: "Workspace", description: "Members, invitations and roles for this workspace.", icon: Users, actions: [sectionAction("Team settings", "team")] }]
+    : [
+        { title: "Account", description: "Identity, sign-in methods and active sessions.", icon: User, actions: [sectionAction("Manage account", "account")] },
+        { title: "Repositories", description: "Saved GitHub repositories available to task setup.", icon: GitBranch, actions: [sectionAction("Manage repositories", "repositories")] },
+        {
+          title: "Providers & models",
+          description: "Provider accounts, default provider and per-role model routing.",
+          icon: Cpu,
+          note: providersBlocked ? "Provider setup needs an explicit account grant for invited accounts." : undefined,
+          actions: [...(providersBlocked ? [] : [sectionAction("Review providers", "providers")]), sectionAction("Review model routing", "models")],
+        },
+        { title: "Connected apps", description: "External apps authorized for this deployment.", icon: ShieldCheck, actions: [sectionAction("Review connected apps", "connected-apps")] },
+        ...viewAction("Review connections", "integrations").map((action) => ({
+          title: "Connections", description: "GitHub repositories, app connectors, Slack and MCP servers.", icon: Webhook,
+          actions: [action, { label: "Open MCP servers", href: `${pathForView("integrations")}?tab=mcp` }],
+        })),
+        ...viewAction("Manage employee access", "employee-tools").map((action) => ({ title: "Employee access", description: "Manage scoped tool grants for individual employees.", icon: ShieldCheck, actions: [action] })),
+        { title: "Workspace", description: "Workspace membership and sandbox configuration.", icon: Box, actions: [sectionAction("Team", "team"), sectionAction("Sandbox", "sandbox")] },
+        { title: "Appearance & notifications", description: "Theme and in-app alerts for mentions, replies and approvals.", icon: Palette, actions: [sectionAction("Appearance", "appearance"), sectionAction("Notifications", "notifications")] },
+        ...viewAction("Open agents", "custom-agents").map((action) => ({ title: "Templates & skills", description: "Reusable agent templates and saved skills available to employees.", icon: Zap, actions: [action, ...viewAction("Open skills", "skills")] })),
+      ];
+  const controlChips: [SettingsPageSectionId, string][] = guarded ? [] : [
+    ["appearance", "Appearance"], ["notifications", "Notifications"], ["api-keys", "API keys"], ["archived", "Archived"], ["environments", "Environments"],
+    ["sandbox", "Sandbox"], ["slack", "Slack"], ["admin", "Admin"], ["deployment", "Deployment"],
+  ];
 
   const mainCardContent = (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -337,7 +609,7 @@ export function SettingsPage({
           <span className="shrink-0">Section</span>
           <select
             aria-label="Settings section"
-            value={SETTINGS_PAGE_SECTION_IDS.includes(activeSection) ? activeSection : "account"}
+            value={SETTINGS_PAGE_SECTION_IDS.includes(activeSection) ? activeSection : "overview"}
             onChange={(event) => handleSectionChange(event.target.value)}
             className="min-h-11 min-w-0 flex-1 rounded-lg border border-[#e4e4e7] bg-white px-2 text-sm text-[#0a0a0a] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
           >
@@ -354,18 +626,22 @@ export function SettingsPage({
 
       {/* Body content based on section */}
       <div className="flex-1 overflow-y-auto">
-        {(onOpenPersonalWorkspace || personalDataBlocked) && activeSection !== "team" ? (
-          <section aria-label="Personal workspace setting" className="m-6 max-w-xl text-sm text-[#0a0a0a] dark:text-zinc-100">
-            <h2 className="text-base font-medium">Open this setting in your personal workspace</h2>
-            <p className="mt-2 text-[#71717a] dark:text-zinc-400">{currentLabel} applies to your account or this deployment, not to the selected team.</p>
-            {onOpenPersonalWorkspace ? <button
-              type="button"
-              onClick={onOpenPersonalWorkspace}
-              className="mt-4 min-h-11 rounded-lg border border-[#e4e4e7] px-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] dark:border-zinc-800"
-            >
-              Switch to personal workspace
-            </button> : null}
-          </section>
+        {activeSection === "overview" ? (
+          <div className="max-w-4xl mx-auto p-6 lg:p-8">
+            <SettingsOverview
+              guarded={Boolean(onOpenPersonalWorkspace || personalDataBlocked)}
+              providersBlocked={providersBlocked}
+              onSelectSection={handleSectionChange}
+              onNavigate={onNavigate}
+              onOpenPersonalWorkspace={onOpenPersonalWorkspace}
+            />
+          </div>
+        ) : (onOpenPersonalWorkspace || personalDataBlocked) && activeSection !== "team" ? (
+          <PersonalWorkspaceNotice
+            message={`${currentLabel} applies to your account or this deployment, not to the selected team.`}
+            onOpenPersonalWorkspace={onOpenPersonalWorkspace}
+            className="m-6 max-w-xl text-sm text-[#0a0a0a] dark:text-zinc-100"
+          />
         ) : activeSection === "team" ? (
           <TeamWorkspaceView
             actorId={actorId ?? null}
@@ -392,7 +668,7 @@ export function SettingsPage({
         ) : activeSection === "archived" ? (
           <div className="max-w-4xl mx-auto p-6 lg:p-8"><ArchivedSettings workspaceId={workspaceId} /></div>
         ) : activeSection === "admin" ? (
-          <div className="max-w-4xl mx-auto p-6 lg:p-8"><AdminSettings /></div>
+          <div className="max-w-4xl mx-auto p-6 lg:p-8"><AdminSettings onOpenTeam={() => handleSectionChange("team")} /></div>
         ) : (
           <div className="max-w-4xl mx-auto p-6 lg:p-8 flex flex-col gap-6">
             <SettingsSectionBody

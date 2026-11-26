@@ -8,6 +8,7 @@
  */
 import type { Env } from "../../env.js";
 import { postSlackMessageWithReceipt, SLACK_POST_TIMEOUT_MS, updateSlackMessage, verifySlackRequest } from "../../slack.js";
+import type { SlackPersonaRole } from "../../slack-persona.js";
 import { reactionName } from "../emoji.js";
 import { buildSlackThreadName } from "../../slack-thread.js";
 import {
@@ -17,6 +18,8 @@ import {
   type ChannelCapability,
   type ChannelDefinition,
   type ChannelHistoryMessage,
+  type ChannelMessageRef,
+  type ChannelPostInput,
   type ChannelTransport,
   type InboundEvent,
 } from "../../ports/channel/index.js";
@@ -51,7 +54,11 @@ function toHistory(messages: unknown, threadId?: string): ChannelHistoryMessage[
   return out;
 }
 
-export function createSlackAdapter(input: { token: string; fetch?: typeof fetch }): ChannelAdapter {
+interface SlackChannelAdapter extends ChannelAdapter {
+  post(input: ChannelPostInput & { persona?: SlackPersonaRole | false }): Promise<ChannelMessageRef>;
+}
+
+export function createSlackAdapter(input: { token: string; fetch?: typeof fetch }): SlackChannelAdapter {
   const fetchImpl = input.fetch ?? fetch;
   const auth = { Authorization: `Bearer ${input.token}` };
   const ok = async (method: string, response: Response) => {
@@ -85,6 +92,7 @@ export function createSlackAdapter(input: { token: string; fetch?: typeof fetch 
         ...(message.threadId ? { threadTs: message.threadId } : {}),
         text: message.text,
         ...(message.native ? { native: message.native } : {}),
+        ...(message.persona !== undefined ? { persona: message.persona } : {}),
       }, fetchImpl);
       return { placeId: receipt.channel, messageId: receipt.ts, ...(message.threadId ? { threadId: message.threadId } : {}) };
     },
@@ -293,7 +301,7 @@ export const slackTransport: ChannelTransport = {
   },
 };
 
-export const slackChannel: ChannelDefinition = {
+export const slackChannel = {
   id: "slack",
   requiredSecrets: ["SLACK_SIGNING_SECRET", "SLACK_BOT_TOKEN"],
   transport: slackTransport,
@@ -301,4 +309,4 @@ export const slackChannel: ChannelDefinition = {
     const token = env.SLACK_BOT_TOKEN?.trim();
     return token ? createSlackAdapter({ token, ...(options.fetch ? { fetch: options.fetch } : {}) }) : null;
   },
-};
+} satisfies ChannelDefinition;

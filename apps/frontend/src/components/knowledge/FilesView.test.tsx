@@ -85,4 +85,19 @@ describe("FilesView", () => {
     await screen.findByText("done", { selector: "span" });
     expect(lists).toBe(2);
   });
+
+  it("links to memory sources only when navigation is wired, without saving anything", async () => {
+    const api = mockApi();
+    const onNavigate = vi.fn();
+    const { unmount } = render(<FilesView />);
+    await screen.findByRole("option", { name: "Documents" });
+    expect(screen.queryByRole("button", { name: "Review memory sources" })).toBeNull();
+    unmount();
+
+    render(<FilesView onNavigate={onNavigate} />);
+    await screen.findByRole("option", { name: "Documents" });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory sources" }));
+    expect(onNavigate).toHaveBeenCalledWith("memory");
+    expect(api.mock.calls.every(([, init]) => !init?.method)).toBe(true);
+  });
 });

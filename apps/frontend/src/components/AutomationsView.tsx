@@ -9,6 +9,7 @@ import {
   Webhook,
   Zap,
 } from "lucide-react";
+import { useSetupStatus } from "../live-status";
 import { LoadErrorState } from "./LoadErrorState";
 import { useCustomAgentOptions } from "./CustomAgentsView";
 import { ContextPanel, MainCard, PanelNavItem, type Scope } from "./ui/ContextPanel";
@@ -88,6 +89,44 @@ const STARTER_CHIPS = [
   { label: "Dependency scan", recipeId: "weekly-deps" },
   { label: "Update documentation", recipeId: "docs-sync" },
 ];
+
+const TRIGGER_STEPS = [
+  ["Receive", "Validate the source and match the configured event."],
+  ["Queue", "Create the proposed task with its repository and input."],
+  ["Review", "A human approves before execution. Receiving a webhook is not approval."],
+] as const;
+
+/** Receive → Queue → Review steps plus per-source credential status from /api/setup/status. */
+function TriggerFlow(): JSX.Element {
+  const { state } = useSetupStatus();
+  const setup = state.kind === "data" ? state.data : null;
+  const sources = [
+    { name: "GitHub webhooks", configured: setup?.github?.webhookSecret === true },
+    { name: "Slack", configured: setup?.slack?.signingSecret === true && setup.slack.botToken === true },
+  ];
+  return (
+    <div className="space-y-3 rounded-xl border border-[#e4e4e7] bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <ol aria-label="From event to reviewed work" className="grid gap-3 sm:grid-cols-3">
+        {TRIGGER_STEPS.map(([label, detail], index) => (
+          <li key={label} className="text-xs">
+            <span className="font-semibold text-[#0a0a0a] dark:text-zinc-100">{index + 1}. {label}</span>
+            <p className="mt-0.5 text-[#71717a] dark:text-zinc-400">{detail}</p>
+          </li>
+        ))}
+      </ol>
+      <ul aria-label="Trigger setup status" className="flex flex-wrap gap-2 text-xs">
+        {sources.map(({ name, configured }) => (
+          <li key={name} className="rounded-full border border-[#e4e4e7] px-2.5 py-0.5 text-[#71717a] dark:border-zinc-800 dark:text-zinc-400">
+            {name}: {state.kind === "loading" ? "Checking…" : state.kind === "error" ? "Status unavailable" : configured ? "Configured" : "Not configured"}
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-[#71717a] dark:text-zinc-400">
+        Status shows whether the deployment has the credentials set. It does not prove events are arriving.
+      </p>
+    </div>
+  );
+}
 
 export interface AutomationsPanelProps {
   scope: Scope;
@@ -188,6 +227,8 @@ export function AutomationsPanel({
 }
 
 export interface AutomationsViewProps {
+  initialDraft?: { prompt: string; repoUrl: string } | null;
+  onDraftSaved?: () => void;
   scope?: Scope;
   sidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
@@ -199,6 +240,8 @@ export interface AutomationsViewProps {
 }
 
 export function AutomationsView({
+  initialDraft,
+  onDraftSaved,
   scope = "personal",
   sidebarCollapsed = false,
   onToggleSidebar,
@@ -207,6 +250,17 @@ export function AutomationsView({
   onAutomationsChange,
   className = "",
 }: AutomationsViewProps): JSX.Element {
+  const [draftPrompt, setDraftPrompt] = useState(initialDraft?.prompt ?? "");
+  const [draftRepo, setDraftRepo] = useState(initialDraft?.repoUrl ?? "");
+  const [draftId, setDraftId] = useState("");
+  const [draftCron, setDraftCron] = useState("");
+  const [draftVisible, setDraftVisible] = useState(Boolean(initialDraft));
+  useEffect(() => {
+    if (!initialDraft) return;
+    setDraftPrompt(initialDraft.prompt);
+    setDraftRepo(initialDraft.repoUrl);
+    setDraftVisible(true);
+  }, [initialDraft]);
   const [copiedEndpoint, setCopiedEndpoint] = useState<string | null>(null);
   const [automations, setAutomations] = useState<AutomationRecord[] | null>(null);
   useEffect(() => {
@@ -219,6 +273,7 @@ export function AutomationsView({
   const [notice, setNotice] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [tab, setTab] = useState<"automations" | "recipes" | "triggers">("automations");
+  const [reviewId, setReviewId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const revealedRef = useRef<string | null>(null);
   useEffect(() => {
@@ -273,6 +328,24 @@ export function AutomationsView({
   }, []);
   useEffect(refresh, [refresh]);
 
+  const saveDraft = async () => {
+    setBusyId("suggestion-draft");
+    setNotice(null);
+    try {
+      const response = await fetch("/api/automations", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: draftId.trim(), prompt: draftPrompt.trim(), repoUrl: draftRepo.trim(), enabled: false, triggers: [{ kind: "schedule", cron: draftCron.trim() }] }),
+      });
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) { setNotice(body.error ?? "Could not save automation."); return; }
+      setDraftVisible(false);
+      onDraftSaved?.();
+      setNotice("Automation saved disabled. Enable it when you are ready; each run requires approval.");
+      refresh();
+    } catch { setNotice("Could not save automation. Please try again."); }
+    finally { setBusyId(null); }
+  };
+
   const deployRecipe = async (recipe: (typeof RECIPES)[number]) => {
     if (!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+/.test(repoUrl.trim())) {
       setNotice("Enter a GitHub repository URL first.");
@@ -297,6 +370,7 @@ export function AutomationsView({
       if (!response.ok) setNotice(body.error ?? `Could not create automation (${response.status}).`);
       else {
         setNotice(`Created "${recipe.name}".`);
+        setReviewId(null);
         refresh();
       }
     } catch {
@@ -361,6 +435,7 @@ export function AutomationsView({
   );
 
   const scopeLabel = scope === "workspace" ? "Workspace" : "Personal";
+  const reviewing = RECIPES.find((recipe) => recipe.id === reviewId);
   const tabLabel = tab === "automations" ? "All" : tab === "recipes" ? "Recipes" : "Triggers";
 
   return (
@@ -466,6 +541,18 @@ export function AutomationsView({
             </p>
           ) : null}
 
+          {draftVisible ? (
+            <form aria-label="Suggested automation" className="space-y-3 border border-[var(--border-1)] p-4" onSubmit={(event) => { event.preventDefault(); void saveDraft(); }}>
+              <h2 className="text-lg">Make this task a routine</h2>
+              <label className="block">Automation name<input className="block w-full" required pattern="[a-zA-Z0-9_-]+" value={draftId} onChange={(event) => setDraftId(event.target.value)} /></label>
+              <label className="block">Routine prompt<textarea className="block w-full" required value={draftPrompt} onChange={(event) => setDraftPrompt(event.target.value)} /></label>
+              <label className="block">Routine repository URL<input className="block w-full" required value={draftRepo} onChange={(event) => setDraftRepo(event.target.value)} /></label>
+              <label className="block">Schedule (cron, UTC)<input className="block w-full" required placeholder="Minute hour day month weekday" value={draftCron} onChange={(event) => setDraftCron(event.target.value)} /></label>
+              <p className="text-xs">Saved disabled. Every run requires approval.</p>
+              <button type="submit" disabled={busyId === "suggestion-draft"}>Save disabled automation</button>
+              <button type="button" onClick={() => setDraftVisible(false)}>Cancel</button>
+            </form>
+          ) : null}
           {tab === "automations" ? (
             <section aria-label="Deployed automations" className="space-y-6">
               {/* Header Hero Area */}
@@ -648,6 +735,45 @@ export function AutomationsView({
                 </div>
               </div>
 
+              {reviewing ? (
+                <section
+                  aria-label="Review recipe"
+                  className="space-y-3 rounded-xl border border-[#e4e4e7] bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900/40"
+                >
+                  <h3 className="text-base font-semibold text-[#0a0a0a] dark:text-zinc-100">
+                    Review “{reviewing.name}”
+                  </h3>
+                  <p className="text-xs text-[#71717a] dark:text-zinc-400">Trigger: {reviewing.cadence}</p>
+                  <p className="text-xs text-[#71717a] dark:text-zinc-400">
+                    Repository: {repoUrl.trim() || "Not set"} · Bot: {customAgents.find((agent) => agent.id === customAgentId)?.config.name ?? "No bot"}
+                  </p>
+                  <pre className="whitespace-pre-wrap rounded-lg border border-[#e4e4e7] bg-[#fafafa] p-3 text-xs text-[#0a0a0a] dark:border-zinc-800 dark:bg-zinc-800/60 dark:text-zinc-100">
+                    {reviewing.prompt}
+                  </pre>
+                  <p className="text-xs text-[#71717a] dark:text-zinc-400">
+                    Runs wait for your approval before execution. Creating the automation does not approve any run.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={busyId !== null}
+                      onClick={() => void deployRecipe(reviewing)}
+                      className="h-8 rounded-lg bg-[#0a0a0a] px-3 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                    >
+                      {busyId === reviewing.id ? "Creating…" : "Confirm and create"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyId !== null}
+                      onClick={() => setReviewId(null)}
+                      className="h-8 rounded-lg border border-[#e4e4e7] bg-white px-3 text-xs font-medium text-[#0a0a0a] hover:bg-[#f4f4f5] disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </section>
+              ) : null}
+
               {loadError ? <LoadErrorState message={loadError} onRetry={refresh} /> : null}
 
               <div className="rounded-xl border border-[#e4e4e7] bg-white dark:border-zinc-800 dark:bg-zinc-900/40 overflow-hidden divide-y divide-[#e4e4e7] dark:divide-zinc-800">
@@ -675,10 +801,10 @@ export function AutomationsView({
                         disabled={
                           busyId !== null || deployed || automations === null || loadError !== null
                         }
-                        onClick={() => void deployRecipe(recipe)}
+                        onClick={() => setReviewId(recipe.id)}
                         className="h-8 rounded-lg border border-[#e4e4e7] bg-white px-3 text-xs font-medium text-[#0a0a0a] hover:bg-[#f4f4f5] disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
                       >
-                        {busyId === recipe.id ? "Creating…" : deployed ? "Created" : "Use recipe"}
+                        {deployed ? "Created" : "Use recipe"}
                       </button>
                     </div>
                   );
@@ -701,6 +827,8 @@ export function AutomationsView({
                   Connect repository webhooks and Slack messages to trigger automated runs.
                 </p>
               </div>
+
+              <TriggerFlow />
 
               {[
                 {

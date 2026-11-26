@@ -178,4 +178,33 @@ describe("TaskDetailPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Comment" }));
     expect(onComment).toHaveBeenCalledWith("hello");
   });
+
+  it("shows the decision block for a pending approval and only opens the review", () => {
+    const onReviewDecision = vi.fn();
+    const onOpenConversation = vi.fn();
+    const { onChange } = setup({
+      task: task({ status: "needs-approval", approvalRequired: true, viewerCanApprove: true, roomId: "room-1" }),
+      onReviewDecision,
+      onOpenConversation,
+    });
+    expect(screen.getByRole("heading", { name: "Waiting for your decision" })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Review exact request" }));
+    expect(onReviewDecision).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Open linked conversation" }));
+    expect(onOpenConversation).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: /approve|reject|decline|allow/i })).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("offers no review link to someone who cannot decide, and no block without a pending approval", () => {
+    const { rerender } = setup({
+      task: task({ status: "needs-approval", approvalRequired: true, viewerCanApprove: false }),
+      onReviewDecision: vi.fn(),
+    });
+    expect(screen.getByRole("heading", { name: "Waiting for approval" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Review exact request" })).toBeNull();
+    rerender(<TaskDetailPanel task={task({ status: "running", runId: "run-1" })} agents={agents} onChange={vi.fn()} onArchive={vi.fn()} onClose={vi.fn()} onReviewDecision={vi.fn()} />);
+    expect(screen.queryByRole("heading", { name: /Waiting for/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open linked conversation" })).toBeNull();
+  });
 });

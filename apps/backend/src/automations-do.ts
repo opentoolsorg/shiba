@@ -50,6 +50,7 @@ import { readPrOwner } from "./pr-owner-index.js";
 import { sha256Hex } from "./agent-tokens.js";
 import { getCustomAgentById } from "./custom-agents-store.js";
 import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
+import { log } from "./obs/log.js";
 
 export interface AutomationsState {
   items: Automation[];
@@ -652,7 +653,7 @@ export class Automations {
           lifecycleCompleted = true;
           if (lifecycle.queuedReview) reviewQueued = true;
         } catch (error) {
-          console.error(
+          log.error(
             `pr lifecycle wake failed: ${error instanceof Error ? error.message : String(error)}`,
           );
         }
@@ -683,7 +684,7 @@ export class Automations {
           });
           reviewQueued = true;
         } catch (error) {
-          console.error(
+          log.error(
             `pr review lane queue failed: ${error instanceof Error ? error.message : String(error)}`,
           );
         }
@@ -784,7 +785,7 @@ export class Automations {
       try {
         await this.sweepDedupe(now);
       } catch (error) {
-        console.warn(
+        log.warn(
           "automation dedupe sweep failed: " +
             (error instanceof Error ? error.message : String(error)),
         );
@@ -832,7 +833,7 @@ export class Automations {
           });
           linearQueued = true;
         } catch (error) {
-          console.error(
+          log.error(
             `linear session lane queue failed: ${error instanceof Error ? error.message : String(error)}`,
           );
         }

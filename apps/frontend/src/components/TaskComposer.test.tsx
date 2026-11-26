@@ -593,4 +593,9 @@ describe("TaskComposer", () => {
       expect(screen.getByText("Uploading…")).toBeTruthy();
     });
   });
+
+  it("states that creating a task and approving execution are separate decisions", () => {
+    renderComposer("hero");
+    expect(screen.getByText("Two separate decisions: creating a task, and approving execution.")).toBeTruthy();
+  });
 });

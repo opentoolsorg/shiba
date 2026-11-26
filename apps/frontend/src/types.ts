@@ -4,6 +4,7 @@ import type { RoutineInfo } from "./routines";
 // backend serves); genuinely UI-only or server-projected shapes stay local.
 import type {
   AuditRow,
+  DashboardRunProvenance,
   DelegatedRun,
   DraftRecord,
   EmailDirection,
@@ -19,12 +20,11 @@ import type {
 export type { EmailDirection } from "@shiba/shared";
 
 /**
- * Retained run record from `GET /api/runs` — the orchestrator's
- * DelegatedRun verbatim. Aliased (not mirrored) so drift is impossible.
+ * Retained orchestrator run with the Worker and summary projection fields from GET /api/runs.
  */
 // Summary-projection rows (GET /api/runs?view=summary) keep every required
 // DelegatedRun field plus `hasDiff`; heavy fields stay optional/absent.
-export type RetainedRun = DelegatedRun & { hasDiff?: boolean; routine?: RoutineInfo };
+export type RetainedRun = DelegatedRun & DashboardRunProvenance & { hasDiff?: boolean; routine?: RoutineInfo };
 
 export interface ToolRunPart {
   text?: string;
@@ -173,6 +173,8 @@ export interface VMRun {
   expectedDeliverables?: string[];
   deliverables?: RunDeliverable[];
   executionTarget?: ExecutionTarget;
+  /** Recorded approval evidence from the retained run; absent when none was stored. */
+  approval?: RetainedRun["approval"];
   parentRunId?: string;
   subagentPath?: string;
   subagentSandbox?: "fresh" | "shared";

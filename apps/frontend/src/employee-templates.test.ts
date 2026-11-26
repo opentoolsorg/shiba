@@ -4,7 +4,7 @@ import { EMPLOYEE_TEMPLATES, employeeRole, recommendEmployeeTemplate } from "./e
 
 describe("employee role templates", () => {
   it("preserves existing roles and offers GTM, HR and finance as optional editable identities", () => {
-    expect(EMPLOYEE_TEMPLATES.map((template) => template.label)).toEqual(["Engineering", "Marketing", "Sales", "Product", "Design", "Research", "Operations", "QA", "GTM", "HR", "Finance"]);
+    expect(EMPLOYEE_TEMPLATES.map((template) => template.label)).toEqual(["Engineering", "Marketing", "Sales", "Product", "Design", "Research", "Operations", "QA", "GTM", "HR", "Support", "Finance"]);
     expect(EMPLOYEE_TEMPLATES.map((template) => template.id)).toEqual(CUSTOM_AGENT_ROLE_TEMPLATE_IDS);
     expect(new Set(EMPLOYEE_TEMPLATES.map((template) => template.slug)).size).toBe(EMPLOYEE_TEMPLATES.length);
     for (const template of EMPLOYEE_TEMPLATES) {
@@ -35,6 +35,7 @@ describe("employee role templates", () => {
       ["qa/report.md"],
       ["gtm/strategy.md", "gtm/launch-plan.md"],
       ["hr/brief.md", "hr/workflow.md"],
+      ["support/triage.md"],
       ["finance/analysis.md", "finance/assumptions.json"],
     ]);
     for (const template of EMPLOYEE_TEMPLATES) {

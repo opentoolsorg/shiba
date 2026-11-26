@@ -38,6 +38,7 @@ import {
 import { deleteConnection, loadConnection, loadHostId, saveConnection, saveHostId } from "./chatgpt/connection-store.js";
 import { modelCredentialKeyConfigured } from "./subscription-credentials.js";
 import { redactSecrets } from "./security.js";
+import { log } from "./obs/log.js";
 
 const PENDING_KEY = "pending";
 const DEVICE_PENDING_KEY = "device-pending";
@@ -111,7 +112,7 @@ export class ChatGptAuth extends DurableObject<Env> {
       return Response.json({ error: "Not found." }, { status: 404 });
     } catch (error) {
       const message = error instanceof ChatGptOAuthError ? error.message : "ChatGPT auth failed.";
-      console.error("ChatGptAuth", redactSecrets(message));
+      log.error("ChatGptAuth", redactSecrets(message));
       if (error instanceof ChatGptOAuthError && error.clearConnection) {
         await deleteConnection(this.env, this.userId());
       }

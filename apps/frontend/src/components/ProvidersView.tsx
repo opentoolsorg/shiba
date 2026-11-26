@@ -736,6 +736,7 @@ export function ProvidersBoard({
   onTest,
   onDisconnect,
   onDefault,
+  onOpenSettings,
   scope = "personal",
   embedded = false,
 }: {
@@ -753,6 +754,7 @@ export function ProvidersBoard({
   onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   onDefault: (id: string) => void;
+  onOpenSettings?: (section: "models") => void;
   scope?: Scope;
   embedded?: boolean;
 }): JSX.Element {
@@ -841,6 +843,18 @@ export function ProvidersBoard({
                 onDisconnect={onDisconnect}
                 onDefault={onDefault}
               />
+              {!embedded ? (
+                <section aria-label="Connection stages" className="text-xs text-[var(--muted-foreground-2)]">
+                  <h4 className="font-semibold text-[var(--fg)]">Connection stages</h4>
+                  <ol className="mt-1 list-decimal space-y-0.5 pl-4">
+                    <li>Start sign-in or enter the supported credential.</li>
+                    <li>For browser sign-in, finish on the provider’s page; the connection stays waiting until then.</li>
+                    <li>Shiba stores the connection. A connected badge means it is stored, not that it works.</li>
+                    <li>Test the connection before choosing it as your default.</li>
+                  </ol>
+                  <p className="mt-1">Disconnecting removes the stored sign-in or credential for that provider. It does not delete your agents.</p>
+                </section>
+              ) : null}
             </section>
           )}
 
@@ -851,6 +865,9 @@ export function ProvidersBoard({
                 Named credentials a run can route through.
               </p>
             </div>
+            {onOpenSettings ? (
+              <button type="button" onClick={() => onOpenSettings("models")} className="self-start text-xs font-medium text-[var(--fg)] underline underline-offset-2">Model routing</button>
+            ) : null}
             <ConnectionsCard />
           </section> : null}
         </div>
@@ -868,9 +885,10 @@ export interface ProvidersViewProps {
    * answer for the rest of the session.
    */
   onProviderStateChanged?: () => void;
+  onOpenSettings?: (section: "models") => void;
 }
 
-export function ProvidersView({ scope = "personal", embedded = false, onProviderStateChanged }: ProvidersViewProps = {}): JSX.Element {
+export function ProvidersView({ scope = "personal", embedded = false, onProviderStateChanged, onOpenSettings }: ProvidersViewProps = {}): JSX.Element {
   const [snapshot, setSnapshot] = useState<AcpProvidersSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -969,6 +987,7 @@ export function ProvidersView({ scope = "personal", embedded = false, onProvider
       onDefault={(id) =>
         void run(id, "default", () => postProvider(`/api/providers/${id}/default`, {}))
       }
+      onOpenSettings={onOpenSettings}
       scope={scope}
       embedded={embedded}
     />

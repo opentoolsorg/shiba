@@ -40,6 +40,7 @@ import {
 import { requestSlackMedia } from "./slack-media-output.js";
 
 import { isSlackMessageTimestamp, signSlackBufferRequest, type BufferedSlackMessage } from "./slack-turn-buffer.js";
+import { log } from "./obs/log.js";
 
 const SLACK_REPLIES = "https://slack.com/api/conversations.replies";
 
@@ -373,7 +374,7 @@ export async function handleSlackEvent(
           return;
         }
       } catch (error) {
-        console.error("Slack turn buffering failed", redactSecrets(String(error)));
+        log.error("Slack turn buffering failed", redactSecrets(String(error)));
         await postMessage({ channel: channelId, threadTs, text: "I could not save that follow-up. Please try again after this turn completes." });
         return;
       }
@@ -577,7 +578,7 @@ ${taskForRun}` : taskForRun;
       }),
     });
   } catch (error) {
-    console.error("Slack mention dispatch failed", redactSecrets(String(error)));
+    log.error("Slack mention dispatch failed", redactSecrets(String(error)));
     await postMessage({
       channel: channelId,
       threadTs,

@@ -424,7 +424,7 @@ describe("handleInboundEmail", () => {
     try {
       await expect(handleInboundEmail(message, env)).rejects.toThrow("Mailbox directory lookup failed");
       expect(warn).toHaveBeenCalledOnce();
-      const logged = String(warn.mock.calls[0]?.[0]);
+      const logged = JSON.parse(String(warn.mock.calls[0]?.[0])).msg as string;
       const event = "inbound_email_directory_lookup_failed ";
       expect(logged).toMatch(/^inbound_email_directory_lookup_failed /);
       expect(logged).not.toContain("abcdefgh");
@@ -445,7 +445,8 @@ describe("handleInboundEmail", () => {
       await expect(handleInboundEmail(makeMessage(rfc822({ Subject: "x" })).message, env)).rejects.toThrow("Mailbox directory lookup failed");
       expect(warn).toHaveBeenCalledOnce();
       const event = "inbound_email_directory_lookup_failed ";
-      expect(JSON.parse(String(warn.mock.calls[0]?.[0]).slice(event.length))).toEqual({ to: REGISTERED, status: 503 });
+      const logged = JSON.parse(String(warn.mock.calls[0]?.[0])).msg as string;
+      expect(JSON.parse(logged.slice(event.length))).toEqual({ to: REGISTERED, status: 503 });
     } finally {
       warn.mockRestore();
     }

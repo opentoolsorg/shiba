@@ -5,6 +5,7 @@ import { ensureCoordinationSchema } from "./coordination-schema.js";
 import type { Env } from "./env.js";
 import { isHostedProviderAccessStopped } from "./hosted-provider-kill-switch.js";
 import { filterEmployeesByAccess } from "./governance/employee-access.js";
+import { flag } from "./config/flags.js";
 
 export const ROUTER_MARGIN = 2;
 
@@ -105,7 +106,7 @@ export async function classifyRoute(
   message: string,
   ranked: RankedBot[],
 ): Promise<{ actorId: string; confidence: number; reason: string } | null> {
-  if (env.SHIBA_ROUTER_CLASSIFY !== "1" || typeof env.AI?.gateway !== "function" || isHostedProviderAccessStopped(env)) return null;
+  if (flag(env, "SHIBA_ROUTER_CLASSIFY") !== "1" || typeof env.AI?.gateway !== "function" || isHostedProviderAccessStopped(env)) return null;
   const allowed = new Set(ranked.map((bot) => bot.actorId));
   try {
     const base = await env.AI.gateway(env.GATEWAY_ID || "default").getUrl("grok");

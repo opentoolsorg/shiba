@@ -12,6 +12,7 @@ export interface WorkTimelineTask {
   startDate?: string;
   endDate?: string;
   assigneeName?: string;
+  canSchedule?: boolean;
 }
 
 export interface WorkTimelineViewProps {
@@ -19,6 +20,8 @@ export interface WorkTimelineViewProps {
   onOpen(id: string): void;
   /** Opens the approval review for rows that are waiting on approval. */
   onReview?(id: string): void;
+  /** Opens an editable, undated task where its start and end dates are edited. */
+  onSchedule?(id: string): void;
   className?: string;
   emptyTitle?: string;
   emptyDescription?: string;
@@ -125,6 +128,7 @@ export function WorkTimelineView({
   tasks,
   onOpen,
   onReview,
+  onSchedule,
   className = "",
   emptyTitle = "No tasks yet",
   emptyDescription = "Add a task above. It lands in Todo.",
@@ -311,7 +315,21 @@ export function WorkTimelineView({
                       className={`absolute top-1/2 h-6 -translate-y-1/2 rounded-md opacity-90 hover:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] motion-reduce:transition-none transition-opacity ${BAR[tone]}`}
                       style={{ left: offset * DAY_W + 2, width: length * DAY_W - 4 }}
                     />
-                  ) : <span className="sticky left-[var(--tl-left)] inline-flex h-full items-center px-3 text-xs text-[var(--muted-foreground-3)]">No dates recorded</span>}
+                  ) : (
+                    <span className="sticky left-[var(--tl-left)] inline-flex h-full items-center gap-3 px-3 text-xs text-[var(--muted-foreground-3)]">
+                      No dates recorded
+                      {onSchedule && task.canSchedule ? (
+                        <button
+                          type="button"
+                          onClick={() => onSchedule(task.id)}
+                          aria-label={`Schedule a task: ${task.title || "Untitled task"}`}
+                          className={viewButtonClass}
+                        >
+                          Schedule a task
+                        </button>
+                      ) : null}
+                    </span>
+                  )}
                 </div>
               </li>
             );

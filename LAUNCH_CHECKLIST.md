@@ -1,11 +1,44 @@
-# Launch-Day Deploy Checklist — shiba-ai-coworker → app.tryshiba.dev
+# Launch checklist — Shiba employee workspace → app.tryshiba.dev
+
+Operational checklist for deploying the Shiba control plane. The launch is not
+only the original repository sandbox lane. A launch-ready workspace must also be
+honest about employee profiles, artifact output, connected-app authority, local
+machines, browser/computer sessions, receipts, and which collaboration paths are
+still review-only.
 
 Read-only audit artifact. No deploy was run to produce this. Deploy is
 `alchemy.run.ts` (primary); `apps/backend/wrangler.jsonc` is the rollback path.
-Secrets are NEVER in either file — they ride via `wrangler secret put` /
-alchemy `secrets()` env bindings.
+Secrets are never in either file. They ride through `wrangler secret put` or
+alchemy `secrets()` environment bindings.
 
 Legend: **[REQ]** launch-blocking · **[LANE]** required only if that lane is used.
+
+## 0. Employee-platform readiness gate
+
+Before calling a deployment launch-ready, verify these product boundaries:
+
+- [ ] **[REQ]** Workspace creation, membership, roles, and human ownership work.
+- [ ] **[REQ]** Employee profiles have durable identity, versioned configuration,
+      instructions, runtime/model bindings, tool policy, and readiness reasons.
+- [ ] **[REQ]** Creating or configuring an employee does not start work.
+- [ ] **[REQ]** A task cannot execute before its exact approval is granted.
+- [ ] **[REQ]** Every execution lane emits lineage, evidence, and a terminal or
+      explicit outcome-unknown state.
+- [ ] **[REQ]** Publication/send/merge/post/purchase actions require separate
+      approval and produce receipts.
+- [ ] **[REQ]** Artifact workspaces store private output with provenance and
+      reviewable versions.
+- [ ] **[REQ]** Integration connections, workspace/member/employee grants, and
+      task-level execution authority are visually and technically distinct.
+- [ ] **[REQ]** Browser profiles, shared computers, and paired local machines are
+      resources with explicit grants. Connection alone is not permission.
+- [ ] **[REQ]** Employee-to-employee execution is disabled or review-only until
+      every activation gate in `docs/team-employee-coordination.md` passes.
+- [ ] **[LANE]** Repository sandbox harness lanes are verified independently.
+      A working coding lane does not prove the whole employee platform.
+- [ ] **[LANE]** Slack, Teams, Discord, Telegram, email, MCP, automations, local
+      execution, browser control, and computer control are each launched only
+      after their own smoke tests pass.
 
 ---
 

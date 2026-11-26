@@ -1,5 +1,6 @@
 import { isAuthorizedRequest, resolveUserId } from "../request-auth.js";
 import type { Env } from "../env.js";
+import { flag } from "../config/flags.js";
 import { randomHex } from "../mailbox-store.js";
 import { consumeReasonNetworkApprovalById, createReasonNetworkGrant, decideReasonNetworkApproval, getReasonNetworkApprovalForDispatch, listReasonNetworkApprovals, listReasonNetworkGrants, reasonNetworkApprovalSetup, requestReasonNetworkApproval, revokeReasonNetworkGrant, D1ReasonNetworkApprovalService } from "./approval-store.js";
 import { D1ReasonNetworkOperationStore, REASON_NETWORK_RECOVERY_WINDOW_MS } from "./operation-store.js";
@@ -24,7 +25,7 @@ export async function handleReasonNetwork(request:Request,env:Env):Promise<Respo
       const setup=await reasonNetworkApprovalSetup(env,ownerId);
       const enabled=env.REASON_NETWORK_ENABLED==="1";
       let companionConfigured=false;
-      if(enabled&&env.SHIBA_LOCAL_RUNTIME==="1"&&env.LocalDispatch&&env.PAIRING_SECRET){
+      if(enabled&&flag(env,"SHIBA_LOCAL_RUNTIME")==="1"&&env.LocalDispatch&&env.PAIRING_SECRET){
         const response=await localDispatchStub(env, ownerId).fetch(new Request("https://local-dispatch/computers"));
         const fleet=await response.json() as {computers?:Array<{pairedAt?:number;status?:string;reasonNetworkCompanion?:boolean}>};
         companionConfigured=!!fleet.computers?.some((computer)=>computer.pairedAt!==undefined&&computer.status!=="offline"&&computer.reasonNetworkCompanion===true);
@@ -36,7 +37,7 @@ export async function handleReasonNetwork(request:Request,env:Env):Promise<Respo
       if(!body||typeof body.conversationId!=="string"||!body.conversationId.trim()||body.conversationId.length>160||typeof body.sessionId!=="string"||!body.sessionId.trim()||body.sessionId.length>160||(body.companionMachineId!==undefined&&typeof body.companionMachineId!=="string"))return json({error:"A specific conversation, session, and optional paired machine are required."},400);
       const companionMachineId=typeof body.companionMachineId==="string"?body.companionMachineId.trim():undefined;
       if(companionMachineId){
-        if(env.REASON_NETWORK_ENABLED!=="1"||env.SHIBA_LOCAL_RUNTIME!=="1"||!env.LocalDispatch)return json({error:"Reason Network paired companion dispatch is disabled."},409);
+        if(env.REASON_NETWORK_ENABLED!=="1"||flag(env,"SHIBA_LOCAL_RUNTIME")!=="1"||!env.LocalDispatch)return json({error:"Reason Network paired companion dispatch is disabled."},409);
         const computersResponse=await localDispatchStub(env, ownerId).fetch(new Request("https://local-dispatch/computers"));
         const computers=await computersResponse.json() as {computers?:Array<{machineId?:string;pairedAt?:number;status?:string;reasonNetworkCompanion?:boolean}>};
         if(!computers.computers?.some((computer)=>computer.machineId===companionMachineId&&computer.pairedAt!==undefined&&computer.status!=="offline"&&computer.reasonNetworkCompanion===true))return json({error:"Select a paired, online daemon with its Reason Network companion explicitly enabled."},409);
@@ -69,7 +70,7 @@ export async function handleReasonNetwork(request:Request,env:Env):Promise<Respo
     }
     if(path.length===1&&path[0]==="operations"&&request.method==="POST"){
       if(apiVersion!=="v1")return json({error:"Reason Network operation API requires /v1/."},404);
-      if(env.REASON_NETWORK_ENABLED!=="1"||env.SHIBA_LOCAL_RUNTIME!=="1"||!env.LocalDispatch||!env.PAIRING_SECRET)return json({error:"Reason Network paired dispatch is disabled or not configured."},409);
+      if(env.REASON_NETWORK_ENABLED!=="1"||flag(env,"SHIBA_LOCAL_RUNTIME")!=="1"||!env.LocalDispatch||!env.PAIRING_SECRET)return json({error:"Reason Network paired dispatch is disabled or not configured."},409);
       const body=await objectBody(request);if(!body||typeof body.approvalId!=="string"||!body.approvalId)return json({error:"Approved approvalId is required."},400);
       const approval=await getReasonNetworkApprovalForDispatch(env,ownerId,body.approvalId);if(!approval)return json({error:"Approved message or active paired grant not found."},409);
       const scope={ownerId,grantId:approval.grantId,conversationId:approval.conversationId,sessionId:approval.sessionId};
@@ -104,7 +105,7 @@ export async function handleReasonNetwork(request:Request,env:Env):Promise<Respo
     }
     if(path.length===3&&path[0]==="operations"&&path[2]==="recover"&&request.method==="POST"){
       if(apiVersion!=="v1")return json({error:"Reason Network operation API requires /v1/."},404);
-      if(env.REASON_NETWORK_ENABLED!=="1"||env.SHIBA_LOCAL_RUNTIME!=="1"||!env.LocalDispatch||!env.PAIRING_SECRET)return json({error:"Reason Network paired dispatch is disabled or not configured."},409);
+      if(env.REASON_NETWORK_ENABLED!=="1"||flag(env,"SHIBA_LOCAL_RUNTIME")!=="1"||!env.LocalDispatch||!env.PAIRING_SECRET)return json({error:"Reason Network paired dispatch is disabled or not configured."},409);
       const store=new D1ReasonNetworkOperationStore(env);const op=await store.getByOperationId(ownerId,path[1]!);
       if(!op)return json({error:"Operation not found."},404);
       if(op.firstAttemptAt===null||op.firstAttemptAt===undefined||op.firstAttemptAt<=Date.now()-REASON_NETWORK_RECOVERY_WINDOW_MS)return json({error:"The upstream idempotency retention window has expired; leave this outcome unknown and request a new reviewed send before retrying."},409);

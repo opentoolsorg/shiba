@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { createCloudflareSandboxProvider } from "@shiba/sandbox/adapters/cloudflare";
-import { resetSandboxProviderCache, resolveSandboxProvider } from "../src/sandbox/provider.js";
+import { resetSandboxProviderCache, resolveSandboxProvider } from "../src/ports/sandbox/registry.js";
 import { setSandboxHandleResolver } from "../src/sandbox/lifecycle.js";
 
 describe("resolveSandboxProvider", () => {

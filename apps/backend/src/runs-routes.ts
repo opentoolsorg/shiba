@@ -1,4 +1,4 @@
-import type { PersonalExecutionSnapshot } from "@shiba/shared";
+import type { DashboardRunProvenance, PersonalExecutionSnapshot } from "@shiba/shared";
 /**
  * `/api/runs` — the dashboard's run registry, proxied to the caller's
  * CodingOrchestrator DO (or a session DO when ?session= names one).
@@ -98,7 +98,7 @@ export async function resolveRunStoreTarget(
   return { agentName: effectiveUserId, userId: effectiveUserId };
 }
 
-type RunSummary = { runId: string; createdAt?: number };
+type RunSummary = { runId: string; createdAt?: number } & DashboardRunProvenance;
 
 function isTeamScopedRecord(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
@@ -139,7 +139,10 @@ async function withSharedRuns(
   const mine = ((await own.json().catch(() => ({}))) as { runs?: RunSummary[] }).runs ?? [];
   const theirs = ((await sharedRes.json().catch(() => ({}))) as { runs?: RunSummary[] }).runs ?? [];
   const seen = new Set(mine.map((run) => run.runId));
-  const merged = [...mine, ...theirs.filter((run) => !seen.has(run.runId))];
+  const merged: RunSummary[] = [
+    ...mine,
+    ...theirs.filter((run) => !seen.has(run.runId)).map((run) => ({ ...run, fromSharedStore: true as const })),
+  ];
   // Same order contract as the DO: oldest-first, or newest-first when bounded.
   if (limitParam === null) {
     merged.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));

@@ -33,6 +33,7 @@ import {
 } from "./mailbox-store.js";
 import { APPROVAL_TTL_MS } from "./pending-approvals.js";
 import { InputError } from "./security.js";
+import { log } from "./obs/log.js";
 
 /**
  * Reserved DO name for the shared mailbox registry. Chosen to fail the
@@ -365,7 +366,7 @@ export class Mailbox {
               // Best-effort: a failed delete orphans one object — logged,
               // never folded into a 500 that would misreport the row as
               // undeleted.
-              console.warn(
+              log.warn(
                 `mailbox_attachment_delete_failed ${JSON.stringify({
                   key,
                   error: error instanceof Error ? error.message : String(error),

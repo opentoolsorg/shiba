@@ -271,6 +271,14 @@ export function ExternalMcpManagement(): JSX.Element {
           and redirects are unsupported. Custom servers support Worker secret references or
           pre-registered public OAuth clients. OAuth still requires tool review and approval.
         </p>
+        <ol aria-label="Server review workflow" className="mt-2 list-decimal space-y-0.5 pl-4 text-xs text-[var(--muted-foreground-2)]">
+          <li>Import: register a server as a draft. It stays inactive.</li>
+          <li>Review: discover its tools and set each tool’s reviewed effect.</li>
+          <li>Activate: enable a reviewed tool. Employee access is granted separately in tool policy.</li>
+        </ol>
+        <p className="mt-2 max-w-3xl text-xs text-[var(--muted-foreground-2)]">
+          Integrations and external MCP servers let agents use outside tools. The Shiba MCP gateway is separate: it lets external coding clients connect to this workspace. A queued run still waits for human approval.
+        </p>
       </div>
       {error ? (
         <p

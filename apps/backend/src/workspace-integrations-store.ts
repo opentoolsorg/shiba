@@ -3,7 +3,7 @@ import type { Env } from "./env.js";
 import { COLLAB_TENANT_ID } from "./collaboration-store.js";
 import { ensureTeamWorkspacesSchema, getTeamWorkspaceMembership } from "./team-workspaces-store.js";
 import { getCustomAgentById, listCustomAgents } from "./custom-agents-store.js";
-import { getIntegrationProvider } from "./integrations/runtime.js";
+import { getIntegrationProvider } from "./ports/connector/registry.js";
 import { promoteConnectorToWorkspaceScope } from "./extensions/connectors-store.js";
 import { isWorkspaceNativeAccountCurrent, nativeWorkspaceAccountSql, resolveWorkspaceNativeGrantTarget, type WorkspaceNativeMember } from "./workspace-native-authority.js";
 

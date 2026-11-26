@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { ApprovalsView } from "./ApprovalsView";
 import type { StoredApproval } from "../types";
 
@@ -79,6 +79,22 @@ describe("ApprovalsView", () => {
     expect(screen.getByText("1 open")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close approval search" }));
     expect(screen.getByText("Ship the receipt fix")).toBeTruthy();
+  });
+
+  it("explains a publication-only queue and links publication cards to Work, diff and evidence", () => {
+    const publication: StoredApproval = { ...pending, approvalId: "pr-publish:run-1", kind: "pr_publish", payload: { repoUrl: "https://github.com/acme/shop", baseBranch: "main", runId: "run-1", sha256: "abc", bytes: 1, fileCount: 1 } };
+    const onOpenInWork = vi.fn();
+    const onInspectRunDiff = vi.fn();
+    const onOpenRunEvidence = vi.fn();
+    renderApprovals({ storedApprovals: [publication], onOpenInWork, onInspectRunDiff, onOpenRunEvidence });
+    expect(screen.getByText(/Only publication approvals are waiting/)).toBeTruthy();
+    const section = screen.getByRole("region", { name: "Publication review" });
+    fireEvent.click(within(section).getByRole("button", { name: "Open in Work" }));
+    expect(onOpenInWork).toHaveBeenCalledExactlyOnceWith(publication);
+    fireEvent.click(within(section).getByRole("button", { name: "Inspect diff" }));
+    expect(onInspectRunDiff).toHaveBeenCalledExactlyOnceWith("run-1");
+    fireEvent.click(within(section).getByRole("button", { name: "Evidence" }));
+    expect(onOpenRunEvidence).toHaveBeenCalledExactlyOnceWith("run-1");
   });
 
   it("does not count locally resolved approvals as open", () => {

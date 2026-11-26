@@ -1,10 +1,13 @@
 import { Loader2, Plus } from "lucide-react";
 import type React from "react";
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
+import type { WorkTaskPatch } from "../work-mutations";
 
 export interface WorkQuickAddProps {
-  /** Resolve `false` (or reject) to keep the draft; any other result clears it. */
-  onSubmit(text: string): void | boolean | Promise<boolean | void>;
+  /** Resolve `false` (or reject) to keep the draft; any other result clears it. `patch` carries only fields the user filled in. */
+  onSubmit(text: string, patch?: WorkTaskPatch): void | boolean | Promise<boolean | void>;
+  /** Team create only: enables the optional assignee, schedule and dependency fields. */
+  fields?: { owners: readonly { id: string; name: string }[]; tasks: readonly { id: string; title: string }[] };
   disabled?: boolean;
   placeholder?: string;
   className?: string;
@@ -12,8 +15,13 @@ export interface WorkQuickAddProps {
   failureMessage?: string;
 }
 
+const detailLabel = "flex flex-col gap-1 text-xs text-[var(--muted-foreground-2)]";
+const detailField =
+  "min-h-11 w-full min-w-0 rounded-md border border-[var(--border-1)] bg-transparent px-2 text-[13px] text-[var(--fg)] focus-visible:outline-2 focus-visible:outline-[var(--ring)] disabled:opacity-50 lg:min-h-8 dark:[color-scheme:dark]";
+
 export function WorkQuickAdd({
   onSubmit,
+  fields,
   disabled = false,
   placeholder = "Add a task and press Enter",
   className = "",
@@ -24,19 +32,32 @@ export function WorkQuickAdd({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
+  const [open, setOpen] = useState(false);
+  const [extra, setExtra] = useState({ owner: "", start: "", end: "", dependsOn: "" });
+  const panelId = useId();
 
   const submit = async () => {
     const trimmed = text.trim();
     if (!trimmed || disabled || inFlight.current) return;
     inFlight.current = true;
     setError(null);
+    const patch: WorkTaskPatch = {
+      ...(extra.owner ? { ownerId: extra.owner } : {}),
+      ...(extra.start ? { startDate: extra.start } : {}),
+      ...(extra.end ? { endDate: extra.end } : {}),
+      ...(extra.dependsOn ? { waitingOn: [extra.dependsOn] } : {}),
+    };
+    const clear = () => {
+      setText("");
+      setExtra({ owner: "", start: "", end: "", dependsOn: "" });
+    };
     try {
-      const result = onSubmit(trimmed);
+      const result = Object.keys(patch).length ? onSubmit(trimmed, patch) : onSubmit(trimmed);
       if (result instanceof Promise) {
         setPending(true);
-        if ((await result) !== false) setText("");
+        if ((await result) !== false) clear();
       } else if (result !== false) {
-        setText("");
+        clear();
       }
     } catch {
       setError(failureMessage);
@@ -93,6 +114,43 @@ export function WorkQuickAdd({
         />
         {pending ? <span className="sr-only">Adding task</span> : null}
       </label>
+      {fields ? (
+        <>
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={open ? panelId : undefined}
+            onClick={() => setOpen((value) => !value)}
+            className="mt-1 min-h-11 px-1 text-xs text-[var(--muted-foreground-2)] underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-[var(--ring)] lg:min-h-8"
+          >
+            {open ? "Hide details" : "Add details"}
+          </button>
+          {open ? <div id={panelId} className="grid gap-2 pb-1 sm:grid-cols-2">
+            <label className={detailLabel}>
+              Assignee
+              <select value={extra.owner} disabled={disabled} onChange={(e) => setExtra({ ...extra, owner: e.target.value })} className={detailField}>
+                <option value="">Unassigned</option>
+                {fields.owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.name}</option>)}
+              </select>
+            </label>
+            <label className={detailLabel}>
+              Depends on
+              <select value={extra.dependsOn} disabled={disabled} onChange={(e) => setExtra({ ...extra, dependsOn: e.target.value })} className={detailField}>
+                <option value="">No dependency</option>
+                {fields.tasks.map((task) => <option key={task.id} value={task.id}>{task.title || "Untitled task"}</option>)}
+              </select>
+            </label>
+            <label className={detailLabel}>
+              Start date
+              <input type="date" value={extra.start} max={extra.end || undefined} disabled={disabled} onChange={(e) => setExtra({ ...extra, start: e.target.value })} className={detailField} />
+            </label>
+            <label className={detailLabel}>
+              End date
+              <input type="date" value={extra.end} min={extra.start || undefined} disabled={disabled} onChange={(e) => setExtra({ ...extra, end: e.target.value })} className={detailField} />
+            </label>
+          </div> : null}
+        </>
+      ) : null}
       {error ? (
         <p role="alert" className="mt-2 text-sm text-[var(--destructive-fg)]">
           {error}

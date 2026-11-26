@@ -5,9 +5,9 @@
  * It makes no model calls of its own.
  */
 import { AIChatAgent, type ChatRecoveryContext, type ChatRecoveryOptions, type OnChatMessageOptions } from "@cloudflare/ai-chat";
-import { getSandboxInstance, resolveSandboxProviderForSelection } from "../sandbox/provider.js";
+import { sandboxRegistryFor, type SandboxRegistry } from "../ports/sandbox/registry.js";
 import type { SandboxSelectionContext } from "../sandbox/selection.js";
-import type { SandboxInstance } from "@shiba/sandbox";
+import type { SandboxInstance } from "../ports/sandbox/interface.js";
 import {
   createUIMessageStream,
   createUIMessageStreamResponse,
@@ -16,6 +16,7 @@ import {
 } from "ai";
 import type { Env } from "../env.js";
 import { recordRunOutcome } from "../observability.js";
+import { flag } from "../config/flags.js";
 import { publishFilesAsPullRequest } from "../github.js";
 import {
   addPullToProject,
@@ -75,6 +76,7 @@ import { prepareRunOutputArchive } from "../run-output-archive-admission.js";
 import { isQuietRoutine } from "../routine-outcome.js";
 import { DASHBOARD_ORG_ID } from "../org-request-auth.js";
 import { saveRunComputerScreenshot } from "../run-computer-output.js";
+import { log } from "../obs/log.js";
 
 export async function pinSandboxEgress(
   env: Env,
@@ -83,11 +85,12 @@ export async function pinSandboxEgress(
   egressHosts?: string[],
   egressOverrides?: EgressOverride[],
   selection: SandboxSelectionContext = {},
+  registry: SandboxRegistry = sandboxRegistryFor(env),
 ): Promise<void> {
-  const instance = await getSandboxInstance(env, sandboxId, selection);
+  const instance = await registry.get(sandboxId, selection);
   if (!instance.pinEgress) {
     throw new Error(
-      `Sandbox provider "${env.SHIBA_SANDBOX_PROVIDER ?? "cloudflare"}" cannot pin egress at the edge.`,
+      `Sandbox provider "${flag(env, "SHIBA_SANDBOX_PROVIDER") ?? "cloudflare"}" cannot pin egress at the edge.`,
     );
   }
   const outboundByHost =
@@ -129,18 +132,19 @@ export function createSandboxOps(
   egressHosts?: string[],
   egressOverrides?: EgressOverride[],
   selection: SandboxSelectionContext = {},
+  registry: SandboxRegistry = sandboxRegistryFor(env),
 ): SandboxOps {
   let instancePromise: Promise<SandboxInstance> | undefined;
   const instance = () => {
-    instancePromise ??= getSandboxInstance(env, sandboxId, selection);
+    instancePromise ??= registry.get(sandboxId, selection);
     return instancePromise;
   };
   return {
     async supportsJournal() {
-      return (await resolveSandboxProviderForSelection(env, selection)).capabilities.journaledExec === true;
+      return (await registry.resolveForSelection(selection)).capabilities.journaledExec === true;
     },
     async pinEgress() {
-      await pinSandboxEgress(env, sandboxId, null, egressHosts, egressOverrides, selection);
+      await pinSandboxEgress(env, sandboxId, null, egressHosts, egressOverrides, selection, registry);
     },
     async gitCheckout(repoUrl, opts) {
       // The clone runs before anything else, so it is where this run's egress
@@ -148,7 +152,7 @@ export function createSandboxOps(
       // GitHub credential scoped to this one repo (B6). The pin + clone pair
       // is one retried unit — a half-pinned sandbox must not be reused.
       await withRetry(HARNESS_RETRY, async () => {
-        await pinSandboxEgress(env, sandboxId, repoUrl, egressHosts, egressOverrides, selection);
+        await pinSandboxEgress(env, sandboxId, repoUrl, egressHosts, egressOverrides, selection, registry);
         await (await instance()).gitCheckout(repoUrl, { branch: opts.branch, targetDir: opts.targetDir });
       });
     },
@@ -814,7 +818,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
       const itemId = await addPullToProject(board.projectId, nodeId, token);
       await setItemStatus(board.projectId, itemId, "In review", token);
     } catch (error) {
-      console.warn(`project board sync failed: ${error instanceof Error ? error.message : String(error)}`);
+      log.warn(`project board sync failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }

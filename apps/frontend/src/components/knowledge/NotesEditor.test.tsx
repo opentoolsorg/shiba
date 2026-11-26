@@ -4,21 +4,47 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { NotesEditor } from "./NotesEditor";
 import type { UseWorkspaceEventsOptions } from "../../state/workspace-events";
 
-const realtime = vi.hoisted(() => ({ options: null as UseWorkspaceEventsOptions | null, setEditable: vi.fn(), setContent: vi.fn() }));
+const realtime = vi.hoisted(() => ({ options: null as UseWorkspaceEventsOptions | null, setEditable: vi.fn(), setContent: vi.fn(), body: "Body" }));
 
 vi.mock("@tiptap/react", () => {
   const editor = {
     commands: { setContent: realtime.setContent },
     setEditable: realtime.setEditable,
-    state: { doc: { forEach: (visit: (node: unknown) => void) => visit({ type: { name: "paragraph" }, textContent: "Body" }) } },
+    getText: () => realtime.body,
+    state: { doc: { forEach: (visit: (node: unknown) => void) => visit({ type: { name: "paragraph" }, textContent: realtime.body }) } },
     chain: () => ({ focus: () => ({ toggleHeading: () => ({ run: vi.fn() }), toggleBulletList: () => ({ run: vi.fn() }), insertContent: () => ({ run: vi.fn() }), toggleCodeBlock: () => ({ run: vi.fn() }), toggleBlockquote: () => ({ run: vi.fn() }) }) }),
   };
-  return { useEditor: () => editor, EditorContent: () => <div data-testid="editor-surface" /> };
+  let update: (event: { editor: typeof editor }) => void;
+  return {
+    useEditor: ({ onUpdate }: { onUpdate: typeof update }) => { update = onUpdate; return editor; },
+    EditorContent: () => <textarea aria-label="Note body" data-testid="editor-surface" onChange={(event) => {
+      realtime.body = event.target.value;
+      update({ editor });
+    }} />,
+  };
 });
 
 vi.mock("../../state/workspace-events", () => ({ useWorkspaceEvents: (options: UseWorkspaceEventsOptions) => { realtime.options = options; return false; } }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); realtime.body = "Body"; });
+
+async function openNoteWithMemoryShortcut() {
+  const note = { id: "note_1", title: "Draft", version: 1 };
+  const patches: { body: unknown; finish: (response: Response) => void }[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (path: string, options?: RequestInit) => {
+    if (options?.method === "PATCH") return new Promise<Response>((finish) => {
+      patches.push({ body: JSON.parse(String(options.body)), finish });
+    });
+    if (path.endsWith("/body")) return new Response("Body");
+    return Response.json({ notes: [note] });
+  }));
+  const onNavigate = vi.fn();
+  render(<NotesEditor onNavigate={onNavigate} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Draft" }));
+  await waitFor(() => expect(realtime.setEditable).toHaveBeenLastCalledWith(true, false));
+  const shortcut = screen.getByRole("button", { name: "Save reviewed text as a memory source" });
+  return { note, patches, onNavigate, shortcut, body: screen.getByRole("textbox", { name: "Note body" }) };
+}
 
 describe("NotesEditor", () => {
   it("renders notes list and editor surface", () => {
@@ -106,4 +132,68 @@ describe("NotesEditor", () => {
     expect(screen.getByRole("button", { name: "Snapshot row" })).toBeTruthy();
   });
 
+  it("navigates to memory sources without saving when there are no changes", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ notes: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetcher);
+    const onNavigate = vi.fn();
+    const { unmount } = render(<NotesEditor />);
+    await act(async () => {});
+    expect(screen.queryByRole("button", { name: "Save reviewed text as a memory source" })).toBeNull();
+    unmount();
+
+    render(<NotesEditor onNavigate={onNavigate} />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Save reviewed text as a memory source" }));
+    expect(onNavigate).toHaveBeenCalledWith("memory");
+    expect(fetcher.mock.calls.every((call) => !(call as unknown as [string, RequestInit?])[1]?.method)).toBe(true);
+  });
+
+  it("flushes a pending body edit and waits for the save before opening Memory", async () => {
+    const { note, patches, onNavigate, shortcut, body } = await openNoteWithMemoryShortcut();
+    fireEvent.change(body, { target: { value: "Unsaved paragraph" } });
+    expect(patches).toHaveLength(0);
+    fireEvent.click(shortcut);
+    expect(patches).toHaveLength(1);
+    expect(patches[0]!.body).toEqual({ title: "Draft", markdown: "Unsaved paragraph\n", expectedVersion: 1 });
+    expect(shortcut).toHaveProperty("disabled", true);
+    expect(onNavigate).not.toHaveBeenCalled();
+    await act(async () => patches[0]!.finish(Response.json({ note: { ...note, version: 2 } })));
+    expect(onNavigate).toHaveBeenCalledExactlyOnceWith("memory");
+  });
+
+  it("waits for an in-flight save, then persists newer edits with the returned version", async () => {
+    const { note, patches, onNavigate, shortcut, body } = await openNoteWithMemoryShortcut();
+    const title = screen.getByRole("textbox", { name: "Note title" });
+    fireEvent.change(title, { target: { value: "First edit" } });
+    fireEvent.blur(title);
+    expect(patches).toHaveLength(1);
+    expect(patches[0]!.body).toEqual({ title: "First edit", markdown: "Body\n", expectedVersion: 1 });
+    fireEvent.change(body, { target: { value: "Newer body" } });
+    fireEvent.click(shortcut);
+    expect(patches).toHaveLength(1);
+    expect(onNavigate).not.toHaveBeenCalled();
+
+    await act(async () => patches[0]!.finish(Response.json({ note: { ...note, title: "First edit", version: 2 } })));
+    expect(patches).toHaveLength(2);
+    expect(patches[1]!.body).toEqual({ title: "First edit", markdown: "Newer body\n", expectedVersion: 2 });
+    expect(onNavigate).not.toHaveBeenCalled();
+    await act(async () => patches[1]!.finish(Response.json({ note: { ...note, title: "First edit", version: 3 } })));
+    expect(onNavigate).toHaveBeenCalledExactlyOnceWith("memory");
+  });
+
+  it("keeps the edited note open if the save fails and allows another attempt", async () => {
+    const { note, patches, onNavigate, shortcut, body } = await openNoteWithMemoryShortcut();
+    fireEvent.change(body, { target: { value: "Keep my draft" } });
+    fireEvent.click(shortcut);
+    await act(async () => patches[0]!.finish(Response.json({ error: "Save failed" }, { status: 500 })));
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(body).toHaveProperty("value", "Keep my draft");
+    expect(shortcut).toHaveProperty("disabled", false);
+
+    fireEvent.click(shortcut);
+    expect(patches).toHaveLength(2);
+    expect(patches[1]!.body).toEqual(patches[0]!.body);
+    await act(async () => patches[1]!.finish(Response.json({ note: { ...note, version: 2 } })));
+    expect(onNavigate).toHaveBeenCalledExactlyOnceWith("memory");
+  });
 });

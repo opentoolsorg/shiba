@@ -25,6 +25,7 @@ import {
   CollaborationStoreError,
   approveCollaborationSlackDeliveryIntent,
   cancelCollaborationHandoff,
+  cancelCreatedCollaborationHandoff,
   createCollaborationSlackDeliveryIntent,
   createCollaborationSlackLink,
   createChildCollaborationHandoff,
@@ -60,13 +61,12 @@ import { resolveRequestIdentity } from "./request-auth.js";
 import { queueCollaborationRun } from "./runs-routes.js";
 import { isSupportedEmployeeToolScope, resolveEmployeeRunToolContext } from "./employee-run-tools.js";
 import { signInternalRequest } from "./edge-identity.js";
-import { bindCollaborationContextApproval, freezeCollaborationContext, isCollaborationContextCurrent, prepareCollaborationHumanAssignment, readCollaborationHumanAssignment } from "./collaboration-context.js";
+import { bindCollaborationContextApproval, freezeCollaborationContext, isCollaborationContextCurrent, prepareCollaborationEmployeeContext, prepareCollaborationHumanAssignment, readCollaborationHumanAssignment } from "./collaboration-context.js";
 import { consumeSlackCoworkerSubmission, bindSlackCoworkerApproval } from "./slack-coworker-execution.js";
 import { createCollaborationMemory, listCollaborationMemory, revokeCollaborationMemory } from "./collaboration-memory.js";
 import { resolvePersonalExecutionOwner, resolvePersonalExecutionGrant } from "./personal-execution-store.js";
 import { parseAgentResult } from "./opencode-input.js";
 import { redactSecrets } from "./security.js";
-import { employeeCoordinationUnavailable } from "./employee-coordination.js";
 import {
   attachMessageV2Metadata,
 } from "./collaboration-mentions.js";
@@ -96,6 +96,7 @@ import {
   upsertReadCursor,
 } from "./collaboration-engagement-store.js";
 import { getTaskThread, listRoomTasks, openTaskThread, postTaskReply } from "./collaboration-task-threads.js";
+import { log } from "./obs/log.js";
 
 const PREFIX = "/api/collaboration";
 const BODY_LIMIT = 16 * 1024;
@@ -916,7 +917,7 @@ export async function handleCollaboration(
       try {
         await deps.onSlackDeliveryIntent?.(intent);
       } catch (error) {
-        console.error("Slack room delivery intent adapter failed", error instanceof Error ? error.message : String(error));
+        log.error("Slack room delivery intent adapter failed", error instanceof Error ? error.message : String(error));
       }
       return json({ intent, sent: false }, 202);
     }
@@ -1228,7 +1229,6 @@ export async function handleCollaboration(
       );
       let envelope: CollaborationHandoffEnvelope;
       let input: CollaborationHandoffRow;
-      let saved: CollaborationHandoffRow | null;
       const requestedProfileVersion = recipient.profileVersion ?? undefined;
       const hasHumanRequest = recipient.actorKind === "human" &&
         (body.task !== undefined || body.contextMessageIds !== undefined || body.memoryRefs !== undefined);
@@ -1305,7 +1305,6 @@ export async function handleCollaboration(
               : `Invalid handoff envelope: ${validation.reason}.`,
           );
         }
-        saved = await createRootCollaborationHandoff(env, scope, input, await prepareHumanWrite());
       } else {
         const parent = await getCollaborationHandoff(env, scope, parentId);
         if (
@@ -1313,13 +1312,12 @@ export async function handleCollaboration(
           parent.roomId !== roomId ||
           parent.taskId !== body.taskId ||
           parent.status !== "active" ||
-          parent.recipientActorId !== senderActor.actorId ||
-          parent.recipientUserId !== scope.userId
+          !(
+            (parent.recipientActorId === senderActor.actorId && parent.recipientUserId === scope.userId) ||
+            parent.senderUserId === scope.userId
+          )
         ) {
           return json({ error: "Active parent handoff not found for this participant." }, 404);
-        }
-        if (parent.recipientActorId.startsWith("agent:")) {
-          return employeeCoordinationUnavailable();
         }
         const parentEnvelope = envelopeForHandoff(parent);
         const lineage = childHandoffLineage(parentEnvelope);
@@ -1380,34 +1378,29 @@ export async function handleCollaboration(
               : `Invalid handoff envelope: ${validation.reason}.`,
           );
         }
-        saved = await createChildCollaborationHandoff(env, scope, input, await prepareHumanWrite());
       }
-      if (!saved) {
-        const prior = await getCollaborationHandoff(env, scope, body.handoffId);
-        const sameRequest = prior &&
+      const matchesHandoff = (prior: CollaborationHandoffRow | null): prior is CollaborationHandoffRow =>
+        prior !== null &&
           prior.status === "active" &&
           prior.tenantId === input.tenantId &&
           prior.workspaceId === input.workspaceId &&
           prior.roomId === roomId &&
-          prior.taskId === body.taskId.trim() &&
+          prior.taskId === input.taskId &&
           prior.senderUserId === scope.userId &&
           prior.senderActorId === senderActor.actorId &&
           prior.recipientUserId === recipient.userId &&
           prior.recipientActorId === recipient.actorId &&
-          prior.parentHandoffId === parentId &&
+          prior.parentHandoffId === input.parentHandoffId &&
           prior.rootHandoffId === input.rootHandoffId &&
           prior.depth === input.depth &&
           JSON.stringify(prior.ancestorHandoffIds) === JSON.stringify(input.ancestorHandoffIds) &&
           prior.profileVersion === input.profileVersion &&
           JSON.stringify([...new Set(prior.grantedCapabilities)].sort()) === JSON.stringify([...new Set(input.grantedCapabilities)].sort()) &&
-          (parentId === null ? prior.remainingBudget === input.remainingBudget : prior.remainingBudget <= input.remainingBudget);
-        if (!sameRequest) return json({ error: "Handoff could not be created; the membership or remaining handoff budget may have changed." }, 409);
-        saved = prior;
-      }
-      if (recipient.actorKind === "agent" && !saved.approvalId) {
-        let task = typeof body.task === "string" ? body.task.trim() : "";
+          (input.parentHandoffId === null ? prior.remainingBudget === input.remainingBudget : prior.remainingBudget <= input.remainingBudget);
+      const handoffConflict = () => json({ error: "Handoff could not be created; the membership or remaining handoff budget may have changed." }, 409);
+      const prepareEmployeeWork = async () => {
+        const task = typeof body.task === "string" ? body.task.trim() : "";
         if (!task || task.length > 4_000) {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody(
             "An employee request must contain 1–4000 characters of task instructions.",
           );
@@ -1423,7 +1416,6 @@ export async function handleCollaboration(
                 recipient.profileVersion,
               );
         if (!profile) {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return json({ error: "Pinned employee profile is no longer available." }, 409);
         }
         let personalExecution: PersonalExecutionSnapshot | undefined;
@@ -1434,25 +1426,21 @@ export async function handleCollaboration(
             typeof (selection as Record<string, unknown>).grantId !== "string" ||
             !Number.isSafeInteger((selection as Record<string, unknown>).expectedVersion) ||
             ["runtime", "targetMachineId", "executionTarget", "repoUrl", "harness", "codingModel", "model", "connectionId", "publishPullRequest", "runSetup", "env", "authAccount", "reasoningEffort", "testCommand"].some((key) => body[key] !== undefined)) {
-            await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
             return invalidBody("Select one current personal execution grant without overriding its account, machine, model or repository.");
           }
           const owner = await resolvePersonalExecutionOwner(request, env);
           const grant = owner && owner.actorId === scope.userId && owner.workspaceId === scope.workspaceId
             ? await resolvePersonalExecutionGrant(env, owner, (selection as { grantId: string }).grantId) : null;
           if (!grant || grant.grantVersion !== (selection as { expectedVersion: number }).expectedVersion) {
-            await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
             return json({ error: "Your personal account grant expired, changed or is unavailable. Review it before requesting work." }, 409);
           }
           personalExecution = grant;
           if (profile.config.toolScopes?.length) {
-            await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
             return json({ error: "Personal local work requires an employee without Worker app tools. Local account consent does not fund or grant those tools." }, 403);
           }
         }
         const configuredScopes = profile.config.toolScopes ?? [];
         if (configuredScopes.some((toolScope) => !isSupportedEmployeeToolScope(toolScope))) {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return json({ error: "This employee has an unsupported app-tool scope. Update its policy before requesting work." }, 409);
         }
         if (configuredScopes.length > 0) {
@@ -1463,29 +1451,24 @@ export async function handleCollaboration(
             scope.userId,
           );
           if (!toolPolicy || configuredScopes.some((toolScope) => !toolPolicy.allowed.includes(toolScope))) {
-            await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
             return json({ error: "The requesting room member does not have the employee's active app-tool grants. Update policy before requesting work." }, 403);
           }
         }
         if (body.runtime !== undefined && body.runtime !== "sandbox" && body.runtime !== "local") {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Employee execution target must be cloud sandbox or a paired computer.");
         }
         const targetResult = body.executionTarget === undefined
           ? null
           : executionTargetSchema.safeParse(body.executionTarget);
         if (body.executionTarget !== undefined && !targetResult?.success) {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Employee work destination is invalid.");
         }
         const requestedTarget = targetResult?.success ? targetResult.data : undefined;
         if (requestedTarget?.kind === "connected-app") {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Connected-app room work is not supported yet.");
         }
-        const runtime = personalExecution || body.runtime === "local" ? "local" : "sandbox";
+        const runtime: "local" | "sandbox" = personalExecution || body.runtime === "local" ? "local" : "sandbox";
         if (requestedTarget?.kind === "artifact-workspace" && runtime === "local" && (personalExecution || !requestedTarget.expectedDeliverables.length)) {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Local artifact work requires nonempty approved deliverables and cannot use a personal repository grant.");
         }
         const repoUrl = personalExecution ? personalExecution.repoUrl : requestedTarget?.kind === "artifact-workspace"
@@ -1496,22 +1479,42 @@ export async function handleCollaboration(
               ? body.repoUrl.trim()
               : (profile.config.defaultRepoUrl ?? "");
         if (requestedTarget?.kind === "artifact-workspace" && (typeof body.repoUrl === "string" && body.repoUrl.trim())) {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Choose either a repository or an artifact workspace, not both.");
         }
         if (requestedTarget?.kind !== "artifact-workspace" && !repoUrl) {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Choose a repository, an artifact workspace, or configure a default repository on the employee profile.");
         }
         if (requestedTarget?.kind === "repository" && typeof body.repoUrl === "string" && body.repoUrl.trim() && body.repoUrl.trim() !== requestedTarget.repoUrl) {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Repository URL must match the explicit repository destination.");
         }
         const targetMachineId = personalExecution?.machineId ?? (typeof body.targetMachineId === "string" ? body.targetMachineId.trim() : "");
         if (runtime === "local" && !targetMachineId) {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return invalidBody("Choose a paired computer for local employee work.");
         }
+        return { task, customAgentId, profile, personalExecution, runtime, requestedTarget, repoUrl, targetMachineId };
+      };
+      const prior = recipient.actorKind === "agent"
+        ? await getCollaborationHandoff(env, scope, input.handoffId)
+        : null;
+      if (prior && !matchesHandoff(prior)) return handoffConflict();
+      const work = recipient.actorKind === "agent" && !prior?.approvalId ? await prepareEmployeeWork() : null;
+      if (work instanceof Response) return work;
+      let saved = prior;
+      if (!saved) {
+        const contextWrite = work
+          ? await prepareCollaborationEmployeeContext(env, scope, roomId, input.handoffId, work.task, body.contextMessageIds, body.memoryRefs)
+          : await prepareHumanWrite();
+        saved = input.parentHandoffId
+          ? await createChildCollaborationHandoff(env, scope, input, contextWrite)
+          : await createRootCollaborationHandoff(env, scope, input, contextWrite);
+        if (!saved) {
+          const winner = await getCollaborationHandoff(env, scope, input.handoffId);
+          if (!matchesHandoff(winner)) return handoffConflict();
+          saved = winner;
+        }
+      }
+      if (work && !saved.approvalId) {
+        const { task, customAgentId, profile, personalExecution, runtime, requestedTarget, repoUrl, targetMachineId } = work;
         let executorAgentName = saved.executorAgentName ?? mintCollaborationExecutor(scope, resolvedUserId);
         if (!collaborationExecutorIdentity({ ...saved, executorAgentName })) {
           return json({ error: "This handoff has no safe executor. Create a new room request." }, 409);
@@ -1532,10 +1535,9 @@ export async function handleCollaboration(
         }
         saved.executorAgentName = executorAgentName;
         const frozenContext = await freezeCollaborationContext(env, scope, roomId, saved.handoffId, task, body.contextMessageIds, body.memoryRefs);
-        task = frozenContext.task;
         const queued = await queueCollaborationRun(request, env, {
           executorAgentName,
-          task,
+          task: frozenContext.task,
           ...(repoUrl ? { repoUrl } : {}),
           ...(requestedTarget ? { executionTarget: requestedTarget } : {}),
           customAgentId,
@@ -1560,7 +1562,7 @@ export async function handleCollaboration(
         const runId = `agent-tool:${approval.approvalId}`;
         // A pending approval cannot dispatch until both this binding and the handoff link exist.
         if (!await bindSlackCoworkerApproval(env, saved.handoffId, approval.approvalId, approval.task)) {
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now());
+          await cancelCreatedCollaborationHandoff(env, scope, saved.handoffId, Date.now());
           return json({ error: "Slack coworker approval source changed.", handoffId: saved.handoffId, retryable: false }, 409);
         }
         await bindCollaborationContextApproval(env, saved.handoffId, approval.approvalId, approval.task);
@@ -1578,7 +1580,7 @@ export async function handleCollaboration(
           // approval/run identity was not available when the cancellation
           // callback first ran. Now that it is known, propagate cancellation
           // directly so the durable pending approval cannot be stranded.
-          await cancelCollaborationHandoff(env, scope, saved.handoffId, Date.now()).catch(() => false);
+          await cancelCreatedCollaborationHandoff(env, scope, saved.handoffId, Date.now()).catch(() => false);
           const cleanup = await cancelLinkedHandoffExecutors(env, [{
             ...saved,
             status: "cancelled",
@@ -1663,7 +1665,7 @@ export async function handleCollaboration(
     const message = error instanceof Error ? error.message : String(error);
     if (/UNIQUE constraint failed|PRIMARY KEY constraint failed/i.test(message))
       return json({ error: "Duplicate collaboration id." }, 409);
-    console.error("collaboration route failed", message);
+    log.error("collaboration route failed", message);
     return json({ error: "Collaboration operation failed." }, 503);
   }
 }

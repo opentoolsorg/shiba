@@ -110,6 +110,104 @@ describe("CustomAgentsView", () => {
     const patch = request.mock.calls.find(([, init]) => init?.method === "PATCH");
     expect(JSON.parse(String(patch?.[1]?.body)).expectedVersion).toBe(1);
   });
+  const self = { kind: "user", userId: "owner@example.test" } as const;
+  const otherUser = { kind: "user", userId: "manager@example.test" } as const;
+  const employee = { kind: "agent", agentId: "lead" } as const;
+  const unavailable = { kind: "agent", agentId: "missing" } as const;
+  const otherUserLabel = "Keep saved manager (manager@example.test)";
+  const unavailableLabel = "Keep saved manager (unavailable employee)";
+  const employeeLabel = "Support lead (support)";
+
+  it.each([
+    ["chooses an employee from no manager", undefined, "No manager", employeeLabel, employee],
+    ["recognizes the current person", self, "Directly to you", undefined, self],
+    ["keeps another human manager", otherUser, otherUserLabel, undefined, otherUser],
+    ["replaces another human manager with the current person", otherUser, otherUserLabel, "Directly to you", self],
+    ["clears another human manager", otherUser, otherUserLabel, "No manager", undefined],
+    ["replaces a listed employee manager with the current person", employee, employeeLabel, "Directly to you", self],
+    ["keeps an unavailable employee manager", unavailable, unavailableLabel, undefined, unavailable],
+    ["clears an unavailable employee manager", unavailable, unavailableLabel, "No manager", undefined],
+  ] as const)("%s", async (_name, before, initialLabel, choice, after) => {
+    let saved: CustomAgentWire = {
+      id: "assistant", slug: "assistant", version: 1,
+      config: { name: "Support assistant", instructions: "Answer customer questions.", harness: "opencode", reportsTo: before },
+    };
+    const lead: CustomAgentWire = {
+      id: "lead", slug: "lead", version: 1,
+      config: { name: "Support lead", instructions: "Oversee support.", harness: "opencode", roleTemplateId: "support" },
+    };
+    const request = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/custom-agents/assistant" && init?.method === "PATCH") {
+        const { config } = JSON.parse(String(init.body)) as { config: CustomAgentWire["config"] };
+        saved = { ...saved, version: 2, config };
+        return Response.json({ agent: saved });
+      }
+      return Response.json({ agents: [saved, lead] });
+    });
+    vi.stubGlobal("fetch", request);
+    render(<CustomAgentsView actorId={self.userId} />);
+    const card = (await screen.findByRole("button", { name: "View profile Support assistant" })).closest("li")!;
+    fireEvent.click(within(card).getByRole("button", { name: "Edit bot" }));
+    const picker = screen.getByRole("combobox", { name: "Reports to" });
+    expect(within(picker).getByRole("option", { selected: true }).textContent).toBe(initialLabel);
+    expect(within(picker).queryByRole("option", { name: "Support assistant (general)" })).toBeNull();
+    if (choice) {
+      const option = within(picker).getByRole("option", { name: choice }) as HTMLOptionElement;
+      fireEvent.change(picker, { target: { value: option.value } });
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await screen.findByText("Bot updated.");
+    if (after) expect(saved.config.reportsTo).toEqual(after);
+    else expect(saved.config).not.toHaveProperty("reportsTo");
+  });
+
+  it("does not offer assignment to yourself without a current person", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ agents: [] })));
+    render(<CustomAgentsView />);
+    await screen.findByText("No bots");
+    const picker = screen.getByRole("combobox", { name: "Reports to" });
+    expect(within(picker).getByRole("option", { name: "No manager", selected: true })).toBeTruthy();
+    expect(within(picker).queryByRole("option", { name: "Directly to you" })).toBeNull();
+  });
+
+  it("does not offer assignment to yourself for the unauthenticated fallback identity", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ agents: [] })));
+    render(<CustomAgentsView actorId="default" />);
+    await screen.findByText("No bots");
+    const picker = screen.getByRole("combobox", { name: "Reports to" });
+    expect(within(picker).queryByRole("option", { name: "Directly to you" })).toBeNull();
+  });
+
+  it("creates an employee with the manager from a previously saved draft", async () => {
+    const scope = "manager-draft";
+    const key = `shiba-role-draft-v1:${scope}`;
+    localStorage.setItem(key, JSON.stringify({
+      name: "Draft assistant", instructions: "Answer questions.", reportsToAgentId: employee.agentId,
+    }));
+    try {
+      const request = vi.fn(async (url: string, init?: RequestInit) => {
+        if (url === "/api/custom-agents" && init?.method === "POST") {
+          const body = JSON.parse(String(init.body));
+          return Response.json({ agent: { ...body, id: "draft-assistant", version: 1 } });
+        }
+        return Response.json({ agents: [{
+          id: employee.agentId, slug: "lead", version: 1,
+          config: { name: "Support lead", instructions: "Oversee support.", harness: "opencode", roleTemplateId: "support" },
+        }] });
+      });
+      vi.stubGlobal("fetch", request);
+      render(<CustomAgentsView actorId={self.userId} draftScope={scope} />);
+      const picker = screen.getByRole("combobox", { name: "Reports to" });
+      await within(picker).findByRole("option", { name: employeeLabel, selected: true });
+      fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
+      await screen.findByText("Bot created.");
+      const post = request.mock.calls.find(([, init]) => init?.method === "POST");
+      expect(JSON.parse(String(post?.[1]?.body)).config.reportsTo).toEqual(employee);
+    } finally {
+      localStorage.removeItem(key);
+    }
+  });
+
   it("skips fetching when disabled and loads bots when enabled", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       Response.json({
@@ -595,5 +693,288 @@ describe("account-scoped employee directory", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(patches).toBe(2);
     expect(avatar).toMatchObject({ kind: "variant" });
+  });
+});
+
+const designWorkspace = `ws_${"c".repeat(24)}`;
+
+/** A workspace directory: every endpoint the profile panels read answers, and writes are reported to the caller. */
+function stubWorkspaceDirectory(agents: CustomAgentWire[]) {
+  const writes: Array<{ url: string; init: RequestInit }> = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (init?.method && init.method !== "GET") { writes.push({ url, init }); return Response.json({ error: "unexpected write" }, { status: 500 }); }
+    if (url.endsWith("/access")) return Response.json({ level: "manage", grants: [] });
+    if (url.endsWith("/groups")) return Response.json({ groups: [] });
+    if (url.endsWith("/primary-bot")) return Response.json({ actorId: null });
+    if (url.startsWith("/api/workspaces/")) return Response.json({ workspace: { members: [] } });
+    return Response.json({ agents });
+  }));
+  return writes;
+}
+
+/** The small avatar beside the New bot / Edit bot heading. */
+function formPreview(): Element | null {
+  const heading = screen.getByRole("heading", { name: /^(New|Edit) bot$/ });
+  return heading.parentElement?.parentElement?.querySelector("svg.shiba-agent-mascot") ?? null;
+}
+
+describe("employee directory and hire design", () => {
+  const roster: CustomAgentWire[] = [
+    { id: "eng-1", slug: "builder", version: 1, config: { name: "Builder", instructions: "Build.", harness: "opencode", roleTemplateId: "engineering" } },
+    { id: "fin-1", slug: "auditor", version: 1, config: { name: "Auditor", instructions: "Audit.", harness: "opencode", roleTemplateId: "finance" } },
+    { id: "fin-2", slug: "bookkeeper", version: 1, config: { name: "Bookkeeper", instructions: "Reconcile.", harness: "codex", roleTemplateId: "finance" } },
+  ];
+
+  it("filters saved employees by the roles they carry, combines it with search, and reports the visible count", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ agents: roster })));
+    render(<CustomAgentsView />);
+    const list = await screen.findByRole("list", { name: "Saved employees" });
+    expect(screen.getByText("3 of 3 saved employees")).toBeTruthy();
+    const filter = screen.getByLabelText("Filter by role") as HTMLSelectElement;
+    // Only roles a saved employee carries are offered, once each, in roster order.
+    expect([...filter.options].map((option) => option.textContent)).toEqual(["All roles", "Engineering", "Finance"]);
+
+    fireEvent.change(filter, { target: { value: "finance" } });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(list).queryByRole("button", { name: "View profile Builder" })).toBeNull();
+    expect(screen.getByText("2 of 3 saved employees")).toBeTruthy();
+
+    // Search narrows inside the chosen role; clearing resets both controls.
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search employees" }), { target: { value: "codex" } });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(list).getByRole("button", { name: "View profile Bookkeeper" })).toBeTruthy();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search employees" }), { target: { value: "builder" } });
+    expect(screen.getByText("No employees match your search.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Clear employee search" }));
+    expect(within(list).getAllByRole("listitem")).toHaveLength(3);
+    expect(filter.value).toBe("all");
+  });
+
+  it("searches by role label and hides the role filter when every employee shares one role", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ agents: roster.slice(1) })));
+    render(<CustomAgentsView />);
+    const list = await screen.findByRole("list", { name: "Saved employees" });
+    expect(screen.queryByLabelText("Filter by role")).toBeNull();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search employees" }), { target: { value: "finance" } });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+  });
+
+  it("states the interactive and automation approval boundaries on a personal profile without granting anything", async () => {
+    const agents: CustomAgentWire[] = [{ id: "fin-1", slug: "auditor", version: 2, config: {
+      name: "Auditor", instructions: "Audit invoices.", harness: "opencode", roleTemplateId: "finance", expectedDeliverables: ["reports/exceptions.md"] } }];
+    const request = vi.fn(async () => Response.json({ agents }));
+    vi.stubGlobal("fetch", request);
+    render(<CustomAgentsView />);
+    fireEvent.click(await screen.findByRole("button", { name: "View profile Auditor" }));
+    const profile = screen.getByRole("region", { name: "Auditor overview" });
+    expect(within(profile).getByText("reports/exceptions.md")).toBeTruthy();
+    expect(within(profile).getByRole("heading", { name: "How this employee works" })).toBeTruthy();
+    expect(within(profile).getByText("Task brief and context explicitly supplied for the approved request.")).toBeTruthy();
+    expect(within(profile).getByText(/reports\/exceptions\.md/)).toBeTruthy();
+    // The approval sentence appears in both the workflow list and the Boundaries card.
+    expect(within(profile).getAllByText(/need your approval of the exact task before anything runs/).length).toBeGreaterThanOrEqual(2);
+    expect(within(profile).getAllByText(/Automated runs also require human approval\./).length).toBeGreaterThanOrEqual(1);
+    expect(within(profile).queryByText(/unattended|allowlist/i)).toBeNull();
+    const boundaries = within(profile).getByRole("complementary", { name: "Boundaries" });
+    expect(within(boundaries).getByText(/grants no tool or app access/)).toBeTruthy();
+    const link = within(boundaries).getByRole("link", { name: /Review employee tool policy/ });
+    expect(link.getAttribute("href")).toBe("/employee-tools/");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toContain("noopener");
+    expect(request.mock.calls.every((call) => !(call as unknown as [unknown, RequestInit?])[1]?.method)).toBe(true);
+  });
+
+  it("offers no tool-policy link inside a team workspace, in the profile or the hire form", async () => {
+    stubWorkspaceDirectory([{ id: "fin-1", slug: "auditor", version: 1, config: { name: "Auditor", instructions: "Audit.", harness: "opencode" } }]);
+    render(<CustomAgentsView workspaceId={designWorkspace} />);
+    fireEvent.click(await screen.findByRole("button", { name: "View profile Auditor" }));
+    const boundaries = within(screen.getByRole("region", { name: "Auditor overview" })).getByRole("complementary", { name: "Boundaries" });
+    expect(within(boundaries).getByText(/available for personal employee profiles only/)).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /employee tool policy/ })).toBeNull();
+    // The Boundaries card, the workflow tools note and the hire stage say it; none links to a personal-only page.
+    expect(screen.getAllByText(/available for personal employee profiles only/)).toHaveLength(3);
+  });
+
+  it("shows the personal tool-access setup CTA after hiring without granting access", async () => {
+    let created: CustomAgentWire | undefined;
+    const onOpenToolPolicy = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        const payload = JSON.parse(String(init.body));
+        created = { id: "personal-1", slug: payload.slug, version: 1, config: payload.config };
+        return Response.json({ agent: created }, { status: 201 });
+      }
+      return Response.json({ agents: created ? [created] : [] });
+    }));
+    render(<CustomAgentsView onOpenToolPolicy={onOpenToolPolicy} />);
+    await screen.findByText("No bots");
+    expect(screen.getByRole("list", { name: "Hire steps" }).textContent).toContain("Define the role");
+    expect(screen.getByRole("list", { name: "Hire steps" }).textContent).toContain("Set boundaries");
+    expect(screen.getByRole("list", { name: "Hire steps" }).textContent).toContain("Review the hire");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Finance helper" } });
+    fireEvent.change(screen.getByLabelText("Instructions"), { target: { value: "Review supplied data." } });
+    fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
+    const button = await screen.findByRole("button", { name: "Set up tool access" });
+    expect(screen.getByText("Tool access is a separate decision; this profile granted nothing.")).toBeTruthy();
+    expect(onOpenToolPolicy).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    // The new employee is preselected in Tool policy; nothing is granted by opening it.
+    expect(onOpenToolPolicy).toHaveBeenCalledExactlyOnceWith("personal-1");
+    expect(created).toBeTruthy();
+  });
+
+  it("links the tool policy from the hire stage in personal scope", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ agents: [] })));
+    render(<CustomAgentsView />);
+    await screen.findByText("No bots");
+    const stage = screen.getByRole("heading", { name: "Set boundaries" }).closest("section") as HTMLElement;
+    expect(within(stage).getByText(/need your approval of the exact task before anything runs/)).toBeTruthy();
+    expect(within(stage).getByRole("link", { name: /Review employee tool policy/ }).getAttribute("href")).toBe("/employee-tools/");
+  });
+
+  it("opens the editor's tool policy in a new tab instead of leaving an unsaved edit", async () => {
+    const agent = { id: "fin-1", slug: "auditor", version: 1, config: { name: "Auditor", instructions: "Audit.", harness: "opencode" } };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ agents: [agent] })));
+    const onOpenToolPolicy = vi.fn();
+    render(<CustomAgentsView onOpenToolPolicy={onOpenToolPolicy} />);
+    fireEvent.click(await screen.findByRole("button", { name: "View profile Auditor" }));
+    const profile = screen.getByRole("region", { name: "Auditor overview" });
+    fireEvent.click(within(profile).getByRole("button", { name: "Edit profile" }));
+    const name = screen.getByRole("textbox", { name: "Name" });
+    fireEvent.change(name, { target: { value: "Unsaved Auditor" } });
+
+    const stage = screen.getByRole("heading", { name: "Set boundaries" }).closest("section") as HTMLElement;
+    const link = within(stage).getByRole("link", { name: /Review employee tool policy/ });
+    expect(link).toHaveProperty("target", "_blank");
+    expect(link.getAttribute("href")).toBe("/employee-tools/");
+    fireEvent.click(link);
+    expect(onOpenToolPolicy).not.toHaveBeenCalled();
+    expect(name).toHaveProperty("value", "Unsaved Auditor");
+  });
+
+  it("walks the hire stages, reviews the real settings, and saves only real fields", async () => {
+    let body: { slug?: string; config: Record<string, unknown> } | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") return Response.json({ agents: [] });
+      body = JSON.parse(String(init.body));
+      return Response.json({ agent: { id: "new-1", slug: body?.slug ?? "", version: 1, config: body?.config } }, { status: 201 });
+    }));
+    render(<CustomAgentsView workspaceId={designWorkspace} connections={[{ id: "conn-1", label: "Team OpenAI", status: "ready" } as never]} />);
+    await screen.findByText("No bots");
+    expect(screen.getByRole("heading", { name: "Define the role" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Set boundaries" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Review the hire" })).toBeTruthy();
+    expect(screen.getByText("Step 1 of 3")).toBeTruthy();
+    expect(screen.getByText("Step 3 of 3")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Hire employee" }));
+    expect(document.activeElement).toBe(screen.getByLabelText("Name"));
+    const review = screen.getByRole("heading", { name: "Review the hire" }).closest("section") as HTMLElement;
+    expect(within(review).getByText("Not named yet · Custom")).toBeTruthy();
+    expect(within(review).getByText("None required")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create bot" }).hasAttribute("disabled")).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Finance Auditor" } });
+    fireEvent.change(screen.getByLabelText("Role"), { target: { value: "finance" } });
+    fireEvent.change(screen.getByLabelText("Instructions"), { target: { value: "Review approved invoices." } });
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "gpt-review" } });
+    fireEvent.change(screen.getByLabelText("Model connection"), { target: { value: "conn-1" } });
+    fireEvent.change(screen.getByLabelText("Default repository"), { target: { value: "https://github.com/example/books" } });
+    fireEvent.change(screen.getByLabelText(/^Required deliverables/), { target: { value: "reports/a.md\nreports/b.md" } });
+    expect(screen.queryByRole("radiogroup", { name: "Agent access" })).toBeNull();
+
+    expect(within(review).getByText("Finance Auditor · Finance")).toBeTruthy();
+    expect(within(review).getByText("opencode · gpt-review")).toBeTruthy();
+    expect(within(review).getByText("Team OpenAI")).toBeTruthy();
+    expect(within(review).getByText("https://github.com/example/books")).toBeTruthy();
+    expect(within(review).getByText("2 required paths")).toBeTruthy();
+    expect(within(review).getByText("Interactive tasks and automated runs require human approval.")).toBeTruthy();
+    expect(within(review).getByText(/does not start a thread, computer, or run/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
+    await screen.findByText("Bot created.");
+    expect(body?.config).toEqual({
+      name: "Finance Auditor", instructions: "Review approved invoices.", harness: "opencode", roleTemplateId: "finance",
+      codingModel: "gpt-review", connectionId: "conn-1", defaultRepoUrl: "https://github.com/example/books", expectedDeliverables: ["reports/a.md", "reports/b.md"],
+    });
+    expect(body?.config).not.toHaveProperty("access");
+    expect(body?.config).not.toHaveProperty("approvalPolicy");
+    expect(body?.config).not.toHaveProperty("toolScopes");
+    expect(body?.config).not.toHaveProperty("avatar");
+  });
+
+  it("previews the look being chosen for a new hire and saves it as look fields only", async () => {
+    let body: { config: Record<string, unknown> } | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") return Response.json({ agents: [] });
+      body = JSON.parse(String(init.body));
+      return Response.json({ agent: { id: "new-1", slug: "scout", version: 1, config: body?.config } }, { status: 201 });
+    }));
+    render(<CustomAgentsView />);
+    await screen.findByText("No bots");
+    const picker = screen.getByRole("group", { name: "Avatar" });
+    fireEvent.click(screen.getByRole("button", { name: "Sleepy" }));
+    expect(picker.querySelector('svg.shiba-agent-mascot[data-eyes="sleepy"]')).toBeTruthy();
+    expect(formPreview()?.getAttribute("data-eyes")).toBe("sleepy");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Scout" } });
+    fireEvent.change(screen.getByLabelText("Instructions"), { target: { value: "Look around." } });
+    fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
+    await screen.findByText("Bot created.");
+    expect(body?.config).toMatchObject({ look: { eyes: "sleepy" } });
+    expect(body?.config).not.toHaveProperty("avatar");
+  });
+
+  it("shows a saved avatar choice on the card, the profile and the edit preview, and keeps it through an edit", async () => {
+    const avatar = { kind: "variant", variant: "coder", color: "#2c3e6b" } as const;
+    const agent: CustomAgentWire = { id: "eng-1", slug: "builder", version: 4, config: {
+      name: "Builder", instructions: "Build.", harness: "opencode", roleTemplateId: "engineering", avatar,
+      // A stale look must not win over the saved avatar.
+      look: { shape: "round", color: "#f4e2c4", eyes: "sleepy", acc: "none" } } };
+    let patched: { config: Record<string, unknown>; expectedVersion: number } | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") {
+        patched = JSON.parse(String(init.body));
+        return Response.json({ agent: { ...agent, version: 5, config: patched?.config } });
+      }
+      return Response.json({ agents: [agent] });
+    }));
+    render(<CustomAgentsView />);
+    const list = await screen.findByRole("list", { name: "Saved employees" });
+    const drawn = (root: Element) => root.querySelector("svg.shiba-agent-mascot");
+    // Variant "coder" draws its own eyes and glyph at the chosen coat, not the stale look.
+    for (const root of [within(list).getByRole("listitem")]) {
+      expect(drawn(root)?.getAttribute("data-eyes")).toBe("code");
+      expect(drawn(root)?.getAttribute("data-color")).toBe("#2c3e6b");
+      expect(drawn(root)?.getAttribute("data-acc")).toBe("wrench");
+    }
+    fireEvent.click(within(list).getByRole("button", { name: "View profile Builder" }));
+    const profile = screen.getByRole("region", { name: "Builder overview" });
+    expect(drawn(profile)?.getAttribute("data-eyes")).toBe("code");
+
+    fireEvent.click(within(profile).getByRole("button", { name: "Edit profile" }));
+    expect(formPreview()?.getAttribute("data-eyes")).toBe("code");
+    expect(formPreview()?.getAttribute("data-color")).toBe("#2c3e6b");
+    expect(screen.getByText(/saved avatar, which takes precedence over the look above/)).toBeTruthy();
+    // Picking a look while a saved avatar exists does not repaint the preview...
+    fireEvent.click(screen.getByRole("button", { name: "Sleepy" }));
+    expect(formPreview()?.getAttribute("data-eyes")).toBe("code");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Builder Prime" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await screen.findByText("Bot updated.");
+    // ...and the save carries the avatar forward untouched.
+    expect(patched?.expectedVersion).toBe(4);
+    expect(patched?.config.avatar).toEqual(avatar);
+    expect(patched?.config.name).toBe("Builder Prime");
+  });
+
+  it("does not show the saved-avatar note for a new hire or an employee without a saved avatar", async () => {
+    const plain: CustomAgentWire = { id: "w-1", slug: "writer", version: 1, config: { name: "Writer", instructions: "Write.", harness: "opencode" } };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ agents: [plain] })));
+    render(<CustomAgentsView />);
+    await screen.findByRole("list", { name: "Saved employees" });
+    expect(screen.queryByText(/saved avatar, which takes precedence/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Edit bot" }));
+    expect(screen.queryByText(/saved avatar, which takes precedence/)).toBeNull();
   });
 });

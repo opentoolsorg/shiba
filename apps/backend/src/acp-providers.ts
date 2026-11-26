@@ -10,6 +10,7 @@ import {
 } from "@shiba/shared";
 import type { Env } from "./env.js";
 import { checkAnthropicCredential } from "./provider-credential-check.js";
+import { flag } from "./config/flags.js";
 import { chatGptAuthStub } from "./chatgpt-auth-do.js";
 import { modelCredentialKeyConfigured } from "./subscription-credentials.js";
 import { userProviderOAuthStub } from "./user-provider-oauth-do.js";
@@ -447,11 +448,11 @@ async function readDefault(env: Env, org: string): Promise<AcpProviderId | null>
 
 export function providerLaneAllowed(env: Env, id: AcpProviderId, mode: string | null = "oauth"): boolean {
   if (mode !== "oauth" && mode !== "setup-token") return true;
-  const flag = id === "claude" ? env.SHIBA_CLAUDE_SUBSCRIPTION
-    : id === "codex" ? env.SHIBA_CODEX_SUBSCRIPTION
-    : id === "gemini" ? env.SHIBA_ANTIGRAVITY_SUBSCRIPTION
-    : id === "cursor" ? env.SHIBA_CURSOR_SUBSCRIPTION : undefined;
-  return flag !== "0";
+  const laneFlag = id === "claude" ? flag(env, "SHIBA_CLAUDE_SUBSCRIPTION")
+    : id === "codex" ? flag(env, "SHIBA_CODEX_SUBSCRIPTION")
+    : id === "gemini" ? flag(env, "SHIBA_ANTIGRAVITY_SUBSCRIPTION")
+    : id === "cursor" ? flag(env, "SHIBA_CURSOR_SUBSCRIPTION") : undefined;
+  return laneFlag !== "0";
 }
 
 function assertProviderLane(env: Env, id: AcpProviderId, mode: string | null): void {

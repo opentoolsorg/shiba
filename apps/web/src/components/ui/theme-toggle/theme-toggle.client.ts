@@ -17,7 +17,7 @@ function initThemeToggle(button: HTMLElement): () => void {
     const mode = document.documentElement.getAttribute("data-mode") === "dark" ? "light" : "dark";
     try {
       localStorage.setItem("shiba-theme", mode);
-      window.__nbApplyTheme?.();
+      window.__nbApplyTheme?.(mode);
     } catch {
       // Storage is blocked (private mode, restricted contexts): keep the
       // choice for this page.
