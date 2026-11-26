@@ -95,7 +95,7 @@ export function ApprovalsView({
   return (
     <MainCard className={className}>
       {/* 48px Header */}
-      <header className="flex h-12 min-h-[48px] shrink-0 items-center justify-between border-b border-[#e4e4e7] px-4 select-none dark:border-zinc-800">
+      <header className="flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-[#e4e4e7] px-4 py-2 select-none dark:border-zinc-800 sm:py-0">
         <div className="flex items-center gap-2.5 min-w-0">
           {onToggleSidebar ? (
             <button
@@ -111,27 +111,27 @@ export function ApprovalsView({
 
           <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 min-w-0">
             <ol className="flex items-center gap-1.5 min-w-0">
-              <li className="flex items-center gap-1.5 min-w-0">
+              <li className="hidden min-w-0 items-center gap-1.5 sm:flex">
                 <span className="text-[14px] text-[#71717a] dark:text-zinc-400 truncate">{scopeLabel}</span>
               </li>
-              <li className="flex items-center gap-1.5 min-w-0">
+              <li className="hidden min-w-0 items-center gap-1.5 sm:flex">
                 <ChevronRight className="size-3.5 text-[#71717a] dark:text-zinc-500 shrink-0" strokeWidth={1.5} aria-hidden="true" />
                 <span className="text-[14px] text-[#71717a] dark:text-zinc-400 truncate">Insights</span>
               </li>
               <li className="flex items-center gap-1.5 min-w-0">
-                <ChevronRight className="size-3.5 text-[#71717a] dark:text-zinc-500 shrink-0" strokeWidth={1.5} aria-hidden="true" />
-                <h1 className="text-[14px] font-medium text-[#0a0a0a] dark:text-zinc-100 truncate" aria-current="page">
+                <ChevronRight className="hidden size-3.5 shrink-0 text-[#71717a] dark:text-zinc-500 sm:block" strokeWidth={1.5} aria-hidden="true" />
+                <h1 className="text-[14px] font-medium text-[#0a0a0a] dark:text-zinc-100" aria-current="page">
                   Approvals
                 </h1>
               </li>
             </ol>
-            <span className="ml-2 rounded-full bg-[#f4f4f5] dark:bg-zinc-800 px-2 py-0.5 text-xs text-[#71717a] dark:text-zinc-400 tabular-nums">
+            <span className="ml-2 whitespace-nowrap rounded-full bg-[#f4f4f5] dark:bg-zinc-800 px-2 py-0.5 text-xs text-[#71717a] dark:text-zinc-400 tabular-nums">
               {totalPending} open
             </span>
           </nav>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className={`ml-auto flex min-w-0 items-center gap-2 ${searchOpen ? "max-sm:w-full" : ""}`}>
           {searchOpen ? (
             <input
               type="search"
@@ -141,7 +141,7 @@ export function ApprovalsView({
               onChange={(e) => setQuery(e.target.value)}
               // biome-ignore lint/a11y/noAutofocus: field is revealed by an explicit user action
               autoFocus
-              className="min-h-11 w-40 sm:w-56 rounded-lg border border-[#e4e4e7] bg-white px-2.5 text-xs text-[#0a0a0a] dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
+              className="min-h-11 min-w-0 flex-1 rounded-lg border border-[#e4e4e7] bg-white px-2.5 text-xs text-[#0a0a0a] dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] sm:w-56"
             />
           ) : null}
           <button

@@ -138,7 +138,7 @@ export function WorkHeader({
             aria-label="Filter tasks"
             aria-expanded={searchOpen}
             aria-controls="work-search"
-            className="size-11 lg:size-7 rounded-md flex items-center justify-center text-[var(--icon-muted,#71717a)] hover:text-[var(--fg,#0a0a0a)] hover:bg-[var(--secondary,rgba(0,0,0,0.05))] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+            className="size-11 lg:size-7 touch:size-11 rounded-md flex items-center justify-center text-[var(--icon-muted,#71717a)] hover:text-[var(--fg,#0a0a0a)] hover:bg-[var(--secondary,rgba(0,0,0,0.05))] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
           >
             <Search className="size-4" strokeWidth={1.75} aria-hidden="true" />
           </button>
@@ -154,7 +154,7 @@ export function WorkHeader({
           onClick={onNewTask}
           disabled={newTaskDisabled}
           aria-label="New task"
-          className="h-11 lg:h-8 px-2.5 rounded-lg bg-[var(--primary,#0a0a0a)] text-[var(--primary-text,#fff)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed text-[13px] font-medium flex items-center gap-1.5 transition-opacity shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-[var(--ring,#a1a1aa)]"
+          className="h-11 min-w-11 lg:h-8 lg:min-w-0 touch:h-11 px-2.5 rounded-lg bg-[var(--primary,#0a0a0a)] text-[var(--primary-text,#fff)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed text-[13px] font-medium flex items-center justify-center gap-1.5 transition-opacity shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-[var(--ring,#a1a1aa)]"
         >
           <Plus className="size-3.5" strokeWidth={2} aria-hidden="true" />
           <span className="hidden sm:inline">New task</span>

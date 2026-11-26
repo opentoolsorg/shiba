@@ -649,21 +649,20 @@ export function AutomationsView({
                               <div
                                 key={a.id}
                                 id={`automation-row-${a.id}`}
-                                className="flex flex-wrap sm:flex-nowrap items-center gap-3 py-3 px-4 hover:bg-[#f4f4f5] dark:hover:bg-zinc-800/40 transition-colors"
+                                className="flex flex-wrap items-center gap-3 py-3 px-4 hover:bg-[#f4f4f5] dark:hover:bg-zinc-800/40 transition-colors"
                               >
-                                <Zap
-                                  aria-hidden="true"
-                                  className="size-4 shrink-0 text-[#71717a] dark:text-zinc-400"
-                                />
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-sm font-medium text-[#0a0a0a] dark:text-zinc-100 truncate">
-                                    {RECIPES.find((recipe) => recipe.id === a.id)?.name ?? a.id}
-                                  </p>
-                                  <p className="text-xs text-[#71717a] dark:text-zinc-400 break-all">
-                                    {a.repoUrl}
-                                    {a.customAgentId ? ` · Bot: ${a.customAgentId}` : ""}
-                                    {a.lastSkip ? ` · Last skip: ${a.lastSkip.reason}` : ""}
-                                  </p>
+                                <div className="flex min-w-0 flex-[1_1_16rem] items-start gap-3">
+                                  <Zap aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-[#71717a] dark:text-zinc-400" />
+                                  <div className="min-w-0 [overflow-wrap:anywhere]">
+                                    <p className="text-sm font-medium text-[#0a0a0a] dark:text-zinc-100">
+                                      {RECIPES.find((recipe) => recipe.id === a.id)?.name ?? a.id}
+                                    </p>
+                                    <p className="text-xs text-[#71717a] dark:text-zinc-400">
+                                      {a.repoUrl}
+                                      {a.customAgentId ? ` · Bot: ${a.customAgentId}` : ""}
+                                      {a.lastSkip ? ` · Last skip: ${a.lastSkip.reason}` : ""}
+                                    </p>
+                                  </div>
                                 </div>
                                 <span className="text-xs text-[#71717a] dark:text-zinc-400">
                                   {a.triggers.map((t) => t.kind).join(" + ")} · {a.runCount ?? 0} runs

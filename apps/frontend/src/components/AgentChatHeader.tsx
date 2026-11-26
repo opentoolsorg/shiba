@@ -8,8 +8,8 @@ import { SideQuestion } from "./SideQuestion";
 export type AgentChatParticipant = { id: string; name: string };
 export type AgentChatMenuAction = { label: string; onSelect: () => void; destructive?: boolean };
 
-const iconButton = "inline-flex min-h-9 min-w-9 items-center justify-center gap-1.5 rounded-lg px-2 text-sm text-[var(--muted-foreground-1)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
-const popover = "absolute right-0 top-full z-20 mt-1 w-56 rounded-xl border border-[var(--border-1)] bg-[var(--popover)] p-1.5 text-sm text-[var(--fg)] shadow-overlay";
+const iconButton = "inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg px-2 text-sm text-[var(--muted-foreground-1)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] sm:min-h-9 sm:min-w-9 touch:min-h-11 touch:min-w-11";
+const popover = "absolute right-4 top-full z-20 mt-1 w-56 max-w-[calc(100%-2rem)] rounded-xl border border-[var(--border-1)] bg-[var(--popover)] p-1.5 text-sm text-[var(--fg)] shadow-overlay sm:right-6 xl:right-0 xl:max-w-none";
 
 type OpenMenu = "actions" | "participants" | null;
 
@@ -63,8 +63,8 @@ export function AgentChatHeader({
   const count = participants.length;
 
   return (
-    <header ref={rootRef} className="flex min-h-14 items-center justify-between gap-3 border-b border-[var(--border-1)] bg-[var(--chrome)] px-4 py-2 sm:px-6">
-      <nav aria-label="Breadcrumb" className="min-w-0">
+    <header ref={rootRef} className="relative flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-[var(--border-1)] bg-[var(--chrome)] px-4 py-2 sm:flex-nowrap sm:px-6">
+      <nav aria-label="Breadcrumb" className={`min-w-0 ${thread ? "max-sm:w-full" : "flex-1"}`}>
         <ol className="flex min-w-0 items-center gap-1.5 text-sm text-[var(--muted-foreground-2)]">
           <li className="hidden shrink-0 sm:block">{workspaceLabel}</li>
           <li aria-hidden="true" className="hidden sm:block"><ChevronRight className="size-3.5" /></li>
@@ -73,10 +73,10 @@ export function AgentChatHeader({
               <button type="button" onClick={onOpenAgents} className="rounded hover:text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]">Agents</button>
             ) : "Agents"}
           </li>
-          <li aria-hidden="true"><ChevronRight className="size-3.5" /></li>
+          <li aria-hidden="true" className="shrink-0"><ChevronRight className="size-3.5" /></li>
           {thread ? (
             <li className="shrink-0">
-              <span className="flex items-center gap-2">
+              <span className="flex items-center gap-2" title={agent.name}>
                 <AgentAvatar id={agent.id} name={agent.name} mascotPreset={agent.mascotPreset} look={agent.look} avatar={agent.avatar} role={agent.role} size={20} decorative />
                 <span className="max-w-24 truncate sm:max-w-40">{agent.name}</span>
               </span>
@@ -84,7 +84,7 @@ export function AgentChatHeader({
           ) : null}
           {thread ? (
             <>
-              <li aria-hidden="true"><ChevronRight className="size-3.5" /></li>
+              <li aria-hidden="true" className="shrink-0"><ChevronRight className="size-3.5" /></li>
               <li aria-current="page" className="flex min-w-0 items-center gap-2 font-medium text-[var(--fg)]">
                 <span className="truncate">{thread.name || "Untitled thread"}</span>
                 <span className={`flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${thread.state === "working" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : thread.state === "waiting" ? "border-[var(--pending)] bg-[var(--pending-bg)] text-[var(--pending)]" : "border-[var(--border-1)] bg-[var(--secondary)] text-[var(--muted-foreground-2)]"}`}>
@@ -105,14 +105,14 @@ export function AgentChatHeader({
         {onOpenTaskDetails ? <button type="button" onClick={onOpenTaskDetails} className={iconButton}>Task details</button> : null}
         {sideQuestion ? <SideQuestion key={`${sideQuestion.employeeId}:${sideQuestion.threadId}`} {...sideQuestion} /> : null}
         {actions.length ? (
-          <div className="relative">
+          <div className="xl:relative">
             <button type="button" className={iconButton} aria-label="Conversation actions" aria-haspopup="menu" aria-expanded={open === "actions"} aria-controls={`${id}-actions`} onClick={() => toggle("actions")}>
               <MoreHorizontal aria-hidden="true" className="size-4" />
             </button>
             {open === "actions" ? (
               <div id={`${id}-actions`} role="menu" aria-label="Conversation actions" className={popover}>
                 {actions.map((action) => (
-                  <button key={action.label} type="button" role="menuitem" onClick={() => { setOpen(null); action.onSelect(); }} className={`flex w-full rounded-lg px-2.5 py-2 text-left hover:bg-[var(--secondary)] focus-visible:bg-[var(--secondary)] focus-visible:outline-none ${action.destructive ? "text-[var(--destructive)]" : ""}`}>
+                  <button key={action.label} type="button" role="menuitem" onClick={() => { setOpen(null); action.onSelect(); }} className={`flex min-h-11 w-full items-center rounded-lg px-2.5 py-2 text-left hover:bg-[var(--secondary)] focus-visible:bg-[var(--secondary)] focus-visible:outline-none sm:min-h-0 touch:min-h-11 ${action.destructive ? "text-[var(--destructive)]" : ""}`}>
                     {action.label}
                   </button>
                 ))}
@@ -120,7 +120,7 @@ export function AgentChatHeader({
             ) : null}
           </div>
         ) : null}
-        <div className="relative">
+        <div className="xl:relative">
           <button type="button" className={`${iconButton} border border-[var(--border-1)]`} aria-label={`${count} ${count === 1 ? "participant" : "participants"}`} aria-expanded={open === "participants"} aria-controls={`${id}-participants`} onClick={() => toggle("participants")}>
             <Users aria-hidden="true" className="size-4" />
             <span className="tabular-nums text-xs">{count}</span>

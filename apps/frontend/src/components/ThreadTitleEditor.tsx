@@ -81,7 +81,7 @@ export function ThreadTitleEditor({
         aria-label="Rename thread"
         aria-expanded={editing}
         onClick={() => { setDraft(name); setError(null); setEditing((open) => !open); }}
-        className="rounded-[var(--radius-button)] border border-[var(--border-1)] px-2 py-1 text-[11px] text-[var(--muted-foreground-2)] hover:text-[var(--fg)]"
+        className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] px-2 py-1 text-[11px] text-[var(--muted-foreground-2)] hover:text-[var(--fg)] sm:min-h-0 touch:min-h-11"
       >
         Rename
       </button>

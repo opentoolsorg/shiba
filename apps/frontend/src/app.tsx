@@ -3607,6 +3607,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               onNewAgentThread={(profile) => { startSidebarAgentThread(profile); setMobileNavOpen(false); }}
               onOpenAgent={(agentId) => { openBotPanel(agentId); setMobileNavOpen(false); }}
               onOpenSearch={() => {
+                mobileNavWasOpen.current = false;
+                mobileNavTriggerRef.current?.focus();
                 setMobileNavOpen(false);
                 setCommandMenuOpen(true);
               }}
@@ -3657,7 +3659,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 type="button"
                 onClick={() => setCommandMenuOpen(true)}
                 aria-label="Open command menu"
-                className="shiba-command-trigger min-h-11 sm:min-h-9 justify-center rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] flex items-center gap-2 px-3 text-xs transition-colors"
+                className="shiba-command-trigger min-h-11 sm:min-h-9 touch:min-h-11 justify-center rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] text-[var(--muted-foreground-1)] hover:text-[var(--fg)] hover:bg-[var(--secondary)] flex items-center gap-2 px-3 text-xs transition-colors"
               >
                 <svg
                   aria-hidden="true"
@@ -4036,7 +4038,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
               {/* CENTER: conversation timeline + composer */}
               <main
-                className="group/thread flex min-h-full min-w-0 flex-1 shrink-0 flex-col overflow-hidden bg-[var(--bg)] xl:min-h-0"
+                className={`group/thread flex min-h-full min-w-0 shrink-0 flex-col bg-[var(--bg)] xl:min-h-0 ${conversationMode === "chat" ? "flex-[1_0_auto] xl:flex-1 xl:overflow-y-auto" : "flex-1 overflow-hidden"}`}
                 aria-busy={busy}
               >
                 {botPage !== "chat" ? (
@@ -4346,7 +4348,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
                 {/* TIMELINE (scrollable) — hidden on the empty-state hero */}
                 <div
-                  className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 sm:px-5 xl:px-8 py-5 ${threadHasWork ? "" : "hidden"}`}
+                  className={`min-h-0 px-3 sm:px-5 xl:px-8 py-5 ${conversationMode === "chat" ? "flex-auto xl:flex-1 xl:overflow-y-auto xl:overscroll-contain" : "flex-1 overflow-y-auto overscroll-contain"} ${threadHasWork ? "" : "hidden"}`}
                 >
                   {conversationMode === "chat" ? <RemoteAgentStream stream={realtimeRemoteStream} /> : null}
                   {privateDataEnabled && chatAgentName && conversationMode !== "chat" ? <UiBlockQuestions key={chatAgentName} runId={chatAgentName} sessionId={selectedSessionId} /> : null}
@@ -4401,8 +4403,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 <div
                   className={
                     chat.messages.length === 0 && !reviewThreadId
-                      ? "flex-1 flex flex-col min-h-0"
-                      : `border-t border-[var(--border-1)] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-8 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0 ${conversationMode === "chat" ? "max-h-[50dvh] overflow-y-auto sm:max-h-none sm:overflow-visible" : ""}`
+                      ? `flex flex-col min-h-0 ${conversationMode === "chat" ? "flex-auto xl:flex-1" : "flex-1"}`
+                      : "border-t border-[var(--border-1)] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-8 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0"
                   }
                 >
                   {conversationMode === "chat" ? (
@@ -4441,7 +4443,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   {conversationMode === "chat" ? (
                     <div className={
                       chat.messages.length === 0 && !reviewThreadId
-                        ? "flex-1 min-h-0 flex flex-col items-center [justify-content:safe_center] overflow-y-auto gap-5 px-3 sm:px-5 xl:px-8 py-5"
+                        ? "flex min-h-0 flex-auto flex-col items-center [justify-content:safe_center] gap-5 px-3 sm:px-5 xl:flex-1 xl:overflow-y-auto xl:px-8 py-5"
                         : "shrink-0 px-3 sm:px-5 xl:px-8 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
                     }>
                       {chat.messages.length === 0 ? (
