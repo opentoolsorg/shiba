@@ -34,7 +34,7 @@ Phase boundaries preserve precedence: `capability` runs before identity verifica
 | personalExecutionResponse | authenticated | `*` | `^/api/personal-execution(?:/\|$)` | session |  |
 | teamModelResponse | authenticated | `*` | `^/api/team-model-sessions(?:/\|$)` | session |  |
 | learningResponse | authenticated | `*` | `^/api/learning(?:/\|$)` | session |  |
-| workResponse | authenticated | `*` | `^/api/(?:needs-you$\|workspaces/[^/]+/work)` | session |  |
+| workResponse | authenticated | `*` | `^/api/(?:needs-you(?:/dismiss)?$\|workspaces/[^/]+/work)` | session |  |
 | primaryBotResponse | authenticated | `*` | `^/api/workspaces/[^/]+/primary-bot` | session |  |
 | searchResponse | authenticated | `*` | `^/api/search$` | session |  |
 | paletteResponse | authenticated | `*` | `^/api/palette/` | session |  |

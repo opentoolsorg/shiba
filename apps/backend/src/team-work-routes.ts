@@ -1,4 +1,4 @@
-import { authorizeCollaborationAction, isTeamWorkspaceId, runInputHash, type DelegatedRun, type PendingApproval, type WorkspaceTaskPatch } from "@shiba/shared";
+import { authorizeCollaborationAction, isTeamWorkspaceId, runInputHash, type DelegatedRun, type OnboardingStatus, type PendingApproval, type WorkspaceTaskPatch } from "@shiba/shared";
 import { getAgentByName } from "agents/routing";
 import { z } from "zod";
 import { isCollaborationContextCurrent } from "./collaboration-context.js";
@@ -21,6 +21,9 @@ import {
 import { getTeamWorkspace, getTeamWorkspaceMembership, normalizeTeamWorkspaceEmail } from "./team-workspaces-store.js";
 import { upsertWorkspaceSearchDoc } from "./workspace-search-store.js";
 import { publishWorkspaceEvent } from "./platform/workspace-events-do.js";
+import { buildSuggestions, type SuggestionRun } from "./needs-you-suggestions.js";
+import { createNeedsYouDismissalStore } from "./needs-you-dismissals-store.js";
+import { handleOnboardingProgress } from "./onboarding-progress.js";
 import { latestStatusText } from "./run-milestones.js";
 import { d1LearningPort } from "./ports/learning/d1-adapter.js";
 import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
@@ -259,6 +262,7 @@ async function mutateTeamWork(request: Request, env: Env, workspaceId: string, t
 export async function handleTeamWork(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname === "/api/needs-you") return handleNeedsYou(request, env);
+  if (url.pathname === "/api/needs-you/dismiss") return handleNeedsYouDismiss(request, env);
   const match = ROUTE.exec(url.pathname);
   if (!match) return null;
   if (request.headers.has("Authorization") || !await isAuthorizedRequest(request, env)) return json({ error: "Authenticated human session required." }, 401);
@@ -329,20 +333,20 @@ export async function handleTeamWork(request: Request, env: Env): Promise<Respon
 const OWNED_RUN_CAP = 100;
 
 /** Runs on the caller's orchestrator, limited to the workspace they asked about. */
-async function ownedWorkspaceRunIds(env: Env, agentName: string, workspaceId: string | null): Promise<string[]> {
+async function ownedWorkspaceRuns(env: Env, agentName: string, workspaceId: string | null): Promise<SuggestionRun[]> {
   if (!env.CodingOrchestrator) return [];
   try {
     const stub = await getAgentByName(env.CodingOrchestrator, agentName);
     const response = await stub.fetch(new Request("https://internal/api/runs"));
     if (!response.ok) return [];
-    const body = await response.json() as { runs?: Array<{ runId?: string; orgId?: string; createdAt?: number }> };
+    const body = await response.json() as { runs?: Array<{ runId?: string; orgId?: string; createdAt?: number; task?: string; status?: string; archivedAt?: number; queuedBy?: string; parentRunId?: string; reviewOf?: string; slackCommandOrigin?: string }> };
     const teamOrg = workspaceId && isTeamWorkspaceId(workspaceId) ? `team:${workspaceId}` : null;
     return (body.runs ?? [])
-      .filter((run): run is { runId: string; orgId?: string; createdAt?: number } => typeof run.runId === "string" && run.runId.length > 0)
+      .filter((run): run is typeof run & { runId: string } => typeof run.runId === "string" && run.runId.length > 0)
       .filter((run) => teamOrg ? run.orgId === teamOrg : !String(run.orgId ?? "").startsWith("team:"))
       .sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0))
       .slice(0, OWNED_RUN_CAP)
-      .map((run) => run.runId);
+      .map((run) => ({ runId: run.runId, task: String(run.task ?? ""), status: String(run.status ?? ""), createdAt: run.createdAt ?? 0, archivedAt: run.archivedAt, queuedBy: run.queuedBy, parentRunId: run.parentRunId, reviewOf: run.reviewOf, slackCommandOrigin: run.slackCommandOrigin }));
   } catch {
     return [];
   }
@@ -369,6 +373,31 @@ function learningWorkspace(header: string | null): string {
   return workspaceId && isTeamWorkspaceId(workspaceId) ? `team:${workspaceId}` : DASHBOARD_ORG_ID;
 }
 
+async function handleNeedsYouDismiss(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+  if (request.headers.has("Authorization") || !(await isAuthorizedRequest(request, env))) {
+    return json({ error: "Authenticated human session required." }, 401);
+  }
+  const originError = requireSameOriginBrowserMutation(request) ?? requireJsonContentType(request);
+  if (originError) return originError;
+  const identity = await resolveUserId(request, env);
+  if (!identity || !env.AGENT_AUDIT) return json({ error: "Authenticated human session required." }, 401);
+  const body = await request.json().catch(() => null) as { id?: unknown } | null;
+  if (typeof body?.id !== "string" || !/^[a-z]+:[\w:.-]{1,128}$/.test(body.id)) return json({ error: "Invalid suggestion id." }, 400);
+  await createNeedsYouDismissalStore(env.AGENT_AUDIT).dismissSuggestion(identity, body.id, Date.now());
+  return json({ ok: true });
+}
+
+async function readOnboardingStatus(request: Request, env: Env): Promise<OnboardingStatus | null> {
+  try {
+    const response = await handleOnboardingProgress(new Request(new URL("/api/onboarding/progress", request.url), { headers: request.headers }), env);
+    if (!response?.ok) return null;
+    return ((await response.json()) as { status?: OnboardingStatus }).status ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function handleNeedsYou(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
   if (request.headers.has("Authorization") || !(await isAuthorizedRequest(request, env))) {
@@ -378,9 +407,10 @@ async function handleNeedsYou(request: Request, env: Env): Promise<Response> {
   if (!identity) return json({ error: "Authenticated human session required." }, 401);
   const storeTarget = await resolveRunStoreTarget(request, env, new URL(request.url));
   const ownerId = "error" in storeTarget ? identity : storeTarget.userId;
-  const runIds = "error" in storeTarget
+  const runs = "error" in storeTarget
     ? []
-    : await ownedWorkspaceRunIds(env, storeTarget.agentName, request.headers.get("X-Shiba-Workspace"));
+    : await ownedWorkspaceRuns(env, storeTarget.agentName, request.headers.get("X-Shiba-Workspace"));
+  const runIds = runs.map((run) => run.runId);
   const questions = env.AGENT_AUDIT
     ? (await env.AGENT_AUDIT.prepare(
       `SELECT run_id, ask_id, request_json, created_at FROM ask_user_pending
@@ -427,7 +457,16 @@ async function handleNeedsYou(request: Request, env: Env): Promise<Response> {
       .listSuggestions(learningWorkspace(request.headers.get("X-Shiba-Workspace")), ownerId)
       .catch(() => [])
     : [];
+  const now = Date.now();
+  const suggestions = buildSuggestions({
+    runs,
+    approvals: approvals as Array<{ createdAt?: number }>,
+    onboarding: await readOnboardingStatus(request, env),
+    dismissedIds: env.AGENT_AUDIT ? await createNeedsYouDismissalStore(env.AGENT_AUDIT).readDismissedIds(identity, now) : new Set(),
+    now,
+  });
   return json({
+    suggestions,
     approvals,
     learningSuggestions: learningSuggestions.map((row) => ({
       id: row.id,
