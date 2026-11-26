@@ -338,3 +338,145 @@ describe("hosted models kill switch notice", () => {
     expect(await screen.findByText("Hosted models are paused")).toBeTruthy();
   });
 });
+
+describe("SettingsPage overview", () => {
+  const categories = [
+    "Account",
+    "Repositories",
+    "Providers & models",
+    "Connected apps",
+    "Employee access",
+    "Workspace",
+    "Appearance & notifications",
+    "Skills",
+  ];
+
+  it("renders the overview heading, one card per supported area, and the approval boundary without requesting data", () => {
+    const fetcher = vi.fn(async () => Response.json({}));
+    vi.stubGlobal("fetch", fetcher);
+    render(<SettingsPage section="overview" onNavigate={vi.fn()} />);
+
+    expect(screen.getByRole("heading", { name: "Settings overview" })).toBeTruthy();
+    const list = within(screen.getByRole("region", { name: "Settings categories" })).getByRole("list");
+    expect(within(list).getAllByRole("heading").map((heading) => heading.textContent)).toEqual(categories);
+
+    const note = screen.getByRole("note", { name: "Approval boundary" });
+    expect(note.textContent).toMatch(/does not grant any employee access by itself/);
+    expect(note.textContent).toMatch(/Interactive tasks require approval of exact inputs/);
+    expect(note.textContent).toMatch(/automations follow their configured allowlists/);
+
+    expect(screen.queryByText(/plugin|marketplace|purchase|install/i)).toBeNull();
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(screen.getByRole("navigation", { name: "Breadcrumb" }).textContent).toContain("Overview");
+  });
+
+  it.each([
+    ["Manage account", "account"],
+    ["Manage repositories", "repositories"],
+    ["Review providers", "providers"],
+    ["Review model routing", "models"],
+    ["Review connected apps", "connected-apps"],
+    ["Team", "team"],
+    ["Sandbox", "sandbox"],
+    ["Appearance", "appearance"],
+    ["Notifications", "notifications"],
+  ])("the %s action opens the %s section", (label, sectionId) => {
+    const onSectionChange = vi.fn();
+    render(<SettingsPage section="overview" onSectionChange={onSectionChange} onNavigate={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: label }));
+    expect(onSectionChange).toHaveBeenCalledExactlyOnceWith(sectionId);
+  });
+
+  it("opens employee access and skills through onNavigate, and omits both cards without it", () => {
+    const onNavigate = vi.fn();
+    const { unmount } = render(<SettingsPage section="overview" onNavigate={onNavigate} />);
+    fireEvent.click(screen.getByRole("button", { name: "Manage employee access" }));
+    expect(onNavigate).toHaveBeenLastCalledWith("employee-tools");
+    fireEvent.click(screen.getByRole("button", { name: "Open skills" }));
+    expect(onNavigate).toHaveBeenLastCalledWith("skills");
+    expect(onNavigate).toHaveBeenCalledTimes(2);
+    expect(screen.getByText(/A connection never grants access by itself/)).toBeTruthy();
+    unmount();
+
+    render(<SettingsPage section="overview" />);
+    expect(screen.queryByRole("heading", { name: "Employee access" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Skills" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Account" })).toBeTruthy();
+  });
+
+  it("is the uncontrolled default and navigates in place to a real section", () => {
+    render(<SettingsPage />);
+    expect(screen.getByRole("heading", { name: "Settings overview" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
+    expect(screen.queryByRole("heading", { name: "Settings overview" })).toBeNull();
+    expect(screen.getByRole("radiogroup", { name: "Theme" })).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "Breadcrumb" }).textContent).toContain("Appearance");
+  });
+
+  it("keeps provider setup unavailable on the overview for invited accounts", () => {
+    render(<SettingsPage section="overview" providersBlocked onNavigate={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Review providers" })).toBeNull();
+    expect(screen.getByText(/explicit account grant for invited accounts/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Review model routing" })).toBeTruthy();
+  });
+
+  it("limits the overview to Team settings inside a team workspace", () => {
+    const onSectionChange = vi.fn();
+    const onOpenPersonalWorkspace = vi.fn();
+    render(
+      <SettingsPage
+        section="overview"
+        onSectionChange={onSectionChange}
+        onOpenPersonalWorkspace={onOpenPersonalWorkspace}
+        onNavigate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("region", { name: "Personal workspace setting" })).toBeTruthy();
+    const list = within(screen.getByRole("region", { name: "Settings categories" })).getByRole("list");
+    expect(within(list).getAllByRole("heading").map((heading) => heading.textContent)).toEqual(["Workspace"]);
+    for (const hidden of ["Manage account", "Review providers", "Manage repositories", "Manage employee access", "Open skills", "Groups", "Sandbox"]) {
+      expect(screen.queryByRole("button", { name: hidden })).toBeNull();
+    }
+    expect(screen.getByRole("note", { name: "Approval boundary" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Team" }));
+    expect(onSectionChange).toHaveBeenCalledExactlyOnceWith("team");
+    fireEvent.click(screen.getByRole("button", { name: "Switch to personal workspace" }));
+    expect(onOpenPersonalWorkspace).toHaveBeenCalledOnce();
+  });
+
+  it("offers no switch action on the overview when private data is blocked without a personal workspace", () => {
+    render(<SettingsPage section="overview" personalDataBlocked />);
+    expect(screen.getByRole("region", { name: "Personal workspace setting" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Switch to personal workspace" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Manage account" })).toBeNull();
+  });
+
+  it("still gates every non-overview personal section behind the team notice", () => {
+    render(<SettingsPage section="repositories" onOpenPersonalWorkspace={vi.fn()} />);
+    const notice = screen.getByRole("region", { name: "Personal workspace setting" });
+    expect(notice.textContent).toContain("Repositories applies to your account or this deployment");
+    expect(screen.queryByRole("heading", { name: "Settings overview" })).toBeNull();
+  });
+
+  it("lists Overview in the settings navigation and section switcher while keeping existing deep links", () => {
+    const onSelect = vi.fn();
+    const { unmount } = render(<SettingsPanel active="overview" onSelect={onSelect} />);
+    fireEvent.click(screen.getByRole("button", { name: "Overview" }));
+    expect(onSelect).toHaveBeenCalledWith("overview");
+    unmount();
+
+    render(<SettingsPage section="overview" showSectionSwitcher />);
+    const switcher = screen.getByRole("combobox", { name: "Settings section" }) as HTMLSelectElement;
+    expect(switcher.value).toBe("overview");
+    expect(within(switcher).getByRole("option", { name: "Overview" })).toBeTruthy();
+
+    expect(normalizeSettingsSection("overview")).toBe("overview");
+    for (const id of ["account", "providers", "connected-apps", "team", "repositories", "appearance", "notifications"]) {
+      expect(normalizeSettingsSection(id)).toBe(id);
+    }
+    expect(normalizeSettingsSection(null)).toBe("account");
+    expect(normalizeSettingsSection("not-a-section")).toBe("account");
+  });
+});

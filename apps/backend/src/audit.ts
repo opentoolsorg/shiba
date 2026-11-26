@@ -13,6 +13,7 @@
 import type { AuditRow } from "@shiba/shared";
 import { randomHex } from "./mailbox-store.js";
 import { redactSecrets } from "./security.js";
+import { log } from "./obs/log.js";
 
 /** Narrow env surface — the D1 binding wired in wrangler.jsonc. */
 export interface AuditEnv {
@@ -57,7 +58,7 @@ export async function audit(env: AuditEnv, entry: AuditEntry): Promise<void> {
       )
       .run();
   } catch (error: unknown) {
-    console.warn(
+    log.warn(
       `audit write failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
     );
   }

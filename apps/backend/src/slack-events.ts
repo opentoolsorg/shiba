@@ -21,6 +21,7 @@
 
 import type { Env } from "./env.js";
 import { slackTransport } from "./channels/slack/index.js";
+import { log } from "./obs/log.js";
 
 export const SLACK_EVENTS_PATH = "/api/slack/events";
 

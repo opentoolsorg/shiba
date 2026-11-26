@@ -12,6 +12,7 @@ import type { Env } from "./env.js";
 import { bestGrantAccess, listActiveGroupIdsForUser } from "./governance/governance-store.js";
 import { canAccess, collaborationAccessForLevel } from "./governance/resource-access.js";
 import { isTeamWorkspaceMember } from "./team-workspaces-store.js";
+import { log } from "./obs/log.js";
 
 export interface CollaborationRoomIdentity {
   tenantId: string;
@@ -126,6 +127,6 @@ export async function notifyCollaborationHandoffChange(env: Env, handoffId: stri
   } catch {
     // The committed handoff/run remains authoritative. Browser reconnect and
     // polling recover a missed notification without replaying the execution.
-    console.warn("Collaboration handoff notification unavailable.");
+    log.warn("Collaboration handoff notification unavailable.");
   }
 }

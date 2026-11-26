@@ -17,6 +17,7 @@ import type {
 import { isAuthorizedRequest } from "./request-auth.js";
 import { clampedLimit, jsonObjectBody, methodNotAllowed } from "./route-utils.js";
 import { InputError, NotFoundError } from "./security.js";
+import { log } from "./obs/log.js";
 
 // ---------- Dashboard inbox + memory API (megaplan T11) ----------
 //
@@ -201,12 +202,10 @@ async function queueDraftSend(env: Env, draftId: string): Promise<Response> {
     await mailboxDoJson(mailboxStub(env, mailbox), `/drafts/${encodeURIComponent(draftId)}/unqueue`, {
       method: "POST",
     }).catch((unqueueError) => {
-      console.warn(
-        `draft unqueue failed after approval mint error ${JSON.stringify({
-          draft_id: draftId,
-          error: unqueueError instanceof Error ? unqueueError.message : String(unqueueError),
-        })}`,
-      );
+      log.warn("draft unqueue failed after approval mint error", {
+        draft_id: draftId,
+        error: unqueueError instanceof Error ? unqueueError.message : String(unqueueError),
+      });
     });
     throw error;
   }

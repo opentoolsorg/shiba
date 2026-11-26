@@ -3,6 +3,7 @@
  */
 import { sha256Hex, type AgentTokensEnv } from "./agent-tokens.js";
 import { redactSecrets } from "./security.js";
+import { log } from "./obs/log.js";
 
 const PREFIX = "v1req_";
 
@@ -30,7 +31,7 @@ export async function readThreadCreateReceipt(
     if (typeof parsed.approvalId !== "string" || typeof parsed.at !== "number") return null;
     return parsed;
   } catch (error: unknown) {
-    console.warn(
+    log.warn(
       `v1-idempotency: KV get failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
     );
     return null;
@@ -47,7 +48,7 @@ export async function writeThreadCreateReceipt(
   try {
     await env.AGENT_TOKENS.put(key(orgId, requestId), JSON.stringify(receipt));
   } catch (error: unknown) {
-    console.warn(
+    log.warn(
       `v1-idempotency: KV put failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
     );
   }

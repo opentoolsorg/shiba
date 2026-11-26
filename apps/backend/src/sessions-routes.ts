@@ -24,6 +24,7 @@ import {
   sanitizeSessionMetadata,
   type WebSessionRecord,
 } from "./web-sessions.js";
+import { log } from "./obs/log.js";
 
 /** Bot associations are references, not arbitrary user-supplied session labels. */
 async function validateThreadAgent(
@@ -53,7 +54,7 @@ async function validateThreadAgent(
     }
     return null;
   } catch (error) {
-    console.error("Failed to validate thread agent:", redactSecrets(String(error)));
+    log.error("Failed to validate thread agent:", redactSecrets(String(error)));
     return Response.json({ error: "Bot registry is unavailable." }, { status: 503 });
   }
 }
@@ -153,7 +154,7 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
         if (check.status === 404) return Response.json({ error: "Session not found." }, { status: 404 });
         if (!check.ok) return Response.json({ error: "Failed to verify session." }, { status: check.status });
       } catch (error) {
-        console.error("Failed to verify realtime session:", redactSecrets(String(error)));
+        log.error("Failed to verify realtime session:", redactSecrets(String(error)));
         return Response.json({ error: "Failed to verify session." }, { status: 503 });
       }
     }
@@ -189,7 +190,7 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
           { headers: { "Cache-Control": "no-store" } },
         );
       } catch (error) {
-        console.error("Failed to list web sessions:", redactSecrets(String(error)));
+        log.error("Failed to list web sessions:", redactSecrets(String(error)));
         return Response.json({ error: "Internal error." }, { status: 500 });
       }
     }
@@ -249,7 +250,7 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
           { status: 201, headers: { "Cache-Control": "no-store" } },
         );
       } catch (error) {
-        console.error("Failed to persist web session:", redactSecrets(String(error)));
+        log.error("Failed to persist web session:", redactSecrets(String(error)));
         return Response.json({ error: "Internal error." }, { status: 500 });
       }
     }
@@ -292,7 +293,7 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
       const body = await response.json();
       return Response.json(body, { headers: { "Cache-Control": "no-store" } });
     } catch (error) {
-      console.error("Failed to resume web session:", redactSecrets(String(error)));
+      log.error("Failed to resume web session:", redactSecrets(String(error)));
       return Response.json({ error: "Internal error." }, { status: 500 });
     }
   }
@@ -342,7 +343,7 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
         const body = await response.json();
         return Response.json(body, { headers: { "Cache-Control": "no-store" } });
       } catch (error) {
-        console.error("Failed to fetch web session:", redactSecrets(String(error)));
+        log.error("Failed to fetch web session:", redactSecrets(String(error)));
         return Response.json({ error: "Internal error." }, { status: 500 });
       }
     }
@@ -390,7 +391,7 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
         const body = await response.json();
         return Response.json(body, { headers: { "Cache-Control": "no-store" } });
       } catch (error) {
-        console.error("Failed to update web session:", redactSecrets(String(error)));
+        log.error("Failed to update web session:", redactSecrets(String(error)));
         return Response.json({ error: "Internal error." }, { status: 500 });
       }
     }
@@ -460,7 +461,7 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
           teardownFailed = true;
         }
       } catch (error) {
-        console.error("Session teardown failed:", redactSecrets(String(error)));
+        log.error("Session teardown failed:", redactSecrets(String(error)));
         if (!force) {
           await stub.fetch(
             `https://internal/internal/web-sessions/${encodeURIComponent(sessionId)}/deleting`,
@@ -497,7 +498,7 @@ export async function handleWebSessions(request: Request, env: Env): Promise<Res
           teardownFailed: teardownFailed || undefined,
         });
       } catch (error) {
-        console.error("Failed to delete web session:", redactSecrets(String(error)));
+        log.error("Failed to delete web session:", redactSecrets(String(error)));
         return Response.json({ error: "Internal error." }, { status: 500 });
       }
     }

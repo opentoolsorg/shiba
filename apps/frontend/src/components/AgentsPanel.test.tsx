@@ -72,6 +72,8 @@ describe("AgentsPanel", () => {
   it("renders panel title and actions without duplicating the app-wide workspace picker", () => {
     const onScopeChange = vi.fn();
     const onNewAgent = vi.fn();
+    const onNewChat = vi.fn();
+    const onSearchAll = vi.fn();
     render(
       <AgentsPanel
         scope="personal"
@@ -79,14 +81,20 @@ describe("AgentsPanel", () => {
         active="agent-1"
         onSelect={vi.fn()}
         onNewAgent={onNewAgent}
+        onNewChat={onNewChat}
+        onSearchAll={onSearchAll}
         agents={mockAgents}
         threads={mockThreads}
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "Employees" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Search employees" })).toBeTruthy();
-    const newBtn = screen.getByRole("button", { name: "Hire employee" });
+    expect(screen.getByRole("heading", { name: "Agents" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Search agents" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    expect(onNewChat).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Search all" }));
+    expect(onSearchAll).toHaveBeenCalledOnce();
+    const newBtn = screen.getByRole("button", { name: "New employee" });
     expect(newBtn).toBeTruthy();
     fireEvent.click(newBtn);
     expect(onNewAgent).toHaveBeenCalledOnce();
@@ -111,7 +119,7 @@ describe("AgentsPanel", () => {
 
     expect(screen.getByText("Research Partner")).toBeTruthy();
     expect(screen.getByText("Engineering Lead")).toBeTruthy();
-    expect(document.querySelector(".shiba-agent-mascot")).toBeTruthy();
+    expect(document.querySelector(".agent-avatar[data-employee-role]")).toBeTruthy();
     expect(screen.getAllByText("Alice · Personal chief of staff").length).toBeGreaterThan(0);
 
     rerender(
@@ -303,18 +311,57 @@ describe("AgentsPanel", () => {
     expect(screen.queryByText("Competitor analysis")).toBeNull();
   });
 
-  it("shows a loading state instead of an empty Shiba thread while sessions load", () => {
+  it("searches employee names and thread titles without hiding matching conversations", () => {
     render(
       <AgentsPanel
         scope="personal"
         onScopeChange={vi.fn()}
-        active="default"
+        active=""
         onSelect={vi.fn()}
-        threadsLoading
+        agents={mockAgents}
+        threads={mockThreads}
       />,
     );
-    expect(screen.getByRole("status").textContent).toContain("Loading threads");
-    expect(screen.queryByRole("group", { name: "Shiba threads" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Search agents" }));
+    const search = screen.getByRole("searchbox", { name: "Filter agents" });
+    fireEvent.change(search, { target: { value: "research" } });
+    expect(screen.getByText("Literature review")).toBeTruthy();
+    expect(screen.getByText("Competitor analysis")).toBeTruthy();
+    expect(screen.queryByText("Tech debt review")).toBeNull();
+
+    fireEvent.change(search, { target: { value: "Tech debt" } });
+    expect(screen.getByText("Tech debt review")).toBeTruthy();
+    expect(screen.queryByText("Literature review")).toBeNull();
+  });
+
+  it("shows the newest runs and keeps the selected older run reachable", () => {
+    const onSelectRun = vi.fn();
+    const runs = Array.from({ length: 10 }, (_, index) => ({
+      id: `run-${index}`,
+      title: index === 0 ? "Older selected run" : `Run ${index}`,
+      repoName: "shiba",
+      status: "completed",
+      updatedAt: index,
+    }));
+    render(
+      <AgentsPanel
+        scope="personal"
+        onScopeChange={vi.fn()}
+        active="run-0"
+        onSelect={vi.fn()}
+        onSelectRun={onSelectRun}
+        runs={runs}
+        agents={mockAgents}
+        threads={mockThreads}
+      />,
+    );
+    const recent = screen.getByRole("region", { name: "Recent runs" });
+    const titles = [...recent.querySelectorAll("button:not([aria-expanded])")].map((button) => button.textContent ?? "");
+    expect(titles).toHaveLength(8);
+    expect(titles[0]).toContain("Older selected run");
+    expect(titles[1]).toContain("Run 9");
+    fireEvent.click(screen.getByRole("button", { name: /Older selected run/ }));
+    expect(onSelectRun).toHaveBeenCalledWith("run-0");
   });
 
   it("always lists the default agent with the default session and unbound threads", () => {
@@ -451,26 +498,22 @@ describe("AgentsPanel", () => {
     expect(screen.getByText("Research Partner")).toBeTruthy();
   });
 
-  it("groups archived employee threads without a Shiba new-thread action", () => {
-    const onSelectThread = vi.fn();
+  it("groups employee rows by their existing role template after Shiba", () => {
     render(
       <AgentsPanel
         scope="personal"
         onScopeChange={vi.fn()}
         active=""
-        onSelect={onSelectThread}
-        onSelectThread={onSelectThread}
+        onSelect={vi.fn()}
         agents={mockAgents}
-        threads={[{ id: "orphan", name: "Archived employee thread", agentName: "web:user:orphan", updatedAt: 500, metadata: { customAgentId: "archived-agent" } }]}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Expand Unavailable employee" }));
-    const orphanGroup = screen.getByRole("group", { name: "Unavailable employee threads" });
-    expect(orphanGroup.textContent).toContain("Archived employee thread");
-    expect(screen.queryByRole("button", { name: "New thread with Unavailable employee" })).toBeNull();
-    expect(screen.getByRole("group", { name: "Shiba threads" }).textContent).not.toContain("Archived employee thread");
-    fireEvent.click(screen.getByRole("button", { name: /Archived employee thread/ }));
-    expect(onSelectThread).toHaveBeenCalledWith("orphan");
+
+    const content = document.body.textContent ?? "";
+    expect(content.indexOf("Shiba")).toBeLessThan(content.indexOf("Research"));
+    expect(screen.getByRole("heading", { name: "Research" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Custom" })).toBeTruthy();
+    expect(screen.getByText("You · Personal chief of staff")).toBeTruthy();
   });
 
   it("reports no matches when the search excludes every agent", () => {

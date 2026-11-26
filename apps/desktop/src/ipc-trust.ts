@@ -45,3 +45,22 @@ export function createSetupTrust(
     return isSetupSender(event.senderFrame?.url, options.setupFileUrl);
   };
 }
+
+/** Local browser controls belong only to its bundled chrome, never the dashboard. */
+export function createLocalBrowserTrust(
+  options: TrustOptions & { localBrowserFileUrl: string },
+): (event: IpcSenderEvent) => boolean {
+  return (event) => {
+    if (!isMainFrameOfOwnWindow(event, options.ownedContents())) return false;
+    const actual = event.senderFrame?.url;
+    if (!actual) return false;
+    try {
+      const actualUrl = new URL(actual);
+      const expectedUrl = new URL(options.localBrowserFileUrl);
+      return actualUrl.protocol === "file:" && expectedUrl.protocol === "file:" &&
+        actualUrl.pathname === expectedUrl.pathname;
+    } catch {
+      return false;
+    }
+  };
+}

@@ -110,6 +110,104 @@ describe("CustomAgentsView", () => {
     const patch = request.mock.calls.find(([, init]) => init?.method === "PATCH");
     expect(JSON.parse(String(patch?.[1]?.body)).expectedVersion).toBe(1);
   });
+  const self = { kind: "user", userId: "owner@example.test" } as const;
+  const otherUser = { kind: "user", userId: "manager@example.test" } as const;
+  const employee = { kind: "agent", agentId: "lead" } as const;
+  const unavailable = { kind: "agent", agentId: "missing" } as const;
+  const otherUserLabel = "Keep saved manager (manager@example.test)";
+  const unavailableLabel = "Keep saved manager (unavailable employee)";
+  const employeeLabel = "Support lead (support)";
+
+  it.each([
+    ["chooses an employee from no manager", undefined, "No manager", employeeLabel, employee],
+    ["recognizes the current person", self, "Directly to you", undefined, self],
+    ["keeps another human manager", otherUser, otherUserLabel, undefined, otherUser],
+    ["replaces another human manager with the current person", otherUser, otherUserLabel, "Directly to you", self],
+    ["clears another human manager", otherUser, otherUserLabel, "No manager", undefined],
+    ["replaces a listed employee manager with the current person", employee, employeeLabel, "Directly to you", self],
+    ["keeps an unavailable employee manager", unavailable, unavailableLabel, undefined, unavailable],
+    ["clears an unavailable employee manager", unavailable, unavailableLabel, "No manager", undefined],
+  ] as const)("%s", async (_name, before, initialLabel, choice, after) => {
+    let saved: CustomAgentWire = {
+      id: "assistant", slug: "assistant", version: 1,
+      config: { name: "Support assistant", instructions: "Answer customer questions.", harness: "opencode", reportsTo: before },
+    };
+    const lead: CustomAgentWire = {
+      id: "lead", slug: "lead", version: 1,
+      config: { name: "Support lead", instructions: "Oversee support.", harness: "opencode", roleTemplateId: "support" },
+    };
+    const request = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/custom-agents/assistant" && init?.method === "PATCH") {
+        const { config } = JSON.parse(String(init.body)) as { config: CustomAgentWire["config"] };
+        saved = { ...saved, version: 2, config };
+        return Response.json({ agent: saved });
+      }
+      return Response.json({ agents: [saved, lead] });
+    });
+    vi.stubGlobal("fetch", request);
+    render(<CustomAgentsView actorId={self.userId} />);
+    const card = (await screen.findByRole("button", { name: "View profile Support assistant" })).closest("li")!;
+    fireEvent.click(within(card).getByRole("button", { name: "Edit bot" }));
+    const picker = screen.getByRole("combobox", { name: "Reports to" });
+    expect(within(picker).getByRole("option", { selected: true }).textContent).toBe(initialLabel);
+    expect(within(picker).queryByRole("option", { name: "Support assistant (general)" })).toBeNull();
+    if (choice) {
+      const option = within(picker).getByRole("option", { name: choice }) as HTMLOptionElement;
+      fireEvent.change(picker, { target: { value: option.value } });
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await screen.findByText("Bot updated.");
+    if (after) expect(saved.config.reportsTo).toEqual(after);
+    else expect(saved.config).not.toHaveProperty("reportsTo");
+  });
+
+  it("does not offer assignment to yourself without a current person", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ agents: [] })));
+    render(<CustomAgentsView />);
+    await screen.findByText("No bots");
+    const picker = screen.getByRole("combobox", { name: "Reports to" });
+    expect(within(picker).getByRole("option", { name: "No manager", selected: true })).toBeTruthy();
+    expect(within(picker).queryByRole("option", { name: "Directly to you" })).toBeNull();
+  });
+
+  it("does not offer assignment to yourself for the unauthenticated fallback identity", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ agents: [] })));
+    render(<CustomAgentsView actorId="default" />);
+    await screen.findByText("No bots");
+    const picker = screen.getByRole("combobox", { name: "Reports to" });
+    expect(within(picker).queryByRole("option", { name: "Directly to you" })).toBeNull();
+  });
+
+  it("creates an employee with the manager from a previously saved draft", async () => {
+    const scope = "manager-draft";
+    const key = `shiba-role-draft-v1:${scope}`;
+    localStorage.setItem(key, JSON.stringify({
+      name: "Draft assistant", instructions: "Answer questions.", reportsToAgentId: employee.agentId,
+    }));
+    try {
+      const request = vi.fn(async (url: string, init?: RequestInit) => {
+        if (url === "/api/custom-agents" && init?.method === "POST") {
+          const body = JSON.parse(String(init.body));
+          return Response.json({ agent: { ...body, id: "draft-assistant", version: 1 } });
+        }
+        return Response.json({ agents: [{
+          id: employee.agentId, slug: "lead", version: 1,
+          config: { name: "Support lead", instructions: "Oversee support.", harness: "opencode", roleTemplateId: "support" },
+        }] });
+      });
+      vi.stubGlobal("fetch", request);
+      render(<CustomAgentsView actorId={self.userId} draftScope={scope} />);
+      const picker = screen.getByRole("combobox", { name: "Reports to" });
+      await within(picker).findByRole("option", { name: employeeLabel, selected: true });
+      fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
+      await screen.findByText("Bot created.");
+      const post = request.mock.calls.find(([, init]) => init?.method === "POST");
+      expect(JSON.parse(String(post?.[1]?.body)).config.reportsTo).toEqual(employee);
+    } finally {
+      localStorage.removeItem(key);
+    }
+  });
+
   it("skips fetching when disabled and loads bots when enabled", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       Response.json({

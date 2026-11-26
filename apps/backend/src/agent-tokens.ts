@@ -15,6 +15,7 @@
  */
 import { randomHex } from "./mailbox-store.js";
 import { InputError, redactSecrets } from "./security.js";
+import { log } from "./obs/log.js";
 
 export const SCOPES = [
   "gmail:read",
@@ -188,7 +189,7 @@ async function kvGet(env: AgentTokensEnv, key: string): Promise<string | null> {
   try {
     return await env.AGENT_TOKENS.get(key, { type: "text" });
   } catch (error: unknown) {
-    console.warn(
+    log.warn(
       `agent-tokens: KV get failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
     );
     return null;
@@ -343,7 +344,7 @@ export async function revokeApiKeyById(
       cursor = page.list_complete ? undefined : page.cursor;
     } while (cursor !== undefined);
   } catch (error: unknown) {
-    console.warn(
+    log.warn(
       `agent-tokens: KV list failed during api key revoke: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
     );
     return false;
@@ -384,7 +385,7 @@ export async function revokeToken(
         metadata: tokenMetadata(record),
       });
     } catch (error: unknown) {
-      console.warn(
+      log.warn(
         `agent-tokens: KV put failed during revoke: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
       );
       return null;
@@ -416,7 +417,7 @@ export async function listTokens(env: AgentTokensEnv): Promise<TokenRecord[]> {
       cursor = page.list_complete ? undefined : page.cursor;
     } while (cursor !== undefined);
   } catch (error: unknown) {
-    console.warn(
+    log.warn(
       `agent-tokens: KV list failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
     );
   }

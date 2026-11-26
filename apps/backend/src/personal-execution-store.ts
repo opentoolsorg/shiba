@@ -1,6 +1,7 @@
 import { personalExecutionSnapshotSchema, personalPairingScopeSchema, PERSONAL_ACCOUNT_MAX_AGE_MS, type PersonalExecutionSnapshot, type PersonalPairingScope, type ConnectedComputer } from "@shiba/shared";
 import { resolveBetterAuthSessionAccount } from "@shiba/auth/better-auth";
 import type { Env } from "./env.js";
+import { flag } from "./config/flags.js";
 import { getTeamWorkspaceMembership } from "./team-workspaces-store.js";
 import { redactSecrets } from "./security.js";
 import { localDispatchFor } from "./platform/do-resolver.js";
@@ -9,7 +10,7 @@ export type PersonalExecutionEnv = Env & { SHIBA_PERSONAL_LOCAL_EXECUTION?: stri
 export interface PersonalExecutionStopOwner { ownerAccountId: string; workspaceId: string; origin: string }
 export function personalExecutionEnabled(env: PersonalExecutionEnv): boolean {
   const pairingKey = env.PAIRING_SECRET?.trim() || env.LOCAL_ADAPTER_TOKEN?.trim() || "";
-  return env.SHIBA_PERSONAL_LOCAL_EXECUTION === "1" && env.SHIBA_LOCAL_RUNTIME === "1" && pairingKey.length >= 32 &&
+  return flag(env, "SHIBA_PERSONAL_LOCAL_EXECUTION") === "1" && flag(env, "SHIBA_LOCAL_RUNTIME") === "1" && pairingKey.length >= 32 &&
     (env.INTERNAL_SIGNING_KEY?.trim().length ?? 0) >= 32 && Boolean(env.LocalDispatch && env.AGENT_AUDIT);
 }
 

@@ -13,6 +13,22 @@ function respond(automations: unknown[] = []) {
 }
 
 describe("AutomationsView", () => {
+  it("prefills a suggested routine without creating or running it until explicitly saved", async () => {
+    respond();
+    render(<AutomationsView initialDraft={{ prompt: "Audit the build", repoUrl: "https://github.com/acme/app" }} />);
+    await screen.findByRole("form", { name: "Suggested automation" });
+    expect((screen.getByRole("textbox", { name: "Routine prompt" }) as HTMLTextAreaElement).value).toBe("Audit the build");
+    expect(fetchMock.mock.calls.every((call) => !call[1]?.method)).toBe(true);
+    fireEvent.change(screen.getByRole("textbox", { name: "Automation name" }), { target: { value: "daily-audit" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Schedule (cron, UTC)" }), { target: { value: "0 9 * * *" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Suggested automation" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some((call) => call[1]?.method === "POST")).toBe(true));
+    const post = fetchMock.mock.calls.find((call) => call[1]?.method === "POST");
+    expect(post?.[0]).toBe("/api/automations");
+    expect(JSON.parse(post?.[1]?.body)).toMatchObject({ id: "daily-audit", prompt: "Audit the build", enabled: false, triggers: [{ kind: "schedule", cron: "0 9 * * *" }] });
+    expect(fetchMock.mock.calls.some((call) => String(call[0]).endsWith("/run"))).toBe(false);
+  });
+
   it("shows a quiet empty state and opens recipes from New automation", async () => {
     respond();
     render(<AutomationsView />);

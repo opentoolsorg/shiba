@@ -40,6 +40,7 @@ import { checkDiscordGuildAccess, DISCORD_COMMAND_NAME, DISCORD_MESSAGE_COMMAND_
 import { tryAnswerUiBlockFallback } from "./ui-block-fallback.js";
 import { redactSecrets } from "./security.js";
 import { isApprover, parseApproverAllowlist, type ExecutionContextLike } from "./slack-approval.js";
+import { log } from "./obs/log.js";
 
 export { DISCORD_REPLAY_WINDOW_SECONDS, verifyDiscordRequest } from "./channels/discord/index.js";
 
@@ -240,7 +241,7 @@ export async function handleDiscordInteractions(
   const schedule = async (work: () => Promise<void>) => {
     // The deferred response already went out; failures can only be logged.
     const promise = work().catch((error: unknown) => {
-      console.error("Discord interaction failed", redactSecrets(String(error)));
+      log.error("Discord interaction failed", redactSecrets(String(error)));
     });
     if (ctx) {
       ctx.waitUntil(promise);

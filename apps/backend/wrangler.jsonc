@@ -47,9 +47,8 @@
     // Optional MCP_OAUTH_CLIENT_* IDs are Wrangler secrets listed in
     // worker-secrets.json; unset vendors remain unavailable for OAuth.
     "MCP_TRUSTED_HOSTS": "",
-    "INTEGRATIONS_PROVIDER": "openconnector",
-  // When "1", integration routes surface openconnector_not_bound instead of opaque 503 text.
-    "OPEN_CONNECTOR_ENABLED": "0",
+    // Set to "none" to opt out even if the service and tokens are configured.
+    "CONNECTOR_PROVIDER": "openconnector",
     "VAULT_WRITE_V2": "0",
     "SHIBA_PERSONAL_LOCAL_EXECUTION": "0",
     "SHIBA_TEAM_MODEL_SESSIONS": "0",

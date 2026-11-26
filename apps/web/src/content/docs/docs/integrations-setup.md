@@ -15,7 +15,7 @@ Set these on the Shiba backend worker (names only; keep values in your secret st
 | `OPEN_CONNECTOR_URL` | variable | HTTPS URL of an OpenConnector deployment. Used when there is no binding. |
 | `OPEN_CONNECTOR_ADMIN_TOKEN` | secret | Lets Shiba manage connections. |
 | `OPEN_CONNECTOR_RUNTIME_TOKEN` | secret | Lets Shiba run approved actions. |
-| `OPEN_CONNECTOR_ENABLED` | variable | Optional. `1` or `true` turns the integration on; a binding or URL also enables it. |
+| `CONNECTOR_PROVIDER` | variable | Defaults to `openconnector`. Set to `none` to disable integrations even if the binding and tokens are present. |
 
 ## Steps
 

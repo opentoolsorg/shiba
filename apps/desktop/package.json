@@ -5,7 +5,7 @@
   "type": "commonjs",
   "main": "dist/main.js",
   "scripts": {
-  "build": "tsc -p tsconfig.json && node -e \"const fs=require('fs');for (const name of ['setup.html','setup.js']) fs.copyFileSync('src/'+name,'dist/'+name);fs.cpSync('src/fonts','dist/fonts',{recursive:true})\"",
+    "build": "tsc -p tsconfig.json && node -e \"const fs=require('fs');for (const name of ['setup.html','setup.js','local-browser.html','local-browser.css']) fs.copyFileSync('src/'+name,'dist/'+name);const ui='dist/local-browser-ui.js';fs.writeFileSync(ui,fs.readFileSync(ui,'utf8').replace(/^\\\"use strict\\\";\\nObject.defineProperty\\(exports, \\\"__esModule\\\", \\{ value: true \\}\\\\);\\n/,''));fs.cpSync('src/fonts','dist/fonts',{recursive:true})\"",
     "start": "pnpm build && electron .",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint src",

@@ -1,7 +1,7 @@
 import type { TeamWorkspaceMembership, WorkspaceIntegrationApproval } from "@shiba/shared";
 import type { Env } from "./env.js";
 import { hashToolArgs } from "./mcp-gateway.js";
-import { getIntegrationProvider } from "./integrations/runtime.js";
+import { getIntegrationProvider } from "./ports/connector/registry.js";
 import { assertActionArgumentsAllowed, assertActionInputAllowed } from "./integrations/action-input-policy.js";
 import { redactSecrets } from "./security.js";
 import type { WorkspaceNativeMember } from "./workspace-native-authority.js";

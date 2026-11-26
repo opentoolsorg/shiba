@@ -1,5 +1,6 @@
 import { parseSandboxProviderId } from "@shiba/sandbox";
 import type { Env } from "./env.js";
+import { flag } from "./config/flags.js";
 import { resolveOrgForApiRequest } from "./org-request-auth.js";
 import {
   getDecryptedOrgRunnerToken,
@@ -152,7 +153,7 @@ export async function handleOrgSandboxSettings(
         settings,
         effective: selection,
         providers,
-        deploymentDefault: env.SHIBA_SANDBOX_PROVIDER?.trim() || "cloudflare",
+        deploymentDefault: flag(env, "SHIBA_SANDBOX_PROVIDER")?.trim() || "cloudflare",
       },
       { headers: { "cache-control": "no-store" } },
     );

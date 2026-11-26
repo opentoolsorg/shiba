@@ -70,20 +70,35 @@ const resolvedMarkdownUrl =
       (() => {
         const KEY = "shiba-theme"; // shared with the landing page so both follow one theme
         const media = window.matchMedia("(prefers-color-scheme: dark)");
-        // A choice storage refused, kept until the page unloads.
         let unsaved = null;
+        const readShared = () => document.cookie.match(/(?:^|;\s*)shiba-theme=(light|dark|system)(?:;|$)/)?.[1] ?? null;
+        const writeShared = (value) => {
+          const host = location.hostname;
+          const domain = host === "tryshiba.dev" || host.endsWith(".tryshiba.dev") ? "; Domain=.tryshiba.dev" : "";
+          const secure = location.protocol === "https:" ? "; Secure" : "";
+          document.cookie = `${KEY}=${value}; Path=/; Max-Age=31536000; SameSite=Lax${domain}${secure}`;
+        };
 
         const readPref = () => {
           if (unsaved) return unsaved;
+          const shared = readShared();
+          if (shared) {
+            try { localStorage.setItem(KEY, shared); } catch {}
+            return shared;
+          }
           try {
             const v = localStorage.getItem(KEY);
-            return v === "dark" || v === "light" ? v : null;
+            if (v === "dark" || v === "light" || v === "system") writeShared(v);
+            return v === "dark" || v === "light" || v === "system" ? v : null;
           } catch {
             return null;
           }
         };
 
-        const resolveMode = () => readPref() ?? (media.matches ? "dark" : "light");
+        const resolveMode = () => {
+          const preference = readPref();
+          return preference === "dark" || preference === "light" ? preference : media.matches ? "dark" : "light";
+        };
 
         const applyTheme = () => {
           const root = document.documentElement;
@@ -97,18 +112,35 @@ const resolvedMarkdownUrl =
           });
         };
 
+        const syncShared = () => {
+          const shared = readShared();
+          if (shared) {
+            unsaved = null;
+            try { localStorage.setItem(KEY, shared); } catch {}
+            applyTheme();
+          }
+        };
         applyTheme();
         document.addEventListener("astro:after-swap", applyTheme);
         media.addEventListener("change", () => {
-          if (!readPref()) applyTheme();
+          if (!readPref() || readPref() === "system") applyTheme();
         });
         window.addEventListener("storage", (e) => {
           if (e.key === KEY) applyTheme();
         });
+        window.addEventListener("focus", syncShared);
+        document.addEventListener("visibilitychange", syncShared);
 
-        // The toggle passes a mode only when storage refused it.
         window.__nbApplyTheme = (mode) => {
-          if (mode === "dark" || mode === "light") unsaved = mode;
+          if (mode === "dark" || mode === "light") {
+            try {
+              localStorage.setItem(KEY, mode);
+              unsaved = null;
+            } catch {
+              unsaved = mode;
+            }
+            writeShared(mode);
+          }
           applyTheme();
         };
       })();

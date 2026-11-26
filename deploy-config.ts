@@ -48,5 +48,16 @@ export function deploymentConfig(
   if (env.BETTER_AUTH_OWNER_EMAIL && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.BETTER_AUTH_OWNER_EMAIL)) {
     throw new Error("BETTER_AUTH_OWNER_EMAIL must be an email address");
   }
+  // M06 release-N deploy check: without INTERNAL_SIGNING_KEY the child
+  // dispatch seal still falls back to MODEL_CREDENTIAL_KEY (dual-verify
+  // window). Warn, don't fail — the dedicated key turns mandatory next
+  // release, when the legacy verify path is removed.
+  if (!env.INTERNAL_SIGNING_KEY?.trim()) {
+    console.warn(
+      "deploy: INTERNAL_SIGNING_KEY is unset — child dispatch signing falls " +
+        "back to MODEL_CREDENTIAL_KEY and legacy seals stay accepted. Set " +
+        "the secret to finish the signing-key split.",
+    );
+  }
   return { workerHost, accessEnabled, accessEmails, openDashboard: !isLiveStage && !accessEnabled && !betterAuthEnabled };
 }

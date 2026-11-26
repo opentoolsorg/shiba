@@ -3,6 +3,7 @@
  * Refresh tokens enter the auth sandbox only for the request, never task sandboxes.
  */
 import type { Env } from "../env.js";
+import { flag } from "../config/flags.js";
 import { shellJoin } from "@shiba/shared";
 import type { OpenIdDiscovery } from "./siwc.js";
 import { ChatGptOAuthError, type TokenResponse } from "./siwc-oauth.js";
@@ -106,7 +107,7 @@ export function createSandboxOAuthRunner(env: Pick<Env, "Sandbox">): SandboxOAut
     async exchange(discovery, body, userId) {
       const safeUser = userId.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 48);
       const sandboxId = `siwc-oauth-${safeUser}-${crypto.randomUUID().slice(0, 8)}`;
-      const { getSandboxInstance, destroySandboxInstance } = await import("../sandbox/provider.js");
+      const { getSandboxInstance, destroySandboxInstance } = await import("../ports/sandbox/registry.js");
       const { assertSandboxRunPreflight, OAUTH_SANDBOX_FEATURES } = await import("../sandbox/preflight.js");
       const fullEnv = env as Env;
       await assertSandboxRunPreflight(fullEnv, {}, OAUTH_SANDBOX_FEATURES);
@@ -127,5 +128,5 @@ export function createSandboxOAuthRunner(env: Pick<Env, "Sandbox">): SandboxOAut
 }
 
 export function sandboxOAuthEnabled(env: Pick<Env, "SHIBA_CHATGPT_SIWC_SANDBOX_OAUTH">): boolean {
-  return env.SHIBA_CHATGPT_SIWC_SANDBOX_OAUTH === "1";
+  return flag(env, "SHIBA_CHATGPT_SIWC_SANDBOX_OAUTH") === "1";
 }

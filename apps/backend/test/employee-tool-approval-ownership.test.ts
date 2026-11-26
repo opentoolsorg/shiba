@@ -26,7 +26,7 @@ vi.mock("../src/v1-auth.js", async (original) => ({
     ? { orgId: "self-hosted", principal: "agent:fixture", scopes: ["admin:tokens"], kind: "agent" } : null,
   requireV1Read: () => true, requireV1Write: () => true,
 }));
-vi.mock("../src/integrations/runtime.js", () => ({ getIntegrationProvider: () => ({
+vi.mock("../src/ports/connector/registry.js", () => ({ getIntegrationProvider: () => ({
   id: "openconnector", listConnections: async ({ userId }: { userId: string }) => [{ id: `connection:${userId}`, providerKey: "github", executionReady: true }],
   searchActions: async () => [{ id: "github.create_issue", service: "github", name: "Create issue" }], executeTool: state.execute,
 }) }));

@@ -19,6 +19,7 @@ import {
 import type { SessionRecord } from "./memory-store.js";
 import type { DelegatedRun } from "./runs.js";
 import { boundTail, redactSecrets } from "./security.js";
+import { log } from "./obs/log.js";
 
 /** Head-bound for prose (facts, summaries, transcript) — the start carries the meaning. */
 function boundHead(text: string, maxChars: number): string {
@@ -185,11 +186,11 @@ async function bankFact(env: Env, agent: string, id: string, fact: string): Prom
     if (probe.ok) {
       return true;
     }
-    console.warn(`memory_distill_bank_conflict ${JSON.stringify({ id, status: probe.status })}`);
+    log.warn("memory_distill_bank_conflict", { id, status: probe.status });
     return false;
   }
   if (!res.ok) {
-    console.warn(`memory_distill_bank_failed ${JSON.stringify({ id, status: res.status })}`);
+    log.warn("memory_distill_bank_failed", { id, status: res.status });
     return false;
   }
   return true;
@@ -226,13 +227,11 @@ async function recordSession(env: Env, run: DelegatedRun, agent: string, summary
     if (owner === agent) {
       return true;
     }
-    console.warn(
-      `memory_distill_session_conflict ${JSON.stringify({ runId: run.runId, owner: owner ?? null })}`,
-    );
+    log.warn("memory_distill_session_conflict", { runId: run.runId, owner: owner ?? null });
     return false;
   }
   if (!res.ok) {
-    console.warn(`memory_distill_session_failed ${JSON.stringify({ runId: run.runId, status: res.status })}`);
+    log.warn("memory_distill_session_failed", { runId: run.runId, status: res.status });
     return false;
   }
   return true;
@@ -261,11 +260,11 @@ export async function distillSession(
     });
     distilled = parseDistilled(result);
   } catch (error) {
-    console.error(`Session distillation model call failed for ${run.runId}`, redactSecrets(String(error)));
+    log.error(`Session distillation model call failed for ${run.runId}`, redactSecrets(String(error)));
     return empty;
   }
   if (distilled === null) {
-    console.warn(`Session distillation returned no usable output for ${run.runId}`);
+    log.warn(`Session distillation returned no usable output for ${run.runId}`);
     return empty;
   }
   let factsBanked = 0;
@@ -275,24 +274,20 @@ export async function distillSession(
         factsBanked += 1;
       }
     } catch (error) {
-      console.warn(
-        `memory_distill_bank_failed ${JSON.stringify({
-          runId: run.runId,
-          error: redactSecrets(error instanceof Error ? error.message : String(error)),
-        })}`,
-      );
+      log.warn("memory_distill_bank_failed", {
+        runId: run.runId,
+        error: redactSecrets(error instanceof Error ? error.message : String(error)),
+      });
     }
   }
   let sessionRecorded = false;
   try {
     sessionRecorded = await recordSession(env, run, agent, distilled.summary);
   } catch (error) {
-    console.warn(
-      `memory_distill_session_failed ${JSON.stringify({
-        runId: run.runId,
-        error: redactSecrets(error instanceof Error ? error.message : String(error)),
-      })}`,
-    );
+    log.warn("memory_distill_session_failed", {
+      runId: run.runId,
+      error: redactSecrets(error instanceof Error ? error.message : String(error)),
+    });
   }
   return { distilled: true, factsBanked, sessionRecorded };
 }

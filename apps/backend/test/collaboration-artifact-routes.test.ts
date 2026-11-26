@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runInputHash, type DelegatedRun } from "@shiba/shared";
+import { parseArtifactReview, updateArtifactReview } from "../src/artifact-metadata.js";
 import { handleCollaborationArtifact } from "../src/collaboration-artifact-routes.js";
 import { bindCollaborationContextApproval, freezeCollaborationContext } from "../src/collaboration-context.js";
 import { createCollaborationMemory, revokeCollaborationMemory } from "../src/collaboration-memory.js";
@@ -25,7 +26,20 @@ vi.mock("agents/routing", () => ({
     state.names.push(name);
     return { fetch: async (request: Request) => {
       state.requests.push(request);
-      const runId = decodeURIComponent(new URL(request.url).pathname.split("/").pop()!);
+      const url = new URL(request.url);
+      const reviewMatch = url.pathname.match(/^\/api\/runs\/([^/]+)\/deliverables\/(\d+)\/review$/);
+      if (reviewMatch && request.method === "POST") {
+        const runId = decodeURIComponent(reviewMatch[1]!);
+        const run = state.runs.get(`${name}|${runId}`);
+        if (!run) return Response.json({ error: "Not found" }, { status: 404 });
+        const index = Number(reviewMatch[2]);
+        const review = parseArtifactReview(await request.json().catch(() => null));
+        const updated = review && updateArtifactReview(run, index, review, Date.now());
+        if (!updated) return Response.json({ error: "Review changed in another tab." }, { status: 409 });
+        state.runs.set(`${name}|${runId}`, updated);
+        return Response.json({ ok: true, deliverable: updated.deliverables![index] });
+      }
+      const runId = decodeURIComponent(url.pathname.split("/").pop()!);
       const run = state.runs.get(`${name}|${runId}`);
       return run ? Response.json({ run }) : Response.json({ error: "Not found" }, { status: 404 });
     } };
@@ -114,8 +128,8 @@ async function fixture(withSelectedSource = false, teamWorkspace = false) {
     messageId: `agent_reply_${HANDOFF}`, roomId: ROOM, handoffId: HANDOFF, runId: RUN, agentUserId: OWNER,
     agentActorId: "agent:writer", profileVersion: 1, body: "The approved report is ready.", sourceArtifactRefs: refs, createdAt: 6,
   })).not.toBeNull();
-  const send = (user = MEMBER, path = `/api/collaboration/rooms/${ROOM}/handoffs/${HANDOFF}/artifacts/0`, headers: Record<string, string> = {}, method = "GET") =>
-    handleCollaborationArtifact(new Request(`https://dashboard.test${path}`, { method, headers: {
+  const send = (user = MEMBER, path = `/api/collaboration/rooms/${ROOM}/handoffs/${HANDOFF}/artifacts/0`, headers: Record<string, string> = {}, method = "GET", body?: unknown) =>
+    handleCollaborationArtifact(new Request(`https://dashboard.test${path}`, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }), headers: {
       Authorization: "Bearer fixture", "X-Fixture-User": user,
       "X-Agent-Principal": "agent:spoof", "X-Shiba-Intake": "forged", Cookie: "private-cookie", ...headers,
     } }), env);
@@ -332,5 +346,43 @@ describe("membership-bound collaboration artifact downloads", () => {
     for (const index of ["8", "00", "-1", "%GG", "1.0"]) expect((await f.send(MEMBER, `/api/collaboration/rooms/${ROOM}/handoffs/${HANDOFF}/artifacts/${index}`))?.status).toBe(400);
     expect(await f.send(MEMBER, "/api/collaboration/rooms")).toBeNull();
     expect(f.get).not.toHaveBeenCalled();
+  });
+
+  it("lets a room member read and decide the review bound to the shared artifact revision", async () => {
+    const f = await fixture(true);
+    const reviewPath = `/api/collaboration/rooms/${ROOM}/handoffs/${HANDOFF}/artifacts/0/review`;
+    const shown = await f.send(MEMBER, reviewPath);
+    expect(shown?.status).toBe(200);
+    expect(await shown!.json()).toMatchObject({ review: { status: "pending_review", revision: 0 } });
+    const approved = await f.send(MEMBER, reviewPath, {}, "POST", { status: "approved", expectedRevision: 0 });
+    expect(approved?.status).toBe(200);
+    expect(await approved!.json()).toMatchObject({ ok: true, deliverable: { review: { status: "approved", revision: 1 } } });
+    const run = state.runs.get(`${EXECUTOR}|${RUN}`)!;
+    expect(run.deliverables![0]!.review).toMatchObject({ status: "approved", revision: 1 });
+    const forwarded = state.requests.at(-1)!;
+    expect(decodeURIComponent(new URL(forwarded.url).pathname)).toBe(`/api/runs/${RUN}/deliverables/0/review`);
+    for (const header of ["X-Agent-Principal", "X-Shiba-Intake", "Authorization", "Cookie", "X-Fixture-User"]) expect(forwarded.headers.has(header)).toBe(false);
+    expect((await verifyInternalRequest(forwarded, f.env)).ok).toBe(true);
+  });
+
+  it("requires a change note, honors the CAS revision and relays the executor conflict", async () => {
+    const f = await fixture(true);
+    const reviewPath = `/api/collaboration/rooms/${ROOM}/handoffs/${HANDOFF}/artifacts/0/review`;
+    expect((await f.send(MEMBER, reviewPath, {}, "POST", { status: "changes_requested", expectedRevision: 0 }))?.status).toBe(400);
+    expect(state.requests).toHaveLength(1); // only the run lookup
+    state.requests.length = 0;
+    const stale = await f.send(MEMBER, reviewPath, {}, "POST", { status: "approved", expectedRevision: 7 });
+    expect(stale?.status).toBe(409);
+    expect(state.runs.get(`${EXECUTOR}|${RUN}`)!.deliverables![0]!.review?.status ?? "pending_review").toBe("pending_review");
+  });
+
+  it.each(["member", "artifact"] as const)("denies the review when the %s binding no longer matches", async (kind) => {
+    const f = await fixture(true);
+    const reviewPath = `/api/collaboration/rooms/${ROOM}/handoffs/${HANDOFF}/artifacts/0/review`;
+    if (kind === "member") f.sqlite.prepare("UPDATE collaboration_memberships SET status='removed',removed_at=10 WHERE actor_id=?").run(humanActorId(MEMBER));
+    else f.sqlite.prepare("UPDATE collaboration_messages SET source_artifact_refs_json=?").run(JSON.stringify(f.refs.map((ref) => ({ ...ref, version: 2 }))));
+    expect((await f.send(MEMBER, reviewPath))?.status).toBe(404);
+    expect((await f.send(MEMBER, reviewPath, {}, "POST", { status: "approved", expectedRevision: 0 }))?.status).toBe(404);
+    expect(state.runs.get(`${EXECUTOR}|${RUN}`)!.deliverables![0]!.review?.status ?? "pending_review").toBe("pending_review");
   });
 });

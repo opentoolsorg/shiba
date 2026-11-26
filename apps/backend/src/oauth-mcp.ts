@@ -36,6 +36,7 @@ import {
 } from "./mcp-grants.js";
 import { randomHex } from "./mailbox-store.js";
 import { redactSecrets } from "./security.js";
+import { log } from "./obs/log.js";
 
 // ---------------------------------------------------------------------------
 // Shapes
@@ -121,7 +122,7 @@ async function kvGet(env: OAuthEnv, key: string): Promise<unknown> {
     const raw = await env.AGENT_TOKENS.get(key, { type: "text" });
     return raw === null ? null : JSON.parse(raw);
   } catch (error) {
-    console.warn(`oauth: KV get failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
+    log.warn(`oauth: KV get failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
     return null;
   }
 }
@@ -143,7 +144,7 @@ async function kvGetStrict(env: OAuthEnv, key: string): Promise<KvReadResult> {
     const raw = await env.AGENT_TOKENS.get(key, { type: "text" });
     return { ok: true, value: raw === null ? null : JSON.parse(raw) };
   } catch (error) {
-    console.warn(`oauth: KV get failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
+    log.warn(`oauth: KV get failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
     return { ok: false, unavailable: true };
   }
 }
@@ -619,7 +620,7 @@ export async function handleOAuth(request: Request, env: OAuthEnv, ownerId: stri
     if (pathname === "/oauth/token" && request.method === "POST") return await handleToken(request, env);
     if (pathname === "/oauth/revoke" && request.method === "POST") return await handleRevoke(request, env);
   } catch (error) {
-    console.warn(`oauth: handler failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
+    log.warn(`oauth: handler failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`);
     return jsonError(500, "server_error", "OAuth request failed.");
   }
   return null;
