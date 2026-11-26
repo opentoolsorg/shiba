@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
-import { openAppView, selectRepositoryTask } from "./composer-target.mjs";
+import { openAppView, openEmployeeThread, selectRepositoryTask } from "./composer-target.mjs";
 
 const base = new URL(process.env.VERIFY_APP_URL ?? "http://localhost:5173");
 assert(["localhost", "127.0.0.1", "[::1]"].includes(base.hostname), "This smoke test writes local fixture records only.");
@@ -103,8 +103,7 @@ try {
   passed("Refresh preserves the renamed thread and restores its bot profile on selection");
 
   await openAppView(page, "Chats");
-  const threadList = page.getByRole("complementary", { name: "Chats", exact: true }).getByRole("region", { name: "Recents", exact: true });
-  await threadList.getByRole("button").filter({ hasText: "Default Session" }).click();
+  await openEmployeeThread(page, "Shiba", /^default session$/i);
   await assertThreadProfile("Shiba");
   assert.equal(await page.getByRole("button", { name: "Rename thread", exact: true }).count(), 0);
   // Hold the real resume request until the old selection has been observed.
@@ -115,7 +114,7 @@ try {
   await page.route(resumePath, async (route) => { await resumeGate; await route.continue(); });
   try {
     const resumeSeen = page.waitForRequest(resumePath);
-    await threadList.getByRole("button").filter({ hasText: renamed }).click();
+    await openEmployeeThread(page, name, renamed);
     await resumeSeen;
     const selection = assertThreadProfile(name).then(() => null, (error) => error);
     const menu = page.getByRole("menu", { name: "Thread configuration", exact: true });

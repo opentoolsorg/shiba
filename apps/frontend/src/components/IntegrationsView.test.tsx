@@ -227,11 +227,18 @@ describe("IntegrationsView native catalog", () => {
 
   it("preserves setup detail panels behind Show setup details", async () => {
     stubIntegrationsFetch();
-    render(<IntegrationsView />);
+    const onNavigate = vi.fn();
+    const onOpenSettings = vi.fn();
+    render(<IntegrationsView onNavigate={onNavigate} onOpenSettings={onOpenSettings} />);
     await screen.findByRole("heading", { name: "Configured connections" });
     fireEvent.click(screen.getByRole("button", { name: "Show setup details" }));
     expect(await screen.findByTestId("integration-linear")).toBeTruthy();
     expect(screen.getAllByText("GitHub").length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "Connection management" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Review app setup" }));
+    expect(onOpenSettings).toHaveBeenCalledWith("connected-apps");
+    fireEvent.click(screen.getByRole("button", { name: "Review employee permissions" }));
+    expect(onNavigate).toHaveBeenCalledWith("employee-tools");
   });
 });
 
