@@ -918,7 +918,7 @@ function PersonalIntegrationsView({
                   Connection status, account scope, and employee permissions are separate. Connecting an app does not grant any employee access.
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <button type="button" onClick={() => onOpenSettings ? onOpenSettings("connected-apps") : onNavigate?.("settings")} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--card-hover)]">Review app setup</button>
+                  <button type="button" onClick={() => setShowSetupDetails(true)} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--card-hover)]">Review app setup</button>
                   <button type="button" onClick={() => onNavigate?.("employee-tools")} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--card-hover)]">Review employee permissions</button>
                 </div>
               </section>

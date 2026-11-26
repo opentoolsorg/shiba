@@ -94,17 +94,15 @@ function stubIntegrationsFetch(setup = defaultSetup(), unconfigured = false) {
 }
 
 describe("IntegrationsView native catalog", () => {
-  it("separates connection status from employee permissions and uses existing routes", async () => {
+  it("opens connector setup in Integrations without routing to external MCP grants", async () => {
     stubIntegrationsFetch();
     const onNavigate = vi.fn();
-    const onOpenSettings = vi.fn();
-    render(<IntegrationsView onNavigate={onNavigate} onOpenSettings={onOpenSettings} />);
-    expect(await screen.findByRole("heading", { name: "Connection management" })).toBeTruthy();
-    expect(screen.getByText(/Connecting an app does not grant any employee access/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Review app setup" }));
-    expect(onOpenSettings).toHaveBeenCalledWith("connected-apps");
-    fireEvent.click(screen.getAllByRole("button", { name: "Review employee permissions" })[0]!);
-    expect(onNavigate).toHaveBeenCalledWith("employee-tools");
+    render(<IntegrationsView onNavigate={onNavigate} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review app setup" }));
+    expect(screen.getByRole("searchbox", { name: "Search integrations" })).toBeTruthy();
+    expect(onNavigate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Hide setup details" }));
+    expect(await screen.findByRole("heading", { name: "Configured connections" })).toBeTruthy();
   });
 
   it.each([
@@ -163,14 +161,12 @@ describe("IntegrationsView native catalog", () => {
     expect(screen.queryByRole("heading", { name: "Set up integrations" })).toBeNull();
   });
 
-it("presents connection management separately from app status and routes to real settings", async () => {
+  it("presents connection management separately from app status and links employee permissions", async () => {
     stubIntegrationsFetch();
     const onNavigate = vi.fn();
     render(<IntegrationsView onNavigate={onNavigate} />);
     expect(await screen.findByRole("heading", { name: "Connection management" })).toBeTruthy();
     expect(screen.getByText(/Connecting an app does not grant any employee access/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Review app setup" }));
-    expect(onNavigate).toHaveBeenCalledWith("settings");
     fireEvent.click(screen.getAllByRole("button", { name: "Review employee permissions" })[0]!);
     expect(onNavigate).toHaveBeenCalledWith("employee-tools");
     expect(screen.getByRole("heading", { name: "Configured connections" })).toBeTruthy();

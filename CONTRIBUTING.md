@@ -19,6 +19,10 @@ Thank you for helping build Shiba, an **open-source, self-hostable** workspace f
    pnpm env:load && pnpm env:scan
    ```
 
+   Knip rejects new findings by category, file, and name. When you fix a
+   listed finding, remove its entry from `knip-baseline.jsonl`.
+   Run `pnpm check:knip --list` to list the current findings without updating the baseline.
+
 3. When you touch Worker bindings or secrets documentation:
 
    ```sh
