@@ -15,6 +15,7 @@ import { CODEX_DEVICE_VERIFICATION_URL } from "./chatgpt/device-auth.js";
 import { mintDaemonPairing } from "./computers-routes.js";
 import type { Env } from "./env.js";
 import { checkAnthropicCredential } from "./provider-credential-check.js";
+import { flag } from "./config/flags.js";
 import { chatGptAuthStub } from "./chatgpt-auth-do.js";
 import { localDispatchStub } from "./local-dispatch.js";
 import { modelCredentialKeyConfigured } from "./subscription-credentials.js";
@@ -602,10 +603,10 @@ async function inspectClaude(env: Env, org: string, fetchImpl?: typeof fetch): P
 
 function subscriptionSignInDisabled(env: Env, id: string): boolean {
   switch (id) {
-    case "claude": return env.SHIBA_CLAUDE_SUBSCRIPTION === "0";
-    case "codex": return env.SHIBA_CODEX_SUBSCRIPTION === "0";
-    case "gemini": return env.SHIBA_ANTIGRAVITY_SUBSCRIPTION === "0";
-    case "cursor": return env.SHIBA_CURSOR_SUBSCRIPTION === "0";
+    case "claude": return flag(env, "SHIBA_CLAUDE_SUBSCRIPTION") === "0";
+    case "codex": return flag(env, "SHIBA_CODEX_SUBSCRIPTION") === "0";
+    case "gemini": return flag(env, "SHIBA_ANTIGRAVITY_SUBSCRIPTION") === "0";
+    case "cursor": return flag(env, "SHIBA_CURSOR_SUBSCRIPTION") === "0";
     default: return false;
   }
 }

@@ -1,0 +1,201 @@
+name: Migration rehearsal
+
+# M02 (docs/proposals/target-architecture-2026-11.md §16, §18): rehearse D1
+# migrations against a real export before they ship.
+#
+#   1. Export the source D1 (read-only against the source).
+#   2. Import the dump into a scratch D1, shiba-rehearsal-<run>-<attempt>.
+#   3. Snapshot the imported schema, apply pending migrations through the
+#      real `wrangler d1 migrations apply` path, snapshot again, diff.
+#   4. Verify d1_migrations recorded every file in apps/backend/migrations/.
+#   5. Destroy the scratch D1 — always, even on failure.
+#
+# Sources:
+#   dogfood (default) — read-only export of shiba-audit-dogfood
+#   prod              — read-only export of shiba-audit; maintainer-run only,
+#                       requires typing confirm_prod=prod. The dump contains
+#                       real data: it lives only in this runner's workspace,
+#                       is never uploaded as an artifact, and the runner is
+#                       destroyed with the job.
+#   fixture           — no export; an empty scratch D1 runs the full
+#                       migration chain. Proves the migrations apply cleanly
+#                       on real D1 without touching any data.
+#
+# The proposal's later steps (backfill scripts in --dry-run/for real, the
+# invariant suite against a Worker bound to the scratch D1) slot in after
+# "Apply pending migrations" once those scripts exist.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "D1 export source"
+        type: choice
+        options:
+          - dogfood
+          - prod
+          - fixture
+        default: dogfood
+      confirm_prod:
+        description: "Type 'prod' to confirm a production export (source=prod only)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migration-rehearsal
+  cancel-in-progress: false
+
+jobs:
+  rehearse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SOURCE: ${{ inputs.source }}
+      SCRATCH_NAME: shiba-rehearsal-${{ github.run_id }}-${{ github.run_attempt }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Require prod confirmation
+        if: inputs.source == 'prod' && inputs.confirm_prod != 'prod'
+        run: |
+          echo "::error::source=prod exports production data — re-run with confirm_prod=prod"
+          exit 1
+
+      - name: Export source D1 (read-only)
+        if: inputs.source != 'fixture'
+        run: |
+          mkdir -p .rehearsal
+          case "$SOURCE" in
+            dogfood) DB="shiba-audit-dogfood"; CONFIG="apps/backend/wrangler.dogfood.jsonc" ;;
+            prod)    DB="shiba-audit";          CONFIG="apps/backend/wrangler.jsonc" ;;
+            *)       echo "::error::unknown source: $SOURCE"; exit 1 ;;
+          esac
+          # `d1 export` takes the database name, not the binding.
+          echo "Exporting $DB ($SOURCE) -> .rehearsal/dump.sql (read-only)"
+          pnpm exec wrangler d1 export "$DB" --remote --config "$CONFIG" \
+            --output .rehearsal/dump.sql --skip-confirmation
+          ls -lh .rehearsal/dump.sql
+          # The dump holds real rows. It stays in this runner's workspace and
+          # is deliberately absent from the artifact upload path list below.
+
+      - name: Create scratch D1
+        id: scratch
+        run: |
+          mkdir -p .rehearsal
+          pnpm exec wrangler d1 create "$SCRATCH_NAME" --no-update-config > .rehearsal/create.log
+
+      - name: Configure scratch D1 binding
+        run: |
+          UUID=$(grep -m1 -oE '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' .rehearsal/create.log || true)
+          if [ -z "$UUID" ]; then
+            echo "::error::could not parse database uuid from wrangler output"
+            exit 1
+          fi
+          SCRATCH_UUID="$UUID" node -e '
+            const fs = require("fs");
+            fs.writeFileSync("wrangler.rehearsal.jsonc", JSON.stringify({
+              $schema: "https://developers.cloudflare.com/workers/wrangler/configuration-schema.json",
+              name: "shiba-rehearsal",
+              compatibility_date: "2026-06-01",
+              d1_databases: [{
+                binding: "AGENT_AUDIT",
+                database_name: process.env.SCRATCH_NAME,
+                database_id: process.env.SCRATCH_UUID,
+                migrations_dir: "apps/backend/migrations",
+              }],
+            }, null, 2) + "\n");
+          '
+
+      - name: Import dump into scratch D1
+        if: inputs.source != 'fixture'
+        run: |
+          # --file ingests the whole export; very large prod dumps may need
+          # splitting — revisit if an export exceeds D1's per-request limits.
+          pnpm exec wrangler d1 execute AGENT_AUDIT --remote \
+            --config wrangler.rehearsal.jsonc \
+            --file .rehearsal/dump.sql --yes
+
+      - name: Snapshot schema — imported state
+        run: |
+          QUERY="$(node scripts/schema-snapshot.mjs --print-sql)"
+          pnpm exec wrangler d1 execute AGENT_AUDIT --remote \
+            --config wrangler.rehearsal.jsonc --json --command "$QUERY" \
+            > .rehearsal/before.json
+          node scripts/schema-snapshot.mjs --from-json .rehearsal/before.json \
+            --label "$SOURCE" > .rehearsal/before.snapshot.txt
+          wc -l .rehearsal/before.snapshot.txt
+
+      - name: Apply pending migrations
+        run: pnpm exec wrangler d1 migrations apply AGENT_AUDIT --remote --config wrangler.rehearsal.jsonc
+
+      - name: Snapshot schema — after migrations and diff
+        run: |
+          QUERY="$(node scripts/schema-snapshot.mjs --print-sql)"
+          pnpm exec wrangler d1 execute AGENT_AUDIT --remote \
+            --config wrangler.rehearsal.jsonc --json --command "$QUERY" \
+            > .rehearsal/after.json
+          node scripts/schema-snapshot.mjs --from-json .rehearsal/after.json \
+            --label "$SOURCE" > .rehearsal/after.snapshot.txt
+          if diff -u .rehearsal/before.snapshot.txt .rehearsal/after.snapshot.txt \
+               > .rehearsal/schema-diff.txt; then
+            echo "schema diff: no changes"
+          elif [ "$?" -eq 1 ]; then
+            echo "schema diff: changes detected — review .rehearsal/schema-diff.txt"
+          else
+            echo "::error::schema diff failed"
+            exit 1
+          fi
+          echo "===== schema diff (imported -> migrated) ====="
+          cat .rehearsal/schema-diff.txt
+
+      - name: Verify every migration file is recorded
+        run: |
+          EXPECTED=$(find apps/backend/migrations -maxdepth 1 -name '*.sql' | wc -l | tr -d ' ')
+          pnpm exec wrangler d1 execute AGENT_AUDIT --remote \
+            --config wrangler.rehearsal.jsonc --json \
+            --command "SELECT count(*) AS n FROM d1_migrations" \
+            > .rehearsal/migrations-count.json
+          APPLIED=$(node -e '
+            const d = JSON.parse(require("fs").readFileSync(".rehearsal/migrations-count.json", "utf8"));
+            const item = Array.isArray(d) ? d[0] : d;
+            console.log(item.results[0].n);
+          ')
+          echo "migrations recorded: $APPLIED applied / $EXPECTED files in apps/backend/migrations"
+          test "$APPLIED" = "$EXPECTED"
+
+      - name: Destroy scratch D1
+        if: always() && steps.scratch.outcome == 'success'
+        run: |
+          [[ "$SCRATCH_NAME" =~ ^shiba-rehearsal-[0-9]+-[0-9]+$ ]]
+          # The create step may have succeeded before the binding config could be written.
+          pnpm exec wrangler d1 delete "$SCRATCH_NAME" --skip-confirmation
+
+      - name: Upload rehearsal artifacts (schema and migration count only)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: migration-rehearsal-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .rehearsal/before.snapshot.txt
+            .rehearsal/after.snapshot.txt
+            .rehearsal/schema-diff.txt
+            .rehearsal/migrations-count.json
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Remove scratch wrangler config
+        if: always()
+        run: rm -f wrangler.rehearsal.jsonc

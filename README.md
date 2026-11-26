@@ -161,16 +161,23 @@ Source entry: [docs index](apps/web/src/content/docs/index.md). Content lives in
 ## Architecture
 
 ~~~text
-Browser dashboard / + Starlight docs /docs/
-  -> CodingOrchestrator (Think Durable Object; human-approved tool)
-  -> OpenCodeAgent (AIChatAgent; structured task envelope)
-  -> Sandbox Durable Object + container + OpenCode
-
-Planning model: Workers AI binding
-Coding model path: container -> Sandbox egress interception -> AI Gateway binding
-No public provider callback: the container never holds a real provider key
-Optional PR publishing: GitHub REST API from Worker, never container token
+People and channels
+  -> authenticated workspace ingress
+  -> Employee Orchestrator (current implementation: CodingOrchestrator DO)
+  -> exact approval and run/event spine
+  -> execution lane:
+     repository sandbox, artifact workspace, employee app action,
+     paired local machine, browser/computer session, or automation
+  -> deliverables, provenance, verification, and receipts
+  -> human review
+  -> separately approved publication or external effect
 ~~~
+
+Repository work uses the Run Execution Agent (current implementation:
+`OpenCodeAgent`) and one selected harness in an ephemeral sandbox. Harnesses are
+execution lanes, not the product center. Durable Objects coordinate live state;
+D1, R2, KV, Vectorize, Queues, and Workflows own their separate state planes.
+Credentials stay outside containers. Details: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 One installation is single-tenant and account-owned. No Python backend, Docker Compose, Postgres, Redis, or separate Next.js service is required by this implementation. Runs are routed to per-user orchestrator Durable Objects via the `CF-Access-Authenticated-User-Email` header. Default concurrency is five retained active coding runs and five configured container instances (`MAX_CONCURRENT_RUNS = 5`, `max_instances: 5`, `instance_type: standard-1`).
 

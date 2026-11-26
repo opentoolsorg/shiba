@@ -2,13 +2,13 @@ import { repositorySnapshotFixture } from "./repository-snapshot-fixture.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const sandboxMock = vi.hoisted(() => ({ getSandbox: vi.fn() }));
-vi.mock("../src/sandbox/client.js", () => ({ getSandbox: sandboxMock.getSandbox }));
+vi.mock("../src/ports/sandbox/client.js", () => ({ getSandbox: sandboxMock.getSandbox }));
 vi.mock("@cloudflare/ai-chat", () => ({ AIChatAgent: class {} }));
 
 import { Duration, Effect, Schedule } from "effect";
 
 import { createSandboxOps } from "../src/agents/opencode-agent.js";
-import { resetSandboxProviderCache } from "../src/sandbox/provider.js";
+import { resetSandboxProviderCache } from "../src/ports/sandbox/registry.js";
 import {
   HARNESS_RETRY,
   RetryExhaustedError,

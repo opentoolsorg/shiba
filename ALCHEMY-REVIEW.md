@@ -185,7 +185,7 @@ PLAN.md is unusually honest — its status table matches the tree far better tha
 | B11 | provider lock-in | **Fixed** — harness seam + `allowedHostsFor(harness, model)`; 10+ adapters in `harness/` |
 | B12 | OpenCode hardcoded | **Fixed** — `harness/` registry incl. subscription and ACP lanes |
 
-§8's cost model is dated 2026-09-17 and self-flagged ("rates change"); the "Gemini 3.8 Flash doubles 2027-01-01" figure should be re-verified before reuse, and the shipped default is `gemini-3.5-flash-lite` (different model than the pricing example) — directionally right (tokens ≫ compute), numerically stale. §3's star counts and the "70,000+ engineers" Capy claim are competitor marketing figures explicitly labeled "claimed/observed"; treat as stale-by-nature, not wrong.
+§8's cost model is dated 2026-09-17 and self-flagged ("rates change"); the "Gemini 3.8 Flash doubles 2027-01-01" figure should be re-verified before reuse, and the shipped default is `gemini-3.5-flash-lite` (different model than the pricing example) — directionally right (tokens ≫ compute), numerically stale. §3's star counts and the competitor "70,000+ engineers" claim are competitor marketing figures explicitly labeled "claimed/observed"; treat as stale-by-nature, not wrong.
 
 ## Highest-value next task (one, with justification)
 

@@ -4,7 +4,7 @@ import { handleOrgSandboxSettings } from "../src/org-sandbox-routes.js";
 import {
   resetSandboxProviderCache,
   resolveSandboxProviderForSelection,
-} from "../src/sandbox/provider.js";
+} from "../src/ports/sandbox/registry.js";
 
 const hexKey = "ab".repeat(32);
 

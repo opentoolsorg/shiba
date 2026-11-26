@@ -7,8 +7,10 @@ New capability lands in one of four places, and the choice is not arbitrary:
 |---|---|---|
 | A new way in (Slack, Teams, a webhook) | ingress + a lane module | every surface authenticates independently |
 | A new agent CLI | `harness/` + Dockerfile + catalog | one image, per-run selection, per-harness egress |
-| A new stateful thing | a new DO + a migration tag | DOs are the only authoritative state |
+| A new live coordination object | a new DO + a migration tag | DOs serialize live conversations, runs, sessions, and dispatch |
 | A new model/provider | `model-connections` / AI Gateway | credentials stay at the egress boundary |
+| A new shared workspace/domain record | D1 migration + owning control-plane module | shared durable facts need relational ownership and queries |
+| A new execution lane | runtime adapter + approval/evidence contract | lanes differ in runtime, not in authority |
 
 **The cost of adding harnesses is real and ongoing:** each one multiplies the
 "a CLI changed its stream format" risk (`PLAN.md` §16). Treat format changes as
@@ -49,11 +51,14 @@ Not bugs — deliberate or inherited, recorded so they are not rediscovered:
 - **GitHub is the only repo provider — by decision.** The approval gate is
   already provider-agnostic, so adding one later is a provider layer, not a
   redesign. Deferred until GitHub itself is proven live (`PLAN.md` §17.6).
-- **Single-tenant by contract.** Reversing that is a *product* decision that
-  belongs in `spec/GOAL.md` before any code (§17.7).
-- **The spec contradicts the tree.** `spec/GOAL.md` forbids a monorepo; the
-  repo is `apps/*` + turbo + alchemy. First thing to fix (§17.2, T27) —
-  documentation debt with real cost.
+- **Single deployment owner, not single-person use.** One installation is
+  account-owned/self-hosted, while a workspace can have multiple members and
+  employees. Do not confuse deployment tenancy with workspace collaboration.
+  Changing deployment tenancy is a product decision before any code.
+- **Historical specs are not current boundaries.** `spec/GOAL.md` describes the
+  original coding-agent spine and is now marked historical. Use it for lane
+  history, not for current product scope. `ARCHITECTURE.md` and
+  `docs/product/ai-employees.md` own the current boundary.
 - **`WORKER_HOSTNAME` empty disables PR screenshots.** Capture fails safe and
   never fails the run — correct failure mode, but T33 is silently dark on any
   deploy that has not set it.

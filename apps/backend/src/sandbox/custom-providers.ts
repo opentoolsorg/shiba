@@ -5,9 +5,10 @@
  * from `@shiba/sandbox` (see docs/sandbox-custom-provider.md).
  */
 import { registerSandboxProvider } from "@shiba/sandbox";
+import { flag } from "../config/flags.js";
 
 export async function loadSandboxPlugins(env: { SHIBA_SANDBOX_PLUGIN?: string }): Promise<void> {
-  const plugin = env.SHIBA_SANDBOX_PLUGIN?.trim();
+  const plugin = flag(env, "SHIBA_SANDBOX_PLUGIN")?.trim();
   if (!plugin) return;
   await import(/* @vite-ignore */ plugin);
 }

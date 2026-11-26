@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CollaborationView } from "./CollaborationView";
 import { personalFixture, PERSONAL_WORKSPACE } from "../personal-execution-fixtures";
@@ -37,6 +37,86 @@ const roomDetail = {
   ],
   handoffs: [],
 };
+
+describe("CollaborationView notification sources", () => {
+  it.each([false, true])("focuses the exact linked message (different room reply: %s)", async (reply) => {
+    const otherRoom = { ...roomDetail.room, roomId: "room-2", title: "Other room" };
+    const root = { ...roomDetail.messages[0]!, messageId: "root", body: "Earlier discussion" };
+    const linkedReply = { ...root, messageId: "reply", body: "Linked reply", threadRootId: root.messageId };
+    const notification = {
+      notificationId: "notification-1", title: "New mention", kind: "mention", body: "", createdAt: 2,
+      roomId: reply ? otherRoom.roomId : roomDetail.room.roomId,
+      messageId: reply ? linkedReply.messageId : roomDetail.messages[0]!.messageId,
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/workspace-notifications") return Response.json({ notifications: [notification] });
+      if (path === "/api/collaboration/rooms") return Response.json({ rooms: [roomDetail.room, otherRoom] });
+      if (path === "/api/collaboration/rooms/room-1") return Response.json(roomDetail);
+      if (path === "/api/collaboration/rooms/room-2") return Response.json({ ...roomDetail, room: otherRoom, messages: [root, linkedReply] });
+      return Response.json({ agents: [], computers: [] });
+    }));
+    render(<CollaborationView />);
+    const originalMessage = await screen.findByText("Confidential room note");
+    fireEvent.click(await screen.findByRole("button", { name: /Notifications, 1 unread/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open source" }));
+
+    if (reply) {
+      const thread = await screen.findByRole("complementary", { name: "Thread" });
+      const message = within(thread).getByText(linkedReply.body);
+      expect(screen.getByRole("heading", { name: otherRoom.title })).toBeTruthy();
+      await waitFor(() => expect(document.activeElement).toBe(message));
+    } else {
+      await waitFor(() => expect(document.activeElement).toBe(originalMessage.closest("article")));
+      expect(screen.getByText("Confidential room note")).toBe(originalMessage);
+    }
+  });
+
+  it.each(["room message", "different thread"])("preserves an unsent reply when opening a %s source", async (source) => {
+    const launch = { ...roomDetail.messages[0]!, messageId: "launch", body: "Launch thread" };
+    const budget = { ...launch, messageId: "budget", body: "Budget discussion" };
+    const reply = { ...budget, messageId: "reply", body: "Linked budget reply", threadRootId: budget.messageId };
+    const linked = source === "room message" ? budget : reply;
+    const notification = { notificationId: "n1", title: "Mention", kind: "mention", body: "", createdAt: 2,
+      roomId: roomDetail.room.roomId, messageId: linked.messageId };
+    const sent = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/workspace-notifications") return Response.json({ notifications: [notification] });
+      if (path === "/api/collaboration/rooms") return Response.json({ rooms: [roomDetail.room] });
+      if (path === "/api/collaboration/rooms/room-1") return Response.json({ ...roomDetail, messages: [launch, budget, reply] });
+      if (path === "/api/collaboration/rooms/room-1/messages") {
+        const payload = JSON.parse(String(init?.body));
+        sent(payload);
+        return Response.json({ message: { ...reply, ...payload } });
+      }
+      return Response.json({ agents: [], computers: [] });
+    }));
+    render(<CollaborationView />);
+    const openLaunch = () => fireEvent.click(within(screen.getByText(launch.body).closest("article")!).getByRole("button", { name: "Open thread" }));
+    await screen.findByText(launch.body);
+    openLaunch();
+    const input = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.change(input, { target: { value: "Unsent launch reply" } });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Notifications, 1 unread/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open source" }));
+    const preview = source === "room message"
+      ? screen.getByText(linked.body).closest("article")
+      : within(await screen.findByRole("complementary", { name: "Thread" })).getByText(linked.body);
+    await waitFor(() => expect(document.activeElement).toBe(preview));
+    expect(input).toHaveProperty("value", "");
+    expect(screen.getByRole("button", { name: "Send" })).toHaveProperty("disabled", true);
+    expect(sent).not.toHaveBeenCalled();
+
+    openLaunch();
+    expect(input).toHaveProperty("value", "Unsent launch reply");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(sent).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      body: "Unsent launch reply", threadRootMessageId: launch.messageId,
+    })));
+  });
+});
 
 describe("CollaborationView explicit funded model setup", () => {
   it("mounts funding and account verification once only after their explicit controls are opened", async () => {
@@ -640,6 +720,34 @@ describe("CollaborationView room access polling", () => {
     expect(submittedBody?.targetMachineId).toBe(selection === "sandbox" ? undefined : "machine-1");
   });
 
+  it("offers only parents whose shared handoff budget is still available", async () => {
+    const parent = {
+      taskId: "Review", senderUserId: "member@example.test", senderActorId: "human:member@example.test",
+      recipientActorId: "agent:writer", parentHandoffId: null, status: "active", depth: 0,
+      grantedCapabilities: ["room.read", "message.send", "handoff.create", "task.cancel"],
+      remainingBudget: 1, createdAt: 1,
+    };
+    const detail = {
+      ...roomDetail,
+      handoffs: [
+        { ...parent, handoffId: "root-spent", currentRootBudget: 0 },
+        { ...parent, handoffId: "root-open", currentRootBudget: 1 },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/collaboration/rooms") return jsonResponse({ rooms: [detail.room] });
+      if (path === "/api/collaboration/rooms/room-1") return jsonResponse(detail);
+      return jsonResponse({ agents: [], computers: [] });
+    }));
+    render(<CollaborationView />);
+    await screen.findByRole("heading", { name: "Shared room" });
+    fireEvent.click(screen.getByRole("tab", { name: "Work" }));
+    fireEvent.change(screen.getByLabelText("Task ID"), { target: { value: "Review" } });
+    const options = Array.from((screen.getByLabelText("Parent handoff") as HTMLSelectElement).options);
+    expect(options.map((option) => option.value)).toEqual(["", "root-open"]);
+  });
+
   it("renders a persisted employee reply with its completed run and artifact references", async () => {
     const employeeReplyRoom = {
       ...roomDetail,
@@ -698,6 +806,56 @@ describe("CollaborationView room access polling", () => {
       .toBe("/api/collaboration/rooms/room-1/handoffs/handoff-1/artifacts/0");
     expect(screen.getByText("reports/legacy.md")).toBeTruthy();
     expect(screen.queryByRole("link", { name: "reports/legacy.md" })).toBeNull();
+  });
+
+  it.each(["lost network response", "conflict"] as const)("reloads the artifact revision before retrying after %s", async (failure) => {
+    const firstReview = deferredResponse();
+    const reads = vi.fn()
+      .mockReturnValueOnce(firstReview.promise)
+      .mockResolvedValueOnce(jsonResponse({ review: { status: "pending_review", revision: 2 } }))
+      .mockResolvedValueOnce(jsonResponse({ review: { status: "changes_requested", revision: 4, note: "Include sources." } }));
+    const writes = vi.fn()
+      .mockImplementationOnce(() => failure === "conflict"
+        ? Promise.resolve(jsonResponse({ error: "Review changed." }, 409))
+        : Promise.reject(new TypeError("Network disconnected")))
+      .mockResolvedValueOnce(jsonResponse({ deliverable: { review: { status: "approved", revision: 5 } } }));
+    const detail = {
+      ...roomDetail,
+      messages: [{
+        ...roomDetail.messages[0],
+        senderKind: "agent",
+        sourceRunId: "agent-tool:approval-1",
+        sourceHandoffId: "handoff-1",
+        sourceArtifactRefs: [{ index: 0, path: "reports/review.md", artifactId: "artifact-1", version: 1, sha256: "a".repeat(64) }],
+      }],
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/artifacts/0/review")) return init?.method === "POST" ? writes(JSON.parse(String(init.body))) : reads();
+      if (path.endsWith("/api/collaboration/rooms")) return jsonResponse({ rooms: [detail.room] });
+      if (path.endsWith("/api/collaboration/rooms/room-1")) return jsonResponse(detail);
+      return jsonResponse({ agents: [], computers: [] });
+    }));
+
+    render(<CollaborationView />);
+    const approve = await screen.findByRole("button", { name: "Approve revision" });
+    expect(approve).toHaveProperty("disabled", true);
+    fireEvent.click(approve);
+    expect(writes).not.toHaveBeenCalled();
+    await act(async () => firstReview.resolve(jsonResponse({ review: { status: "pending_review", revision: 3 } })));
+    expect(approve).toHaveProperty("disabled", false);
+    fireEvent.click(approve);
+    const refresh = await screen.findByRole("button", { name: "Refresh review" });
+    expect(screen.getByText(failure === "conflict" ? /Review changed\./ : /review may have been saved/i)).toBeTruthy();
+    expect(approve).toHaveProperty("disabled", true);
+    fireEvent.click(refresh);
+    await screen.findByText(/review: changes requested/);
+    fireEvent.click(approve);
+    await screen.findByText("review: approved");
+    expect(writes.mock.calls).toEqual([
+      [{ status: "approved", expectedRevision: 3 }],
+      [{ status: "approved", expectedRevision: 4 }],
+    ]);
   });
 
   it("lets a room owner map only an observed Slack thread and shows link status", async () => {

@@ -31,6 +31,15 @@ describe("AgentChatHeader", () => {
     expect(document.activeElement).toBe(chip);
   });
 
+  it("shows Task details only when a callback is provided", () => {
+    const onOpenTaskDetails = vi.fn();
+    const { rerender } = render(<AgentChatHeader agent={agent} participants={participants} panelOpen={false} onTogglePanel={vi.fn()} onOpenTaskDetails={onOpenTaskDetails} />);
+    fireEvent.click(screen.getByRole("button", { name: "Task details" }));
+    expect(onOpenTaskDetails).toHaveBeenCalledOnce();
+    rerender(<AgentChatHeader agent={agent} participants={participants} panelOpen={false} onTogglePanel={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Task details" })).toBeNull();
+  });
+
   it("toggles the right panel and reports its state", () => {
     const onTogglePanel = vi.fn();
     const { rerender } = render(<AgentChatHeader agent={agent} participants={participants} panelOpen={false} onTogglePanel={onTogglePanel} />);

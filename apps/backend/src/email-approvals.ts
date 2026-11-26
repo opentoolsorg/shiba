@@ -15,6 +15,7 @@ import { mailboxStub, registeredMailbox } from "./mailbox-do.js";
 import { ADDRESS_RE, randomHex } from "./mailbox-store.js";
 import type { PendingApproval } from "./pending-approvals.js";
 import { InputError } from "./security.js";
+import { log } from "./obs/log.js";
 
 /** Operations the email executor knows how to release. */
 export type EmailApprovalKind = "email_send" | "email_delete";
@@ -295,13 +296,11 @@ async function reconcileQueuedDraft(
       method: "POST",
     });
   } catch (error) {
-    console.warn(
-      `email draft reconcile failed ${JSON.stringify({
-        draft_id: draftId,
-        transmitted: progress.transmitted,
-        error: error instanceof Error ? error.message : String(error),
-      })}`,
-    );
+    log.warn("email draft reconcile failed", {
+      draft_id: draftId,
+      transmitted: progress.transmitted,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
@@ -500,12 +499,10 @@ async function replyThreading(
         : [];
     }
   } catch (error) {
-    console.warn(
-      `email reply threading lookup failed ${JSON.stringify({
-        email_id: parentEmailId,
-        error: error instanceof Error ? error.message : String(error),
-      })}`,
-    );
+    log.warn("email reply threading lookup failed", {
+      email_id: parentEmailId,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
   const raw = parentIds[0]?.trim();
   if (raw === undefined || raw === "") {

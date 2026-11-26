@@ -211,4 +211,33 @@ describe("MemoryTab", () => {
     expect(screen.getAllByTestId("memory-row")).toHaveLength(2);
   });
 
+  it("opens private sources from the empty facts state", () => {
+    const onSelectView = vi.fn();
+    render(<MemoryTab initialFacts={[]} initialSessions={[]} onSelectView={onSelectView} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Manage private sources" }));
+    expect(onSelectView).toHaveBeenCalledWith("sources");
+  });
+
+  it("filters recorded sessions by agent from the sessions tab", () => {
+    const sessions: MemorySession[] = [
+      ...mockSessions,
+      { id: "sess_2", agent: "assistant", summary: "Triaged the shared mailbox.", started_at: Date.now() - 400_000 },
+    ];
+    render(<MemoryTab initialViewMode="sessions" initialFacts={mockFacts} initialSessions={sessions} />);
+
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "assistant" } });
+    expect(screen.getByText(/Session sess_2/)).toBeDefined();
+    expect(screen.queryByText(/Session sess_1/)).toBeNull();
+  });
+
+  it("offers a conversations link from the empty sessions state only when navigation is wired", () => {
+    const onNavigate = vi.fn();
+    const { rerender } = render(<MemoryTab initialViewMode="sessions" initialFacts={[]} initialSessions={[]} />);
+    expect(screen.queryByRole("button", { name: "Open conversations" })).toBeNull();
+
+    rerender(<MemoryTab initialViewMode="sessions" initialFacts={[]} initialSessions={[]} onNavigate={onNavigate} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open conversations" }));
+    expect(onNavigate).toHaveBeenCalledWith("threads");
+  });
 });

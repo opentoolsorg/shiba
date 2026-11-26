@@ -3,6 +3,7 @@
  * binding name; unknown messages are logged and acked so deploys stay safe.
  */
 import type { Env } from "../env.js";
+import { log } from "../obs/log.js";
 
 export type QueueKind = "INGEST_QUEUE" | "WEBHOOK_QUEUE" | "EMAIL_QUEUE";
 
@@ -46,7 +47,7 @@ export async function dispatchQueueBatch(
   const queueName = batch.queue;
   const handlers = handlersByQueue[queueName] ?? [];
   if (handlers.length === 0) {
-    console.log(`queue ${queueName}: no handlers registered (${batch.messages.length} message(s) acked)`);
+    log.info(`queue ${queueName}: no handlers registered (${batch.messages.length} message(s) acked)`);
     for (const message of batch.messages) message.ack();
     return;
   }
@@ -56,7 +57,7 @@ export async function dispatchQueueBatch(
         for (const handler of handlers) await handler(message, env, ctx);
         message.ack();
       } catch (error) {
-        console.error(`queue ${queueName} handler failed: ${error instanceof Error ? error.message : String(error)}`);
+        log.error(`queue ${queueName} handler failed: ${error instanceof Error ? error.message : String(error)}`);
         message.retry();
       }
     }),

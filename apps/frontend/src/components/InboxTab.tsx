@@ -673,6 +673,9 @@ export function InboxTab({
                   <p className="text-[12px] text-[#0a0a0a] dark:text-zinc-200">
                     Register the address for this mailbox. Incoming mail is stored only after Cloudflare Email Routing is configured to deliver it to this Worker.
                   </p>
+                  <p className="text-[11px] text-[#71717a] dark:text-zinc-400">
+                    Then connect an agent principal and send a test message from another address to confirm it arrives here.
+                  </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
                       <label className="text-[11px] font-mono text-[#71717a] dark:text-zinc-400 block mb-1">

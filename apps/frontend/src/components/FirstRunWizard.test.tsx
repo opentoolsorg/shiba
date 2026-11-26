@@ -113,4 +113,16 @@ describe("FirstRunWizard persisted progress", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
     expect(localStorage.length).toBe(0);
   });
+
+  it("links operators to Settings Environments and omits the link when it is not wired", async () => {
+    setupFetch();
+    const onOpenEnvironments = vi.fn();
+    const onClose = vi.fn();
+    const view = render(<FirstRunWizard open progress={null} onClose={onClose} onOpenEnvironments={onOpenEnvironments} />);
+    fireEvent.click(screen.getByRole("button", { name: "Check environment readiness →" }));
+    await waitFor(() => expect(onOpenEnvironments).toHaveBeenCalledOnce());
+    expect(onClose).toHaveBeenCalledOnce();
+    view.rerender(<FirstRunWizard open progress={null} onClose={onClose} />);
+    expect(screen.queryByRole("button", { name: "Check environment readiness →" })).toBeNull();
+  });
 });

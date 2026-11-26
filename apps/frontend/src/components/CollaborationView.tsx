@@ -12,7 +12,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { CollabRoomKind, TeamWorkspaceDetail, TeamWorkspaceMembership } from "@shiba/shared";
+import { MAX_HANDOFF_DEPTH, type CollabRoomKind, type CollaborationHandoffBudgetState, type TeamWorkspaceDetail, type TeamWorkspaceMembership } from "@shiba/shared";
 import { useCollaborationRoomRealtime } from "../collaboration-room-realtime";
 import { NotificationsPanel } from "./notifications/NotificationsPanel";
 import { resolveHandoffStatus, type HandoffCardStatus } from "./collab/HandoffCard";
@@ -140,15 +140,16 @@ interface SlackDeliveryIntent {
   outcomeDetail?: string | null;
 }
 
-interface Handoff {
+interface Handoff extends CollaborationHandoffBudgetState {
   handoffId: string;
   taskId: string;
   senderActorId: string;
+  senderUserId: string;
   recipientActorId: string;
   parentHandoffId: string | null;
   depth: number;
-  remainingBudget: number;
   status: "active" | "cancelled";
+  grantedCapabilities: string[];
   createdAt: number;
   approvalId?: string;
   runId?: string;
@@ -284,6 +285,7 @@ export interface CollaborationViewProps {
   initialHandoffId?: string;
   initialEmployeeId?: string;
   onRoomChange?: (roomId: string) => void;
+  onOpenNotificationPreferences?: () => void;
   incomingTaskDraft?: IncomingTaskDraft | null;
   incomingMention?: { id: string; roomId: string; agentId: string };
   onMentionConsumed?: (id: string) => void;
@@ -301,8 +303,146 @@ const DETAIL_TABS: Array<{ id: DetailTab; label: string }> = [
   { id: "execution", label: "Execution" },
 ];
 
+interface ArtifactReviewState {
+  status: string;
+  revision: number;
+  note?: string;
+}
+
+function isArtifactReviewState(review: unknown): review is ArtifactReviewState {
+  return !!review && typeof review === "object" &&
+    "status" in review && typeof review.status === "string" &&
+    "revision" in review && typeof review.revision === "number" &&
+    Number.isSafeInteger(review.revision) && review.revision >= 0 &&
+    (!("note" in review) || typeof review.note === "string");
+}
+
+function ArtifactReviewControls({ artifactUrl, workspaceId }: { artifactUrl: string; workspaceId?: string }) {
+  const reviewUrl = `${artifactUrl}/review${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`;
+  const [review, setReview] = useState<ArtifactReviewState | null>(null);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(true);
+  const [reviewCurrent, setReviewCurrent] = useState(false);
+  const [error, setError] = useState("");
+  const load = useCallback(async (signal?: AbortSignal) => {
+    const res = await fetch(reviewUrl, { credentials: "same-origin", signal });
+    if (!res.ok) throw new Error("Could not load the latest review.");
+    const data = (await res.json()) as { review?: ArtifactReviewState } | null;
+    if (!isArtifactReviewState(data?.review)) throw new Error("Could not load the latest review.");
+    return data.review;
+  }, [reviewUrl]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void load(controller.signal).then((latest) => {
+      if (controller.signal.aborted) return;
+      setReview(latest);
+      setReviewCurrent(true);
+    }).catch(() => {
+      if (!controller.signal.aborted) setError("Could not load the latest review.");
+    }).finally(() => {
+      if (!controller.signal.aborted) setBusy(false);
+    });
+    return () => controller.abort();
+  }, [load]);
+  const refresh = async (message = "") => {
+    setReviewCurrent(false);
+    setError(message);
+    try {
+      const latest = await load();
+      if (review && latest.revision < review.revision) throw new Error("Review revision moved backwards.");
+      setReview(latest);
+      setReviewCurrent(true);
+    } catch {
+      setError(message ? `${message} Could not refresh the latest review.` : "Could not refresh the latest review.");
+    }
+  };
+  const decide = async (status: "approved" | "changes_requested") => {
+    if (busy || !reviewCurrent || !review) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(reviewUrl, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status,
+          expectedRevision: review.revision,
+          ...(status === "changes_requested" ? { note } : {}),
+        }),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        error?: string;
+        deliverable?: { review?: ArtifactReviewState };
+      } | null;
+      if (!res.ok) {
+        await refresh(data?.error ?? "Review could not be saved.");
+        return;
+      }
+      const saved = data?.deliverable?.review;
+      if (!isArtifactReviewState(saved) || saved.revision <= review.revision) throw new Error("Missing saved review revision.");
+      setReview(saved);
+      if (status === "changes_requested") setNote("");
+    } catch {
+      await refresh("The review may have been saved. Check the latest review before trying again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1 align-middle">
+      {review && reviewCurrent && (
+        <span>
+          review: {review.status.replace(/_/g, " ")}
+          {review.note ? ` — ${review.note}` : ""}
+        </span>
+      )}
+      <button
+        type="button"
+        disabled={busy || !reviewCurrent}
+        onClick={() => void decide("approved")}
+        className="min-h-[44px] border border-[var(--line)] bg-[var(--card)] px-1 underline disabled:opacity-50"
+      >
+        Approve revision
+      </button>
+      <input
+        aria-label="Requested change note"
+        value={note}
+        onChange={(event) => setNote(event.target.value)}
+        placeholder="change note"
+        className="min-h-[44px] w-28 border border-[var(--line)] bg-[var(--card)] px-1"
+      />
+      <button
+        type="button"
+        disabled={busy || !reviewCurrent || !note.trim()}
+        onClick={() => void decide("changes_requested")}
+        className="min-h-[44px] border border-[var(--line)] bg-[var(--card)] px-1 underline disabled:opacity-50"
+      >
+        Request change
+      </button>
+      {!reviewCurrent && !busy && (
+        <button
+          type="button"
+          className="min-h-[44px] border border-[var(--line)] bg-[var(--card)] px-1 underline"
+          onClick={() => {
+            setBusy(true);
+            void refresh().finally(() => setBusy(false));
+          }}
+        >
+          Refresh review
+        </button>
+      )}
+      {error && <span role="status">{error}</span>}
+    </span>
+  );
+}
+
 function handoffElementId(workspaceId: string | undefined, roomId: string, handoffId: string): string {
   return `collaboration-handoff-${encodeURIComponent(workspaceId ?? "personal")}-${encodeURIComponent(roomId)}-${encodeURIComponent(handoffId)}`;
+}
+
+function messageElementId(workspaceId: string | undefined, roomId: string, messageId: string, reply = false): string {
+  return `collaboration-${reply ? "reply" : "message"}-${encodeURIComponent(workspaceId ?? "personal")}-${encodeURIComponent(roomId)}-${encodeURIComponent(messageId)}`;
 }
 
 /** A workspace switch remounts all drafts, reads, and sockets before old content can paint. */
@@ -319,6 +459,7 @@ function ScopedCollaborationView({
   initialHandoffId,
   initialEmployeeId,
   onRoomChange,
+  onOpenNotificationPreferences,
   incomingTaskDraft,
   incomingMention,
   onMentionConsumed,
@@ -344,6 +485,7 @@ function ScopedCollaborationView({
   const [savedItems, setSavedItems] = useState<SavedMessageRef[]>([]);
   const [activeRoomId, setActiveRoomId] = useState(initialRoomId ?? "");
   const [detail, setDetail] = useState<RoomDetail | null>(null);
+  const [messageSource, setMessageSource] = useState<{ roomId: string; messageId: string } | null>(null);
   const [pendingMessages, setPendingMessages] = useState<Array<Message & { roomId: string }>>([]);
   const roomPatches = useRef(new Map<string, Room>());
   const messagePatches = useRef(new Map<string, Map<string, Message>>());
@@ -367,17 +509,29 @@ function ScopedCollaborationView({
   const [roomTitle, setRoomTitle] = useState("");
   const [roomVisibility, setRoomVisibility] = useState<"private" | "shared">("private");
   const [inviteUserId, setInviteUserId] = useState("");
-  const [message, setMessage] = useState("");
+  const [messageDrafts, setMessageDrafts] = useState(() => new Map<string, string>());
+  const message = messageDrafts.get(openThreadId) ?? "";
+  const updateMessageDraft = useCallback((threadId: string, update: (current: string) => string) => {
+    setMessageDrafts((drafts) => {
+      const current = drafts.get(threadId) ?? "";
+      const value = update(current);
+      if (value === current) return drafts;
+      const next = new Map(drafts);
+      if (value) next.set(threadId, value);
+      else next.delete(threadId);
+      return next;
+    });
+  }, []);
   const messageInput = useRef<HTMLTextAreaElement>(null);
   const insertedMention = useRef<string | null>(null);
   useEffect(() => {
     if (!incomingMention || insertedMention.current === incomingMention.id ||
       incomingMention.roomId !== activeRoomId || detail?.room.roomId !== activeRoomId) return;
     insertedMention.current = incomingMention.id;
-    setMessage((current) => `${current}${current && !/\s$/.test(current) ? " " : ""}@agent:${incomingMention.agentId} `);
+    updateMessageDraft(openThreadId, (current) => `${current}${current && !/\s$/.test(current) ? " " : ""}@agent:${incomingMention.agentId} `);
     messageInput.current?.focus();
     onMentionConsumed?.(incomingMention.id);
-  }, [incomingMention, activeRoomId, detail, onMentionConsumed]);
+  }, [incomingMention, activeRoomId, detail, onMentionConsumed, openThreadId, updateMessageDraft]);
   const [taskId, setTaskId] = useState("");
   const [task, setTask] = useState("");
   const [draftReplacement, setDraftReplacement] = useState<{ id: string; roomId: string; previousTask: string; text: string; provenance: string } | null>(null);
@@ -429,7 +583,7 @@ function ScopedCollaborationView({
   }, [incomingTaskDraft?.id, incomingTaskDraft?.source, incomingTaskDraft?.expiresAt, draftExpiryTick]);
 
   const clearRoomDrafts = useCallback(() => {
-    setMessage("");
+    setMessageDrafts(new Map());
     setOpenThreadId("");
     setCopyLinkStatus("");
     setTask("");
@@ -473,6 +627,7 @@ function ScopedCollaborationView({
       setPendingMessages((current) => current.filter((message) => message.roomId !== roomId));
       activeRoomRef.current = "";
       clearRoomDrafts();
+      setMessageSource(null);
       setDetail(null);
       setActiveRoomId("");
       setRooms((current) => current.filter((room) => room.roomId !== roomId));
@@ -784,6 +939,7 @@ function ScopedCollaborationView({
     roomReadEpoch.current++;
     activeRoomRef.current = initialRoomId;
     clearRoomDrafts();
+    setMessageSource(null);
     setDetail(null);
     setActiveRoomId(initialRoomId);
   }, [initialRoomId, clearRoomDrafts]);
@@ -818,8 +974,29 @@ function ScopedCollaborationView({
     target.scrollIntoView?.({ block: "nearest" });
   }, [initialRoomId, initialHandoffId, activeRoomId, detail, detailTab, workspaceId]);
 
+  const linkedMessage = messageSource && detail?.room.roomId === messageSource.roomId
+    ? detail.messages.find((item) => item.messageId === messageSource.messageId)
+    : undefined;
+  useEffect(() => {
+    if (!messageSource || !linkedMessage || activeRoomId !== messageSource.roomId ||
+      activeRoomRef.current !== messageSource.roomId || revokedRooms.current.has(messageSource.roomId)) return;
+    const threadRootId = linkedMessage.threadRootId ?? "";
+    if (openThreadId !== threadRootId) {
+      setOpenThreadId(threadRootId);
+      return;
+    }
+    const target = document.getElementById(messageElementId(workspaceId, messageSource.roomId, linkedMessage.messageId, Boolean(threadRootId)));
+    if (!target) return;
+    target.focus({ preventScroll: true });
+    target.scrollIntoView?.({ block: "nearest" });
+    setMessageSource(null);
+  }, [messageSource, linkedMessage, activeRoomId, openThreadId, workspaceId]);
+
   const members = useMemo(() => detail?.members ?? [], [detail]);
-  const mentions = useMentionAutocomplete({ members, selfUserId: detail?.currentUserId ?? "", value: message, setValue: setMessage, input: messageInput });
+  const mentions = useMentionAutocomplete({
+    members, selfUserId: detail?.currentUserId ?? "", value: message, input: messageInput,
+    setValue: (value) => updateMessageDraft(openThreadId, () => value),
+  });
   const workingEmployees = (detail?.handoffs ?? []).filter((handoff) => handoff.status === "active" && handoff.execution?.runStatus === "running")
     .map((handoff) => members.find((member) => member.actorId === handoff.recipientActorId)?.displayName ?? "Employee");
   const typing = typingSummary(realtime.viewers, realtime.viewerId, [...new Set(workingEmployees)]);
@@ -852,12 +1029,24 @@ function ScopedCollaborationView({
     onTaskDraftConsumed?.(incomingTaskDraft.id);
   };
   const recipients = members.filter((member) => member.actorId !== effectiveActorId);
+  // Mirrors the request body sent below: grantedCapabilities is never set, so the
+  // backend applies this default — a parent can only be continued when its own
+  // grants cover it and both its lineage and shared root budget allow another handoff.
+  const requestedCapabilities = ["room.read", "message.send", "handoff.create", "task.cancel"];
   const parentHandoffs = (detail?.handoffs ?? []).filter(
     (handoff) =>
       handoff.status === "active" &&
-      handoff.recipientActorId === effectiveActorId &&
+      handoff.remainingBudget > 0 &&
+      handoff.currentRootBudget > 0 &&
+      handoff.depth < MAX_HANDOFF_DEPTH &&
+      requestedCapabilities.every((capability) =>
+        (handoff.grantedCapabilities ?? []).includes(capability),
+      ) &&
+      (handoff.recipientActorId === effectiveActorId ||
+        handoff.senderUserId === detail?.currentUserId) &&
       handoff.taskId === taskId.trim(),
   );
+  const parentUnavailable = !!parentHandoffId && !parentHandoffs.some((handoff) => handoff.handoffId === parentHandoffId);
   const canManageMembers = members.some(
     (member) => member.role === "owner" && member.userId === detail?.currentUserId,
   );
@@ -1032,11 +1221,13 @@ function ScopedCollaborationView({
     });
   };
 
-  const openSavedMessage = (roomId: string) => {
+  const openRoomMessage = (roomId: string, messageId: string) => {
     if (revokedRooms.current.has(roomId)) return;
+    setRoomListTab("room");
+    setMessageSource({ roomId, messageId });
+    if (activeRoomRef.current === roomId) return;
     roomReadEpoch.current++;
     activeRoomRef.current = roomId;
-    setRoomListTab("room");
     setDetail(null);
     setActiveRoomId(roomId);
   };
@@ -1054,7 +1245,7 @@ function ScopedCollaborationView({
     };
     setBusy(true);
     void optimisticMutation({
-      apply: () => { setPendingMessages((current) => [...current, optimistic]); setMessage(""); },
+      apply: () => { setPendingMessages((current) => [...current, optimistic]); updateMessageDraft(threadRootId ?? "", () => ""); },
       commit: () => api<{ message: Message }>(
         `/api/collaboration/rooms/${encodeURIComponent(roomId)}/messages`,
         request("POST", { body: text, messageId: optimistic.messageId,
@@ -1072,7 +1263,7 @@ function ScopedCollaborationView({
       },
       rollback: () => {
         setPendingMessages((current) => current.filter((item) => item.messageId !== optimistic.messageId));
-        if (activeRoomRef.current === roomId) setMessage((current) => current || text);
+        if (activeRoomRef.current === roomId) updateMessageDraft(threadRootId ?? "", (current) => current || text);
       },
       onError: (cause) => {
         toast.error(cause instanceof Error ? cause.message : "Message could not be sent.");
@@ -1083,7 +1274,7 @@ function ScopedCollaborationView({
 
   const createHandoff = (event: FormEvent) => {
     event.preventDefault();
-    if (!activeRoomId || !taskId.trim() || !recipientActorId) return;
+    if (!activeRoomId || !taskId.trim() || !recipientActorId || parentUnavailable) return;
     if (personalExecutionMode && (!personalGrant || personalGrant.snapshot.expiresAt <= Date.now())) {
       setError("Choose a current personal account grant before requesting this task. No deployment account will be substituted.");
       return;
@@ -1191,7 +1382,11 @@ function ScopedCollaborationView({
             <p className="max-w-sm text-xs text-[var(--ink-2)]">
               Chat with your team. Request employee work separately for human approval.
             </p>
-            <NotificationsPanel workspaceId={workspaceId} />
+            <NotificationsPanel
+              workspaceId={workspaceId}
+              onOpenSource={(item) => { if (item.roomId && item.messageId) openRoomMessage(item.roomId, item.messageId); }}
+              onOpenPreferences={onOpenNotificationPreferences}
+            />
           </div>
         </header>
 
@@ -1227,6 +1422,7 @@ function ScopedCollaborationView({
             onTab={(tab) => {
               setRoomListTab(tab);
               if (tab === "saved") {
+                setMessageSource(null);
                 setDetail(null);
                 activeRoomRef.current = "";
                 setActiveRoomId("");
@@ -1235,11 +1431,12 @@ function ScopedCollaborationView({
             onCreate={createRoom}
             onTitle={setRoomTitle}
             onVisibility={setRoomVisibility}
-            onOpenSaved={openSavedMessage}
+            onOpenSaved={openRoomMessage}
             onSelectRoom={(roomId) => {
               if (activeRoomRef.current === roomId) return;
               roomReadEpoch.current++;
               activeRoomRef.current = roomId;
+              setMessageSource(null);
               setDetail(null);
               setActiveRoomId(roomId);
             }}
@@ -1332,9 +1529,12 @@ function ScopedCollaborationView({
                         return <div key={viewer.viewerId} data-room-cursor-viewer={viewer.viewerId} className="absolute text-[var(--navy)]" style={{ left: `${cursor.x * 100}%`, top: `${cursor.y * 100}%` }}><svg aria-hidden="true" width="16" height="19" viewBox="0 0 16 19" className="block"><path d="M1 1V14L5 10L8 17L11 15L7 9H14Z" fill="currentColor" stroke="var(--paper)" strokeWidth="1" /></svg><span className="ml-3 block max-w-40 truncate border border-[var(--line)] bg-[var(--card)] px-1 py-0.5 font-mono text-[9px]">{viewer.label}</span></div>;
                       })}
                     </div>
+                    {messageSource?.roomId === detail.room.roomId && !linkedMessage ? (
+                      <p role="status" className="px-3 py-2 text-sm text-[var(--ink-2)]">This message isn't in the available conversation history.</p>
+                    ) : null}
                     <MessageList>
                       {[...detail.messages, ...pendingMessages.filter((item) => item.roomId === activeRoomId && !detail.messages.some((saved) => saved.messageId === item.messageId))].map((item) => (
-                        <MessageRow key={item.messageId} agent={item.senderKind === "agent"}>
+                        <MessageRow key={item.messageId} id={messageElementId(workspaceId, detail.room.roomId, item.messageId)} agent={item.senderKind === "agent"}>
                           {pendingMessages.some((pending) => pending.messageId === item.messageId) ? <span role="status" className="text-xs text-[var(--ink-2)]">Sending…</span> : null}
                           <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] text-[var(--ink-2)]">
                             <span className="font-semibold text-[var(--ink)]">
@@ -1453,13 +1653,21 @@ function ScopedCollaborationView({
                               <p>Completed run: {item.sourceRunId}</p>
                               {item.sourceArtifactRefs?.map((artifact) =>
                                 item.sourceHandoffId ? (
-                                  <a
-                                    key={`${item.messageId}-${artifact.index}`}
-                                    href={`/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/handoffs/${encodeURIComponent(item.sourceHandoffId)}/artifacts/${artifact.index}${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`}
-                                    className="mr-2 underline"
-                                  >
-                                    {artifact.path}
-                                  </a>
+                                  <span key={`${item.messageId}-${artifact.index}`}>
+                                    <a
+                                      href={`/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/handoffs/${encodeURIComponent(item.sourceHandoffId)}/artifacts/${artifact.index}${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`}
+                                      className="mr-2 underline"
+                                    >
+                                      {artifact.path}
+                                    </a>
+                                    {artifact.artifactId && artifact.version && artifact.sha256 && (
+                                      <ArtifactReviewControls
+                                        key={JSON.stringify([workspaceId, activeRoomId, item.sourceHandoffId, artifact.artifactId, artifact.version, artifact.sha256])}
+                                        artifactUrl={`/api/collaboration/rooms/${encodeURIComponent(activeRoomId)}/handoffs/${encodeURIComponent(item.sourceHandoffId)}/artifacts/${artifact.index}`}
+                                        workspaceId={workspaceId}
+                                      />
+                                    )}
+                                  </span>
                                 ) : (
                                   <span
                                     key={`${item.messageId}-${artifact.index}`}
@@ -1521,7 +1729,7 @@ function ScopedCollaborationView({
                       <ThreadPane title="Thread">
                         <button type="button" className="min-h-11 self-start text-xs underline" onClick={() => setOpenThreadId("")}>Close thread</button>
                         {detail.messages.filter((item) => item.threadRootId === openThreadId).map((item) => (
-                          <p key={item.messageId} className="text-sm">{item.body}</p>
+                          <p key={item.messageId} id={messageElementId(workspaceId, detail.room.roomId, item.messageId, true)} tabIndex={-1} className="text-sm">{item.body}</p>
                         ))}
                         {detail.messages.every((item) => item.threadRootId !== openThreadId) ? (
                           <p className="text-xs text-[var(--ink-2)]">No replies yet.</p>
@@ -2141,6 +2349,7 @@ function ScopedCollaborationView({
                           className="min-h-11 rounded-none border border-[var(--line)] bg-[var(--card)] px-2 py-2 text-xs"
                         >
                           <option value="">New task handoff</option>
+                          {parentUnavailable && <option value={parentHandoffId} disabled>Selected handoff can no longer be continued</option>}
                           {parentHandoffs.map((handoff) => (
                             <option key={handoff.handoffId} value={handoff.handoffId}>
                               Continue {handoff.handoffId.slice(-8)} · depth {handoff.depth}
@@ -2166,7 +2375,7 @@ function ScopedCollaborationView({
                         </select>
                         <button
                           type="submit"
-                          disabled={busy || !taskId.trim() || !recipientActorId || !task.trim() || (personalExecutionMode && !personalGrant)}
+                          disabled={busy || parentUnavailable || !taskId.trim() || !recipientActorId || !task.trim() || (personalExecutionMode && !personalGrant)}
                           className="min-h-11 rounded-none border border-[var(--line)] px-2 py-2 text-xs disabled:opacity-50"
                         >
                           Request / create handoff
@@ -2200,7 +2409,7 @@ function ScopedCollaborationView({
                             )}
                             {handoff.execution?.unavailable && !handoff.approvalId && <p className="my-2 text-[var(--ink-2)]">Assignment context is unavailable. A source or membership changed.</p>}
                             <p className="mt-1 text-[var(--ink-2)]">
-                              Depth {handoff.depth} · {handoff.remainingBudget} handoffs left
+                              Depth {handoff.depth} · {handoff.currentRootBudget ?? 0} handoffs left in this chain
                             </p>
                             {handoff.approvalId && (
                               <div className="mt-1 border-t border-[var(--line)] pt-1">

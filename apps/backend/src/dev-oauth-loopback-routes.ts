@@ -6,6 +6,7 @@
 import type { AcpProviderId } from "@shiba/shared";
 import { waitingProviderOauthState } from "./acp-providers.js";
 import type { Env } from "./env.js";
+import { flag } from "./config/flags.js";
 import { isAuthorizedRequest, resolveUserId } from "./request-auth.js";
 import { timingSafeEqualString } from "./security.js";
 
@@ -26,12 +27,12 @@ function devLoopbackHost(request: Request): boolean {
 }
 
 function devLoopbackSecretConfigured(env: Env): boolean {
-  const secret = env.SHIBA_DEV_OAUTH_LOOPBACK_SECRET?.trim() ?? "";
+  const secret = flag(env, "SHIBA_DEV_OAUTH_LOOPBACK_SECRET")?.trim() ?? "";
   return secret.length >= 16;
 }
 
 function loopbackSecretMatches(request: Request, env: Env): boolean {
-  const expected = env.SHIBA_DEV_OAUTH_LOOPBACK_SECRET?.trim() ?? "";
+  const expected = flag(env, "SHIBA_DEV_OAUTH_LOOPBACK_SECRET")?.trim() ?? "";
   if (expected.length < 16) return false;
   const presented = request.headers.get(DEV_OAUTH_LOOPBACK_HEADER)?.trim() ?? "";
   if (presented === "") return false;

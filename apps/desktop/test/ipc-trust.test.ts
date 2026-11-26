@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createDashboardTrust, createSetupTrust, type IpcSenderEvent } from "../src/ipc-trust.js";
+import { createDashboardTrust, createLocalBrowserTrust, createSetupTrust, type IpcSenderEvent } from "../src/ipc-trust.js";
 
 const ORIGIN = "https://shiba.example.com";
 const SETUP = "file:///Applications/Shiba.app/Contents/Resources/app/dist/setup.html";
+const LOCAL_BROWSER = "file:///Applications/Shiba.app/Contents/Resources/app/dist/local-browser.html";
 
 const ownWindow: { id: string; mainFrame?: { url: string } } = { id: "own" };
 const otherWindow: { id: string; mainFrame?: { url: string } } = { id: "other" };
@@ -26,6 +27,7 @@ const dashboard = createDashboardTrust({
   ownedContents: () => ownWindow,
 });
 const setup = createSetupTrust({ setupFileUrl: SETUP, ownedContents: () => ownWindow });
+const localBrowser = createLocalBrowserTrust({ localBrowserFileUrl: LOCAL_BROWSER, ownedContents: () => ownWindow });
 
 describe("ipc trust", () => {
   it("accepts the shell's own window on its main frame at the configured origin", () => {
@@ -55,6 +57,15 @@ describe("ipc trust", () => {
     expect(setup(eventFrom(SETUP, { window: otherWindow }))).toBe(false);
     expect(setup(eventFrom(`${ORIGIN}/dist/setup.html`))).toBe(false);
     expect(dashboard(eventFrom(SETUP))).toBe(false);
+  });
+
+  it("accepts local browser controls only from its own bundled main-frame page", () => {
+    expect(localBrowser(eventFrom(LOCAL_BROWSER))).toBe(true);
+    expect(localBrowser(eventFrom(`${LOCAL_BROWSER}?unexpected=1`))).toBe(true);
+    expect(localBrowser(eventFrom(LOCAL_BROWSER, { mainFrame: false }))).toBe(false);
+    expect(localBrowser(eventFrom(LOCAL_BROWSER, { window: otherWindow }))).toBe(false);
+    expect(localBrowser(eventFrom("file:///tmp/local-browser.html"))).toBe(false);
+    expect(localBrowser(eventFrom(`${ORIGIN}/app/`))).toBe(false);
   });
 
   it("follows the window the shell last created", () => {

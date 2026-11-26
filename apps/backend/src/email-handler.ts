@@ -40,6 +40,7 @@ import {
   type EmailAttachmentInput,
 } from "./mailbox-store.js";
 import { redactSecrets } from "./security.js";
+import { log } from "./obs/log.js";
 
 const ROUTE_BASE = "https://internal/internal/mailbox";
 
@@ -83,7 +84,7 @@ function logWarn(event: string, detail: Record<string, unknown>): void {
   // to a pattern that can consume a string's closing quote.
   const redacted = JSON.stringify(detail, (_key, value: unknown) =>
     typeof value === "string" ? redactSecrets(value) : value);
-  console.warn(`${redactSecrets(event)} ${redacted}`);
+  log.warn(`${redactSecrets(event)} ${redacted}`);
 }
 
 /**

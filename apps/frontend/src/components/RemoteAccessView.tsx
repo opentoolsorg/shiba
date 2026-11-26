@@ -91,6 +91,7 @@ function PairingModal({ pairing, onClose }: { pairing: PairingTokenResponse; onC
         <pre className="text-[11px] font-mono bg-[#f4f4f5] dark:bg-zinc-900 border border-[#e4e4e7] dark:border-zinc-800 rounded-lg p-3 whitespace-pre-wrap break-all text-[#0a0a0a] dark:text-zinc-100 select-all">
           {pairing.connectCommand}
         </pre>
+        <p className="text-xs text-[#71717a] dark:text-zinc-400">Never share pairing tokens, and keep this command out of screenshots and chats.</p>
         <div className="flex items-center justify-between gap-3">
           <span className={`text-xs font-mono ${expired ? "text-red-500" : "text-[#71717a] dark:text-zinc-400"}`} aria-live="polite">
             {expired ? "Token expired — close and generate a new one" : `Expires in ${countdown(remaining)}`}
@@ -326,6 +327,12 @@ export function RemoteAccessView(): JSX.Element {
                       Harnesses: {formatDesktopHarnessSummary(desktopStatus.harnesses)}
                     </p>
                   ) : null}
+                </div>
+              ) : null}
+              {fleet.kind === "disabled" ? (
+                <div className="sm:col-span-2 flex flex-wrap items-center gap-2 border-t border-[#e4e4e7] dark:border-zinc-800 pt-3">
+                  <span className="text-[#71717a] dark:text-zinc-400">Local runtime</span>
+                  <span className="font-mono text-[#0a0a0a] dark:text-zinc-200">Operator enablement required; pairing alone does not enable it.</span>
                 </div>
               ) : null}
             </div>

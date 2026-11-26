@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import { Database, } from "lucide-react";
 import { MemoriesLoadingState } from "./knowledge/MemoriesLoadingState";
 import { EmptyState } from "./ui/ContextPanel";
+import type { AppNavView } from "./AppNavRail";
 import { AssistantContextImport } from "./AssistantContextImport";
 
 type SourceKind = "note" | "document" | "conversation" | "reference" | "other";
@@ -63,7 +64,7 @@ const PRIMARY =
   "bg-[#0a0a0a] dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-1.5 text-xs font-medium rounded-lg hover:bg-zinc-800 dark:hover:bg-zinc-200 disabled:opacity-50 transition-colors shadow-xs touch:min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 const KINDS: SourceKind[] = ["note", "document", "conversation", "reference", "other"];
 
-export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts: { sources: number }) => void } = {}): JSX.Element {
+export function MemorySourcesView({ onCountsChange, onNavigate }: { onCountsChange?: (counts: { sources: number }) => void; onNavigate?: (view: AppNavView) => void } = {}): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [sources, setSources] = useState<MemorySource[]>([]);
   useEffect(() => {
@@ -661,6 +662,9 @@ export function MemorySourcesView({ onCountsChange }: { onCountsChange?: (counts
             Projects select existing sources and employee defaults. Nothing is fetched from
             reference URLs. Edits affect future approvals; approved tasks keep their frozen
             snapshots.
+            {onNavigate ? <>{" "}
+              <button type="button" onClick={() => onNavigate("projects")} className="font-medium text-[#0a0a0a] dark:text-zinc-100 underline underline-offset-2">Organize project context</button>
+            </> : null}
           </p>
         </div>
         <form onSubmit={(event) => void saveProject(event)} className="grid gap-3 md:grid-cols-2">

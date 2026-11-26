@@ -4,6 +4,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { knowledgeNoteSchema, type KnowledgeNote, type KnowledgeScope } from "@shiba/shared";
+import type { AppNavView } from "../AppNavRail";
 import { LoadErrorState } from "../LoadErrorState";
 import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 import { toast } from "sonner";
@@ -31,26 +32,28 @@ async function readNoteBody(id: string, workspaceId: string | null) {
 
 class NoteVersionConflict extends Error {}
 
-export function NotesEditor({ workspaceId = null }: { workspaceId?: string | null }): JSX.Element {
+export function NotesEditor({ workspaceId = null, onNavigate }: { workspaceId?: string | null; onNavigate?: (view: AppNavView) => void }): JSX.Element {
   const [scope, setScope] = useState<KnowledgeScope>("personal");
   const [notes, setNotes] = useState<KnowledgeNote[]>([]);
   const notesRef = useRef(notes);
   notesRef.current = notes;
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [title, setTitle] = useState("Untitled");
+  const [title, setTitleState] = useState("Untitled");
   const titleRef = useRef(title);
-  titleRef.current = title;
-  const [version, setVersion] = useState(1);
-  const activeVersionRef = useRef(version);
-  activeVersionRef.current = version;
+  const setTitle = useCallback((value: string) => {
+    titleRef.current = value;
+    setTitleState(value);
+  }, []);
+  const activeVersionRef = useRef(1);
   const [loading, setLoading] = useState(true);
   const [bodyLoading, setBodyLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [recovering, setRecovering] = useState(false);
+  const [openingMemory, setOpeningMemory] = useState(false);
   const [saveStatus, setSaveStatus] = useState("Saved");
   const [error, setError] = useState<string | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
-  const saving = useRef(false);
+  const saving = useRef<Promise<boolean> | null>(null);
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
   const bodyReady = useRef(false);
@@ -59,8 +62,7 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
   const dirty = useRef(false);
   const conflicted = useRef(false);
   const draftRevision = useRef(0);
-  const inFlight = useRef<Promise<void> | null>(null);
-  const latestSave = useRef<() => Promise<void>>(async () => {});
+  const latestSave = useRef<() => Promise<boolean>>(async () => false);
   const eventRevision = useRef(0);
   const pendingIdsRef = useRef(new Set<string>());
   const context = `${workspaceId}:${scope}`;
@@ -101,9 +103,9 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
     const selected = loaded.find((note) => note.id === activeIdRef.current);
     if (selected && !dirty.current && !pendingIdsRef.current.has(selected.id) && selected.version > activeVersionRef.current) {
       activeVersionRef.current = selected.version;
-      setTitle(selected.title); setVersion(selected.version); setBodyRevision((value) => value + 1);
+      setTitle(selected.title); setBodyRevision((value) => value + 1);
     }
-  }, [scope, workspaceId, context]);
+  }, [scope, workspaceId, context, setTitle]);
 
   useEffect(() => { setLoading(true); void loadNotes().catch((err: unknown) => setError(err instanceof Error ? err.message : "Notes failed to load.")).finally(() => setLoading(false)); }, [loadNotes]);
 
@@ -119,7 +121,7 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
         const note = parsed.success ? parsed.data : undefined;
         if (note?.scope === scope && note.workspaceId === workspaceId && note.id === event.entityId && note.version > activeVersionRef.current) {
           activeVersionRef.current = note.version;
-          setTitle(note.title); setVersion(note.version); setBodyRevision((value) => value + 1);
+          setTitle(note.title); setBodyRevision((value) => value + 1);
         }
       }
     },
@@ -176,76 +178,96 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
     return saved?.doc.eq(ed.state.doc) ? saved.markdown : editorMarkdown(ed);
   }
 
-  // Reads everything it needs from refs so a call queued behind an in-flight save never sends a stale version or title.
-  async function persist(ed: NonNullable<typeof editor>) {
+  async function persist(ed: NonNullable<typeof editor>): Promise<boolean> {
+    if (saving.current) return saving.current;
+    if (!dirty.current) return true;
     const id = activeIdRef.current;
-    if (!id || !bodyReady.current || !dirty.current || conflicted.current || id.startsWith("pending:") || saving.current) return;
-    const previous = notesRef.current.find((note) => note.id === id);
-    const doc = ed.state.doc;
-    const markdown = draftMarkdown(ed);
-    const draftTitle = titleRef.current;
-    const expectedVersion = activeVersionRef.current;
-    const savedRevision = draftRevision.current;
-    const savedContext = contextRef.current;
-    saving.current = true;
-    pending(id, true);
-    setSaveStatus("Saving…");
-    const saved = await optimisticMutation({
-      apply: () => setNotes((current) => current.map((note) => note.id === id ? { ...note, title: draftTitle, updatedAt: Date.now() } : note)),
-      commit: async () => {
-        const response = await fetch(`/api/notes/${encodeURIComponent(id)}`, {
-          method: "PATCH", credentials: "same-origin", headers: { ...teamWorkspaceHeaders(workspaceId ?? undefined), "Content-Type": "application/json" },
-          body: JSON.stringify({ title: draftTitle, markdown, expectedVersion }),
+    if (!id || !bodyReady.current || conflicted.current || id.startsWith("pending:")) return false;
+    const stillEditing = () => activeIdRef.current === id && contextRef.current === context && !ed.isDestroyed;
+    const flushDraft = async () => {
+      let previous = notesRef.current.find((note) => note.id === id);
+      while (stillEditing() && dirty.current) {
+        const doc = ed.state.doc;
+        const markdown = draftMarkdown(ed);
+        const title = titleRef.current;
+        const expectedVersion = activeVersionRef.current;
+        const savedRevision = draftRevision.current;
+        const beforeSave = previous;
+        setSaveStatus("Saving…");
+        const saved = await optimisticMutation({
+          apply: () => setNotes((current) => current.map((note) => note.id === id ? { ...note, title, updatedAt: Date.now() } : note)),
+          commit: async () => {
+            const response = await fetch(`/api/notes/${encodeURIComponent(id)}`, {
+              method: "PATCH", credentials: "same-origin", headers: { ...teamWorkspaceHeaders(workspaceId ?? undefined), "Content-Type": "application/json" },
+              body: JSON.stringify({ title, markdown, expectedVersion }),
+            });
+            if (response.status === 409) throw new NoteVersionConflict();
+            const body = await response.json() as { note?: KnowledgeNote; error?: string };
+            if (!response.ok || !body.note) throw new Error(body.error ?? "Autosave failed.");
+            return body.note;
+          },
+          reconcile: (note) => {
+            if (contextRef.current !== context) return;
+            if (stillEditing()) {
+              savedBody.current = { markdown, doc };
+              activeVersionRef.current = note.version;
+              if (draftRevision.current === savedRevision) dirty.current = false;
+            }
+            setNotes((current) => current.map((item) => item.id === id ? note : item));
+          },
+          rollback: () => {
+            if (beforeSave && contextRef.current === context) setNotes((current) => current.map((note) => note.id === id ? beforeSave : note));
+          },
+          onError: (cause) => {
+            if (!stillEditing()) return;
+            if (cause instanceof NoteVersionConflict) {
+              conflicted.current = true;
+              if (saveTimer.current) clearTimeout(saveTimer.current);
+            } else {
+              toast.error("Note could not be saved. Your draft is still in the editor.");
+            }
+          },
         });
-        if (response.status === 409) throw new NoteVersionConflict();
-        const body = await response.json() as { note?: KnowledgeNote; error?: string };
-        if (!response.ok || !body.note) throw new Error(body.error ?? "Autosave failed.");
-        return body.note;
-      },
-      reconcile: (note) => {
-        if (contextRef.current !== savedContext) return;
-        if (activeIdRef.current === id) {
-          savedBody.current = { markdown, doc };
-          activeVersionRef.current = note.version;
-          setVersion(note.version);
-          if (draftRevision.current === savedRevision) dirty.current = false;
+        if (!saved) {
+          if (stillEditing()) setSaveStatus(conflicted.current ? "Version conflict" : "Save failed");
+          return false;
         }
-        setNotes((current) => current.map((item) => item.id === id ? note : item));
-      },
-      rollback: () => {
-        if (previous) setNotes((current) => current.map((note) => note.id === id ? previous : note));
-      },
-      onError: (cause) => {
-        if (contextRef.current !== savedContext || activeIdRef.current !== id) return;
-        if (cause instanceof NoteVersionConflict) {
-          conflicted.current = true;
-          if (saveTimer.current) clearTimeout(saveTimer.current);
-        } else {
-          toast.error("Note could not be saved. Your draft is still in the editor.");
-        }
-      },
+        previous = saved;
+      }
+      if (!stillEditing()) return false;
+      setSaveStatus("Saved");
+      return true;
+    };
+    pending(id, true);
+    saving.current = flushDraft().finally(() => {
+      pending(id, false);
+      saving.current = null;
     });
-    pending(id, false);
-    saving.current = false;
-    if (contextRef.current !== savedContext || activeIdRef.current !== id) return;
-    if (!saved) { setSaveStatus(conflicted.current ? "Version conflict" : "Save failed"); return; }
-    setSaveStatus(dirty.current ? "Unsaved changes" : "Saved");
-    if (dirty.current && activeIdRef.current === id) saveTimer.current = setTimeout(() => { void latestSave.current(); }, 600);
+    return saving.current;
   }
 
-  latestSave.current = async () => {
-    if (inFlight.current) await inFlight.current;
-    if (!editor) return;
-    const request = persist(editor);
-    inFlight.current = request;
-    await request;
-    if (inFlight.current === request) inFlight.current = null;
-  };
+  latestSave.current = async () => editor ? persist(editor) : !dirty.current;
 
   // Resolves true once nothing unsaved remains, so callers never navigate away from a draft that failed to save.
   async function saveDraft(): Promise<boolean> {
-    await latestSave.current();
-    return !dirty.current;
+    const id = activeIdRef.current;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    do {
+      if (!await latestSave.current()) return false;
+      if (contextRef.current !== context || activeIdRef.current !== id || editor?.isDestroyed) return false;
+    } while (dirty.current);
+    return true;
+  }
+
+  async function openMemory() {
+    if (!onNavigate || openingMemory) return;
+    if (!dirty.current && !saving.current) { onNavigate("memory"); return; }
+    setOpeningMemory(true);
+    try {
+      if (await saveDraft()) onNavigate("memory");
+    } finally {
+      setOpeningMemory(false);
+    }
   }
 
   async function createNote(draft = { title: "Untitled", markdown: "" }) {
@@ -279,7 +301,7 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
   }
 
   function selectNote(note: KnowledgeNote) {
-    setActiveId(note.id); setTitle(note.title); setVersion(note.version);
+    setActiveId(note.id); setTitle(note.title); activeVersionRef.current = note.version;
   }
 
   async function openNote(note: KnowledgeNote) {
@@ -326,10 +348,8 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
         return;
       }
       savedBody.current = loadEditorBody(editor, markdown);
-      titleRef.current = note.title;
       activeVersionRef.current = note.version;
       setTitle(note.title);
-      setVersion(note.version);
       setNotes((current) => current.map((item) => item.id === id && item.version <= note.version ? note : item));
       conflicted.current = false;
       dirty.current = false;
@@ -375,11 +395,15 @@ export function NotesEditor({ workspaceId = null }: { workspaceId?: string | nul
             void loadNotes().catch((err: unknown) => setError(err instanceof Error ? err.message : "Notes failed to load."));
           }} />}
           {activeId && editor ? <NoteDocument editor={editor} notes={notes} title={title} loading={bodyLoading} saveStatus={saveStatus}
-            onTitleChange={(value) => { titleRef.current = value; setTitle(value); markDirty(); }} onSave={() => latestSave.current()} /> : <div className="flex flex-1 items-center justify-center px-6 py-16 text-center"><div>
+            onTitleChange={(value) => { setTitle(value); markDirty(); }} onSave={async () => { await saveDraft(); }} /> : <div className="flex flex-1 items-center justify-center px-6 py-16 text-center"><div>
               <h1 className="mb-2 text-3xl">notes</h1>
               <p className="mb-4 text-sm text-[var(--knowledge-muted)]">Select a note or create a new one</p>
               <button type="button" disabled={creating} onClick={() => void newNote()} className="rounded-xl border border-[var(--border-1)] px-3 py-2 text-sm">+ New Note</button>
             </div></div>}
+          {onNavigate && <p className="border-t border-[var(--border-1)] px-5 py-2 text-xs text-[var(--knowledge-muted)]">
+            Notes are not memory until you add them as a source.{" "}
+            <button type="button" disabled={openingMemory} className="min-h-11 font-medium text-[var(--fg)] underline underline-offset-2 disabled:opacity-50" onClick={() => void openMemory()}>Save reviewed text as a memory source</button>
+          </p>}
         </section>
       </div>
       {activeId ? <div className="border-t border-[var(--border-1)] p-3 lg:border-l lg:border-t-0">

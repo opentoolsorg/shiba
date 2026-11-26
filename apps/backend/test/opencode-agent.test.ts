@@ -13,8 +13,8 @@ const mocks = vi.hoisted(() => ({
   run: vi.fn(), publish: vi.fn(), sandbox: vi.fn(), progress: vi.fn(), decodeFile: vi.fn(), launch: vi.fn(),
 }));
 vi.mock("@cloudflare/ai-chat", () => ({ AIChatAgent: class {} }));
-vi.mock("../src/sandbox/client.js", () => ({ getSandbox: mocks.sandbox }));
-import { resetSandboxProviderCache } from "../src/sandbox/provider.js";
+vi.mock("../src/ports/sandbox/client.js", () => ({ getSandbox: mocks.sandbox }));
+import { resetSandboxProviderCache } from "../src/ports/sandbox/registry.js";
 vi.mock("@cloudflare/puppeteer", () => ({ default: { launch: mocks.launch } }));
 vi.mock("../src/runtime.js", () => ({
   createRuntimeAdapter: () => ({ runCodingTask: mocks.run }),

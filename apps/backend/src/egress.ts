@@ -6,6 +6,7 @@
  * `cloudflare:` builtins and cannot be loaded by the node test runner.
  */
 import type { Env as WorkerEnv } from "./env.js";
+import { flag } from "./config/flags.js";
 import { authFlowPermitsSubscriptionEgress } from "@shiba/auth";
 import { chatGptAuthStub } from "./chatgpt-auth-do.js";
 import { userProviderOAuthStub } from "./user-provider-oauth-do.js";
@@ -14,6 +15,7 @@ import { sanitizeContainerHeaders, stripCredentialParams } from "./provider-gate
 import { getDecryptedOrgModelKey } from "./org-model-keys-store.js";
 import { kindForHost, readProviderSecretForOrg, type UserSecretKind } from "./user-provider-keys.js";
 import { hostedProviderStoppedResponse, isHostedProviderAccessStopped } from "./hosted-provider-kill-switch.js";
+import { log } from "./obs/log.js";
 
 export type EgressEnv = Pick<
   WorkerEnv,
@@ -375,7 +377,7 @@ export async function forwardClaudeSubscription(
   env: EgressEnv,
   ctx?: OutboundHandlerCtx,
 ): Promise<Response> {
-  if (env.SHIBA_CLAUDE_SUBSCRIPTION === "0") return new Response("Provider sign-in is disabled.", { status: 403 });
+  if (flag(env, "SHIBA_CLAUDE_SUBSCRIPTION") === "0") return new Response("Provider sign-in is disabled.", { status: 403 });
   const params = (ctx?.params ?? {}) as Record<string, unknown>;
   const account = typeof params.account === "string" && params.account !== "" ? params.account : "default";
   const secretName =
@@ -452,7 +454,7 @@ export async function forwardCodexPlan(
   env: EgressEnv,
   ctx?: OutboundHandlerCtx,
 ): Promise<Response> {
-  if (env.SHIBA_CODEX_SUBSCRIPTION === "0") return new Response("Provider sign-in is disabled.", { status: 403 });
+  if (flag(env, "SHIBA_CODEX_SUBSCRIPTION") === "0") return new Response("Provider sign-in is disabled.", { status: 403 });
   const target = new URL(request.url);
   if (
     target.protocol !== "https:" ||
@@ -503,7 +505,7 @@ export async function forwardCodexSubscription(
   env: EgressEnv,
   ctx?: OutboundHandlerCtx,
 ): Promise<Response> {
-  if (env.SHIBA_CODEX_SUBSCRIPTION === "0") return new Response("Provider sign-in is disabled.", { status: 403 });
+  if (flag(env, "SHIBA_CODEX_SUBSCRIPTION") === "0") return new Response("Provider sign-in is disabled.", { status: 403 });
   const params = (ctx?.params ?? {}) as Record<string, unknown>;
   const account = typeof params.account === "string" && params.account !== "" ? params.account : "default";
   const userId = typeof params.userId === "string" && params.userId !== "" ? params.userId : undefined;
@@ -579,7 +581,7 @@ export async function forwardCursorSubscription(
   env: EgressEnv,
   ctx?: OutboundHandlerCtx,
 ): Promise<Response> {
-  if (env.SHIBA_CURSOR_SUBSCRIPTION === "0") return new Response("Provider sign-in is disabled.", { status: 403 });
+  if (flag(env, "SHIBA_CURSOR_SUBSCRIPTION") === "0") return new Response("Provider sign-in is disabled.", { status: 403 });
   const params = (ctx?.params ?? {}) as Record<string, unknown>;
   if (ctx?.initiatorUserId || (typeof params.userId === "string" && params.userId.trim())) {
     return new Response("Connect Cursor in Settings → Providers.", { status: 503 });
@@ -650,7 +652,7 @@ export async function forwardAntigravityUser(
   env: EgressEnv,
   ctx?: OutboundHandlerCtx,
 ): Promise<Response> {
-  if (env.SHIBA_ANTIGRAVITY_SUBSCRIPTION === "0") return new Response("Provider sign-in is disabled.", { status: 403 });
+  if (flag(env, "SHIBA_ANTIGRAVITY_SUBSCRIPTION") === "0") return new Response("Provider sign-in is disabled.", { status: 403 });
   const params = (ctx?.params ?? {}) as Record<string, unknown>;
   const userId = typeof params.userId === "string" ? params.userId.trim() : "";
   const auth = await loadUserOAuthAccess(env, userId, "antigravity");
@@ -707,7 +709,7 @@ export async function forwardCursorUser(
   env: EgressEnv,
   ctx?: OutboundHandlerCtx,
 ): Promise<Response> {
-  if (env.SHIBA_CURSOR_SUBSCRIPTION === "0") return new Response("Provider sign-in is disabled.", { status: 403 });
+  if (flag(env, "SHIBA_CURSOR_SUBSCRIPTION") === "0") return new Response("Provider sign-in is disabled.", { status: 403 });
   const params = (ctx?.params ?? {}) as Record<string, unknown>;
   const userId = typeof params.userId === "string" ? params.userId.trim() : "";
   const auth = await loadUserOAuthAccess(env, userId, "cursor");
@@ -805,7 +807,7 @@ async function forwardGitHub(request: Request, env: EgressEnv): Promise<Response
       redirect: "manual",
     });
     if (response.status >= 400) {
-      console.warn(`github egress ${request.method} ${target.pathname} -> ${response.status} ce=${ce} gp=${gp}`);
+      log.warn(`github egress ${request.method} ${target.pathname} -> ${response.status} ce=${ce} gp=${gp}`);
     }
     return response;
   } catch {

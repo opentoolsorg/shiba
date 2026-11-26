@@ -38,6 +38,7 @@ export interface TasksHomeBuckets {
   needsYou: TasksHomeItem[];
   working: TasksHomeItem[];
   waiting: TasksHomeItem[];
+  recentlyAnswered: TasksHomeItem[];
 }
 
 function runProgressLabel(run: RetainedRun): string | undefined {
@@ -64,7 +65,7 @@ export function buildTasksHomeBuckets(
   chatApprovals: ChatPendingApproval[] = [],
   questions: TasksHomeQuestion[] = [],
 ): TasksHomeBuckets {
-  const buckets: TasksHomeBuckets = { needsYou: [], working: [], waiting: [] };
+  const buckets: TasksHomeBuckets = { needsYou: [], working: [], waiting: [], recentlyAnswered: [] };
   const pendingApprovals = approvals.filter((approval) => approval.status === "pending");
   const approvalIds = new Set<string>();
 
@@ -134,7 +135,7 @@ export function buildTasksHomeBuckets(
     } else if (run.status === "pending") {
       buckets.waiting.push({ ...base, bucket: "waiting", status: "Queued", progressText: run.summary?.trim() || "Waiting to start" });
     } else if (run.status === "completed") {
-      buckets.needsYou.push({ ...base, bucket: "needs-you", status: "Answered" });
+      buckets.recentlyAnswered.push({ ...base, bucket: "waiting", status: "Answered" });
     } else {
       buckets.needsYou.push({
         ...base,
@@ -252,6 +253,34 @@ function TaskQueue({
   );
 }
 
+export interface NeedsYouSuggestion {
+  id: string; kind: string; title: string; detail: string;
+  action: { kind: "compose" | "open"; payload: Record<string, string> };
+}
+
+function SuggestionCards({ items, onDo, onDismiss }: { items: NeedsYouSuggestion[]; onDo: (item: NeedsYouSuggestion) => void; onDismiss: (id: string) => void }): JSX.Element | null {
+  if (items.length === 0) return null;
+  return (
+    <section aria-label="Suggestions" className="mt-10 border border-[var(--border-1)] bg-[var(--card)]">
+      <header className="flex min-h-12 items-center border-b border-[var(--border-1)] px-4 sm:px-5">
+        <h2 className="font-display text-xl text-[var(--fg)]">Suggestions</h2>
+      </header>
+      {items.map((item) => (
+        <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-1)] px-4 py-3 last:border-b-0 sm:px-5">
+          <div className="min-w-0">
+            <p className="truncate text-sm text-[var(--fg)]">{item.title}</p>
+            <p className="text-xs text-[var(--muted-foreground-2)]">{item.detail}</p>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <button type="button" onClick={() => onDo(item)} className="border border-[var(--navy)] bg-[var(--navy)] px-3 py-1 text-xs text-[var(--primary-text)] hover:opacity-90">Do it</button>
+            <button type="button" onClick={() => onDismiss(item.id)} className="border border-[var(--border-1)] px-3 py-1 text-xs text-[var(--fg)] hover:bg-[var(--paper)]">Dismiss</button>
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 export function TasksHomeView({
   task,
   onTaskChange,
@@ -277,6 +306,8 @@ export function TasksHomeView({
   submitError,
   submitNotice,
   workspaceId,
+  onOpenSuggestion,
+  onAutomationDraft,
 }: {
   task: string;
   onTaskChange: (value: string) => void;
@@ -298,6 +329,8 @@ export function TasksHomeView({
   submitError?: string | null;
   submitNotice?: string | null;
   workspaceId?: string;
+  onOpenSuggestion?: (item: NeedsYouSuggestion) => void;
+  onAutomationDraft?: (prompt: string) => void;
   onOpenRun?: (runId: string) => void;
   onOpenApproval?: (approvalId: string) => void;
   onToggleAgents?: () => void;
@@ -306,14 +339,15 @@ export function TasksHomeView({
   const [liveQuestions, setLiveQuestions] = useState<TasksHomeQuestion[]>([]);
   const [liveExtras, setLiveExtras] = useState<TasksHomeItem[]>([]);
   const [statusText, setStatusText] = useState<Record<string, string>>({});
+  const [suggestions, setSuggestions] = useState<NeedsYouSuggestion[]>([]);
   useEffect(() => {
-    if (!workspaceId) return;
     let cancelled = false;
-    void fetch("/api/needs-you", { credentials: "same-origin", headers: { "X-Shiba-Workspace": workspaceId } })
+    void fetch("/api/needs-you", { credentials: "same-origin", headers: workspaceId ? { "X-Shiba-Workspace": workspaceId } : {} })
       .then((response) => (response.ok ? response.json() : null))
       .then((raw) => {
         const body = raw as {
           questions?: TasksHomeQuestion[];
+          suggestions?: NeedsYouSuggestion[];
           progress?: Record<string, string>;
           blocked?: Array<{ runId: string; title?: string; updatedAt?: number; progressText?: string; roomId?: string; threadId?: string }>;
           mentions?: Array<{ id?: string; title?: string; text?: string; roomId?: string; threadId?: string; createdAt?: number }>;
@@ -321,6 +355,7 @@ export function TasksHomeView({
         } | null;
         if (cancelled || !body) return;
         setLiveQuestions(body.questions ?? []);
+        setSuggestions(body.suggestions ?? []);
         setStatusText(body.progress ?? {});
         const threadHref = (roomId?: string, threadId?: string) => {
           if (!roomId) return undefined;
@@ -362,6 +397,29 @@ export function TasksHomeView({
       .catch(() => undefined);
     return () => { cancelled = true; };
   }, [workspaceId, runs.length, approvals.length]);
+  const doSuggestion = (item: NeedsYouSuggestion) => {
+    const { kind, payload } = item.action;
+    // Compose only prefills the composer; the run still goes through approval.
+    if (kind === "compose") {
+      if (payload.automation === "1") onAutomationDraft?.(payload.task ?? "");
+      else onTaskChange(payload.task ?? "");
+      return;
+    }
+    if (onOpenSuggestion) { onOpenSuggestion(item); return; }
+    window.location.assign(!payload.view || payload.view === "home" ? "/" : `/?view=${encodeURIComponent(payload.view)}`);
+  };
+  const [suggestionError, setSuggestionError] = useState<string | null>(null);
+  const dismissSuggestion = (id: string) => {
+    setSuggestionError(null);
+    void fetch("/api/needs-you/dismiss", {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json", ...(workspaceId ? { "X-Shiba-Workspace": workspaceId } : {}) },
+      body: JSON.stringify({ id }),
+    }).then((response) => {
+      if (!response.ok) throw new Error("Dismissal failed");
+      setSuggestions((current) => current.filter((item) => item.id !== id));
+    }).catch(() => setSuggestionError("Could not dismiss suggestion. Please try again."));
+  };
   const decoratedRuns = runs.map((run) => statusText[run.runId] ? { ...run, summary: statusText[run.runId] } : run);
   const built = buildTasksHomeBuckets(decoratedRuns, approvals, pendingApprovals, liveQuestions);
   const buckets = { ...built, needsYou: [...liveExtras, ...built.needsYou] };
@@ -536,13 +594,16 @@ export function TasksHomeView({
           </div>
         </form>
 
+        {suggestionError ? <p role="status">{suggestionError}</p> : null}
+        <SuggestionCards items={suggestions} onDo={doSuggestion} onDismiss={dismissSuggestion} />
+
         <div role="group" className="mt-10 grid grid-cols-1 md:grid-cols-3 gap-4" aria-label="Task queues">
-          <div className="space-y-3">
-            {setup.state.kind === "data" && route.runTarget !== "local" ? <ModelRouteCard modelRoute={setup.state.data.modelRoute} onConnect={onOpenProviders} /> : null}
-            <TaskQueue title="Needs you" items={buckets.needsYou} emptyText="Nothing waiting for review." onOpenRun={onOpenRun} onOpenApproval={onOpenApproval} />
-          </div>
+          <TaskQueue title="Needs you" items={buckets.needsYou} emptyText="Nothing waiting for review." onOpenRun={onOpenRun} onOpenApproval={onOpenApproval} />
           <TaskQueue title="Working" items={buckets.working} emptyText="No agents currently running." onOpenRun={onOpenRun} onOpenApproval={onOpenApproval} />
-          <TaskQueue title="Waiting" items={buckets.waiting} emptyText="No tasks in queue." onOpenRun={onOpenRun} onOpenApproval={onOpenApproval} />
+          <div className="space-y-3">
+            <TaskQueue title="Waiting" items={buckets.waiting} emptyText="No tasks in queue." onOpenRun={onOpenRun} onOpenApproval={onOpenApproval} />
+            <TaskQueue title="Recently answered" items={buckets.recentlyAnswered} emptyText="No completed runs yet." onOpenRun={onOpenRun} onOpenApproval={onOpenApproval} />
+          </div>
         </div>
       </div>
     </main>

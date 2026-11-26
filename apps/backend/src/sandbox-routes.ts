@@ -1,13 +1,13 @@
 import { sandboxFeatureMatrix } from "@shiba/shared";
 import type { SandboxInstance } from "@shiba/sandbox";
-import { getSandbox } from "./sandbox/client.js";
+import { getSandbox } from "./ports/sandbox/client.js";
 import type { Env } from "./env.js";
 import { resolveOrgForApiRequest } from "./org-request-auth.js";
 import { requireApplicationJson, requireSameOriginBrowserMutation } from "./request-auth.js";
 import { jsonObjectBody } from "./route-utils.js";
 import { redactSecrets } from "./security.js";
 import { assertAuthorizedSandboxDebug } from "./sandbox/debug-access.js";
-import { getSandboxInstance, resolveSandboxProviderForSelection } from "./sandbox/provider.js";
+import { getSandboxInstance, resolveSandboxProviderForSelection } from "./ports/sandbox/registry.js";
 import { resolveSandboxSelection, type SandboxSelectionContext } from "./sandbox/selection.js";
 
 const SAFE_SANDBOX_ID_RE = /^[a-zA-Z0-9_.-]{1,128}$/;

@@ -4,7 +4,7 @@ import { putOrgSecret } from "../src/org-secrets-store.js";
 import {
   resetSandboxProviderCache,
   resolveSandboxProviderForSelection,
-} from "../src/sandbox/provider.js";
+} from "../src/ports/sandbox/registry.js";
 import { isPrivateOrLoopbackHost, validateRunnerUrl } from "../src/security.js";
 
 describe("runner url validation and SSRF", () => {

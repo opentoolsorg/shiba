@@ -1,8 +1,8 @@
 # PLAN-V2-NEXT — ai-intern next arc
 
 **Revision:** 2026-10-05. Sits on top of PLAN.md rev 11 (P1–P8, T40–T51 done).
-**Inputs:** boringcomputers/nehemiah (+ PR#25 Cloudflare port), pingdotgg/t3code
-Orchestrator V2 (PR#2829), zed-industries/agent-client-protocol + ACP Registry.
+**Inputs:** boringcomputers/nehemiah (+ PR#25 Cloudflare port), external
+Orchestrator V2 research, zed-industries/agent-client-protocol + ACP Registry.
 **Constraint:** Effect only at the three existing seams (runtime.ts, lifecycle.ts,
 orchestrator.ts); new deps must clear the licensing bar (MIT/Apache/BSD/ISC).
 

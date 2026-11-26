@@ -7,7 +7,7 @@
  * Restyled into main card: 48px header with breadcrumb "Scope > Insights > Usage",
  * neutral cards, and preserved details/empty states.
  */
-import { useMemo, useState, type JSX } from "react";
+import { useCallback, useMemo, useState, type JSX } from "react";
 import { ChevronRight, PanelLeft, Plus } from "lucide-react";
 import { ViewEmpty, ViewGroup, viewButtonClass } from "./ui/ViewChrome";
 import type { AppNavView } from "./AppNavRail";
@@ -33,11 +33,14 @@ import {
 } from "../ui-helpers";
 import { MainCard, type Scope } from "./ui/ContextPanel";
 
+type TableRun = Pick<RetainedRun, "runId" | "task" | "repoUrl" | "status" | "route" | "runtime" | "createdAt" | "updatedAt" | "usage" | "pullUrl">;
+const MAX_TABLE_RUNS = 50;
+
 function isTerminal(status: string): boolean {
   return status === "completed" || ERROR_FAMILY_STATUSES.has(status);
 }
 
-function runDurationMs(run: RetainedRun): number | null {
+function runDurationMs(run: TableRun): number | null {
   if (!isTerminal(run.status) || run.createdAt <= 0 || run.updatedAt <= run.createdAt) return null;
   return run.updatedAt - run.createdAt;
 }
@@ -115,8 +118,10 @@ function countsBy(runs: RetainedRun[], key: (run: RetainedRun) => string): { lab
 
 export function AnalyticsView({
   runs,
+  selectedRun,
   error,
   onNavigate,
+  onOpenSettings,
   sessionId,
   sessionApiAvailable,
   scope = "personal",
@@ -125,8 +130,10 @@ export function AnalyticsView({
   className = "",
 }: {
   runs: RetainedRun[];
+  selectedRun?: TableRun;
   error?: string | null;
   onNavigate?: (view: AppNavView) => void;
+  onOpenSettings?: (section: "deployment") => void;
   sessionId: string;
   sessionApiAvailable: boolean;
   scope?: Scope;
@@ -172,10 +179,21 @@ export function AnalyticsView({
     [runs],
   );
 
-  const tableRuns = useMemo(
-    () => [...runs].sort((a, b) => b.createdAt - a.createdAt).slice(0, 50),
-    [runs],
-  );
+  const { tableRuns, tableRunCount } = useMemo(() => {
+    const recent = [...runs].sort((a, b) => b.createdAt - a.createdAt).slice(0, MAX_TABLE_RUNS);
+    if (!selectedRun || recent.some((run) => run.runId === selectedRun.runId)) {
+      return { tableRuns: recent, tableRunCount: runs.length };
+    }
+    const retained = runs.some((run) => run.runId === selectedRun.runId);
+    return {
+      tableRuns: [selectedRun, ...recent.slice(0, MAX_TABLE_RUNS - 1)],
+      tableRunCount: retained ? runs.length : runs.length + 1,
+    };
+  }, [runs, selectedRun]);
+  const focusSelectedRun = useCallback((row: HTMLTableRowElement | null) => {
+    row?.focus({ preventScroll: true });
+    row?.scrollIntoView?.({ block: "nearest" });
+  }, []);
 
   return (
     <MainCard className={className}>
@@ -284,7 +302,7 @@ export function AnalyticsView({
             />
           </div>
 
-          <UsageSection sessionId={sessionId} sessionApiAvailable={sessionApiAvailable} />
+          <UsageSection sessionId={sessionId} sessionApiAvailable={sessionApiAvailable} onOpenSettings={onOpenSettings} />
 
           <WorkspaceBillingCard sessionId={sessionId} sessionApiAvailable={sessionApiAvailable} />
 
@@ -293,9 +311,9 @@ export function AnalyticsView({
               <div>
                 <h3 className="text-xs font-semibold text-[#0a0a0a] dark:text-zinc-100">Runs</h3>
                 <p className="text-[11px] text-[#71717a] dark:text-zinc-400">
-                  {tableRuns.length === runs.length
-                    ? `${runs.length} run${runs.length === 1 ? "" : "s"}`
-                    : `Latest ${tableRuns.length} of ${runs.length}`}
+                  {tableRuns.length === tableRunCount
+                    ? `${tableRunCount} run${tableRunCount === 1 ? "" : "s"}`
+                    : `Showing ${tableRuns.length} of ${tableRunCount}`}
                 </p>
               </div>
             </header>
@@ -331,8 +349,15 @@ export function AnalyticsView({
                   <tbody>
                     {tableRuns.map((run) => {
                       const duration = runDurationMs(run);
+                      const selected = run.runId === selectedRun?.runId;
                       return (
-                        <tr key={run.runId} className="h-11 border-b border-[#e4e4e7] last:border-b-0 hover:bg-[#f4f4f5] dark:border-zinc-800 dark:hover:bg-zinc-800/40">
+                        <tr
+                          key={run.runId}
+                          ref={selected ? focusSelectedRun : undefined}
+                          tabIndex={selected ? -1 : undefined}
+                          aria-current={selected ? "true" : undefined}
+                          className="h-11 border-b border-[#e4e4e7] last:border-b-0 hover:bg-[#f4f4f5] dark:border-zinc-800 dark:hover:bg-zinc-800/40 aria-[current=true]:bg-[var(--muted)] focus:outline-2 focus:-outline-offset-2 focus:outline-[var(--ring)]"
+                        >
                           <td className="px-4 py-2">
                             <div className="font-mono text-[11px] text-[#0a0a0a] dark:text-zinc-100">{run.runId.slice(0, 8)}</div>
                             <div className="max-w-56 truncate text-[11px] text-[#71717a] dark:text-zinc-400" title={run.task}>
@@ -448,9 +473,11 @@ function mergeUsageGroups(days: UsageDayWire[]): UsageGroupWire[] {
 function UsageSection({
   sessionId,
   sessionApiAvailable,
+  onOpenSettings,
 }: {
   sessionId: string;
   sessionApiAvailable: boolean;
+  onOpenSettings?: (section: "deployment") => void;
 }): JSX.Element {
   const usage = useUsageReport(sessionId, sessionApiAvailable);
   return (
@@ -459,7 +486,7 @@ function UsageSection({
         <div>
           <h3 className="text-xs font-semibold text-[#0a0a0a] dark:text-zinc-100">Token usage &amp; budget</h3>
           <p className="text-[11px] text-[#71717a] dark:text-zinc-400">
-            Harness-reported usage by day, in UTC.
+            Harness-reported usage by day, in UTC. Missing usage is not zero cost.
           </p>
         </div>
         {usage.state.kind === "data" || usage.state.kind === "error" ? (
@@ -484,13 +511,14 @@ function UsageSection({
           sessionId={sessionId}
           sessionApiAvailable={sessionApiAvailable}
           onUsageSaved={usage.reload}
+          onOpenSettings={onOpenSettings}
         />
       )}
     </section>
   );
 }
 
-function UsageReportBody({ report, sessionId, sessionApiAvailable, onUsageSaved }: { report: UsageReportWire; sessionId: string; sessionApiAvailable: boolean; onUsageSaved: () => void }): JSX.Element {
+function UsageReportBody({ report, sessionId, sessionApiAvailable, onUsageSaved, onOpenSettings }: { report: UsageReportWire; sessionId: string; sessionApiAvailable: boolean; onUsageSaved: () => void; onOpenSettings?: (section: "deployment") => void }): JSX.Element {
   const todayKey = new Date().toISOString().slice(0, 10);
   const weekStartKey = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const weekDays = report.days.filter((day) => day.date >= weekStartKey);
@@ -566,6 +594,9 @@ function UsageReportBody({ report, sessionId, sessionApiAvailable, onUsageSaved 
           </div>
           <p className="mt-1.5 text-[11px] text-[#71717a] dark:text-zinc-400">
             USAGE_BUDGET_USD — today&apos;s reported cost against the configured daily budget.
+            {onOpenSettings ? <>{" "}
+              <button type="button" onClick={() => onOpenSettings("deployment")} className="font-medium text-[#0a0a0a] underline underline-offset-2 dark:text-zinc-100">Deployment settings</button>
+            </> : null}
           </p>
         </div>
       ) : null}

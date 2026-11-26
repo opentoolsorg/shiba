@@ -140,6 +140,7 @@ import { verifyInternalRequest } from "../edge-identity.js";
 import { isQuietRoutine, routineIdentity } from "../routine-outcome.js";
 import { settleRoutineWorkflowRun } from "../platform/automation-workflow-store.js";
 import type { Env } from "../env.js";
+import { flag } from "../config/flags.js";
 import { isGitHubPublishConfigured, resolveGitHubCredential } from "../github-auth.js";
 import {
   allowedHostsFor,
@@ -273,7 +274,7 @@ import {
 import { InputError, makeSandboxId, parseGitHubRepoUrl, redactSecrets } from "../security.js";
 import { DEFAULT_ORCHESTRATOR_MODEL, distillSession } from "../session-distill.js";
 import { evaluateSessionTriage } from "../session-triage.js";
-import { postSlackMessage } from "../slack.js";
+import { slackChannel } from "../channels/slack/index.js";
 import { deliverSlackCommandReply } from "../slack-command-reply.js";
 import { deliverCompletedRunOutputs } from "../channel-output-delivery.js";
 import {
@@ -305,6 +306,7 @@ import {
 } from "../web-sessions.js";
 import { OpenCodeAgent } from "./opencode-agent.js";
 import { resolveRoleModel } from "./roles.js";
+import { log, withLogContext } from "../obs/log.js";
 
 const CHAT_CREATE_INSTRUCTIONS: Record<ChatCreateTool, string> = {
   generate_image: "The user asked for an image: call generate_image with a clear visual description, then reply briefly.",
@@ -641,7 +643,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     } : undefined);
     if (!room || !this.env.ConversationRoom?.getByName) return;
     this.holdOpen(publishRunRoomEvent(this.env, room, { kind: "child", childId, status, ...(message ? { message: redactSecrets(message).slice(0, 4000) } : {}) })
-      .catch((error) => console.error("Child room event failed", redactSecrets(String(error)))));
+      .catch((error) => log.error("Child room event failed", redactSecrets(String(error)))));
   }
   override async onBeforeSubAgent(
     _request: Request,
@@ -700,7 +702,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       // An accepted comment can finish saving while this batch is being
       // acknowledged. Drain that retained revision without waiting for a poll.
       if (acknowledged && this.state.slackBufferPending && !this.sessionDeleted && !this.store.list().some((run) => isActiveStatus(run.status))) {
-        this.holdOpen(this.flushSlackTurnBuffer().catch((error) => console.error("Slack follow-up decision queue failed", redactSecrets(String(error)))));
+        this.holdOpen(this.flushSlackTurnBuffer().catch((error) => log.error("Slack follow-up decision queue failed", redactSecrets(String(error)))));
       }
     });
     this.slackBufferDrain = pending;
@@ -884,7 +886,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
         await outbox.drain();
       }
     }).catch((error) => {
-      console.error("Native Slack session reconciliation failed", redactSecrets(String(error)));
+      log.error("Native Slack session reconciliation failed", redactSecrets(String(error)));
     }).finally(() => {
       this.#slackAgentSessionWork = undefined;
       if (this.#slackAgentSessionDirty) void this.#scheduleSlackAgentSessionStatus();
@@ -968,6 +970,12 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   override async onConnect(connection: Connection, ctx: ConnectionContext): Promise<void> {
+    // M03: this DO's name is the conversation/thread key — tag every log
+    // line emitted while serving it (Slack threads are `slack:T:C:ts`).
+    return withLogContext({ threadId: this.name }, () => this.onConnectInner(connection, ctx));
+  }
+
+  private async onConnectInner(connection: Connection, ctx: ConnectionContext): Promise<void> {
     if (this.sessionDeleted) {
       connection.close(SESSION_DELETED_CLOSE_CODE, "Session deleted.");
       return;
@@ -976,6 +984,10 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
   }
 
   override async onStart(): Promise<void> {
+    return withLogContext({ threadId: this.name }, () => this.onStartInner());
+  }
+
+  private async onStartInner(): Promise<void> {
     await super.onStart();
     // Client liveness ping, answered by the runtime without waking a hibernated DO.
     if (typeof this.ctx === "object" && this.ctx !== null && "setWebSocketAutoResponse" in this.ctx) {
@@ -1051,7 +1063,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       try {
         released = await releaseRestartedDraftClaim(this.env, approval);
       } catch (error) {
-        console.warn(
+        log.warn(
           `Email approval ${approval.approvalId} claim release failed`,
           redactSecrets(String(error)),
         );
@@ -1120,7 +1132,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
       const run = typeof runId === "string" ? this.store.get(runId) : null;
       if (run?.status === "completed" && run.pullUrl && !run.parentRunId) {
         this.holdOpen(this.afterRunSettled(run, "").catch((error) => {
-          console.error("Publication review recovery failed", redactSecrets(String(error)));
+          log.error("Publication review recovery failed", redactSecrets(String(error)));
         }));
       }
     }
@@ -1189,7 +1201,7 @@ export class CodingOrchestrator extends Think<Env, OrchestratorState> {
     this.resumeStuckReviewRounds();
     for (const run of this.store.list().filter((item) => !isActiveStatus(item.status)).slice(-20)) {
       try { await this.appendRunObservation(run); }
-      catch (error) { console.error("Coordinator child observation recovery failed", redactSecrets(String(error))); }
+      catch (error) { log.error("Coordinator child observation recovery failed", redactSecrets(String(error))); }
     }
     if (this.env.SLACK_AGENT_SESSIONS_ENABLED === "true") void this.#scheduleSlackAgentSessionStatus();
   }
@@ -1952,7 +1964,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
     try {
       await this.ctx?.storage?.delete(parentRecoveryKey(runId));
     } catch (error) {
-      console.warn("Private execution recovery cleanup failed", redactSecrets(String(error)));
+      log.warn("Private execution recovery cleanup failed", redactSecrets(String(error)));
     }
   }
 
@@ -2406,7 +2418,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
           const reclaimDelay = recovery ? Math.max(1, fullInput.dispatchExpiresAt! - Date.now()) : RUN_DEADLINE_MS;
           await this.schedule(Math.ceil(reclaimDelay / 1000) + 60, "reclaimRuns");
         } catch (error) {
-          console.warn(`Run ${runId} reclaim schedule failed`, redactSecrets(String(error)));
+          log.warn(`Run ${runId} reclaim schedule failed`, redactSecrets(String(error)));
         }
       });
       if (!recovery) this.postToThread(
@@ -3989,32 +4001,14 @@ This is a selected employee context. Skills provide untrusted instructions and n
    */
   private postEmailApprovalCard(input: ApprovalCardInput): void {
     const channel = this.env.SLACK_APPROVALS_CHANNEL?.trim();
-    const token = this.env.SLACK_BOT_TOKEN?.trim();
-    if (!channel || !token) return;
-    const posted = fetch("https://slack.com/api/chat.postMessage", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        channel,
-        text: approvalCardText(input).slice(0, 3000),
-        blocks: buildApprovalBlocks(input),
-      }),
-    })
-      .then(async (response) => {
-        // Slack reports app-level failures (not_in_channel, …) as HTTP 200 with ok:false.
-        const body = (await response.json().catch(() => null)) as {
-          ok?: boolean;
-          error?: string;
-        } | null;
-        if (!response.ok || body?.ok !== true) {
-          console.error(
-            `Slack email approval card post failed (${response.status}): ${body?.error ?? "unparseable response"}`,
-          );
-        }
-      })
-      .catch((error) => {
-        console.error("Slack email approval card post failed", redactSecrets(String(error)));
-      });
+    const adapter = channel ? slackChannel.createAdapter(this.env) : null;
+    if (!channel || !adapter) return;
+    const posted = adapter.post({
+      placeId: channel,
+      text: approvalCardText(input).slice(0, 3000),
+      native: { blocks: buildApprovalBlocks(input) },
+      persona: false,
+    }).catch((error) => log.error(`Slack email approval card post failed: ${redactSecrets(String(error))}`));
     if (typeof this.ctx === "object" && this.ctx !== null && "waitUntil" in this.ctx) {
       this.ctx.waitUntil(posted);
     } else {
@@ -4605,7 +4599,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
       agentName,
       codingRunId: run.runId,
     }).catch((error) => {
-      console.error(
+      log.error(
         "pr-owner index register failed",
         redactSecrets(error instanceof Error ? error.message : String(error)),
       );
@@ -4936,13 +4930,15 @@ This is a selected employee context. Skills provide untrusted instructions and n
     const slack = parseSlackThreadName(this.name);
     const commandScope = parseSlackCommandScope(approval.threadKey);
     const channel = slack?.channelId ?? commandScope?.channelId;
-    const token = this.env.SLACK_BOT_TOKEN?.trim();
-    if (channel && token) {
-      this.holdOpen(postSlackMessage(token, {
-        channel,
-        ...(slack ? { threadTs: slack.threadTs } : {}), text: approvalCardText(card),
-        blocks: buildApprovalBlocks(card), persona: "reviewer",
-      }).catch((error) => console.error("Publication approval card failed", redactSecrets(String(error)))));
+    const adapter = channel ? slackChannel.createAdapter(this.env) : null;
+    if (channel && adapter) {
+      this.holdOpen(adapter.post({
+        placeId: channel,
+        ...(slack ? { threadId: slack.threadTs } : {}),
+        text: approvalCardText(card),
+        native: { blocks: buildApprovalBlocks(card) },
+        persona: "reviewer",
+      }).catch((error) => log.error("Publication approval card failed", redactSecrets(String(error)))));
     } else {
       this.postEmailApprovalCard(card);
     }
@@ -5021,7 +5017,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
         });
         this.postToThread(`Read-only publication review completed. ${observation.summary}\n${observation.report}`, { runId, persona: "reviewer" });
         try { await this.appendRunObservation(this.store.get(runId) ?? run, actual); }
-        catch (contextError) { console.error("Coordinator child observation failed", redactSecrets(String(contextError))); }
+        catch (contextError) { log.error("Coordinator child observation failed", redactSecrets(String(contextError))); }
         try { this.postPublicationCard(review.proposal.approvalId); }
         catch (error) { this.postToThread(`Publication approval is saved, but its notification could not be delivered: ${redactSecrets(String(error)).slice(0, 500)}`); }
       } catch (error) {
@@ -5034,7 +5030,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
         });
         this.postToThread(`The coding task completed, but its publication review failed. No publication approval was created. ${message}`, { runId, persona: "reviewer" });
         try { await this.appendRunObservation(this.store.get(runId) ?? run, actual); }
-        catch (contextError) { console.error("Coordinator child observation failed", redactSecrets(String(contextError))); }
+        catch (contextError) { log.error("Coordinator child observation failed", redactSecrets(String(contextError))); }
       }
     };
     const promise = operation().finally(() => this.publicationReviewInFlight?.delete(runId));
@@ -5096,10 +5092,10 @@ This is a selected employee context. Skills provide untrusted instructions and n
           ...(pull ? { prBindings: { ...(this.state.prBindings ?? {}), [this.prBindingKey(pull.owner, pull.repo, pull.number)]: runId } } : {}),
         });
         this.notifyCollaborationRun(completed);
-        this.holdOpen(this.appendRunObservation(completed).catch((error) => console.error("Published run observation failed", redactSecrets(String(error)))));
+        this.holdOpen(this.appendRunObservation(completed).catch((error) => log.error("Published run observation failed", redactSecrets(String(error)))));
         this.postToThread(`Published the approved pull request: ${published.pullUrl}`, { runId, persona: "reviewer" });
         this.holdOpen(this.afterRunSettled(completed, "").catch((error) => {
-          console.error("Publication review handoff failed", redactSecrets(String(error)));
+          log.error("Publication review handoff failed", redactSecrets(String(error)));
         }));
       } catch (error) {
         const message = redactSecrets(error instanceof Error ? error.message : String(error)).slice(0, 4000);
@@ -5194,7 +5190,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
         await this.queueChainedReview(run);
       }
     } catch (error) {
-      console.error("review chain failed", redactSecrets(error instanceof Error ? error.message : String(error)));
+      log.error("review chain failed", redactSecrets(error instanceof Error ? error.message : String(error)));
     }
   }
 
@@ -5421,7 +5417,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
     };
     // Slack/dashboard approvals hold no socket open, so without the heartbeat the DO can idle out mid-run.
     this.keepAliveWhile(dispatch).catch((error) => {
-      console.error(`Run ${run.runId} dispatch failed`, redactSecrets(String(error)));
+      log.error(`Run ${run.runId} dispatch failed`, redactSecrets(String(error)));
     });
   }
 
@@ -5459,7 +5455,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
         // onto the persisted record so an approved-but-failed send/
         // delete leaves durable state, not a misleading "recorded" reply.
         const message = redactSecrets(String(error)).slice(0, 4000);
-        console.error(`Email approval ${approvalId} execution failed`, message);
+        log.error(`Email approval ${approvalId} execution failed`, message);
         // PostTransmitError = the mail already left; `failed` here would
         // contradict the draft's `sent` mark and invite a re-approval
         // double-send, so the record reads `executed` with the
@@ -5510,7 +5506,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
       try {
         await distillSession(this.env, run, { agent: memoryScope });
       } catch (error) {
-        console.error(`Session distillation failed for ${run.runId}`, redactSecrets(String(error)));
+        log.error(`Session distillation failed for ${run.runId}`, redactSecrets(String(error)));
       }
     })();
     if (typeof this.ctx === "object" && this.ctx !== null && "waitUntil" in this.ctx) {
@@ -5945,7 +5941,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
       ? this.env.TELEGRAM_BOT_TOKEN?.trim()
       : chatIds.platform === "teams" ? this.env.TEAMS_APP_PASSWORD?.trim() : this.env.DISCORD_BOT_TOKEN?.trim());
     const ids = parseSlackThreadName(this.name);
-    const token = this.env.SLACK_BOT_TOKEN?.trim();
+    const slack = ids ? slackChannel.createAdapter(this.env) : null;
     const commandRun = this.name === "default" && context?.runId ? this.store.get(context.runId) : null;
     const commandOrigin = context?.threadKey ?? commandRun?.slackCommandOrigin ?? (commandRun?.approval
       ? this.approvals.find((approval) => approval.approvalId === commandRun.approval?.approvalId)?.threadKey ?? this.state?.slackCanvasOrigins?.[commandRun.approval.approvalId]
@@ -5953,15 +5949,15 @@ This is a selected employee context. Skills provide untrusted instructions and n
     const command = commandRun && commandOrigin && parseSlackCommandScope(commandOrigin) ? { run: commandRun, origin: commandOrigin } : null;
     const effectKind: SideEffectKind = chat ? "chat.post" : "slack.post";
     const effectId = `fx:${effectKind}:${context?.causationId ?? crypto.randomUUID()}`;
-    const send: (() => Promise<void>) | null =
+    const send: (() => Promise<unknown>) | null =
       chat ? () => postToChatThread(this.env, this.name, text) ?? Promise.resolve() :
-      (ids && token
-        ? () => postSlackMessage(token, {
-            channel: ids.channelId,
-            threadTs: ids.threadTs,
+      (ids && slack
+        ? () => slack.post({
+            placeId: ids.channelId,
+            threadId: ids.threadTs,
             text: text.slice(0, 3000),
             ...(context?.persona ? { persona: context.persona } : {}),
-            ...(context?.blocks ? { blocks: context.blocks } : {}),
+            ...(context?.blocks ? { native: { blocks: context.blocks } } : {}),
           })
         : command ? () => deliverSlackCommandReply(this.env, { orchestratorName: this.name, origin: command.origin, run: command.run, effectId, text: text.slice(0, 3000) }) : null);
     if (send === null) return;
@@ -6012,7 +6008,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
         })
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : String(error);
-          console.error(`Post-back to ${target} failed: ${redactSecrets(message)}`);
+          log.error(`Post-back to ${target} failed: ${redactSecrets(message)}`);
           this.emitSpine(
             sideEffectResultInput({
               effectId,
@@ -6042,7 +6038,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
     try {
       await this.drainEffectOutboxOnce();
     } catch (error) {
-      console.error("Run effect outbox drain failed", redactSecrets(String(error)));
+      log.error("Run effect outbox drain failed", redactSecrets(String(error)));
     }
   }
 
@@ -6081,15 +6077,15 @@ This is a selected employee context. Skills provide untrusted instructions and n
             }
           }
           const ids = parseSlackThreadName(this.name);
-          const token = this.env.SLACK_BOT_TOKEN?.trim();
-          if (!ids || !token) return { ok: false, error: "no Slack thread destination configured" };
+          const adapter = ids ? slackChannel.createAdapter(this.env) : null;
+          if (!ids || !adapter) return { ok: false, error: "no Slack thread destination configured" };
           try {
-            await postSlackMessage(token, {
-              channel: ids.channelId,
-              threadTs: ids.threadTs,
+            await adapter.post({
+              placeId: ids.channelId,
+              threadId: ids.threadTs,
               text: (entry.summary ?? "").slice(0, 3000),
               ...(entry.persona ? { persona: entry.persona } : {}),
-              ...(entry.blocks ? { blocks: entry.blocks } : {}),
+              ...(entry.blocks ? { native: { blocks: entry.blocks } } : {}),
             });
             return { ok: true };
           } catch (error) {
@@ -6191,7 +6187,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
       ]);
       return true;
     } catch (error) {
-      console.error("Run cleanup step failed", redactSecrets(String(error)));
+      log.error("Run cleanup step failed", redactSecrets(String(error)));
       return false;
     } finally {
       clearTimeout(timer);
@@ -6200,8 +6196,8 @@ This is a selected employee context. Skills provide untrusted instructions and n
 
   private budgetConfig(): ContainerBudgetConfig {
     return {
-      elevatedConcurrency: parseElevatedConcurrencyFlag(this.env.SHIBA_ELEVATED_CONCURRENCY),
-      dailyBudgetUsd: parseDailyBudgetUsd(this.env.SHIBA_DAILY_CONTAINER_BUDGET_USD),
+      elevatedConcurrency: parseElevatedConcurrencyFlag(flag(this.env, "SHIBA_ELEVATED_CONCURRENCY")),
+      dailyBudgetUsd: parseDailyBudgetUsd(flag(this.env, "SHIBA_DAILY_CONTAINER_BUDGET_USD")),
     };
   }
 
@@ -6347,7 +6343,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
     await this.enforceUsageBudget();
     const cleanup = this.retryLeakedContainers();
     if (backgroundLeaks) {
-      this.holdOpen(cleanup.catch((error) => console.error("Leaked container cleanup failed", redactSecrets(String(error)))));
+      this.holdOpen(cleanup.catch((error) => log.error("Leaked container cleanup failed", redactSecrets(String(error)))));
     } else {
       await cleanup;
     }
@@ -6493,7 +6489,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
     const releases = (async () => {
       for (const record of releasable) {
         await unqueueEmailApprovalDraft(this.env, record).catch((error) => {
-          console.error(
+          log.error(
             `Email approval ${record.approvalId} draft release failed`,
             redactSecrets(String(error)),
           );
@@ -6540,7 +6536,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
         new Request("https://internal/internal/mailbox/mailboxes"),
       );
       if (!listing.ok) {
-        console.error(`Stale draft sweep: mailbox directory list failed (${listing.status})`);
+        log.error(`Stale draft sweep: mailbox directory list failed (${listing.status})`);
         return;
       }
       const { mailboxes } = (await listing.json()) as { mailboxes?: MailboxRecord[] };
@@ -6559,17 +6555,17 @@ This is a selected employee context. Skills provide untrusted instructions and n
               }),
             );
             if (!swept.ok) {
-              console.warn(`Stale draft sweep failed for ${record.address} (${swept.status})`);
+              log.warn(`Stale draft sweep failed for ${record.address} (${swept.status})`);
             }
           } catch (error) {
-            console.warn(
+            log.warn(
               `Stale draft sweep failed for ${record.address}`,
               redactSecrets(String(error)),
             );
           }
       }
     })().catch((error) => {
-      console.error("Stale draft sweep failed", redactSecrets(String(error)));
+      log.error("Stale draft sweep failed", redactSecrets(String(error)));
     });
     if (typeof this.ctx === "object" && this.ctx !== null && "waitUntil" in this.ctx) {
       this.ctx.waitUntil(sweep);
@@ -7294,6 +7290,10 @@ This is a selected employee context. Skills provide untrusted instructions and n
   }
 
   override async onRequest(request: Request): Promise<Response> {
+    return withLogContext({ threadId: this.name }, () => this.onRequestInner(request));
+  }
+
+  private async onRequestInner(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/internal/side-question" && request.method === "POST") {
       const body = await request.json() as Record<string, unknown>;
@@ -7347,7 +7347,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
       if (!parsed.success || agentPrincipal !== personalClaimPrincipal(parsed.data)) return Response.json({ authorized: false }, { status: 403 });
       const proof = parsed.data;
       const current = () => {
-        if (this.sessionDeleted || this.statePersistenceFailed || this.env.SHIBA_PERSONAL_LOCAL_EXECUTION !== "1" || this.env.SHIBA_LOCAL_RUNTIME !== "1") return null;
+        if (this.sessionDeleted || this.statePersistenceFailed || flag(this.env, "SHIBA_PERSONAL_LOCAL_EXECUTION") !== "1" || flag(this.env, "SHIBA_LOCAL_RUNTIME") !== "1") return null;
         const run = this.store.get(`agent-tool:${proof.approvalId}`);
         const approval = this.approvals.find((item) => item.approvalId === proof.approvalId && item.threadKey === this.name);
         return run && approval?.status === "approved" && (!approval.kind || approval.kind === "run") &&
@@ -7532,7 +7532,7 @@ This is a selected employee context. Skills provide untrusted instructions and n
         ...(typeof body.messageTs === "string" ? { messageTs: body.messageTs } : {}) });
       if (status === "buffered" || status === "duplicate") {
         this.setState({ ...this.state, slackBufferPending: true, slackBufferRevision: (this.state.slackBufferRevision ?? 0) + 1 });
-        this.holdOpen(this.flushSlackTurnBuffer().catch((error) => console.error("Slack follow-up queue failed", redactSecrets(String(error)))));
+        this.holdOpen(this.flushSlackTurnBuffer().catch((error) => log.error("Slack follow-up queue failed", redactSecrets(String(error)))));
       }
       return Response.json({ buffered: status === "buffered" || status === "duplicate", status },
         status === "full" ? { status: 429 } : status === "invalid" ? { status: 400 } : undefined);

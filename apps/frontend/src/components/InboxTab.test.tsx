@@ -188,4 +188,18 @@ describe("InboxTab", () => {
       expect(screen.getByText(/No mail/i)).toBeDefined();
     });
   });
+
+  it("tells the user to send a test message from another address in mailbox setup", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/mailboxes") return json({ mailboxes: [] });
+      if (path.startsWith("/api/emails")) return json({ emails: [] });
+      if (path.startsWith("/api/drafts")) return json({ drafts: [] });
+      return json({});
+    }));
+    render(<InboxTab activeFolder="inbox" />);
+    fireEvent.click(screen.getByRole("button", { name: "Mailbox settings" }));
+    const setup = await screen.findByRole("region", { name: "Agent Mailbox Configuration" });
+    expect(setup.textContent).toContain("send a test message from another address");
+  });
 });

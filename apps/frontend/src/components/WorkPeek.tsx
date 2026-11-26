@@ -7,6 +7,7 @@ import { ApprovalCard } from "./ApprovalCard";
 import { DiffViewer } from "./DiffViewer";
 import { RunDeliverables } from "./RunDeliverables";
 import { RunLivePanel } from "./RunLivePanel";
+import { type RunStage, RunStageRail, runStages } from "./RunStageRail";
 import { WorkDetailModal } from "./WorkDetailModal";
 import { DecidedApprovalRow, StoredApprovalCard } from "./WorkspacePanel";
 import type { WorkTask } from "./WorkView";
@@ -22,6 +23,8 @@ export interface WorkPeekProps {
   onClose(): void;
   onOpenFull?(): void;
   onReviewApproval?(): void;
+  /** Opens the run a publication approval covers; the peek only holds runs selected as runs. */
+  onOpenRun?(runId: string, tab: "diff" | "steps"): void;
   sessionId?: string;
   notice?: ReactNode;
   decisions?: Record<string, boolean>;
@@ -46,6 +49,20 @@ const TABS = [
 const control =
   "inline-flex min-h-11 items-center justify-center border border-[var(--border-1)] px-3 text-xs focus-visible:outline-2 focus-visible:outline-[var(--ring)] [@media(hover:hover)]:hover:bg-[var(--card-hover)]";
 
+/** Read-only Request → Approval → Execution → Evidence progress, derived only from recorded approval and run data. */
+function flowSteps(props: WorkPeekProps): RunStage[] | null {
+  const { task, run, storedApproval, pendingApproval } = props;
+  if (task.kind === "session") return null;
+  const local = props.decisions?.[task.id];
+  const recorded = storedApproval && storedApproval.status !== "pending" ? storedApproval.status === "approved" : undefined;
+  const approved = run?.approval ? true : (local ?? recorded);
+  return runStages({
+    approval: approved === true ? "approved" : approved === false ? "rejected" : storedApproval || pendingApproval ? "waiting" : undefined,
+    runStatus: run?.status,
+    queued: props.decisionResults?.[task.id] === "queued",
+  });
+}
+
 export function WorkPeek(props: WorkPeekProps) {
   const {
     task,
@@ -68,6 +85,10 @@ export function WorkPeek(props: WorkPeekProps) {
   const serverDecided = storedApproval && storedApproval.status !== "pending" && decision === undefined;
   const custom = props.renderContent?.(task, tab);
   const approval = storedApproval ?? pendingApproval;
+  const steps = flowSteps(props);
+  // A publication approval is selected as an approval, so the covered run is found via its frozen payload.
+  const frozenRunId = storedApproval?.kind === "pr_publish" && typeof storedApproval.payload === "object" && storedApproval.payload !== null ? (storedApproval.payload as { runId?: unknown }).runId : undefined;
+  const publicationRunId = typeof frozenRunId === "string" && frozenRunId ? frozenRunId : undefined;
   const frozen = storedApproval?.payload ?? pendingApproval?.input;
   const content =
     custom ??
@@ -94,6 +115,9 @@ export function WorkPeek(props: WorkPeekProps) {
           onDecide={props.onDecideStoredApproval}
           conflict={props.claimConflict}
           onClaimChoice={(choice) => props.onDecideStoredApproval?.(storedApproval, choice !== "cancel", choice)}
+          onInspectDiff={publicationRunId && props.onOpenRun ? (runId) => props.onOpenRun?.(runId, "diff") : run ? () => onTabChange("diff") : undefined}
+          onOpenEvidence={publicationRunId && props.onOpenRun ? (runId) => props.onOpenRun?.(runId, "steps") : run ? () => onTabChange("steps") : undefined}
+          showStages={false}
         />
       ) : pendingApproval && props.onDecideApproval ? (
         <ApprovalCard
@@ -233,6 +257,9 @@ export function WorkPeek(props: WorkPeekProps) {
             {run?.pullUrl ? " · PR linked" : ""}
           </p>
           {run?.status === "completed" && props.onRepeat ? <button type="button" className={`${control} mt-3`} onClick={props.onRepeat}>Repeat this…</button> : null}
+          {steps ? (
+            <RunStageRail stages={steps} className="mt-3" />
+          ) : null}
           {task.routine ? <p className="mt-2 text-xs">Routine: {task.routine.name}</p> : null}
           {task.repo ? (
             <p className="mt-1 break-all font-mono text-xs text-[var(--muted-foreground-2)]">

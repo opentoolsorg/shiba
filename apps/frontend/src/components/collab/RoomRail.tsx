@@ -47,7 +47,7 @@ export function RoomRail({
   onCreate: (event: FormEvent) => void;
   onTitle: (value: string) => void;
   onVisibility: (value: "private" | "shared") => void;
-  onOpenSaved: (roomId: string) => void;
+  onOpenSaved: (roomId: string, messageId: string) => void;
   onSelectRoom: (roomId: string) => void;
 }): JSX.Element {
   return (
@@ -121,7 +121,7 @@ export function RoomRail({
             <li key={`${item.roomId}-${item.messageId}`}>
               <button
                 type="button"
-                onClick={() => onOpenSaved(item.roomId)}
+                onClick={() => onOpenSaved(item.roomId, item.messageId)}
                 className="min-h-11 w-full border-l-2 border-transparent px-3 py-2 text-left text-sm hover:bg-[var(--panel-2)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--navy)]"
               >
                 <span className="block truncate font-mono text-xs text-[var(--ink)]">{item.messageId}</span>

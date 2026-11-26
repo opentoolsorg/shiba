@@ -25,6 +25,12 @@ describe("AgentAvatar", () => {
     expect(face("Coder").getAttribute("data-color")).toBe(first.getAttribute("data-color"));
   });
 
+  it("uses the blue Shiba look only for the uncustomized default avatar", () => {
+    render(<AgentAvatar id="shiba" name="Shiba" />);
+    expect(face("Shiba").getAttribute("data-color")).toBe("#899bd0");
+    expect(face("Shiba").getAttribute("data-acc")).toBe("headset");
+  });
+
   it("gives unknown ids a stable hashed face", () => {
     const { rerender, unmount } = render(<AgentAvatar id="zzz-unknown" name="Zed" />);
     const first = ["data-shape", "data-color", "data-eyes", "data-acc"].map((attr) => face("Zed").getAttribute(attr)).join("|");

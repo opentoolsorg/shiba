@@ -5,7 +5,7 @@ import { createCustomAgent, updateCustomAgent } from "../src/custom-agents-store
 import type { Env } from "../src/env.js";
 import { handleRuns, queueCollaborationRun } from "../src/runs-routes.js";
 import type { ExecutionTarget } from "@shiba/shared";
-import { cancelCollaborationHandoff, COLLAB_TENANT_ID, COLLAB_WORKSPACE_ID, createCollaborationSlackLink, isCollaborationHandoffDispatchable, listCollaborationHandoffs, observeCollaborationSlackThread } from "../src/collaboration-store.js";
+import { cancelCollaborationHandoff, cancelCreatedCollaborationHandoff, COLLAB_TENANT_ID, COLLAB_WORKSPACE_ID, createCollaborationSlackLink, isCollaborationHandoffDispatchable, listCollaborationHandoffs, observeCollaborationSlackThread } from "../src/collaboration-store.js";
 import { replaceEmployeeToolGrants } from "../src/employee-tool-store.js";
 import { isCollaborationApprovalDispatchable, isCollaborationContextCurrent } from "../src/collaboration-context.js";
 import { revokeCollaborationMemory } from "../src/collaboration-memory.js";
@@ -1041,5 +1041,94 @@ describe("approval-gated employee handoffs", () => {
       expect(detail.handoffs[0]?.execution?.error).toBeTruthy();
       expect(detail.messages).toEqual([]);
     }
+  });
+
+  it("lets the assigning human continue an employee handoff to the next employee, and only that human", async () => {
+    const f = fixture();
+    const researcher = await createCustomAgent(f.env, "self-hosted", "researcher", {
+      name: "Researcher", instructions: "Gather evidence.", harness: "opencode",
+      defaultRepoUrl: "https://github.com/example/repo",
+    });
+    const drafter = await createCustomAgent(f.env, "self-hosted", "drafter", {
+      name: "Drafter", instructions: "Draft the brief.", harness: "opencode",
+      defaultRepoUrl: "https://github.com/example/repo",
+    });
+    const room = await json<{ room: { roomId: string } }>(
+      await f.send("/rooms", "POST", { title: "Comparison" }),
+    );
+    const roomId = room.room.roomId;
+    expect((await f.send(`/rooms/${roomId}/members`, "POST", { userId: "bob@example.test" }))?.status).toBe(201);
+    const researchMember = await json<{ member: { actorId: string } }>(
+      await f.send(`/rooms/${roomId}/agents`, "POST", { profileId: researcher.id, profileVersion: researcher.version }),
+    );
+    const draftMember = await json<{ member: { actorId: string } }>(
+      await f.send(`/rooms/${roomId}/agents`, "POST", { profileId: drafter.id, profileVersion: drafter.version }),
+    );
+    expect((await f.send(`/rooms/${roomId}/handoffs`, "POST", {
+      handoffId: "research-handoff",
+      taskId: "comparison-task",
+      recipientActorId: researchMember.member.actorId,
+      budget: 1,
+      task: "Collect the evidence.",
+    }))?.status).toBe(201);
+
+    // An uninvolved room member cannot continue the chain.
+    state.userId = "bob@example.test";
+    expect((await f.send(`/rooms/${roomId}/handoffs`, "POST", {
+      handoffId: "draft-handoff-denied",
+      taskId: "comparison-task",
+      parentHandoffId: "research-handoff",
+      recipientActorId: draftMember.member.actorId,
+      task: "Draft the brief.",
+    }))?.status).toBe(404);
+
+    state.userId = "owner@example.test";
+    const childRequest = {
+      taskId: "comparison-task",
+      parentHandoffId: "research-handoff",
+      recipientActorId: draftMember.member.actorId,
+      task: "Draft the brief from the evidence.",
+    };
+    const sendChild = (handoffId: string, overrides = {}) =>
+      f.send(`/rooms/${roomId}/handoffs`, "POST", { ...childRequest, handoffId, ...overrides });
+    expect((await sendChild("draft-handoff", { task: "" }))?.status).toBe(400);
+    expect((await sendChild("draft-handoff", { contextMessageIds: ["missing-message"] }))?.status).toBe(409);
+    expect(vi.mocked(queueCollaborationRun)).toHaveBeenCalledTimes(1);
+
+    vi.mocked(queueCollaborationRun).mockResolvedValueOnce(Response.json({ error: "Temporarily unavailable" }, { status: 503 }));
+    expect((await sendChild("rejected-reservation"))?.status).toBe(503);
+    expect((await sendChild("draft-handoff"))?.status).toBe(409);
+    const scope = { tenantId: COLLAB_TENANT_ID, workspaceId: COLLAB_WORKSPACE_ID, userId: state.userId };
+    expect(await cancelCreatedCollaborationHandoff(f.env, scope, "rejected-reservation", Date.now())).toBe(true);
+    expect(await cancelCreatedCollaborationHandoff(f.env, scope, "rejected-reservation", Date.now())).toBe(false);
+
+    // Corrected work uses the one available slot and a duplicate does not spend it again.
+    const continued = await json<{
+      handoff: {
+        handoffId: string; senderActorId: string; recipientActorId: string;
+        parentHandoffId: string; rootHandoffId: string; depth: number;
+        remainingBudget: number; approvalId: string;
+      };
+    }>(await sendChild("draft-handoff"));
+    expect(continued.handoff).toMatchObject({
+      senderActorId: "human:owner@example.test",
+      recipientActorId: draftMember.member.actorId,
+      parentHandoffId: "research-handoff",
+      rootHandoffId: "research-handoff",
+      depth: 1,
+      remainingBudget: 0,
+    });
+    expect(continued.handoff.approvalId).toBeTruthy();
+    expect(state.queued).toMatchObject({ profileVersion: drafter.version, customAgentId: drafter.id });
+    expect((await sendChild("draft-handoff"))?.status).toBe(201);
+    expect(await cancelCreatedCollaborationHandoff(f.env, scope, "draft-handoff", Date.now())).toBe(false);
+    expect((await sendChild("no-spare-budget"))?.status).toBe(409);
+    const roomAfterContinuation = await json<{
+      handoffs: Array<{ handoffId: string; remainingBudget: number; currentRootBudget: number }>;
+    }>(await f.send(`/rooms/${roomId}`));
+    expect(roomAfterContinuation.handoffs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ handoffId: "research-handoff", remainingBudget: 1, currentRootBudget: 0 }),
+      expect.objectContaining({ handoffId: "draft-handoff", remainingBudget: 0, currentRootBudget: 0 }),
+    ]));
   });
 });

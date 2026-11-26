@@ -35,11 +35,31 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); current.editor = null; });
 
-async function openNote() {
-  render(<NotesEditor />);
+async function openNote(onNavigate?: React.ComponentProps<typeof NotesEditor>["onNavigate"]) {
+  render(<NotesEditor onNavigate={onNavigate} />);
   fireEvent.click(await screen.findByRole("button", { name: "Plan" }));
   await screen.findByRole("textbox", { name: "Note title" });
   await waitFor(() => expect(current.editor?.isEditable).toBe(true));
+}
+
+async function openNoteWithMemoryShortcut() {
+  const patches: { body: unknown; finish: (response: Response) => void }[] = [];
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (init?.method === "PATCH") return new Promise<Response>((finish) => {
+      patches.push({ body: JSON.parse(String(init.body)), finish });
+    });
+    return defaultFetch(url, init);
+  });
+  const onNavigate = vi.fn();
+  await openNote(onNavigate);
+  const shortcut = screen.getByRole("button", { name: "Save reviewed text as a memory source" });
+  return { patches, onNavigate, shortcut };
+}
+
+async function editBody(text: string) {
+  await act(async () => {
+    current.editor!.commands.setContent({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text }] }] }, true);
+  });
 }
 async function typeTrigger(text: string) {
   await act(async () => {
@@ -50,6 +70,79 @@ async function typeTrigger(text: string) {
 }
 
 describe("NotesEditor", () => {
+  it("navigates to Memory without saving when there are no changes", async () => {
+    const { unmount } = render(<NotesEditor />);
+    await screen.findByRole("button", { name: "Plan" });
+    expect(screen.queryByRole("button", { name: "Save reviewed text as a memory source" })).toBeNull();
+    unmount();
+
+    const { patches, onNavigate, shortcut } = await openNoteWithMemoryShortcut();
+    fireEvent.click(shortcut);
+    expect(onNavigate).toHaveBeenCalledExactlyOnceWith("memory");
+    expect(patches).toHaveLength(0);
+  });
+
+  it("flushes a pending body edit and waits for the save before opening Memory", async () => {
+    const { patches, onNavigate, shortcut } = await openNoteWithMemoryShortcut();
+    await editBody("Unsaved paragraph");
+    expect(patches).toHaveLength(0);
+    fireEvent.click(shortcut);
+    expect(patches).toHaveLength(1);
+    expect(patches[0]!.body).toEqual({ title: "Plan", markdown: "Unsaved paragraph\n", expectedVersion: 1 });
+    expect(shortcut).toHaveProperty("disabled", true);
+    expect(onNavigate).not.toHaveBeenCalled();
+    await act(async () => patches[0]!.finish(Response.json({ note: { ...note, version: 2 } })));
+    expect(onNavigate).toHaveBeenCalledExactlyOnceWith("memory");
+  });
+
+  it("waits for an in-flight save, then persists newer edits with the returned version", async () => {
+    const { patches, onNavigate, shortcut } = await openNoteWithMemoryShortcut();
+    const title = screen.getByRole("textbox", { name: "Note title" });
+    fireEvent.change(title, { target: { value: "First edit" } });
+    fireEvent.blur(title);
+    expect(patches).toHaveLength(1);
+    expect(patches[0]!.body).toEqual({ title: "First edit", markdown: noteMarkdown, expectedVersion: 1 });
+    await editBody("Newer body");
+    fireEvent.click(shortcut);
+    expect(patches).toHaveLength(1);
+    expect(onNavigate).not.toHaveBeenCalled();
+
+    await act(async () => patches[0]!.finish(Response.json({ note: { ...note, title: "First edit", version: 2 } })));
+    expect(patches).toHaveLength(2);
+    expect(patches[1]!.body).toEqual({ title: "First edit", markdown: "Newer body\n", expectedVersion: 2 });
+    expect(onNavigate).not.toHaveBeenCalled();
+    await act(async () => patches[1]!.finish(Response.json({ note: { ...note, title: "First edit", version: 3 } })));
+    expect(onNavigate).toHaveBeenCalledExactlyOnceWith("memory");
+  });
+
+  it("keeps the edited note open if the save fails and allows another attempt", async () => {
+    const { patches, onNavigate, shortcut } = await openNoteWithMemoryShortcut();
+    await editBody("Keep my draft");
+    fireEvent.click(shortcut);
+    await act(async () => patches[0]!.finish(Response.json({ error: "Save failed" }, { status: 500 })));
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(current.editor?.getText()).toBe("Keep my draft");
+    expect(shortcut).toHaveProperty("disabled", false);
+
+    fireEvent.click(shortcut);
+    expect(patches).toHaveLength(2);
+    expect(patches[1]!.body).toEqual(patches[0]!.body);
+    await act(async () => patches[1]!.finish(Response.json({ note: { ...note, version: 2 } })));
+    expect(onNavigate).toHaveBeenCalledExactlyOnceWith("memory");
+  });
+
+  it("keeps the draft and blocks Memory navigation after a version conflict", async () => {
+    const { patches, onNavigate, shortcut } = await openNoteWithMemoryShortcut();
+    await editBody("Conflicted draft");
+    fireEvent.click(shortcut);
+    await act(async () => patches[0]!.finish(Response.json({}, { status: 409 })));
+    expect(screen.getByRole("button", { name: "Save draft as a copy" })).toBeTruthy();
+    fireEvent.click(shortcut);
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(patches).toHaveLength(1);
+    expect(current.editor?.getText()).toBe("Conflicted draft");
+  });
+
   it("renders the notes list, empty editor prompt, and loading skeleton", async () => {
     render(<NotesEditor />);
     expect(screen.getByRole("status", { name: "Loading notes" })).toBeTruthy();

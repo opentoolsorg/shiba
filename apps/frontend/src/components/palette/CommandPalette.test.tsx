@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { KEYBOARD_SHORTCUT_GROUPS } from "../ShortcutsDialog";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CommandPalette } from "./CommandPalette";
 import { jumpKeyLabel } from "./jump-keys";
@@ -46,6 +47,18 @@ function renderPalette(onOpenBot = vi.fn()) {
 }
 
 describe("CommandPalette", () => {
+  it("shows a page-name hint and collapsible shortcuts from the shared table", async () => {
+    renderPalette();
+    expect(await screen.findByText("Try a page name such as Providers or Memory")).toBeTruthy();
+    const summary = screen.getAllByText("Keyboard shortcuts").find((element) => element.tagName === "SUMMARY")!;
+    const details = summary.closest("details")!;
+    expect(details.open).toBe(false);
+    fireEvent.click(summary);
+    expect(details.open).toBe(true);
+    const globalShortcuts = KEYBOARD_SHORTCUT_GROUPS.find((group) => group.group === "Global")!.items;
+    for (const item of globalShortcuts) expect(within(details).getByText(item.label)).toBeTruthy();
+    expect(within(details).getByText(globalShortcuts.find((item) => item.id === "command")!.keys)).toBeTruthy();
+  });
   it("renders groups in order and selects the first row", async () => {
     renderPalette();
     const first = await screen.findByRole("option", { name: "Talia, working, 2 unread, last message: Opened PR 12" });

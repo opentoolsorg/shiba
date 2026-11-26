@@ -313,4 +313,16 @@ describe("MemorySourcesView", () => {
     expect(screen.queryByText("No private sources saved")).toBeNull();
   });
 
+  it("links to the Projects view only when navigation is wired", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL) => json(String(url).endsWith("/projects") ? { projects: [] } : { sources: [] })));
+    const onNavigate = vi.fn();
+    const { unmount } = render(<MemorySourcesView />);
+    await screen.findByLabelText("Project name");
+    expect(screen.queryByRole("button", { name: "Organize project context" })).toBeNull();
+    unmount();
+
+    render(<MemorySourcesView onNavigate={onNavigate} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Organize project context" }));
+    expect(onNavigate).toHaveBeenCalledWith("projects");
+  });
 });

@@ -1,5 +1,9 @@
 # Harnesses
 
+Harnesses are pluggable execution CLIs/transports inside runtime lanes. They are
+not the Employee Orchestrator and not the center of the product. A run selects
+exactly one harness after approval; the control plane still owns identity,
+workspace scope, approval, lineage, evidence, cancellation, and publication.
 
 One image ships nine agent CLIs (`opencode`, `claude`, `codex`, `grok`,
 `devin`, `cursor-agent`, `gemini`, `agy`, `procoder`) plus two ACP adapter
