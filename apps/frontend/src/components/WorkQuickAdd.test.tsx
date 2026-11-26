@@ -150,7 +150,7 @@ describe("WorkQuickAdd", () => {
 
   it("sends only the filled-in supported fields as a create patch", () => {
     const onSubmit = vi.fn();
-    const fields = { owners: [{ id: "agent:coder", name: "Coder" }], reviewers: [{ id: "human:user-1", name: "Reviewer" }], tasks: [{ id: "task_a", title: "Write spec" }] };
+    const fields = { owners: [{ id: "agent:coder", name: "Coder" }, { id: "human:user-1", name: "Reviewer" }], tasks: [{ id: "task_a", title: "Write spec" }] };
     render(<WorkQuickAdd onSubmit={onSubmit} fields={fields} />);
     fireEvent.click(screen.getByRole("button", { name: "Add details" }));
     fireEvent.change(screen.getByLabelText("Assignee"), { target: { value: "agent:coder" } });

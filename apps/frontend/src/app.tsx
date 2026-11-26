@@ -478,7 +478,7 @@ export function App(): React.JSX.Element {
   const [harness, setHarness] = useState("opencode");
   const taskRouteChosen = useRef(false);
   const [customAgentId, setCustomAgentId] = useState("");
-  const [workspaceEmployeeId, setWorkspaceEmployeeId] = useState<string | null>(null);
+  const [workspaceEmployee, setWorkspaceEmployee] = useState<CustomAgentWire | null>(null);
   const [agentDetailsOpen, setAgentDetailsOpen] = useState(() => typeof window !== "undefined" && window.innerWidth >= 1280);
   // A bot page can be open without its conversation: the bot has no thread yet,
   // or its thread did not answer. Both are their own states — the surface shows
@@ -564,11 +564,11 @@ export function App(): React.JSX.Element {
     if (view !== "threads") clearRoomIntentRef.current();
     setShowFirstRun(false);
     setAnalyticsRunId(null);
-    if (view === "custom-agents") setWorkspaceEmployeeId(null);
+    if (view === "custom-agents") setWorkspaceEmployee(null);
     if (view === "settings") previousViewRef.current = currentNavigation.current.view === "settings" ? previousViewRef.current : currentNavigation.current.view;
     setMainView(view);
   }, []);
-  useEffect(() => { if (mainView !== "custom-agents") setWorkspaceEmployeeId(null); }, [mainView]);
+  useEffect(() => { if (mainView !== "custom-agents") setWorkspaceEmployee(null); }, [mainView]);
   const closeSettings = useCallback(() => {
     setMainView((view) => (view === "settings" ? previousViewRef.current : view));
   }, []);
@@ -1156,8 +1156,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       })),
     [customAgentRecords],
   );
-  useEffect(() => { setWorkspaceEmployeeId(null); }, [teamWorkspaceId]);
-  const workspaceEmployee = workspaceEmployeeId ? customAgentRecords.find((record) => record.id === workspaceEmployeeId) ?? null : null;
+  useEffect(() => { setWorkspaceEmployee(null); }, [teamWorkspaceId]);
   const {
     localRunAvailable,
     targetMachineId: selectedLocalMachineId,
@@ -1740,7 +1739,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [refreshToken, selectedSessionId, sessionApiAvailable, privateDataEnabled, mainView]);
   const approvalsEnabled =
-    privateDataEnabled && (mainView === "approvals" || mainView === "tasks" || mainView === "threads" || mainView === "dashboard" || mainView === "work");
+    privateDataEnabled && (mainView === "approvals" || mainView === "tasks" || mainView === "threads" || mainView === "dashboard" || mainView === "work" || mainView === "diff");
   const workspaceEventsEnabled =
     Boolean(teamWorkspaceId) && (mainView === "tasks" || mainView === "work" || mainView === "threads");
   const workspaceLive = useWorkspaceEvents({
@@ -2845,7 +2844,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       reloadModelConfig();
       reloadAgentsDirectory();
     }
-    if (mainView === "tasks" || mainView === "threads" || mainView === "work") refreshCustomAgents();
+    if (mainView === "tasks" || mainView === "threads" || mainView === "work" || mainView === "custom-agents" || mainView === "chief-of-staff") refreshCustomAgents();
   }, [mainView, reloadModelConfig, reloadAgentsDirectory, refreshCustomAgents]);
 
   const repoSuggestions = useMemo(() => {
@@ -4669,11 +4668,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 applyWorkSelection({ view: "board", task: runId, taskKind: "run", tab: "steps" }, "push");
                 setMainView("work");
               }}
-              publicationApproval={(() => {
-                const runId = selectedRunId ?? (allRuns.some((run) => run.runId === selectedSessionId) ? selectedSessionId : null);
-                const found = runId ? storedApprovals.find((item) => item.kind === "pr_publish" && item.approvalId === `pr-publish:${runId}`) : undefined;
-                return found ? { id: found.approvalId, status: found.status } : undefined;
-              })()}
+              publicationApprovals={storedApprovals}
               onOpenApproval={(approvalId) => {
                 applyWorkSelection({ view: "board", task: approvalId, taskKind: "approval", tab: "approval" }, "push");
                 setMainView("work");
@@ -4790,14 +4785,14 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               {firstRunProgress?.draftTask ? <section aria-label="Return to first task setup" className="border-b border-[var(--border-1)] bg-[var(--card)] px-4 py-3 text-xs text-[var(--fg)]"><p>Configure and save an employee here. Then choose its saved version for your first task.</p><button type="button" className="mt-2 text-[var(--primary)]" onClick={() => { void updateFirstRunProgress({ action: "save-draft", draftTask: { currentStep: "employee" } }).then(() => { openFirstRun(); setJourneyStage("employee"); }).catch(() => setNotice("Setup could not be opened. Retry from your saved first task draft.")); }}>Choose saved employee in setup</button></section> : null}
             {workspaceEmployee ? (
               <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-                <button type="button" className="m-4 mb-0 min-h-11 self-start border border-[var(--border-1)] px-3 text-xs" onClick={() => setWorkspaceEmployeeId(null)}>Back to employees</button>
+                <button type="button" className="m-4 mb-0 min-h-11 self-start border border-[var(--border-1)] px-3 text-xs" onClick={() => setWorkspaceEmployee(null)}>Back to employees</button>
                 <EmployeeWorkspace
                   key={workspaceEmployee.id}
                   employee={workspaceEmployee}
                   employees={customAgentRecords}
                   actorId={orchestratorName ?? undefined}
                   workspaceId={teamWorkspaceId || undefined}
-                  onOpenConversation={(id) => { const profile = customAgentRecords.find((item) => item.id === id); if (profile) void handleStartAgentThread(profile); }}
+                  onOpenConversation={teamWorkspaceId ? undefined : openBotPanel}
                   onOpenToolPolicy={teamWorkspaceId ? undefined : openEmployeeToolPolicy}
                   onOpenOutputs={teamWorkspaceId ? undefined : () => openView("outputs")}
                 />
@@ -4805,7 +4800,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
             ) : (
             <CustomAgentsView
               key={`${orchestratorName}:${teamWorkspaceId || "personal"}`}
-              onOpenWorkspace={setWorkspaceEmployeeId}
+              onOpenWorkspace={setWorkspaceEmployee}
               workspaceId={teamWorkspaceId || undefined}
               actorId={orchestratorName ?? undefined}
               draftScope={orchestratorName ? `${orchestratorName}:${teamWorkspaceId || "personal"}` : undefined}
@@ -4827,10 +4822,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ) : mainView === "chief-of-staff" ? (
             <ChiefOfStaffView
               employees={workEmployees}
+              loading={customAgentsLoading}
+              error={customAgentsError}
+              onRetry={refreshCustomAgents}
               onOpenChief={teamWorkspaceId ? undefined : () => { void handleSelectSession("default"); openView("threads"); }}
               onOpenApprovals={teamWorkspaceId ? undefined : () => setMainView("approvals")}
               onOpenOutputs={teamWorkspaceId ? undefined : () => openView("outputs")}
-              onOpenEmployee={teamWorkspaceId ? undefined : (id) => { openView("custom-agents"); setWorkspaceEmployeeId(id); }}
+              onOpenEmployee={teamWorkspaceId ? undefined : (id) => { const record = customAgentRecords.find((item) => item.id === id); if (!record) return; openView("custom-agents"); setWorkspaceEmployee(record); }}
             />
           ) : mainView === "employee-tools" ? (
             <EmployeeToolPolicyView initialEmployeeId={toolPolicyIntent?.scope === toolPolicyScope ? toolPolicyIntent.employeeId : null} />

@@ -75,15 +75,14 @@ describe("EmployeeWorkspace", () => {
     await screen.findByText("Tool policy is unavailable; no tool access is implied.");
   });
 
-  it("shows passed outputs, an honest empty state, or only the link-out", () => {
+  it("offers the Outputs link-out only when wired", () => {
     const onOpenOutputs = vi.fn();
-    const { rerender } = render(<EmployeeWorkspace employee={agent} outputs={[{ id: "o1", title: "March close" }]} onOpenOutputs={onOpenOutputs} />);
+    const { rerender } = render(<EmployeeWorkspace employee={agent} onOpenOutputs={onOpenOutputs} />);
     fireEvent.click(screen.getByRole("tab", { name: "Outputs" }));
-    expect(screen.getByText("March close")).toBeTruthy();
+    expect(screen.getByText("Outputs and handoffs are listed in the Outputs page.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open outputs" }));
     expect(onOpenOutputs).toHaveBeenCalledWith("fin-1");
-    rerender(<EmployeeWorkspace employee={agent} outputs={[]} />);
-    expect(screen.getByText("No outputs from this employee yet.")).toBeTruthy();
+    rerender(<EmployeeWorkspace employee={agent} />);
     expect(screen.queryByRole("button", { name: "Open outputs" })).toBeNull();
   });
 });

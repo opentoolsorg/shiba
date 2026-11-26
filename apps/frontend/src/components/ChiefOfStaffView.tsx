@@ -15,6 +15,9 @@ export interface ChiefOfStaffViewProps {
   onOpenApprovals?: () => void;
   onOpenOutputs?: () => void;
   onOpenEmployee?: (id: string) => void;
+  loading?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
 }
 
 const MUTED = "text-[var(--muted-foreground-2)]";
@@ -22,7 +25,7 @@ const CARD = "rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[v
 const PRIMARY = "inline-flex min-h-11 items-center justify-center rounded-[var(--radius-button)] border border-[var(--primary)] bg-[var(--primary)] px-4 text-xs font-medium text-[var(--primary-text)] hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]";
 const ACTION = "inline-flex min-h-11 items-center justify-center rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-4 text-xs font-medium text-[var(--fg)] hover:bg-[var(--card-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]";
 
-export function ChiefOfStaffView({ employees = [], user, chiefName = "Shiba", onOpenChief, onOpenApprovals, onOpenOutputs, onOpenEmployee }: ChiefOfStaffViewProps): JSX.Element {
+export function ChiefOfStaffView({ employees = [], user, chiefName = "Shiba", onOpenChief, onOpenApprovals, onOpenOutputs, onOpenEmployee, loading = false, error = null, onRetry }: ChiefOfStaffViewProps): JSX.Element {
   const userName = user?.name?.trim();
   const memberLabel = userName ? `${userName}’s Shiba` : "Your Shiba";
   return <section aria-label="Chief of staff" className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-8 sm:px-8">
@@ -47,7 +50,9 @@ export function ChiefOfStaffView({ employees = [], user, chiefName = "Shiba", on
     </section>
     <section aria-labelledby="chief-employees-heading" className="flex flex-col gap-2">
       <h2 id="chief-employees-heading" className={`text-[11px] font-semibold uppercase tracking-wider ${MUTED}`}>Workspace employees{employees.length ? ` (${employees.length})` : ""}</h2>
-      {employees.length === 0 ? <p className={`text-xs ${MUTED}`}>No workspace employees yet.</p> : <ul aria-label="Workspace employees" className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      {loading ? <p role="status" className={`text-xs ${MUTED}`}>Loading employees…</p>
+        : error ? <div role="alert" className="flex flex-wrap items-center gap-3 text-xs text-[var(--fg)]"><p>{error}</p>{onRetry ? <button type="button" className={ACTION} onClick={onRetry}>Retry</button> : null}</div>
+        : employees.length === 0 ? <p className={`text-xs ${MUTED}`}>No workspace employees yet.</p> : <ul aria-label="Workspace employees" className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {employees.map((employee) => {
           const name = employee.name || employee.config?.name || employee.slug || employee.id;
           const role = employeeRole(employee.slug, employee.config?.roleTemplateId);

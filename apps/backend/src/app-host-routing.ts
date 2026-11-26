@@ -42,6 +42,7 @@ const DASHBOARD_VIEW_IDS = [
   "integrations",
   "skills",
   "spaces",
+  "chief-of-staff",
   "custom-agents",
   "remote",
   "settings",

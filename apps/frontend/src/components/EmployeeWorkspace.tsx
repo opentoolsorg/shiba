@@ -4,8 +4,6 @@ import { employeeRole, employeeRoleLabel } from "../employee-templates";
 import { AgentAvatar } from "./AgentAvatar";
 import type { CustomAgentWire } from "./CustomAgentsView";
 
-export interface EmployeeWorkspaceOutput { id: string; title: string; detail?: string }
-
 export interface EmployeeWorkspaceProps {
   employee: CustomAgentWire;
   /** Saved employees of the same scope, only used to name who this employee reports to. */
@@ -16,8 +14,6 @@ export interface EmployeeWorkspaceProps {
   onOpenConversation?: (employeeId: string) => void;
   /** Absent in team scope: the grant surface is not reachable there. */
   onOpenToolPolicy?: (employeeId: string) => void;
-  /** Outputs already loaded for this employee; without them only the link-out is offered. */
-  outputs?: readonly EmployeeWorkspaceOutput[];
   onOpenOutputs?: (employeeId: string) => void;
 }
 
@@ -50,7 +46,7 @@ function useActiveTools(employeeId: string, enabled: boolean): PolicyState {
   return result?.employeeId === employeeId ? result.state : { status: "loading" };
 }
 
-export function EmployeeWorkspace({ employee, employees = [], actorId, workspaceId, onOpenConversation, onOpenToolPolicy, outputs, onOpenOutputs }: EmployeeWorkspaceProps): JSX.Element {
+export function EmployeeWorkspace({ employee, employees = [], actorId, workspaceId, onOpenConversation, onOpenToolPolicy, onOpenOutputs }: EmployeeWorkspaceProps): JSX.Element {
   const [tab, setTab] = useState<TabId>("conversation");
   const baseId = useId();
   const { config } = employee;
@@ -104,8 +100,7 @@ export function EmployeeWorkspace({ employee, employees = [], actorId, workspace
           : !workspaceId ? <p className={`text-xs ${MUTED}`}>Tool grants are managed in a personal workspace.</p> : null}
       </> : null}
       {tab === "outputs" ? <>
-        {outputs?.length ? <ul aria-label="Outputs" className="flex flex-col gap-2">{outputs.map((output) => <li key={output.id} className="rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)] p-3"><p className="text-sm font-medium text-[var(--fg)]">{output.title}</p>{output.detail ? <p className={`text-xs ${MUTED}`}>{output.detail}</p> : null}</li>)}</ul>
-          : <p className={`text-xs ${MUTED}`}>{outputs ? "No outputs from this employee yet." : "Outputs and handoffs are listed in the Outputs page."}</p>}
+        <p className={`text-xs ${MUTED}`}>Outputs and handoffs are listed in the Outputs page.</p>
         {onOpenOutputs ? <div><button type="button" className={ACTION} onClick={() => onOpenOutputs(employee.id)}>Open outputs</button></div> : null}
       </> : null}
     </div>

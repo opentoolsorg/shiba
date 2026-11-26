@@ -991,7 +991,7 @@ describe("employee directory and hire design", () => {
     expect(screen.getByRole("heading", { name: "Department: engineering (1)" })).toBeTruthy();
     expect(screen.queryByText("Ledger")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open workspace Builder" }));
-    expect(onOpenWorkspace).toHaveBeenCalledWith("c");
+    expect(onOpenWorkspace).toHaveBeenCalledWith(expect.objectContaining({ id: "c" }));
     fireEvent.click(within(chips).getByRole("button", { name: "All (3)" }));
     expect(screen.queryByRole("heading", { name: /^Department:/ })).toBeNull();
     expect(screen.getByText("Ledger")).toBeTruthy();
@@ -1002,5 +1002,19 @@ describe("employee directory and hire design", () => {
     render(<CustomAgentsView />);
     await screen.findByText("Solo");
     expect(screen.queryByRole("button", { name: /Open workspace/ })).toBeNull();
+  });
+
+  it("disables Open workspace while an edit is in progress and counts the filtered department", async () => {
+    const mk = (id: string, name: string): CustomAgentWire => ({ id, slug: id, version: 1, config: { name, instructions: "Work.", harness: "opencode", department: "finance" } });
+    const other: CustomAgentWire = { id: "z", slug: "z", version: 1, config: { name: "Builder", instructions: "Work.", harness: "opencode", department: "engineering" } };
+    stubWorkspaceDirectory([mk("a", "Ledger"), mk("b", "Tally"), other]);
+    render(<CustomAgentsView onOpenWorkspace={vi.fn()} />);
+    await screen.findByText("Ledger");
+    fireEvent.click(within(screen.getByRole("group", { name: "Filter by department" })).getByRole("button", { name: "finance (2)" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search employees" }), { target: { value: "Ledger" } });
+    expect(screen.getByRole("heading", { name: "Department: finance (1)" })).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Open workspace Ledger" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit bot" })[0]!);
+    expect((screen.getByRole("button", { name: "Open workspace Ledger" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

@@ -124,7 +124,7 @@ export interface CustomAgentsViewProps {
   // Receives the employee to preselect after a hire; plain links pass nothing.
   onOpenToolPolicy?: (employeeId?: string) => void;
   /** Opens the per-employee workspace page; the action is hidden when absent. */
-  onOpenWorkspace?: (employeeId: string) => void;
+  onOpenWorkspace?: (employee: CustomAgentWire) => void;
 }
 
 /** Keep drafts and async callbacks in the account/workspace that created them. */
@@ -824,7 +824,7 @@ function ScopedCustomAgentsView({
               {!workspaceId ? <EmployeeRoutines key={selectedAgent.id} employeeId={selectedAgent.id} /> : null}
               {workspaceId ? <EmployeeAccessSettings key={selectedAgent.id} workspaceId={workspaceId} employeeId={selectedAgent.id} onAccessChange={(level) => setCallerLevels((current) => ({ ...current, [selectedAgent.id]: level }))} /> : null}
               {!showArchived ? <div className="mt-4 flex flex-wrap gap-2">
-                {onOpenWorkspace ? <button type="button" onClick={() => onOpenWorkspace(selectedAgent.id)} className={BTN}>Open workspace<span className="sr-only"> for {selectedAgent.config.name}</span></button> : null}
+                {onOpenWorkspace ? <button type="button" disabled={busy || editingId !== null} title={busy || editingId !== null ? "Finish or cancel the current edit first." : undefined} onClick={() => onOpenWorkspace(selectedAgent)} className={BTN}>Open workspace<span className="sr-only"> for {selectedAgent.config.name}</span></button> : null}
                 <button type="button" disabled={busy || !canManage(selectedAgent.id)} onClick={() => startEdit(selectedAgent)} className={BTN}>Edit profile</button>
               </div> : null}
             </section>
@@ -868,7 +868,7 @@ function ScopedCustomAgentsView({
               ))}
             </div>
           ) : null}
-          {activeDepartment !== ROLE_FILTER_ALL ? <h2 className="text-sm font-semibold capitalize text-[var(--fg)]">Department: {activeDepartment} ({departmentCounts.get(activeDepartment)})</h2> : null}
+          {activeDepartment !== ROLE_FILTER_ALL ? <h2 className="text-sm font-semibold capitalize text-[var(--fg)]">Department: {activeDepartment} ({agentsByDepartment.get(activeDepartment)?.length ?? 0})</h2> : null}
           {agents && agents.length > 0 ? (
             <ul aria-label="Saved employees" className="flex flex-col gap-6">
               {departmentOrder.map((department) => {
@@ -939,8 +939,8 @@ function ScopedCustomAgentsView({
                     ) : null}
                   </div>
                   <div className="flex shrink-0 flex-wrap justify-end gap-2">
-                    {onOpenWorkspace && !showArchived ? <button type="button" onClick={() => onOpenWorkspace(agent.id)} aria-label={`Open workspace ${agent.config.name}`}
-                      className="min-h-11 rounded-[var(--radius-button)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] text-[11px] border border-[var(--border-1)] px-2 py-1">Open workspace</button> : null}
+                    {onOpenWorkspace && !showArchived ? <button type="button" disabled={busy || editingId !== null} title={busy || editingId !== null ? "Finish or cancel the current edit first." : undefined} onClick={() => onOpenWorkspace(agent)} aria-label={`Open workspace ${agent.config.name}`}
+                      className="min-h-11 rounded-[var(--radius-button)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] text-[11px] border border-[var(--border-1)] px-2 py-1 disabled:opacity-50">Open workspace</button> : null}
                     {onStartThread && !showArchived ? (
                       <button
                         type="button"

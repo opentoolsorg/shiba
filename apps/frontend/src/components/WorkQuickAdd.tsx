@@ -7,7 +7,7 @@ export interface WorkQuickAddProps {
   /** Resolve `false` (or reject) to keep the draft; any other result clears it. `patch` carries only fields the user filled in. */
   onSubmit(text: string, patch?: WorkTaskPatch): void | boolean | Promise<boolean | void>;
   /** Team create only: enables optional assignee, reviewer, schedule and dependency fields. */
-  fields?: { owners: readonly { id: string; name: string }[]; reviewers?: readonly { id: string; name: string }[]; tasks: readonly { id: string; title: string }[] };
+  fields?: { owners: readonly { id: string; name: string }[]; tasks: readonly { id: string; title: string }[] };
   disabled?: boolean;
   placeholder?: string;
   className?: string;
@@ -138,7 +138,7 @@ export function WorkQuickAdd({
               Reviewer
               <select value={extra.reviewer} disabled={disabled} onChange={(e) => setExtra({ ...extra, reviewer: e.target.value })} className={detailField}>
                 <option value="">No reviewer</option>
-                {(fields.reviewers ?? fields.owners).map((reviewer) => <option key={reviewer.id} value={reviewer.id}>{reviewer.name}</option>)}
+                {fields.owners.map((reviewer) => <option key={reviewer.id} value={reviewer.id}>{reviewer.name}</option>)}
               </select>
             </label>
             <label className={detailLabel}>

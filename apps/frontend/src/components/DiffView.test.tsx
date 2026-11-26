@@ -54,19 +54,24 @@ describe("DiffView", () => {
     expect(screen.queryByText("No diff yet")).toBeNull();
   });
 
-  it("shows a navigation-only publication review action only for pending approvals", () => {
+  it("shows only the pending publication approval for the displayed run", () => {
     const onOpenApproval = vi.fn();
+    const other = run({ runId: "run-other", status: "completed", diff: patch });
     const selected = run({ runId: "run-publish", status: "completed", diff: patch });
+    const otherApproval = { approvalId: "pr-publish:run-other", kind: "pr_publish", status: "pending" };
+    const selectedApproval = { approvalId: "pr-publish:run-publish", kind: "pr_publish", status: "pending" };
+    const approvals = [otherApproval, selectedApproval];
     const { rerender } = render(
-      <DiffView runs={[selected]} publicationApproval={{ id: "pr-publish:run-publish", status: "pending" }} onOpenApproval={onOpenApproval} />,
+      <DiffView runs={[other, selected]} selectedRunId="run-publish" publicationApprovals={approvals} onOpenApproval={onOpenApproval} />,
     );
-    const review = screen.getByRole("button", { name: "Review publication" });
-    fireEvent.click(review);
+    fireEvent.click(screen.getByRole("button", { name: "Review publication" }));
     expect(onOpenApproval).toHaveBeenCalledWith("pr-publish:run-publish");
 
-    rerender(<DiffView runs={[selected]} publicationApproval={{ id: "pr-publish:run-publish", status: "approved" }} onOpenApproval={onOpenApproval} />);
+    rerender(<DiffView runs={[other, selected]} selectedRunId="run-other" publicationApprovals={[selectedApproval]} onOpenApproval={onOpenApproval} />);
     expect(screen.queryByRole("button", { name: "Review publication" })).toBeNull();
-    rerender(<DiffView runs={[selected]} publicationApproval={{ id: "pr-publish:run-publish", status: "pending" }} />);
+    rerender(<DiffView runs={[selected]} publicationApprovals={[{ ...selectedApproval, status: "approved" }]} onOpenApproval={onOpenApproval} />);
+    expect(screen.queryByRole("button", { name: "Review publication" })).toBeNull();
+    rerender(<DiffView runs={[selected]} publicationApprovals={approvals} />);
     expect(screen.queryByRole("button", { name: "Review publication" })).toBeNull();
   });
 

@@ -47,6 +47,7 @@ export function SpacesView({ scope = "personal" }: SpacesViewProps = {}): JSX.El
   const [detailId, setDetailId] = useState<string | null>(() => spaceIdFromPath());
   const [detail, setDetail] = useState<SpaceDetail | null>(null);
   const detailAbort = useRef<AbortController | null>(null);
+  const detailIdRef = useRef(detailId);
 
   const loadIndex = useCallback(async () => {
     const [spacesRes, templatesRes] = await Promise.all([
@@ -86,7 +87,11 @@ export function SpacesView({ scope = "personal" }: SpacesViewProps = {}): JSX.El
   }, []);
 
   useEffect(() => {
+    detailIdRef.current = detailId;
     setError(null);
+    setItemError(null);
+    setItemRef("");
+    setItemKind("skill");
     if (!detailId) {
       setDetail(null);
       return;
@@ -131,6 +136,7 @@ export function SpacesView({ scope = "personal" }: SpacesViewProps = {}): JSX.El
         throw new Error(body.error ?? `Request failed (${response.status}).`);
       }
       saved = true;
+      if (detailIdRef.current !== detailId) return;
       if (method === "POST") setItemRef("");
       detailAbort.current?.abort();
       const controller = new AbortController();
@@ -141,7 +147,7 @@ export function SpacesView({ scope = "personal" }: SpacesViewProps = {}): JSX.El
         if (!controller.signal.aborted) setItemError("Saved, but the list could not refresh. Reload to see the latest items.");
       }
     } catch (cause) {
-      if (!saved) setItemError(cause instanceof Error ? cause.message : "Item could not be updated.");
+      if (!saved && detailIdRef.current === detailId) setItemError(cause instanceof Error ? cause.message : "Item could not be updated.");
     } finally {
       setItemBusy(false);
     }

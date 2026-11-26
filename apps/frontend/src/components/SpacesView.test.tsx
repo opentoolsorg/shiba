@@ -178,4 +178,30 @@ describe("SpacesView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     expect((await screen.findByRole("alert")).textContent).toMatch(/^Saved, but the list could not refresh/);
   });
+
+  it("does not refetch or clear another space when an item change finishes after switching", async () => {
+    const post = deferredResponse();
+    const detailFetches: string[] = [];
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo) => {
+      const url = String(input);
+      if (url === "/api/spaces") return Promise.resolve(Response.json({ spaces: [] }));
+      if (url === "/api/spaces/templates") return Promise.resolve(Response.json({ templates: [] }));
+      if (url === `/api/spaces/${firstId}/items`) return post.promise;
+      detailFetches.push(url);
+      const id = url.endsWith(`${secondId}`) ? secondId : firstId;
+      return Promise.resolve(Response.json({ space: spaceDetail(id, id === secondId ? "Second" : "First") }));
+    }));
+    window.history.replaceState(null, "", `/spaces/${firstId}/`);
+    render(<SpacesView />);
+    await screen.findByRole("heading", { name: "First" });
+    fireEvent.change(screen.getByLabelText("Reference"), { target: { value: "x" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    navigateTo(`/spaces/${secondId}/`);
+    await screen.findByRole("heading", { name: "Second" });
+    expect((screen.getByLabelText("Reference") as HTMLInputElement).value).toBe("");
+    const before = detailFetches.length;
+    await act(async () => post.resolve(Response.json({ ok: true })));
+    expect(detailFetches.length).toBe(before);
+    expect(screen.getByRole("heading", { name: "Second" })).toBeDefined();
+  });
 });
