@@ -1,41 +1,77 @@
-# Request lifecycle
+# Employee work lifecycle
 
+This is the shared lifecycle for work in Shiba. Repository sandbox execution is
+one lane. Artifact generation, employee app actions, local-machine execution,
+browser/computer sessions, automations, research, marketing, operations, and
+channel-delivered work follow the same control shape.
 
+```text
+ 1  intake      person/channel/automation creates or selects workspace work
+ 2  orient      Employee Orchestrator loads workspace, employee, and context
+ 3  plan        produce or update a goal/plan/task with exact scope
+ 4  approve     required human approver grants exact frozen authority
+ 5  dispatch    run orchestration mints or resumes an approved run/attempt
+ 6  execute     one execution lane performs the approved work
+ 7  evidence    lane emits progress, artifacts, receipts, errors, and provenance
+ 8  verify      lane and control plane record verification or explicit gaps
+ 9  review      workspace members inspect deliverables and decide next action
+10  publish     a separate approved action may cause an external effect
+11  follow-up   result becomes memory/context only under sharing policy
 ```
-1  ingress    dashboard / Slack / cron / webhook → auth per surface
-2  intent     orchestrator plans; prose → structured delegate_coding_task
-3  gate       approval card with the exact frozen arguments; human approves
-              (automations always wait for human approval)
-4  dispatch   approved input frozen; route revalidated at dispatch
-5  sandbox    ephemeral container: clone (scoped) → run the harness CLI
-6  egress     AI Gateway swaps the dummy key for the real provider key (or injects org-configured provider API key)
-7  collect    diff, exit code, structured result envelope (error ≠ completed)
-8  propose    stage immutable publication files in private R2
-9  gate       separate human approval permits the branch and PR action
-10 cleanup    container destroyed; short sleep tail; result + receipts recorded
+
+## Control requirements
+
+- **Intent is structured before execution.** Prose can start a conversation, but
+  a run starts from a structured task/action envelope.
+- **Approval freezes authority.** The envelope carries actor, workspace, employee
+  profile/version, target, action, resources, model/runtime lane, expiry, and
+  limits.
+- **The orchestrator does not perform the work.** It coordinates. An execution
+  lane performs the approved action.
+- **Every run has lineage.** Parent/child work, retries, cancellation, receipts,
+  and deliverables stay connected.
+- **Evidence is part of the result.** A result without enough evidence is partial,
+  blocked, failed, or unknown. It is not verified.
+- **Publication is separate.** Creating a draft, branch, file, report, or plan
+  does not grant permission to publish, send, merge, post, purchase, or mutate an
+  external system.
+
+## Lane differences
+
+| Lane | Starts after approval with | Must return |
+|---|---|---|
+| Repository sandbox | Repo/ref/task, scoped git authority, harness/runtime selection | Diff or clear failure, logs, files, verification, optional PR publication evidence |
+| Artifact workspace | Workspace folder/output contract, input files/context, employee profile/version | Files, versions, provenance, validation outcome |
+| Employee app/tool action | Exact integration/action/input, workspace/employee grant, policy decision | Receipt, provider result or failure, idempotency key, external-effect status |
+| Local paired machine | Machine/user lane, exact job envelope, daemon capability | Machine-local outcome, encrypted/archive evidence where applicable, completion status |
+| Browser/computer | Session/profile or dedicated computer grant, takeover/control state, exact task | Action transcript/evidence, screenshots or logs where applicable, released session state |
+| Research/operations/text lane | Goal/task, selected context, output contract | Reviewable deliverable, sources/provenance, verification or caveats |
+
+## Repository sandbox detail
+
+```text
+ 1  approve     exact repo/ref/task and harness/runtime route are frozen
+ 2  dispatch    Employee Orchestrator sends a structured envelope to the
+                Run Execution Agent (current implementation: OpenCodeAgent)
+ 3  sandbox     Sandbox DO starts an ephemeral container for the run
+ 4  clone       container receives only the approved scoped git capability
+ 5  execute     exactly one harness CLI/ACP lane runs
+ 6  collect     worker/control plane collects diff, logs, output files, and status
+ 7  verify      tests/checks or explicit unverified state are recorded
+ 8  publish     push/PR/publication occurs only through its approved path
 ```
 
-**Per-org sandbox runners and model keys**: Orgs can bring their own sandbox runners (ComputeSDK remote runner URL and token encrypted at rest via AES-GCM in D1) and paste raw provider API keys (`anthropic`, `openai`, `google`, `xai`, stored encrypted in D1 write-only). At edge egress, `orgId` resolves decrypted keys and injects native auth headers (`x-api-key`, `Authorization: Bearer`, `x-goog-api-key`) through Cloudflare AI Gateway, falling back to deployment BYOK aliases when unconfigured. Runner URLs are HTTPS-only and SSRF-validated against private, loopback, link-local, and CGNAT networks.
+The Run Execution Agent coordinates this lane. It does not make independent
+product decisions, and harness selection does not make that harness the system
+orchestrator.
 
-Steps **3** and **6** are the load-bearing ones. Everything else is
-replaceable — which is why resumable runs (`PLAN.md` §4) and the parity waves
-can be built without touching them.
+## Cancellation, retry, and unknown outcomes
 
-**Local lane** (`runtime:"local"`, dark unless `SHIBA_LOCAL_RUNTIME=1`): the
-same intake → gate → approve → dispatch path, but step 5's container is
-replaced by the operator's own machine. `LocalRuntimeAdapter` posts a
-schema-checked envelope (`localRunEnvelopeSchema`) to the `LocalDispatch` DO;
-the operator-run daemon (`scripts/shiba-local-daemon.mjs`) polls
-`POST /api/local/claim` + `POST /api/local/result` behind a `LOCAL_ADAPTER_TOKEN`
-bearer, executes under the same exec/setup allowlists the envelope carries,
-returns receipts + diff, and the Worker runs the identical `harness.verify`
-verdict and PR publish. Chat intake is provably impossible: `queueSlackRun`
-refuses `runtime:"local"` unless the request carries the `X-Shiba-Intake:
-dashboard` voucher that only `handleRuns` stamps (inbound copies are deleted
-first). Capability opt-in: `opencode`, `claude-code`, `codex` declare
-`supportedRuntimes:["sandbox","local"]`; every other harness refuses.
-Provider credentials stay local — the dummy key is dropped from the envelope
-and config bodies reference `${OPENCODE_API_KEY}`-style placeholders resolved
-on the operator side.
+Cancellation is an authority transition, not a best-effort UI action. The control
+plane must stop new claims, revoke lane access where possible, propagate stop to
+the lane, and preserve evidence for work already performed.
 
----
+Retries create visible attempts in the same run lineage. They do not silently
+replace the original attempt. If the control plane cannot prove whether an
+external effect happened, the result is **outcome unknown**. A receipt or later
+reconciliation must anchor any retry.

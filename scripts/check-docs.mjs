@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { resolve, relative, join } from "node:path";
 import assert from "node:assert/strict";
+import "./check-product-contract-links.mjs";
 
 const root = resolve("public");
 async function walk(dir) {
