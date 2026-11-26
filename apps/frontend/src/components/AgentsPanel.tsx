@@ -46,6 +46,9 @@ export interface AgentsPanelProps {
   onSelectRun?: (id: string) => void;
   onNewChat?: () => void;
   onSearchAll?: () => void;
+  onLoadMoreRuns?: () => void;
+  threadsLoading?: boolean;
+  revealMatches?: boolean;
   onSelectAgent?: (id: string) => void;
   /** Opens this bot's page with its own panel, instead of leaving for the roster. */
   onOpenAgent?: (id?: string) => void;
@@ -81,16 +84,14 @@ export function AgentsPanel({
   runs = [],
   threadStates,
   onNewThread,
-  runs = [],
-  onSelectRun,
-  onNewChat,
-  onSearchAll,
   onLoadMoreRuns,
   newThreadDisabledReason,
   onSelectThread,
   onSelectRun,
   onNewChat,
   onSearchAll,
+  threadsLoading = false,
+  revealMatches = false,
   onSelectAgent,
   onOpenAgent,
   onNewAgent,

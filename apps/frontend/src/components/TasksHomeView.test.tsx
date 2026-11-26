@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { TasksHomeView } from "./TasksHomeView";
-import type { StoredApproval } from "../types";
-vi.mock("../live-status", () => ({useSetupStatus: () => ({state: {kind: "loading"}, reload: vi.fn(), inFlight: false})}));
+import { buildTasksHomeBuckets, TasksHomeView } from "./TasksHomeView";
+import type { RetainedRun, StoredApproval } from "../types";
+
+const setupState: { current: unknown } = { current: { kind: "loading" } };
+vi.mock("../live-status", () => ({useSetupStatus: () => ({state: setupState.current, reload: vi.fn(), inFlight: false})}));
 beforeEach(() => { vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve(Response.json({})))); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 function show(overrides: Partial<React.ComponentProps<typeof TasksHomeView>> = {}) {
