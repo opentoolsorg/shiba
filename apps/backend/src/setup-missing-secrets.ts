@@ -2,6 +2,7 @@
  * Named setup rows for the dashboard — secret VALUES never leave this module.
  */
 import type { Env } from "./env.js";
+import { flag } from "./config/flags.js";
 import { isBetterAuthConfigured } from "./better-auth.js";
 import { agentCliCatalog } from "./harness/catalog.js";
 import { getIntegrationProvider } from "./ports/connector/registry.js";
@@ -31,10 +32,10 @@ export function listMissingSetupSecrets(env: Env): SetupSecretRow[] {
 
   const gateway = Boolean(env.AI_GATEWAY_TOKEN?.trim());
   const subscriptionsOff =
-    env.SHIBA_CODEX_SUBSCRIPTION !== "1" &&
-    env.SHIBA_CLAUDE_SUBSCRIPTION !== "1" &&
-    env.SHIBA_CURSOR_SUBSCRIPTION !== "1" &&
-    env.SHIBA_ANTIGRAVITY_SUBSCRIPTION !== "1";
+    flag(env, "SHIBA_CODEX_SUBSCRIPTION") !== "1" &&
+    flag(env, "SHIBA_CLAUDE_SUBSCRIPTION") !== "1" &&
+    flag(env, "SHIBA_CURSOR_SUBSCRIPTION") !== "1" &&
+    flag(env, "SHIBA_ANTIGRAVITY_SUBSCRIPTION") !== "1";
   if (!gateway && subscriptionsOff) {
     rows.push(
       row(

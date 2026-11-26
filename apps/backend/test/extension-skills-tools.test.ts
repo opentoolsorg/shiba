@@ -98,7 +98,10 @@ describe("lazy extension skill context", () => {
     const context = await extensionSkillDirectoryContext(env, "workspace-1", "alice");
     expect(context).toContain("temporarily unavailable");
     expect(context).toContain("Do not assume that no skills are configured");
-    expect(log).toHaveBeenCalledWith("Extension skill directory unavailable.", error);
+    expect(log).toHaveBeenCalledOnce();
+    const record = JSON.parse(String(log.mock.calls[0]?.[0])) as { msg?: string; level?: string; error?: { name?: string; message?: string } };
+    expect(record).toMatchObject({ msg: "Extension skill directory unavailable.", level: "error" });
+    expect(record.error).toMatchObject({ name: "Error", message: "D1 unavailable" });
   });
 });
 

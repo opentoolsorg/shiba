@@ -1,5 +1,6 @@
 import { SHARED_COMPUTER_LIMITS as LIMIT, SHARED_COMPUTER_POLICY, type SharedComputerContract, type SharedComputerPrepare, type SharedComputerSession } from "@shiba/shared";
 import type { Env } from "./env.js";
+import { flag } from "./config/flags.js";
 import { COLLAB_TENANT_ID, ensureCollaborationSchema, getCollaborationRoom, getCollaborationMembership, humanActorId, type CollaborationMembershipRow } from "./collaboration-store.js";
 import { getTeamWorkspaceMembership } from "./team-workspaces-store.js";
 import { membershipSql, insertGuarded, updateGuarded } from "./workspace-integrations-store.js";
@@ -27,8 +28,8 @@ export interface ComputerRow {
   created_at: number; updated_at: number;
 }
 export function computerPolicy(env: SharedComputerEnv) {
-  const enabled = env.SHIBA_SHARED_COMPUTER === "1";
-  const image = env.SHIBA_SHARED_COMPUTER_IMAGE;
+  const enabled = flag(env, "SHIBA_SHARED_COMPUTER") === "1";
+  const image = flag(env, "SHIBA_SHARED_COMPUTER_IMAGE");
   const validImage = typeof image === "string" && /^[a-z0-9][a-z0-9./:_-]{1,300}@sha256:[a-f0-9]{64}$/.test(image);
   const signing = typeof env.INTERNAL_SIGNING_KEY === "string" && env.INTERNAL_SIGNING_KEY.length >= 32;
   return { enabled, available: enabled && validImage && Boolean(env.ComputerSession) && signing, image: validImage ? image! : null,

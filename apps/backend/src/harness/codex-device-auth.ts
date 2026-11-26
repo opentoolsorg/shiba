@@ -4,6 +4,7 @@
  */
 import type { CodingTaskInput } from "../opencode-input.js";
 import type { Env } from "../env.js";
+import { flag } from "../config/flags.js";
 
 export const CODEX_DEVICE_AUTH_HOSTS = ["chatgpt.com", "auth.openai.com"] as const;
 
@@ -26,7 +27,7 @@ export function codexDeviceAuthVolumeForUser(userId: string): CodexDeviceAuthVol
 }
 
 export function codexDeviceAuthDeploymentEnabled(env: Pick<Env, "SHIBA_CODEX_DEVICE_AUTH">): boolean {
-  return env.SHIBA_CODEX_DEVICE_AUTH === "1";
+  return flag(env, "SHIBA_CODEX_DEVICE_AUTH") === "1";
 }
 
 export function usesCodexDeviceAuth(input: Pick<CodingTaskInput, "codexAuthMode">): boolean {

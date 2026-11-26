@@ -61,6 +61,7 @@ const PATHS = [
   "/api/runs/run/ui-blocks",
   "/api/learning/settings",
   "/api/governance/employees/emp/access",
+  "/api/admin/flags",
   "/api/workspaces",
   "/api/workspaces/ws_one/events",
   "/api/governance",
@@ -173,6 +174,7 @@ const INTENDED_SHADOWS = Object.fromEntries(
   [
     ["acpProviderResponse", "agentResponse apiMiss assets sandboxResponse", "Earlier adapter retains precedence and may fall through to later handlers."],
     ["activityResponse", "agentResponse apiMiss assets", "Earlier adapter retains precedence and may fall through to later handlers."],
+    ["adminFlagsResponse", "agentResponse apiMiss assets sandboxResponse", "Earlier adapter retains precedence and may fall through to later handlers."],
     ["agentResponse", "apiMiss assets public-static public-static-head", "Earlier adapter retains precedence and may fall through to later handlers."],
     ["agents", "agentResponse assets", "Earlier adapter retains precedence and may fall through to later handlers."],
     ["apiKeysResponse", "agentResponse apiMiss assets sandboxResponse", "Earlier adapter retains precedence and may fall through to later handlers."],

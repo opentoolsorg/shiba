@@ -1,12 +1,13 @@
-import { CheckSquare, ChevronRight, Network, Pin, Plus, Search, Sliders, X } from "lucide-react";
+import { CheckSquare, ChevronRight, Command, MessageSquare, Network, Pin, Plus, Search, Sliders, X } from "lucide-react";
 import { type JSX, useId, useState } from "react";
 import type { WebThread } from "../agent-threads";
 import { threadAgentId } from "../agent-threads";
-import { employeeRole, employeeRoleLabel } from "../employee-templates";
+import { EMPLOYEE_TEMPLATES, employeeRole, employeeRoleLabel } from "../employee-templates";
 import { AgentAvatar } from "./AgentAvatar";
 import { AgentThreadList, agentRunState, type ThreadRunState } from "./AgentThreadList";
 import type { CustomAgentWire } from "./CustomAgentsView";
-import { ContextPanel, PanelIconButton, PanelNavItem, type Scope } from "./ui/ContextPanel";
+import type { SessionItem } from "./SessionsSidebar";
+import { ContextPanel, PanelGroup, PanelIconButton, PanelNavItem, type Scope } from "./ui/ContextPanel";
 
 const DEFAULT_AGENT_ID = "shiba";
 const PINNED_KEY = "shiba.agents.pinned";
@@ -35,12 +36,16 @@ export interface AgentsPanelProps {
   onSelect: (id: string) => void;
   agents?: CustomAgentWire[];
   threads?: WebThread[];
+  runs?: SessionItem[];
   /** Live run state per thread id (e.g. the streaming session); overrides session metadata. */
   threadStates?: Record<string, ThreadRunState>;
   onNewThread?: (agentId?: string) => void;
   /** Why no thread can be started yet; New thread buttons stay disabled until it clears. */
   newThreadDisabledReason?: string;
   onSelectThread?: (id: string) => void;
+  onSelectRun?: (id: string) => void;
+  onNewChat?: () => void;
+  onSearchAll?: () => void;
   onSelectAgent?: (id: string) => void;
   /** Opens this bot's page with its own panel, instead of leaving for the roster. */
   onOpenAgent?: (id?: string) => void;
@@ -65,7 +70,7 @@ interface AgentRow {
 }
 
 const rowAction =
-  "flex size-6 shrink-0 items-center justify-center rounded text-[#71717a] hover:bg-[#d4d4d8] hover:text-[#0a0a0a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100";
+  "flex size-7 shrink-0 items-center justify-center rounded text-[var(--muted-foreground-2)] hover:bg-[var(--card-hover)] hover:text-[var(--fg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]";
 
 /** Secondary panel for Agents: the default chief of staff plus every custom agent, each with its threads. */
 export function AgentsPanel({
@@ -75,10 +80,14 @@ export function AgentsPanel({
   onSelect,
   agents = [],
   threads = [],
+  runs = [],
   threadStates,
   onNewThread,
   newThreadDisabledReason,
   onSelectThread,
+  onSelectRun,
+  onNewChat,
+  onSearchAll,
   onSelectAgent,
   onOpenAgent,
   onNewAgent,
@@ -118,9 +127,9 @@ export function AgentsPanel({
     subtitle:
       scope === "workspace"
         ? workspaceName
-          ? `${workspaceName} · Workspace`
-          : "Workspace"
-        : `${ownerName ?? "You"} · You`,
+          ? `${workspaceName} · Workspace chief of staff`
+          : "Workspace chief of staff"
+        : `${ownerName ?? "You"} · Personal chief of staff`,
     threads: defaultThreads.sort(byRecent),
   };
   const customRows: AgentRow[] = agents
@@ -138,15 +147,34 @@ export function AgentsPanel({
         .filter((thread) => thread.id !== "default" && threadAgentId(thread) === agent.id)
         .sort(byRecent),
     }))
-    .sort((a, b) => Number(pinned.includes(b.id)) - Number(pinned.includes(a.id)));
+    .sort((a, b) => {
+      const roleOrder = (row: AgentRow) => {
+        const role = employeeRole(row.agent?.slug, row.agent?.config.roleTemplateId);
+        return role === "custom" ? EMPLOYEE_TEMPLATES.length : EMPLOYEE_TEMPLATES.findIndex((template) => template.id === role);
+      };
+      return roleOrder(a) - roleOrder(b);
+    });
 
   const query = searchQuery.trim().toLowerCase();
-  const matches = (row: AgentRow) =>
+  const matchesIdentity = (row: AgentRow) =>
     !query ||
     row.name.toLowerCase().includes(query) ||
     row.subtitle.toLowerCase().includes(query) ||
     (row.agent?.slug.toLowerCase().includes(query) ?? false);
-  const rows = [defaultRow, ...customRows].filter(matches);
+  const matchingThreads = (row: AgentRow) =>
+    query ? row.threads.filter((thread) => thread.name.toLowerCase().includes(query)) : row.threads;
+  const matchingRows = [defaultRow, ...customRows].filter((row) => matchesIdentity(row) || matchingThreads(row).length > 0);
+  const rows = [
+    ...matchingRows.filter((row) => row.id === DEFAULT_AGENT_ID),
+    ...matchingRows.filter((row) => row.agent && pinned.includes(row.id)),
+    ...matchingRows.filter((row) => row.id !== DEFAULT_AGENT_ID && !(row.agent && pinned.includes(row.id))),
+  ];
+  const sortedRuns = [...runs].sort((a, b) => b.updatedAt - a.updatedAt);
+  const recentRuns = sortedRuns.slice(0, 8);
+  const selectedRun = sortedRuns.find((run) => run.id === active);
+  const visibleRuns = selectedRun && !recentRuns.some((run) => run.id === selectedRun.id)
+    ? [selectedRun, ...recentRuns.slice(0, 7)]
+    : recentRuns;
 
   const openThread = (id: string) => {
     onSelectThread?.(id);
@@ -155,6 +183,16 @@ export function AgentsPanel({
 
   const actions = (
     <>
+      {onNewChat ? (
+        <PanelIconButton label="New chat" onClick={onNewChat}>
+          <MessageSquare className="size-4" strokeWidth={1.75} aria-hidden="true" />
+        </PanelIconButton>
+      ) : null}
+      {onSearchAll ? (
+        <PanelIconButton label="Search all" onClick={onSearchAll}>
+          <Command className="size-4" strokeWidth={1.75} aria-hidden="true" />
+        </PanelIconButton>
+      ) : null}
       <PanelIconButton
         label={searchOpen ? "Close search" : "Search agents"}
         onClick={() => {
@@ -168,7 +206,7 @@ export function AgentsPanel({
           <Search className="size-4" strokeWidth={1.75} aria-hidden="true" />
         )}
       </PanelIconButton>
-      <PanelIconButton label="New agent" onClick={onNewAgent}>
+      <PanelIconButton label="New employee" onClick={onNewAgent}>
         <Plus className="size-4" strokeWidth={1.75} aria-hidden="true" />
       </PanelIconButton>
     </>
@@ -186,7 +224,7 @@ export function AgentsPanel({
         <div className="mb-2 shrink-0 px-1">
           <div className="relative flex items-center">
             <Search
-              className="absolute left-2 size-3.5 text-[#71717a] dark:text-zinc-400"
+              className="absolute left-2 size-3.5 text-[var(--muted-foreground-2)]"
               aria-hidden="true"
             />
             <input
@@ -197,7 +235,7 @@ export function AgentsPanel({
               aria-label="Filter agents"
               // biome-ignore lint/a11y/noAutofocus: field is revealed by an explicit user action
               autoFocus
-              className="h-7 w-full rounded-md border border-[#e4e4e7] bg-white pl-7 pr-2 text-[12px] text-[#0a0a0a] placeholder-[#71717a] focus:border-zinc-400 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-500"
+              className="h-9 w-full rounded-md border border-[var(--border-1)] bg-[var(--input)] pl-7 pr-2 text-[12px] text-[var(--fg)] placeholder:text-[var(--muted-foreground-2)] focus:border-[var(--ring)] focus:outline-none"
             />
           </div>
         </div>
@@ -229,20 +267,36 @@ export function AgentsPanel({
           </p>
         ) : null}
         <ul className="flex flex-col gap-0.5" aria-label="Agents">
-          {rows.map((row) => {
+          {rows.map((row, index) => {
             const isDefault = row.id === DEFAULT_AGENT_ID;
-            const isExpanded =
-              expanded[row.id] ?? (isDefault || row.threads.some((thread) => thread.id === active));
+            const role = row.agent ? employeeRole(row.agent.slug, row.agent.config.roleTemplateId) : null;
+            const isPinned = Boolean(row.agent && pinned.includes(row.id));
+            const previousRow = rows[index - 1];
+            const previousAgent = previousRow?.agent && !pinned.includes(previousRow.id) ? previousRow.agent : undefined;
+            const previousRole = previousAgent
+              ? employeeRole(previousAgent.slug, previousAgent.config.roleTemplateId)
+              : null;
+            const showPinnedHeading = isPinned && !rows.slice(0, index).some((candidate) => candidate.agent && pinned.includes(candidate.id));
+            const showRoleHeading = !isPinned && role !== null && role !== previousRole;
+            const identityMatches = matchesIdentity(row);
+            const threadMatches = matchingThreads(row);
+            const isExpanded = expanded[row.id] ?? (
+              isDefault ||
+              row.threads.some((thread) => thread.id === active) ||
+              (Boolean(query) && row.threads.length > 0)
+            );
+            const visibleThreads = query && !identityMatches ? threadMatches : row.threads;
             const status = agentRunState(row.threads, threadStates);
-            const isPinned = pinned.includes(row.id);
             const threadsId = `${listId}-${row.id}`;
             return (
               <li key={row.id} className="flex flex-col">
+                {showPinnedHeading ? <h3 className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground-2)]">Pinned</h3> : null}
+                {showRoleHeading ? <h3 className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground-2)]">{employeeRoleLabel(role)}</h3> : null}
                 <div
                   className={`group relative flex items-center gap-0.5 rounded-lg px-2 py-1.5 transition-colors ${
                     active === row.id
-                      ? "bg-[#e4e4e7] dark:bg-zinc-800"
-                      : "hover:bg-[#f4f4f5] dark:hover:bg-zinc-800/60"
+                      ? "bg-[var(--card-hover)]"
+                      : "hover:bg-[var(--card-hover)]"
                   }`}
                 >
                   <button
@@ -262,7 +316,7 @@ export function AgentsPanel({
                       const latest = row.threads[0];
                       if (latest) openThread(latest.id);
                     }}
-                    className="flex min-w-0 flex-1 items-center gap-2.5 rounded text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+                    className="flex min-w-0 flex-1 items-center gap-2.5 rounded text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)]"
                   >
                     <AgentAvatar
                       id={isDefault ? DEFAULT_AGENT_ID : row.id}
@@ -280,10 +334,10 @@ export function AgentsPanel({
                       decorative
                     />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-medium text-[#0a0a0a] dark:text-zinc-100">
+                      <span className="block truncate text-[13px] font-medium text-[var(--fg)]">
                         {row.name}
                       </span>
-                      <span className="block truncate text-[11px] text-[#71717a] dark:text-zinc-400">
+                      <span className="block truncate text-[11px] text-[var(--muted-foreground-2)]">
                         {row.subtitle}
                       </span>{" "}
                     </span>
@@ -339,7 +393,7 @@ export function AgentsPanel({
                   <AgentThreadList
                     id={threadsId}
                     agentName={row.name}
-                    threads={row.threads}
+                    threads={visibleThreads}
                     activeId={active}
                     threadStates={threadStates}
                     onSelect={openThread}
@@ -349,11 +403,23 @@ export function AgentsPanel({
             );
           })}
         </ul>
-
-
+        {runs.length > 0 ? (
+          <PanelGroup label="Recent runs">
+            {visibleRuns.map((run) => (
+              <PanelNavItem
+                key={run.id}
+                icon={CheckSquare}
+                label={run.title || "Untitled run"}
+                active={active === run.id}
+                onClick={() => onSelectRun?.(run.id)}
+                trailing={<span className="shrink-0 text-[10px] text-[var(--muted-foreground-2)]">{run.status}</span>}
+              />
+            ))}
+          </PanelGroup>
+        ) : null}
       </div>
 
-      <div className="mt-auto flex flex-col gap-0.5 border-t border-[#e4e4e7] pt-2 dark:border-zinc-800">
+      <div className="mt-auto flex flex-col gap-0.5 border-t border-[var(--border-1)] pt-2">
         <PanelNavItem
           icon={Sliders}
           label="Tool policy"

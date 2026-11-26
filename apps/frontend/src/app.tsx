@@ -387,6 +387,7 @@ function workViewFromUrl(): WorkViewMode {
 }
 
 const SETUP_TOTAL_STEPS = 6;
+const ANALYTICS_RUN_PARAM = "inspectRun";
 
 const STARTER_TEMPLATES = [
   {
@@ -535,13 +536,22 @@ export function App(): React.JSX.Element {
   const [automationDraft, setAutomationDraft] = useState<{ prompt: string; repoUrl: string } | null>(null);
   const [automationList, setAutomationList] = useState<AutomationRecord[]>([]);
   // Settings is a full page; the section lives in ?section= and "Back to app" returns to the previous view.
-  const [settingsSection, setSettingsSection] = useState<string>(() =>
-    typeof window === "undefined" ? "account" : normalizeSettingsSection(new URLSearchParams(window.location.search).get("section")));
+  const [settingsSection, setSettingsSection] = useState<string>(() => {
+    if (typeof window === "undefined") return "overview";
+    const section = new URLSearchParams(window.location.search).get("section");
+    return section ? normalizeSettingsSection(section) : "overview";
+  });
   const previousViewRef = useRef<MainView>(DEFAULT_VIEW);
   const clearRoomIntentRef = useRef<() => void>(() => {});
+  const [analyticsRunId, setAnalyticsRunId] = useState<string | null>(() =>
+    mainView === "analytics" && typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get(ANALYTICS_RUN_PARAM)
+      : null,
+  );
   const openView = useCallback((view: AppNavView) => {
     if (view !== "threads") clearRoomIntentRef.current();
     setShowFirstRun(false);
+    setAnalyticsRunId(null);
     if (view === "settings") previousViewRef.current = currentNavigation.current.view === "settings" ? previousViewRef.current : currentNavigation.current.view;
     setMainView(view);
   }, []);
@@ -554,6 +564,11 @@ export function App(): React.JSX.Element {
   if (mainView === "inbox" && !inboxMounted) setInboxMounted(true);
   const [setupDone, setSetupDone] = useState<number | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const openRunInAnalytics = useCallback((runId: string) => {
+    openView("analytics");
+    setSelectedRunId(runId);
+    setAnalyticsRunId(runId);
+  }, [openView]);
   const [selectedSessionId, setSelectedSessionId] = useState<string>("default");
   // A thread link is applied only once the registry confirms this viewer may open
   // it. Until then the composer stays shut: a draft restored into a socket that
@@ -865,11 +880,25 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       else router.history.replace(path + window.location.hash);
       return;
     }
+    if (mainView === "analytics") {
+      urlSynced.current = true;
+      if (traversing) return;
+      const keep = first || !viewChanged;
+      const params = new URLSearchParams(keep ? window.location.search : "");
+      if (analyticsRunId) params.set(ANALYTICS_RUN_PARAM, analyticsRunId);
+      else params.delete(ANALYTICS_RUN_PARAM);
+      const query = params.toString();
+      const target = `${base}${query ? `?${query}` : ""}${keep ? window.location.hash : ""}`;
+      if (window.location.pathname + window.location.search + window.location.hash === target) return;
+      if (first) router.history.replace(target);
+      else router.history.push(target);
+      return;
+    }
     urlSynced.current = true;
     if (window.location.pathname === base) return;
     if (first) router.history.replace(base + window.location.search + window.location.hash);
     else router.history.push(base);
-  }, [mainView, settingsSection, selectedSessionId, botPage, teamWorkspaceId, threadLinkPending, router]);
+  }, [mainView, settingsSection, selectedSessionId, analyticsRunId, botPage, teamWorkspaceId, threadLinkPending, router]);
 
   useEffect(() => {
     const onPop = () => {
@@ -877,7 +906,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setWorkLocationTick((tick) => tick + 1);
       const view = viewFromUrl();
       setWorkViewMode(workViewFromUrl());
+      setAnalyticsRunId(view === "analytics" ? new URLSearchParams(window.location.search).get(ANALYTICS_RUN_PARAM) : null);
       setMainView(view ?? DEFAULT_VIEW);
+      if (view === "analytics") return;
       if (view === "settings") setSettingsSection(normalizeSettingsSection(new URLSearchParams(window.location.search).get("section")));
       if (readRoomLink(window.location.search) !== null) return;
       const linked = readThreadLink(window.location.search);
@@ -2899,9 +2930,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       if (!session && id !== "default") {
         // A run row is not a chat session: inspect it without disturbing the
         // selected chat session or its session-scoped run list.
-        setSelectedRunId(id);
         setMobileSessionsOpen(false);
-        setMainView("analytics");
+        openRunInAnalytics(id);
         return "ok";
       }
       if (session && id !== "default") {
@@ -2964,7 +2994,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       setMainView("threads");
       return "ok";
     },
-    [visibleWebSessions, privateDataEnabled, pushThreadUrl],
+    [visibleWebSessions, privateDataEnabled, pushThreadUrl, openRunInAnalytics],
   );
 
   sessionsNavRef.current = sessions;
@@ -3307,29 +3337,50 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   let destinationPanel: React.ReactNode = null;
   if (personalOnlyNotice) {
     destinationPanel = null;
-  } else if (mainView === "custom-agents" || mainView === "employee-tools" || mainView === "swarm" || mainView === "tasks") {
+  } else if (
+    mainView === "custom-agents" ||
+    mainView === "employee-tools" ||
+    mainView === "swarm" ||
+    mainView === "tasks" ||
+    (mainView === "threads" && !teamWorkspaceId && privateData)
+  ) {
     destinationPanel = (
       <AgentsPanel
         {...panelProps}
-        active={mainView === "custom-agents" ? customAgentId : mainView}
+        active={mainView === "custom-agents" ? customAgentId : mainView === "threads" ? selectedRunId ?? selectedSessionId : mainView}
         onSelect={(id) => { if (id === "employee-tools" || id === "swarm" || id === "tasks") openView(id); }}
         agents={signedIn && workspaceAuthorityReady && !teamDirectory.error ? customAgentRecords : []}
         threads={visibleWebSessions}
+        runs={mainView === "threads" ? sessions.filter((session) => !session.webSession) : []}
         // Only the open thread has a live stream; the rest fall back to stored session metadata.
         threadStates={{ [selectedSessionId]: chat.isStreaming || chat.status === "streaming" || chat.status === "submitted" ? "working" : pendingApprovals.length > 0 ? "waiting" : "idle" }}
         ownerName={orchestratorName ?? undefined}
         workspaceName={teamWorkspace?.name}
         loading={customAgentsLoading}
         error={customAgentsError}
-        onSelectAgent={(id) => { setInitialEmployeeId(id); openView("custom-agents"); }}
+        onSelectAgent={(id) => {
+          if (mainView === "threads") {
+            const latest = visibleWebSessions
+              .filter((thread) => threadAgentId(thread) === id)
+              .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+            if (latest) void handleSelectSession(latest.id);
+            else void startSidebarAgentThread(customAgentRecords.find((profile) => profile.id === id));
+            return;
+          }
+          setInitialEmployeeId(id);
+          openView("custom-agents");
+        }}
         onOpenAgent={openBotPanel}
         onSelectThread={(id) => { void handleSelectSession(id); openView("threads"); }}
+        onSelectRun={(id) => { void handleSelectSession(id); }}
         onNewThread={(agentId) => { void startSidebarAgentThread(customAgentRecords.find((profile) => profile.id === agentId)); }}
         newThreadDisabledReason={taskCreationBlocker ?? undefined}
+        onNewChat={mainView === "threads" ? () => { void handleNewTask(); } : undefined}
+        onSearchAll={mainView === "threads" ? () => setCommandMenuOpen(true) : undefined}
         onNewAgent={() => openView("custom-agents")}
       />
     );
-  } else if (mainView === "threads" || mainView === "collaboration") {
+  } else if (mainView === "collaboration" || mainView === "threads") {
     destinationPanel = (
       <ChatsPanel
         {...panelProps}
@@ -3903,10 +3954,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               runsError={runsError}
               onNavigate={openView}
               onNewTask={handleNewTask}
-              onInspectRun={(runId) => {
-                setSelectedRunId(runId);
-                setMainView("analytics");
-              }}
+              onInspectRun={openRunInAnalytics}
             />
           ) : mainView === "threads" && teamWorkspaceId ? (
             <CollaborationView key={`${orchestratorName}:${teamWorkspaceId}`} workspaceId={teamWorkspaceId} initialRoomId={roomRoute.roomId ?? sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} incomingMention={incomingRoomMention} onMentionConsumed={(id) => setRoomMention((current) => current?.id === id ? undefined : current)} incomingTaskDraft={currentSlackTask ?? undefined} onTaskDraftConsumed={(id) => setIncomingSlackTask((current) => current?.id === id ? null : current)} onRoomChange={(id) => { setSharedRoomId(id); roomRoute.onRoomChange(id); }}
@@ -4252,10 +4300,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                       error={taskHistoryError}
                       onRetry={retryTaskHistory}
                       onCancel={cancelTaskHistory}
-                      onSelectRun={(runId) => {
-                        setSelectedRunId(runId);
-                        setMainView("analytics");
-                      }}
+                      onSelectRun={openRunInAnalytics}
                     />
                   </div>
                 </details>
@@ -4520,7 +4565,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   pendingApprovals={botPendingApprovals}
                   runOutputs={botRunOutputs}
                   runsScope={botRunsScope}
-                  onOpenRun={(runId) => { setSelectedRunId(runId); setMainView("analytics"); }}
+                  onOpenRun={openRunInAnalytics}
                   onOpenApprovals={() => setMainView("approvals")}
                   onManageTools={activeEmployee ? () => { setInitialEmployeeId(activeEmployee.id); openView("employee-tools"); } : undefined}
                   onConfigSave={activeEmployee ? (edit) => saveBotConfigEdit(activeEmployee.id, edit) : undefined}
@@ -4553,6 +4598,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ) : mainView === "analytics" ? (
             <AnalyticsView
               runs={retainedRuns}
+              selectedRun={retainedRuns.find((run) => run.runId === analyticsRunId) ?? allRuns.find((run) => run.runId === analyticsRunId)}
               error={runsError}
               sessionId={selectedSessionId}
               sessionApiAvailable={sessionApiAvailable}

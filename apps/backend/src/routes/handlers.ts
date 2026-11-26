@@ -76,6 +76,7 @@ import { handleSandboxRoutes } from "../sandbox-routes.js";
 import { resolveOrgForApiRequest } from "../org-request-auth.js";
 import { isOrgApiPath } from "../public-routes.js";
 import { handleWaitlist } from "../waitlist.js";
+import { handleAdminFlags } from "../config/flags-routes.js";
 import {
   isAuthorizedSessionAgent,
   parseSessionAgentName,
@@ -88,6 +89,9 @@ import type { RequestContext } from "./context.js";
 
 // Thin adapters preserve the original checks, return-null behavior and lazy module boundaries.
 export const handlers = {
+  async adminFlagsResponse(context: RequestContext): Promise<Response | null> {
+    return handleAdminFlags(context.request, context.env);
+  },
   async observabilityResponse(context: RequestContext): Promise<Response | null> {
     return (await import("../observability-routes.js")).handleObservability(context.request, context.env, context.execution);
   },

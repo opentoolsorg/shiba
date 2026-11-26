@@ -8,6 +8,7 @@
 import { claudeSubscriptionAuth, codexSubscriptionAuth, cursorSubscriptionAuth, AuthFlowError } from "@shiba/auth";
 import { handleAntigravityCallback, handleAntigravitySubscriptionAuth } from "./antigravity.js";
 import type { Env } from "./env.js";
+import { flag } from "./config/flags.js";
 import { forwardClaudeSubscription, forwardCodexSubscription, forwardCursorSubscription, type EgressEnv } from "./egress.js";
 import { codexSubscriptionInstanceId } from "./harness/codex-subscription.js";
 import { resolveUserId } from "./request-auth.js";
@@ -156,19 +157,19 @@ async function handleCursorSubscriptionAuth(request: Request, env: Env): Promise
 export async function handleSubscriptionAuth(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   if (url.pathname === "/api/auth/claude-subscription" || url.pathname.startsWith("/api/auth/claude-subscription/")) {
-    if (env.SHIBA_CLAUDE_SUBSCRIPTION !== "1") {
+    if (flag(env, "SHIBA_CLAUDE_SUBSCRIPTION") !== "1") {
       return Response.json({ error: "Not found." }, { status: 404 });
     }
     return handleClaudeSubscriptionAuth(request, env);
   }
   if (url.pathname === "/api/auth/codex-subscription" || url.pathname.startsWith("/api/auth/codex-subscription/")) {
-    if (env.SHIBA_CODEX_SUBSCRIPTION !== "1") {
+    if (flag(env, "SHIBA_CODEX_SUBSCRIPTION") !== "1") {
       return Response.json({ error: "Not found." }, { status: 404 });
     }
     return handleCodexSubscriptionAuth(request, env);
   }
   if (url.pathname === "/api/auth/cursor-subscription" || url.pathname.startsWith("/api/auth/cursor-subscription/")) {
-    if (env.SHIBA_CURSOR_SUBSCRIPTION !== "1") {
+    if (flag(env, "SHIBA_CURSOR_SUBSCRIPTION") !== "1") {
       return Response.json({ error: "Not found." }, { status: 404 });
     }
     return handleCursorSubscriptionAuth(request, env);
@@ -176,13 +177,13 @@ export async function handleSubscriptionAuth(request: Request, env: Env): Promis
   // T50: OAuth sign-in flow + the pasted-redirect callback (§18.12) —
   // handlers live in src/antigravity.ts.
   if (url.pathname === "/api/auth/antigravity-subscription" || url.pathname.startsWith("/api/auth/antigravity-subscription/")) {
-    if (env.SHIBA_ANTIGRAVITY_SUBSCRIPTION !== "1") {
+    if (flag(env, "SHIBA_ANTIGRAVITY_SUBSCRIPTION") !== "1") {
       return Response.json({ error: "Not found." }, { status: 404 });
     }
     return handleAntigravitySubscriptionAuth(request, env, (await resolveUserId(request, env)) ?? "default");
   }
   if (url.pathname === "/api/antigravity/callback") {
-    if (env.SHIBA_ANTIGRAVITY_SUBSCRIPTION !== "1") {
+    if (flag(env, "SHIBA_ANTIGRAVITY_SUBSCRIPTION") !== "1") {
       return Response.json({ error: "Not found." }, { status: 404 });
     }
     return handleAntigravityCallback(request, env, (await resolveUserId(request, env)) ?? "default");

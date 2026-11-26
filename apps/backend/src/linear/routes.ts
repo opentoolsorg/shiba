@@ -10,6 +10,7 @@ import {
   parseLinearAgentSessionPayload,
   verifyLinearWebhook,
 } from "./webhook.js";
+import { log } from "../obs/log.js";
 
 export const LINEAR_WEBHOOK_PATH = "/api/linear/webhook";
 
@@ -30,7 +31,7 @@ export async function handleLinearWebhook(
       return Response.json({ error: "Invalid Linear webhook signature." }, { status: 401 });
     }
   } else if (env.LINEAR_ALLOW_UNSIGNED_WEBHOOK !== "1") {
-    console.warn("Webhook disabled: LINEAR_WEBHOOK_SECRET is unset.");
+    log.warn("Webhook disabled: LINEAR_WEBHOOK_SECRET is unset.");
     return Response.json(
       { error: "Webhook is disabled." },
       { status: 503 },
@@ -70,7 +71,7 @@ export async function handleLinearWebhook(
           }),
         )
         .then((r) => {
-          if (!r.ok) console.error(`automation linear fan-out failed: ${r.status}`);
+          if (!r.ok) log.error(`automation linear fan-out failed: ${r.status}`);
         }),
     );
   }

@@ -6,6 +6,7 @@
 import { automationsStub } from "./automations-stub.js";
 import type { Env } from "./env.js";
 import { redactSecrets, verifyGitHubWebhookSignature } from "./security.js";
+import { log } from "./obs/log.js";
 
 async function sha256Hex(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -19,7 +20,7 @@ export async function handleGitHubWebhook(request: Request, env: Env, ctx?: Exec
   }
   const secret = env.GITHUB_WEBHOOK_SECRET ?? "";
   if (!secret) {
-    console.warn("Webhook disabled: GITHUB_WEBHOOK_SECRET is unset.");
+    log.warn("Webhook disabled: GITHUB_WEBHOOK_SECRET is unset.");
     return Response.json(
       { error: "Webhook is disabled." },
       { status: 503 },
@@ -72,7 +73,7 @@ export async function handleGitHubWebhook(request: Request, env: Env, ctx?: Exec
       return Response.json({ ok: true, deduped: true });
     }
   } catch (error: unknown) {
-    console.error(
+    log.error(
       `github delivery dedupe failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
     );
     return Response.json({ error: "Delivery dedupe unavailable; retry." }, { status: 503 });
@@ -94,11 +95,11 @@ export async function handleGitHubWebhook(request: Request, env: Env, ctx?: Exec
         )
         .then((response) => {
           if (!response.ok) {
-            console.error(`automation github fan-out failed: ${response.status}`);
+            log.error(`automation github fan-out failed: ${response.status}`);
           }
         })
         .catch((error: unknown) => {
-          console.error(redactSecrets(error instanceof Error ? error.message : String(error)));
+          log.error(redactSecrets(error instanceof Error ? error.message : String(error)));
         }),
     );
   }

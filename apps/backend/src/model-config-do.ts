@@ -28,6 +28,7 @@ import {
 } from "./model-connections.js";
 import type { Env } from "./env.js";
 import { redactSecrets } from "./security.js";
+import { log } from "./obs/log.js";
 
 export const MODEL_CONFIG_DO_NAME = "default";
 
@@ -108,7 +109,7 @@ export class ModelConfig {
       return Response.json({ error: "Not found." }, { status: 404 });
     } catch (error) {
       // A DO fault must not strand the caller on a 500 with no shape.
-      console.error(
+      log.error(
         `ModelConfig ${pathname} failed`,
         redactSecrets(error instanceof Error ? error.message : String(error)),
       );

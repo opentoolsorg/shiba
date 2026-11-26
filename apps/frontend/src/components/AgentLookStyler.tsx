@@ -16,6 +16,7 @@ import {
 } from "@shiba/shared";
 import type { EmployeeRole } from "../employee-templates";
 import { AgentMascot } from "./AgentMascot";
+import { ShibaMark } from "./ShibaMark";
 
 function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
@@ -56,6 +57,7 @@ export function AgentLookStyler({ id, role, preset, shape, color, eyes, acc, onC
   onStarterPick?: () => void;
 }): JSX.Element {
   const custom = Boolean(shape || color || eyes || acc);
+  const automatic = !custom && !preset;
   const preview = resolveAgentMascotLook({
     id,
     role,
@@ -71,7 +73,7 @@ export function AgentLookStyler({ id, role, preset, shape, color, eyes, acc, onC
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
         <div className="flex shrink-0 flex-col items-center gap-2">
           <span className="inline-flex size-28 rounded-lg border border-[var(--border-1)] bg-[var(--panel)] p-2">
-            <AgentMascot look={preview} live />
+            {automatic ? <ShibaMark className="size-full" decorative /> : <AgentMascot look={preview} live />}
           </span>
           <div className="flex flex-wrap items-center justify-center gap-1.5">
             <button
@@ -91,7 +93,7 @@ export function AgentLookStyler({ id, role, preset, shape, color, eyes, acc, onC
             </button>
           </div>
           <p className="text-center text-[11px] text-[var(--muted-foreground-2)]">
-            {custom ? "Custom avatar" : "Matched to name and role"}
+            {custom ? "Custom avatar" : automatic ? "Default Shiba portrait" : "Matched to name and role"}
           </p>
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-3">

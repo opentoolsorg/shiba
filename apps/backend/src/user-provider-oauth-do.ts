@@ -28,6 +28,7 @@ import {
 } from "./user-provider-oauth-store.js";
 import { modelCredentialKeyConfigured } from "./subscription-credentials.js";
 import { redactSecrets } from "./security.js";
+import { log } from "./obs/log.js";
 
 const PENDING_TTL_MS = 15 * 60_000;
 
@@ -93,7 +94,7 @@ export class UserProviderOAuth extends DurableObject<Env> {
       return Response.json({ error: "Not found." }, { status: 404 });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Provider OAuth failed.";
-      console.error("UserProviderOAuth", redactSecrets(message));
+      log.error("UserProviderOAuth", redactSecrets(message));
       return Response.json({ error: "Sign-in could not be completed. Start again." }, { status: 400 });
     }
   }

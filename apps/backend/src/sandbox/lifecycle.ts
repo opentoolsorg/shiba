@@ -30,6 +30,7 @@ import type { SandboxOps } from "../runtime.js";
 import type { EgressOverride } from "../harness/types.js";
 import { redactSecrets } from "../security.js";
 import type { SandboxSelectionContext } from "./selection.js";
+import { log } from "../obs/log.js";
 
 /** A sandbox ops call attempted after its container was released or leaked. */
 export class ContainerReleasedError extends Error {
@@ -149,7 +150,7 @@ function safeHook(label: string, sandboxId: string, run: () => void): void {
   try {
     run();
   } catch (hookError) {
-    console.warn(`${label} hook failed for sandbox ${sandboxId}: ${redactSecrets(String(hookError))}`);
+    log.warn(`${label} hook failed for sandbox ${sandboxId}: ${redactSecrets(String(hookError))}`);
   }
 }
 
@@ -222,7 +223,7 @@ export const acquireContainer = (opts: {
         }
         container.markLeaked();
         recordLeak(opts.sandboxId, Cause.squash(exit.cause), opts.hooks, opts.selection);
-        console.error(`Failed to release sandbox container ${opts.sandboxId}`);
+        log.error(`Failed to release sandbox container ${opts.sandboxId}`);
         // Keep the task's failure/interruption authoritative; cleanup has
         // already been logged and recorded for retry. A successful task
         // must still fail when its release fails.
@@ -347,7 +348,7 @@ export async function destroyManagedContainer(
     forgetLeaked(sandboxId, hooks);
   } catch (error) {
     // Cleanup failure must not overwrite the recorded outcome.
-    console.warn(`Failed to destroy sandbox ${sandboxId}: ${redactSecrets(String(error))}`);
+    log.warn(`Failed to destroy sandbox ${sandboxId}: ${redactSecrets(String(error))}`);
     recordLeak(sandboxId, error, hooks, selection);
   }
 }

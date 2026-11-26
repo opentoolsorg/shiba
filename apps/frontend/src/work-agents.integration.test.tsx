@@ -325,7 +325,7 @@ describe("Agents page", () => {
     const list = screen.getByRole("list", { name: "Agents" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(1);
     expect(within(list).getByText("Shiba")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "New agent" }));
+    fireEvent.click(screen.getByRole("button", { name: "New employee" }));
     expect(onNewAgent).toHaveBeenCalledOnce();
   });
 });

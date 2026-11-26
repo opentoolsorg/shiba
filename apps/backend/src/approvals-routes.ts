@@ -17,6 +17,7 @@ import {
   WEB_SESSION_PREFIX,
   type WebSessionRecord,
 } from "./web-sessions.js";
+import { log } from "./obs/log.js";
 
 /**
  * Approval pointers live on the orchestrator Durable Object, not the
@@ -83,7 +84,7 @@ export async function handleApprovals(request: Request, env: Env): Promise<Respo
     for (const stub of stubs) {
       const response = await stub.fetch(new Request("https://internal/api/approvals"));
       if (!response.ok) {
-        console.warn(`GET /api/approvals probe failed (${response.status})`);
+        log.warn(`GET /api/approvals probe failed (${response.status})`);
         continue;
       }
       const body = (await response.json().catch(() => ({}))) as {
@@ -202,7 +203,7 @@ export async function handleApprovals(request: Request, env: Env): Promise<Respo
       // A stub's transport failure is not a verdict — the pointer may
       // live on the next stub, so keep probing like the GET fan-out.
       if (!response.ok) {
-        console.warn(`POST /api/approvals probe failed (${response.status})`);
+        log.warn(`POST /api/approvals probe failed (${response.status})`);
         probeFailure ??= response;
         continue;
       }

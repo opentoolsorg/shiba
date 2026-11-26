@@ -7,6 +7,7 @@ import {
 } from "./collaboration-store.js";
 import type { SlackEventCallbackBody } from "./slack-events.js";
 import { resolveThreadTs } from "./slack-thread.js";
+import { log } from "./obs/log.js";
 
 interface SlackRoomMessageEvent {
   type?: unknown;
@@ -58,6 +59,6 @@ export async function handleSlackRoomEvent(body: SlackEventCallbackBody, env: En
       createdAt,
     });
   } catch (error) {
-    console.error("Slack room bridge ingestion failed", redactSecrets(String(error)));
+    log.error("Slack room bridge ingestion failed", redactSecrets(String(error)));
   }
 }

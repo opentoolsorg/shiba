@@ -1,4 +1,5 @@
 import type { Env } from "./env.js";
+import { flag } from "./config/flags.js";
 import {
   loadUserSubscriptionAuthJson,
   modelCredentialKeyConfigured,
@@ -28,7 +29,7 @@ export async function resolveCodexSubscriptionAuthJson(
   if (userId) {
     return modelCredentialKeyConfigured(env) ? loadUserSubscriptionAuthJson(env, userId) : null;
   }
-  if (env.SHIBA_SINGLE_USER === "1") {
+  if (flag(env, "SHIBA_SINGLE_USER") === "1") {
     return workerSecretAuthJson(env, account) ?? null;
   }
   return null;

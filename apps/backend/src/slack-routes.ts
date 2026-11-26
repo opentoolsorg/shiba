@@ -15,6 +15,7 @@ import { buildSlackCanvasUrl, signSlackCanvasIntake, slackCanvasOwner } from "./
 import { saveSlackCommandReplyDestination } from "./slack-command-reply.js";
 import { buildSlackCommandScope, buildSlackRunPayload, resolveSlackHarness, slackWorkspaceTarget } from "./slack-thread.js";
 import { slackTransport } from "./channels/slack/index.js";
+import { log } from "./obs/log.js";
 
 export const SLACK_COMMAND_PATH = "/api/slack/command";
 export const SLASH_COMMAND = "/shiba";
@@ -252,7 +253,7 @@ export async function handleSlackCommand(
       queueSlackRun(env, deps, parsed, params, approvalThreadKey)
         .then((body) => respondToCommand(responseUrl, body, deps.respond))
         .catch((error: unknown) => {
-          console.error("Slack command reply failed", redactSecrets(String(error)));
+          log.error("Slack command reply failed", redactSecrets(String(error)));
         }),
     );
     return Response.json({ response_type: "ephemeral", text: "Queueing your task…" });

@@ -51,6 +51,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm lint:imports
+      - run: node --test scripts/schema-snapshot.test.mjs
       - run: pnpm test
       - name: Verify personal native account isolation and daemon controls
         run: pnpm test:personal-daemon
