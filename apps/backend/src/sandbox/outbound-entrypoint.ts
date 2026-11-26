@@ -2,7 +2,7 @@ import { resolveSandboxDurableObjectId } from "@shiba/shared";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import type { Env } from "../env.js";
 import { dispatchOutboundRequest } from "./outbound-dispatch.js";
-import type { Sandbox } from "./durable-object.js";
+import type { Sandbox } from "../adapters/sandbox/cloudflare/durable-object.js";
 
 export interface SandboxOutboundProps {
   sandboxId: string;

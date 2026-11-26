@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { Files } from "@cloudflare/sandbox";
+import { createContainerFiles } from "./ports/sandbox/files.js";
 import { SHARED_COMPUTER_LIMITS as LIMIT, type SharedComputerAction } from "@shiba/shared";
 import { hashToolArgs } from "./mcp-gateway.js";
 import { computerInputArgv } from "./shared-computer-runtime.js";
@@ -127,7 +127,7 @@ export class ComputerSession extends DurableObject<SharedComputerEnv> {
     await this.#process(container, ["scrot", "--overwrite", "--pointer", "--quality", "60", "/tmp/shiba-computer.jpg"]);
     this.#assertLive();
     const image = await this.#deadline(5000, async (signal) => {
-      const response = await new Files(container).readFile("/tmp/shiba-computer.jpg", { signal });
+      const response = await createContainerFiles(container).readFile("/tmp/shiba-computer.jpg", { signal });
       const reader = response.body?.getReader(); if (!reader) throw new SharedComputerError("shared_computer_capture_unavailable", 503);
       const buffer = new Uint8Array(LIMIT.maxFrameBytes); let size = 0;
       try { for (;;) { signal.throwIfAborted(); const part = await reader.read(); if (part.done) break; if (size + part.value.byteLength > buffer.byteLength) throw new SharedComputerError("shared_computer_capture_limit", 503); buffer.set(part.value, size); size += part.value.byteLength; } }
