@@ -20,7 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {chromium} from 'playwright';
 import {launchLifecycleTarget} from './lifecycle-target.mjs';
-import {openAppView,selectRepositoryTask} from './composer-target.mjs';
+import {openAppView,openEmployeeThreads,selectRepositoryTask} from './composer-target.mjs';
 import {fixtureAuthRequest} from './run-employee-ci.mjs';
 const exec=promisify(execFile);
 const origin=process.env.VERIFY_LOCAL_WORKER_URL??'http://localhost:8794';
@@ -98,7 +98,6 @@ if(progress.activatedAt===null&&progress.dismissedAt===null&&!progress.draftTask
   passed('Dismiss the disposable account setup through the real UI');
 }
 await openAppView(page, "Integrations");
-await page.getByRole('heading',{name:'Integrations',exact:true}).waitFor();
 await page.getByRole('button',{name:'Browse capability catalog',exact:true}).click();
 const catalog=await api('/api/capabilities?limit=50');
 assert(catalog.res.ok,'Authenticated capability directory returns '+catalog.res.status);
@@ -163,8 +162,9 @@ await openAppView(page, "Chats");
 await assertThreadProfile();
 passed('Launch bot opens a real bound conversation');
 async function reopenThread(){
-  await openAppView(page, "Agents");
-  await page.getByRole('list',{name:config.name+' threads',exact:true}).getByRole('button').filter({hasText:config.name}).first().click();
+  await openAppView(page, "Chats");
+  const threads=await openEmployeeThreads(page,config.name);
+  await threads.getByRole('button').filter({hasText:config.name}).first().click();
   await assertThreadProfile();
 }
 async function queue(task){
