@@ -123,6 +123,7 @@ async function scopedConversationId(actorIdentity: string, conversationId: strin
 }
 
 async function runtimeToolActorId(request: Request, env: Env, auth: ResolvedOrgAuth): Promise<string | null> {
+  if (auth.principal?.apiKey && !auth.principal.scopes.includes("api:read")) return null;
   if (auth.principal) return auth.principal.principal;
   if (auth.workspace) return auth.workspace.userId;
   return await resolveUserId(request, env);

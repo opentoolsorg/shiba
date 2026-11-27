@@ -9,7 +9,7 @@ import { createWebSession, type WebSessionRecord } from "../src/web-sessions.js"
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 const state = vi.hoisted(() => ({
-  owners: new Map<string, string>(), sessions: [] as WebSessionRecord[], queueRequests: [] as Request[],
+  owners: new Map<string, string>(), sessions: [] as WebSessionRecord[], queueRequests: [] as Request[], runtimeExecutions: new Map<string, { actorId: string; orgId: string; employeeId: string }>(),
   execute: vi.fn(async () => ({ ok: true, status: "completed", output: { id: "fixture-only" } })),
 }));
 vi.mock("../src/request-auth.js", async (importOriginal) => ({
@@ -52,15 +52,15 @@ type Action = "integrations.execute" | "queue_run" | "send_email";
 beforeEach(() => {
   state.owners.clear(); state.owners.set(OWNER, ACCOUNT);
   state.owners.set(THIRD, JSON.stringify(["access", "https://fixture.cloudflareaccess.com", "fixture-aud", "third-sub"]));
-  state.sessions = []; state.queueRequests.length = 0; state.execute.mockClear();
+  state.sessions = []; state.queueRequests.length = 0; state.runtimeExecutions.clear(); state.execute.mockClear();
 });
 
-async function fixture(action: Action = "integrations.execute", appSession = false, missingPrivateAccount = false) {
+async function fixture(action: Action = "integrations.execute", appSession = false, missingPrivateAccount = false, runtimeExecution = false) {
   const { database, sqlite } = customAgentD1();
   const env = { AGENT_AUDIT: database, CodingOrchestrator: {} } as unknown as Env;
   const capabilityId = `mcp:shiba:${action}`;
   const employee = await createCustomAgent(env, ORG, "writer", { name: "Writer", instructions: "Prepare a draft", harness: "opencode", toolScopes: [capabilityId] });
-  const actorId = appSession ? OWNER : "worker-agent";
+  const actorId = appSession || runtimeExecution ? OWNER : "worker-agent";
   const resourceId = action === "integrations.execute" ? "github" : action === "queue_run" ? "https://github.com/example/repo" : "mailbox-a";
   const accountId = action === "integrations.execute" && !missingPrivateAccount ? ACCOUNT : undefined;
   const connectionId = accountId ? `connection:${accountId}` : `shiba:${employee.id}:${capabilityId}`;
@@ -73,6 +73,20 @@ async function fixture(action: Action = "integrations.execute", appSession = fal
   });
   const session = appSession ? createWebSession(OWNER, { metadata: { customAgentId: employee.id, orgId: ORG } }) : undefined;
   if (session) state.sessions = [session];
+  const runtimeExecutionId = runtimeExecution ? `run_${"a".repeat(24)}` : undefined;
+  if (runtimeExecutionId) {
+    state.runtimeExecutions.set(runtimeExecutionId, { actorId: OWNER, orgId: ORG, employeeId: employee.id });
+    env.EmployeeRuntime = {
+      idFromName: (name: string) => ({ name }),
+      get: () => ({ fetch: async (input: RequestInfo | URL) => {
+        const url = new URL(typeof input === "string" || input instanceof URL ? String(input) : input.url);
+        const id = url.searchParams.get("executionId") ?? "";
+        const actor = url.searchParams.get("actorId") ?? "";
+        const valid = state.runtimeExecutions.get(id);
+        return Response.json(valid && valid.actorId === actor ? { ok: true, executionId: id } : { ok: false }, { status: valid && valid.actorId === actor ? 200 : 404 });
+      } }),
+    } as never;
+  }
   const args: Record<string, unknown> = action === "integrations.execute" ? structuredClone(PRIVATE_ARGS)
     : action === "queue_run" ? { repoUrl: resourceId, task: "Private repository task" }
     : { mailbox: resourceId, to: "recipient@example.test", subject: "Private subject", text: "Private email draft" };
@@ -81,7 +95,7 @@ async function fixture(action: Action = "integrations.execute", appSession = fal
   ], created: 1, revoked: false };
   const pending = await requestEmployeeActionApproval(env, { orgId: ORG, employeeId: employee.id, employeeVersion: employee.version,
     actorId, connectionId, connectionGeneration: 1, capability: { kind: "mcp", id: capabilityId }, action, resourceId,
-    ...(accountId ? { accountId } : {}), ...(session ? { executionContextId: session.agentName } : {}),
+    ...(accountId ? { accountId } : {}), ...(session ? { executionContextId: session.agentName } : runtimeExecutionId ? { executionContextId: runtimeExecutionId } : {}),
     argumentDigest: await hashToolArgs(args), payload: args, policyVersion, expiresAt: Date.now() + 60_000,
   });
   const request = (userId: string, method = "GET", body?: unknown, bearer = false) => new Request(`https://dashboard.test/api/employee-tools/approvals${method === "POST" ? `/${pending.approvalId}` : ""}`, {
@@ -90,9 +104,9 @@ async function fixture(action: Action = "integrations.execute", appSession = fal
   });
   const list = (userId = OWNER, bearer = false) => handleEmployeeTools(request(userId, "GET", undefined, bearer), env);
   const decide = (userId = OWNER, approved = true, bearer = false) => handleEmployeeTools(request(userId, "POST", { employeeId: employee.id, approved }, bearer), env);
-  const dispatch = () => dispatchEmployeeToolForPrincipal(env, employee.id, principal, action, args, session?.agentName);
+  const dispatch = () => dispatchEmployeeToolForPrincipal(env, employee.id, principal, action, args, session?.agentName ?? runtimeExecutionId);
   const stored = () => getEmployeeActionApproval(env, { orgId: ORG, employeeId: employee.id, approvalId: pending.approvalId });
-  return { env, sqlite, employee, pending, session, list, decide, dispatch, stored };
+  return { env, sqlite, employee, pending, session, runtimeExecutionId, list, decide, dispatch, stored };
 }
 
 async function approvals(response: Response | null): Promise<Array<{ approvalId: string; payload: unknown }>> {
@@ -186,6 +200,20 @@ describe("native employee approval owner and operator authorization", () => {
     expect((await f.dispatch()).status).toBe(403);
     expect((await f.stored())?.consumedAt).toBeUndefined();
     noEffects();
+  });
+
+  it("treats validated runtime executions as owned approval contexts", async () => {
+    const f = await fixture("queue_run", false, false, true);
+    expect(await approvals(await f.list())).toHaveLength(1);
+    expect((await f.decide())?.status).toBe(200);
+    expect((await f.stored())?.status).toBe("approved");
+    expect((await f.dispatch()).status).toBe(200);
+    state.runtimeExecutions.clear();
+    f.sqlite.prepare("UPDATE employee_tool_approvals SET consumed_at=NULL,consumed_invocation_id=NULL WHERE approval_id=?").run(f.pending.approvalId);
+    expect((await f.dispatch()).status).toBe(403);
+    f.sqlite.prepare("UPDATE employee_tool_approvals SET status='pending' WHERE approval_id=?").run(f.pending.approvalId);
+    expect(await approvals(await f.list())).toEqual([]);
+    expect((await f.decide())?.status).toBe(404);
   });
 
   it.each(["profile", "grant", "session-profile", "session-org"])("denies changed %s authority for pending reads and approved dispatch", async (change) => {

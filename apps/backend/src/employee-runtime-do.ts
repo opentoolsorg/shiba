@@ -116,6 +116,7 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
       if (url.pathname === `${PREFIX}/chat` && request.method === "POST") return await this.chat(request);
       if (url.pathname === `${PREFIX}/chat/stream` && request.method === "POST") return await this.streamChat(request);
       if (url.pathname === `${PREFIX}/state` && request.method === "GET") return this.stateResponse(url);
+      if (url.pathname === `${PREFIX}/execution-context` && request.method === "GET") return this.executionContext(url);
       if (url.pathname === `${PREFIX}/clear` && request.method === "POST") return await this.clearConversation(request);
       if (url.pathname === `${PREFIX}/memory` && request.method === "POST") return await this.writeMemory(request);
       if (url.pathname === `${PREFIX}/memory/update` && request.method === "POST") return await this.updateMemory(request);
@@ -129,6 +130,18 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
       log.error("employee_runtime_request_failed", { error: redactSecrets(error instanceof Error ? error.message : String(error)) });
       return json({ error: "Employee runtime request failed." }, { status: 500 });
     }
+  }
+
+  private executionContext(url: URL): Response {
+    const executionId = url.searchParams.get("executionId")?.trim() ?? "";
+    const actorId = url.searchParams.get("actorId")?.trim() ?? "";
+    if (!executionId || !actorId || actorId.length > 200) throw new InputError("executionId and actorId are required.");
+    const execution = this.store.getExecution(executionId);
+    if (!execution) return json({ ok: false }, { status: 404 });
+    let input: { toolActorId?: unknown } = {};
+    try { input = JSON.parse(this.store.executionInputJson(execution.id) ?? "{}") as { toolActorId?: unknown }; } catch { input = {}; }
+    if (input.toolActorId !== actorId) return json({ ok: false }, { status: 404 });
+    return json({ ok: true, executionId: execution.id, conversationId: execution.conversationId, status: execution.status });
   }
 
   private async clearConversation(request: Request): Promise<Response> {
@@ -277,7 +290,7 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
       () => body.profile.orgId,
       () => body.toolActorId ?? null,
       undefined,
-      async () => resolveEmployeeRunToolContext(this.env, body.profile.employeeId, body.profile.orgId, body.toolActorId, executionId),
+      async () => resolveEmployeeRunToolContext(this.env, body.profile.employeeId, body.profile.orgId, body.toolActorId, executionId, true),
     );
   }
 

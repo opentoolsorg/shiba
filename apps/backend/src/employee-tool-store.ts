@@ -7,7 +7,7 @@ import type { EmployeeActionApproval } from "./employee-tool-policy.js";
 import type { CapabilityRef, ConnectionGrant } from "./connection-policy.js";
 import type { Env } from "./env.js";
 import { getCustomAgentById } from "./custom-agents-store.js";
-import { resolveOwnedAppSession } from "./employee-app-session.js";
+import { resolveEmployeeRuntimeExecutionContext, resolveOwnedAppSession } from "./employee-app-session.js";
 import type { OnboardingRunFields, SkillExecutionPin } from "@shiba/shared";
 import { revalidateOnboardingBinding } from "./onboarding-task-binding.js";
 import { areSkillPinsActive } from "./skills-store.js";
@@ -25,12 +25,13 @@ export function employeeExternalPolicyVersion(generation: number, schemaVersion:
 }
 
 /** Resolve the current named-session selection before applying the normal employee grant intersection. */
-export async function resolveEmployeeExternalMcpPolicy(env: Env, binding: EmployeeExternalMcpBinding) {
+export async function resolveEmployeeExternalMcpPolicy(env: Env, binding: EmployeeExternalMcpBinding, runtimeExecutionPrevalidated = false) {
   try {
     if (!env.AGENT_AUDIT) return null;
     const session = await resolveOwnedAppSession(env, binding.executionContextId);
-    if (!session || session.userId !== binding.actorId) return null;
-    if (session.deletingAt || session.metadata?.customAgentId !== binding.employeeId || (session.metadata?.orgId ?? "self-hosted") !== binding.orgId) return null;
+    const runtimeExecution = session ? false : runtimeExecutionPrevalidated || await resolveEmployeeRuntimeExecutionContext(env, binding);
+    if (!runtimeExecution && (!session || session.userId !== binding.actorId)) return null;
+    if (!runtimeExecution && (session?.deletingAt || session?.metadata?.customAgentId !== binding.employeeId || (session?.metadata?.orgId ?? "self-hosted") !== binding.orgId)) return null;
     const profile = await getCustomAgentById(env, binding.orgId, binding.employeeId);
     if (!profile || profile.version !== binding.employeeVersion || !Array.isArray(profile.config.toolScopes)) return null;
     if (!await areSkillPinsActive(env, binding.orgId, binding.skillPins ?? [])) return null;

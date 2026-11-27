@@ -209,8 +209,12 @@ describe("EmployeeRuntime Durable Object", () => {
     });
     const response = await runtime.onRequest(request);
     expect(response.status).toBe(200);
-    const inputJson = db.prepare(`SELECT input_json AS json FROM employee_runtime_executions LIMIT 1`).get() as { json: string };
+    const inputJson = db.prepare(`SELECT input_json AS json, id FROM employee_runtime_executions LIMIT 1`).get() as { json: string; id: string };
     expect(JSON.parse(inputJson.json)).toMatchObject({ toolActorId: "owner@example.test" });
+    const valid = await runtime.onRequest(new Request(`https://do/internal/employee-runtime/execution-context?executionId=${inputJson.id}&actorId=owner%40example.test`));
+    expect(valid.status).toBe(200);
+    const wrongActor = await runtime.onRequest(new Request(`https://do/internal/employee-runtime/execution-context?executionId=${inputJson.id}&actorId=other%40example.test`));
+    expect(wrongActor.status).toBe(404);
     const factory = vi.mocked(createEmployeeRunTools);
     (runtime as unknown as { runtimeTools(body: { profile: typeof profile; conversationId: string; message: string; mode: "chat"; toolActorId: string }, executionId: string): unknown }).runtimeTools(
       { profile, conversationId: "default", message: "use tools if available", mode: "chat", toolActorId: "owner@example.test" }, "run_test",

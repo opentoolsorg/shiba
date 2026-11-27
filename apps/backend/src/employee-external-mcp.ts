@@ -70,13 +70,13 @@ function eligibleResources(authority: Authority, server: ExternalMcpServer, tool
   return null;
 }
 
-async function employeeRegistry(env: Env, binding: EmployeeExternalMcpBinding) {
+async function employeeRegistry(env: Env, binding: EmployeeExternalMcpBinding, runtimeExecutionPrevalidated = false) {
   const registry = createToolRegistry(env);
   const actions: Array<{ tool: string; capabilityId: string; resourceArgument: string; resources: string[];
     inputSchema: Record<string, unknown>; schemaVersion: string; effect: "read" | "approval_required"; description: string }> = [];
   const principal: TokenRecord = { kind: "agent", principal: binding.actorId, orgId: binding.orgId,
     scopes: [EXTERNAL_MCP_SCOPE], created: 0, revoked: false };
-  const authority = await resolveEmployeeExternalMcpPolicy(env, binding);
+  const authority = await resolveEmployeeExternalMcpPolicy(env, binding, runtimeExecutionPrevalidated);
   if (!authority) return { registry, principal, actions };
   await registerExternalMcpTools(registry, env, principal, {
     toolNames: (authority.profile.config.toolScopes ?? []).filter(isEmployeeExternalMcpScope).map((id) => id.slice("mcp:shiba:".length)),
@@ -90,7 +90,7 @@ async function employeeRegistry(env: Env, binding: EmployeeExternalMcpBinding) {
       return true;
     },
     authorize: async (server, tool, args) => {
-      const current = await resolveEmployeeExternalMcpPolicy(env, binding);
+      const current = await resolveEmployeeExternalMcpPolicy(env, binding, runtimeExecutionPrevalidated);
       if (!current) return null;
       const allowed = eligibleResources(current, server, tool, principal);
       if (!allowed || typeof args[allowed.resourceArgument] !== "string" || !allowed.resources.includes(args[allowed.resourceArgument] as string)) return null;
@@ -103,18 +103,19 @@ async function employeeRegistry(env: Env, binding: EmployeeExternalMcpBinding) {
   return { registry, principal, actions: actions.filter((action) => registered.has(action.tool)) };
 }
 
-export async function employeeExternalMcpCatalog(env: Env, binding: EmployeeExternalMcpBinding) {
-  const { actions } = await employeeRegistry(env, binding);
+export async function employeeExternalMcpCatalog(env: Env, binding: EmployeeExternalMcpBinding, runtimeExecutionPrevalidated = false) {
+  const { actions } = await employeeRegistry(env, binding, runtimeExecutionPrevalidated);
   return { actions, totalAuthorized: actions.length, returned: actions.length };
 }
 
 /** Actual tool invocation ID plus trusted session/profile binding form the durable operation identity. */
 export async function callEmployeeExternalMcp(
   env: Env, binding: EmployeeExternalMcpBinding, tool: string, args: Record<string, unknown>, toolCallId: string, signal?: AbortSignal,
+  runtimeExecutionPrevalidated = false,
 ) {
   signal?.throwIfAborted();
   if (!toolCallId || toolCallId.length > 200) throw new Error("Employee MCP call requires a tool invocation identity.");
-  const { registry, principal, actions } = await employeeRegistry(env, binding);
+  const { registry, principal, actions } = await employeeRegistry(env, binding, runtimeExecutionPrevalidated);
   if (!actions.some((action) => action.tool === tool)) throw new Error("Employee MCP capability is unavailable under the current policy.");
   const operation = await hashToolArgs({ ...binding, toolCallId });
   signal?.throwIfAborted();

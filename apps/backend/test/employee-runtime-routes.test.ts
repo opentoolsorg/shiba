@@ -75,6 +75,23 @@ describe("employee runtime routes", () => {
     expect(forwarded.toolActorId).toBe("owner@example.test");
   });
 
+  it("does not give write-only API keys employee connector tool authority", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const env = runtimeEnv(calls);
+    const agent = await createCustomAgent(env, "self-hosted", "api-scout", { name: "Scout", instructions: "Answer carefully." });
+    const auth = {
+      orgId: "self-hosted",
+      principal: {
+        principal: "owner@example.test", orgId: "self-hosted", scopes: ["api:write"],
+        apiKey: { kind: "api_key", keyId: "key-write-only", principal: "owner@example.test", orgId: "self-hosted", scopes: ["api:write"], created: 1, revoked: false },
+      },
+    } as never;
+    const response = await handleEmployeeRuntimeRequest(post(`/${agent.id}/runtime/chat`, { conversationId: "default", message: "hello" }), env, auth, agent.id, "chat");
+    expect(response.status).toBe(200);
+    const forwarded = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
+    expect(forwarded.toolActorId).toBeUndefined();
+  });
+
   it("gives different authenticated actors different private conversation namespaces", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const env = runtimeEnv(calls);
