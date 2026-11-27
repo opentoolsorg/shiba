@@ -49,6 +49,9 @@ export async function enforceEmployeeRouteAccess(request: Request, env: Env): Pr
   // bearer record avoids charging the public API-key minute budget a second
   // time before the owning route authenticates the same request.
   const apiKeyRecord = bearer ? await verifyToken(env, bearer) : null;
+  if (apiKeyRecord?.kind === "api_key" && request.headers.has("X-Shiba-Workspace")) {
+    return Response.json({ error: "Workspace selectors cannot override an API credential." }, { status: 403 });
+  }
   const auth = apiKeyRecord?.kind === "api_key"
     ? {
       orgId: orgIdForRecord(apiKeyRecord),

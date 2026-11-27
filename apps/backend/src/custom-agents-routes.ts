@@ -1,6 +1,6 @@
 import type { Env } from "./env.js";
 import { rejectCrossOriginMutation, rejectNonJsonMutation } from "./dashboard-mutation.js";
-import { resolveOrgForApiRequest } from "./org-request-auth.js";
+import { resolveOrgForApiRequest, type ResolvedOrgAuth } from "./org-request-auth.js";
 import { requireV1Read, requireV1Write, v1Forbidden } from "./v1-auth.js";
 import {
   createCustomAgent,
@@ -32,10 +32,10 @@ function publicAgent(record: Awaited<ReturnType<typeof listCustomAgents>>[number
 
 
 
-export async function handleCustomAgents(request: Request, env: Env): Promise<Response | null> {
+export async function handleCustomAgents(request: Request, env: Env, authenticatedAuth?: ResolvedOrgAuth): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/custom-agents")) return null;
-  const auth = await resolveOrgForApiRequest(request, env, { allowMemberWrite: Boolean(url.pathname.match(/^\/api\/custom-agents\/[^/]+/)) });
+  const auth = authenticatedAuth ?? await resolveOrgForApiRequest(request, env, { allowMemberWrite: Boolean(url.pathname.match(/^\/api\/custom-agents\/[^/]+/)) });
   if (auth instanceof Response) return auth;
   if (!env.AGENT_AUDIT) {
     return Response.json({ ok: false, error: "AGENT_AUDIT D1 binding is not configured." }, { status: 503 });

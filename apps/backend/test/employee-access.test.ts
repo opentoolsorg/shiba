@@ -126,6 +126,8 @@ describe("employee access", () => {
     const request = new Request(`https://app.test/api/v1/org-agents/${employee.id}/runtime/memory/update`, { method: "POST", headers: { authorization: "Bearer human-key" }, body: "{}" });
     expect(await enforceEmployeeRouteAccess(request, env)).toBeNull();
     expect(resolveOrgForApiRequest).not.toHaveBeenCalled();
+    const withWorkspaceSelector = new Request(request.url, { method: "POST", headers: { authorization: "Bearer human-key", "X-Shiba-Workspace": workspaceId }, body: "{}" });
+    expect((await enforceEmployeeRouteAccess(withWorkspaceSelector, env))?.status).toBe(403);
   });
 
   it("does not let human API keys or arbitrary authorization headers bypass access", async () => {
