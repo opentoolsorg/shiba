@@ -255,6 +255,8 @@ test("actual native shared UI retains goal, thread, approved output and review a
       .getByLabel("Instructions", { exact: true })
       .fill("Use only supplied fixture facts. Produce the required report for human review.");
     await page.getByLabel("Required deliverables").fill("reports/native-fixture.md");
+    // Employees no longer default to a coding harness; this one runs on the paired opencode computer.
+    await page.getByLabel("Harness", { exact: true }).fill("opencode");
     // Saving is asynchronous. Confirm the Worker accepted this exact UI write
     // before polling its read model; otherwise a cold save races expect.poll.
     const createdEmployee = page.waitForResponse((response) =>
@@ -279,7 +281,10 @@ test("actual native shared UI retains goal, thread, approved output and review a
       })
       .toBeTruthy();
     if (!employee) throw new Error("Fixture employee was not persisted");
-    await page.goto(`${fixture.origin}/threads/`);
+    // Saving an employee opens its own thread; return to the goal thread that holds the draft.
+    const goalThread = threads.sessions.find((thread) => thread.name === threadName);
+    if (!goalThread) throw new Error("Goal thread was not retained");
+    await page.goto(`${fixture.origin}/threads/?session=${goalThread.id}`);
     await openChat(page);
     await openTaskStage(page);
     await page.getByRole("button", { name: "Edit employee", exact: true }).click();
