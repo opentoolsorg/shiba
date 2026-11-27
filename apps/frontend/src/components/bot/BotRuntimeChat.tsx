@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EMPLOYEE_RUNTIME_MESSAGE_MAX_LENGTH } from "@shiba/shared";
-import type { EmployeeRuntimeExecution, EmployeeRuntimeMessage, EmployeeRuntimeState, EmployeeRuntimeStreamEvent } from "@shiba/shared";
+import type { EmployeeRuntimeConversationSummary, EmployeeRuntimeExecution, EmployeeRuntimeMessage, EmployeeRuntimeState, EmployeeRuntimeStreamEvent } from "@shiba/shared";
 import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 import { FIELD_CLASS, QUIET_BUTTON } from "./BotPanel";
 
@@ -43,6 +43,7 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant =
   const [streamingText, setStreamingText] = useState("");
   const [activeExecution, setActiveExecution] = useState<EmployeeRuntimeExecution | null>(null);
   const [executions, setExecutions] = useState<EmployeeRuntimeExecution[]>([]);
+  const [conversationSummary, setConversationSummary] = useState<EmployeeRuntimeConversationSummary | null>(null);
   const [canRecover, setCanRecover] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const [confirmingClear, setConfirmingClear] = useState(false);
@@ -72,6 +73,7 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant =
       if (request === loadRequest.current) {
         setMessages(body.messages.filter((message) => message.role === "user" || message.role === "assistant"));
         setExecutions(Array.isArray(body.executions) ? body.executions : []);
+        setConversationSummary(body.conversationSummary ?? null);
         setCanRecover(body.permissions?.canRecover === true);
       }
     } catch (cause) {
@@ -86,11 +88,13 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant =
   }, [draftKey]);
 
   useEffect(() => {
+    setConfirmingClear(false);
     setMessages([]);
     setPendingUser(null);
     setStreamingText("");
     setActiveExecution(null);
     setExecutions([]);
+    setConversationSummary(null);
     setCanRecover(false);
     void load();
   }, [load]);
@@ -224,6 +228,12 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant =
             </button>
           ) : <span className="text-[var(--muted-foreground-2)]">A manager can recover it.</span>}
         </div>
+      ) : null}
+      {conversationSummary ? (
+        <details className="rounded-md border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-[11px] text-[var(--fg)]">
+          <summary className="cursor-pointer select-none font-medium">Working context summary · {conversationSummary.messageCount} messages</summary>
+          <p className="mt-2 whitespace-pre-wrap leading-relaxed text-[var(--muted-foreground-2)]">{conversationSummary.summary}</p>
+        </details>
       ) : null}
       {error ? <p role="alert" className="text-[11px] text-[var(--destructive)]">{error}</p> : null}
       <div aria-live="polite" className={`overflow-y-auto rounded-md border border-[var(--border-1)] bg-[var(--card)] p-3 ${main ? "min-h-0 flex-1" : "max-h-72"}`}>

@@ -96,11 +96,21 @@ export interface EmployeeRuntimeExecution {
   recoverable?: boolean;
 }
 
+export interface EmployeeRuntimeConversationSummary {
+  conversationId: string;
+  summary: string;
+  throughMessageId: string;
+  messageCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface EmployeeRuntimeState {
   conversationId: string;
   messages: EmployeeRuntimeMessage[];
   memories: EmployeeRuntimeMemory[];
   executions: EmployeeRuntimeExecution[];
+  conversationSummary?: EmployeeRuntimeConversationSummary;
   permissions?: { canRecover?: boolean };
 }
 

@@ -119,6 +119,16 @@ describe("BotRuntimeChat", () => {
     await waitFor(() => expect(clearBodies).toEqual([{ conversationId: "thread-1" }]));
   });
 
+  it("shows the inspectable working context summary when one exists", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({
+      conversationId: "thread-1", messages: [user, assistant], memories: [], executions: [],
+      conversationSummary: { conversationId: "thread-1", summary: "User prefers concise launch updates.", throughMessageId: "msg_a", messageCount: 26, createdAt: 1, updatedAt: 2 },
+    })));
+    render(<BotRuntimeChat agentId="agent-1" conversationId="thread-1" />);
+    expect(await screen.findByText("Working context summary · 26 messages")).toBeTruthy();
+    expect(screen.getByText("User prefers concise launch updates.")).toBeTruthy();
+  });
+
   it("recovers interrupted work against the selected thread", async () => {
     let recovered = false;
     const recoverBodies: Array<Record<string, unknown>> = [];
