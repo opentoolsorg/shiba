@@ -141,6 +141,10 @@ export function useTeamWorkspaceDirectory({
         const selected =
           previous.scope === scope ? previous.selectedWorkspaceId : remembered(scope);
         const unavailable = Boolean(selected && !workspaces.some((item) => item.workspaceId === selected));
+        if (unavailable) {
+          remember(scope, "");
+          try { localStorage.removeItem(lastKey(scope)); } catch { /* Storage is optional. */ }
+        }
         return { verified: !unavailable, scope, workspaces, selectedWorkspaceId: selected, loading: false,
           error: unavailable ? "Access to the selected workspace was removed. Choose another workspace or explicitly open your personal workspace." : null };
       });

@@ -1164,31 +1164,31 @@ select:focus-visible,
 .shiba-overview-icon-button { width: 40px; height: 40px; align-items: center; justify-content: center; border-radius: 8px; color: var(--icon-muted); }
 .shiba-connection-status { display: inline-flex; max-width: 50%; align-items: center; gap: 7px; border: 1px solid var(--border-1); border-radius: 999px; padding: 5px 9px; font-size: 11px; color: var(--muted-foreground-2); }
 .shiba-dashboard-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-.shiba-dashboard-body { width: 100%; max-width: 1320px; margin-inline: auto; display: flex; flex-direction: column; gap: 24px; padding: 28px; }
+.shiba-dashboard-body { width: 100%; max-width: 1180px; margin-inline: auto; display: flex; flex-direction: column; gap: 16px; padding: 20px 24px 28px; }
 .shiba-dashboard-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .shiba-overview-eyebrow { margin-bottom: 8px; font-size: 11px; font-weight: 500; color: var(--muted-foreground-2); }
-.shiba-dashboard-heading h1 { font-size: clamp(26px, 3cqi, 34px); line-height: 1.2; letter-spacing: -0.035em; font-weight: 600; }
-.shiba-overview-description { margin-top: 10px; max-width: 52ch; font-size: 13px; line-height: 1.6; color: var(--muted-foreground-2); }
+.shiba-dashboard-heading h1 { font-size: clamp(24px, 2.6cqi, 30px); line-height: 1.2; letter-spacing: -0.035em; font-weight: 600; }
+.shiba-overview-description { margin-top: 6px; max-width: 52ch; font-size: 13px; line-height: 1.6; color: var(--muted-foreground-2); }
 .shiba-overview-primary, .shiba-overview-secondary { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; gap: 8px; flex-shrink: 0; border: 1px solid var(--border-1); border-radius: 8px; padding: 10px 14px; font-size: 12px; font-weight: 500; }
 .shiba-overview-primary { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
 .shiba-overview-secondary { background: var(--card); color: var(--fg); }
 .shiba-overview-link { display: inline-flex; min-height: 36px; align-items: center; gap: 6px; flex-shrink: 0; font-size: 12px; font-weight: 500; color: var(--fg); }
 .shiba-overview-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 16px; border: 1px solid color-mix(in srgb, var(--warning-fg) 25%, var(--border-1)); border-radius: 10px; background: var(--warning-subtle); color: var(--warning-fg); font-size: 12px; line-height: 1.6; }
 .shiba-overview-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--border-1); border-radius: 10px; overflow: hidden; }
-.shiba-overview-stat { display: flex; min-width: 0; flex-direction: column; gap: 10px; padding: 18px; text-align: left; font-size: 12px; }
+.shiba-overview-stat { display: flex; min-width: 0; flex-direction: column; gap: 6px; padding: 14px 16px; text-align: left; font-size: 12px; }
 .shiba-overview-stat + .shiba-overview-stat { border-left: 1px solid var(--border-1); }
 .shiba-overview-stat > span:first-child { color: var(--muted-foreground-2); }
-.shiba-overview-stat strong { font-size: 28px; line-height: 1.15; letter-spacing: -0.03em; font-weight: 600; font-variant-numeric: tabular-nums; }
+.shiba-overview-stat strong { font-size: 22px; line-height: 1.15; letter-spacing: -0.03em; font-weight: 600; font-variant-numeric: tabular-nums; }
 .shiba-overview-stat-detail { color: var(--muted-foreground-2); font-size: 11px; line-height: 1.5; }
-.shiba-overview-next { display: flex; align-items: center; gap: 16px; padding: 20px; border: 1px solid var(--border-1); border-radius: 10px; background: var(--panel); }
+.shiba-overview-next { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border: 1px solid var(--border-1); border-radius: 10px; background: var(--panel); }
 .shiba-overview-next h2 { font-size: 14px; font-weight: 600; }
 .shiba-overview-next p { max-width: 66ch; margin-top: 5px; font-size: 12px; line-height: 1.65; color: var(--muted-foreground-2); }
 .shiba-overview-next-icon, .shiba-overview-run-icon { display: grid; flex-shrink: 0; place-items: center; width: 38px; height: 38px; border: 1px solid var(--border-1); border-radius: 9px; background: var(--card); color: var(--muted-foreground-2); }
-.shiba-overview-columns { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(240px, 1fr); gap: 20px; align-items: start; }
+.shiba-overview-columns { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(240px, 1fr); gap: 16px; align-items: start; }
 .shiba-overview-columns-workspace { grid-template-columns: minmax(0, 1fr); }
 .shiba-overview-columns-workspace > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
 .shiba-overview-panel { min-width: 0; overflow: hidden; border: 1px solid var(--border-1); border-radius: 10px; }
-.shiba-overview-section-header { display: flex; min-height: 76px; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border-1); }
+.shiba-overview-section-header { display: flex; min-height: 56px; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border-1); }
 .shiba-overview-section-header h2 { font-size: 13px; font-weight: 600; }
 .shiba-overview-section-header p { margin-top: 4px; font-size: 11px; line-height: 1.5; color: var(--muted-foreground-2); }
 .shiba-overview-empty { display: flex; min-height: 140px; }

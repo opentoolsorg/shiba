@@ -253,6 +253,24 @@ export function DashboardView({
             </p>
           ) : null}
 
+          <section className="shiba-overview-next" aria-labelledby="dashboard-next-title">
+            <span className="shiba-overview-next-icon">
+              <NextIcon className="size-5" aria-hidden="true" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h2 id="dashboard-next-title">{nextStep.label}</h2>
+              <p>{nextStep.detail}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate(teamSafeView(nextStep.view))}
+              className="shiba-overview-secondary"
+            >
+              {nextStep.action}
+              <ArrowRight className="size-4" aria-hidden="true" />
+            </button>
+          </section>
+
           <section aria-label="Run summary" className="shiba-overview-stats">
             {(
               [
@@ -309,23 +327,6 @@ export function DashboardView({
             ))}
           </section>
 
-          <section className="shiba-overview-next" aria-labelledby="dashboard-next-title">
-            <span className="shiba-overview-next-icon">
-              <NextIcon className="size-5" aria-hidden="true" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <h2 id="dashboard-next-title">{nextStep.label}</h2>
-              <p>{nextStep.detail}</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => onNavigate(teamSafeView(nextStep.view))}
-              className="shiba-overview-secondary"
-            >
-              {nextStep.action}
-              <ArrowRight className="size-4" aria-hidden="true" />
-            </button>
-          </section>
 
           {workspaceId ? (
             <section className="shiba-overview-panel" aria-labelledby="dashboard-work-title">

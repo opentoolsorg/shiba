@@ -112,6 +112,8 @@ describe("team workspace client", () => {
     await act(async () => hook.result.current.refresh());
     expect(hook.result.current.selectedWorkspaceId).toBe(id);
     expect(hook.result.current.error).toContain("removed");
+    expect(localStorage.getItem("shiba:team-workspace:a%40example.com")).toBeNull();
+    expect(localStorage.getItem("shiba:last-team-workspace:a%40example.com")).toBeNull();
     act(() => hook.result.current.selectWorkspace(""));
     expect(hook.result.current.selectedWorkspaceId).toBe("");
     expect(hook.result.current.error).toBeNull();
