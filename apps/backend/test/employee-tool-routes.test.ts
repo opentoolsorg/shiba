@@ -331,7 +331,7 @@ describe("employee tool local workflow", () => {
 
     const malformedRead = await handleEmployeeTools(callRequest(employee.id, "knowledge_read", { sourceKind: "file", sourceId: "file-1", unexpected: true }), bindings);
     expect(malformedRead?.status).toBe(400);
-    const read = await handleEmployeeTools(callRequest(employee.id, "knowledge_read", { sourceKind: "file", sourceId: "file-1" }), bindings);
+    const read = await handleEmployeeTools(callRequest(employee.id, "knowledge_read", { sourceKind: "file", sourceId: " file-1 " }), bindings);
     expect(read?.status).toBe(200);
     const readBody = await read?.json() as { ok?: boolean; result?: { content?: Array<{ text?: string }> } };
     expect(readBody.ok).toBe(true);

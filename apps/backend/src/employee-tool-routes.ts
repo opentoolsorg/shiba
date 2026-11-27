@@ -488,6 +488,7 @@ export async function dispatchEmployeeToolForPrincipal(
     const allowedKeys = toolName === "knowledge_search" ? ["query", "limit"] : ["sourceKind", "sourceId", "maxChars"];
     const parsed = schema.safeParse(args);
     if (!parsed.success || Object.keys(args).some((key) => !allowedKeys.includes(key))) return jsonError("invalid_knowledge_tool_input", 400);
+    args = parsed.data as Record<string, unknown>;
   }
   if (toolName === "knowledge_search") {
     resourceId = "workspace";
