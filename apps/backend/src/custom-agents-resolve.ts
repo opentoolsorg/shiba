@@ -45,7 +45,7 @@ export function overridesFromCustomAgent(agent: CustomAgentRecord): CustomAgentR
     customAgentId: agent.id,
     customAgentVersion: agent.version,
     ...(cfg.harness ? { harness: cfg.harness } : {}),
-    ...(cfg.codingModel ? { codingModel: cfg.codingModel } : {}),
+    ...(cfg.codingModel && (cfg.harness || cfg.connectionId) ? { codingModel: cfg.codingModel } : {}),
     ...(cfg.connectionId ? { connectionId: cfg.connectionId } : {}),
     ...(cfg.defaultRepoUrl ? { repoUrl: cfg.defaultRepoUrl } : {}),
     ...(cfg.sandboxProvider ? { sandboxProvider: cfg.sandboxProvider } : {}),
