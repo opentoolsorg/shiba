@@ -191,6 +191,7 @@ function ScopedCustomAgentsView({
   }, []);
   const [agents, setAgents] = useState<CustomAgentWire[] | null>(null);
   const [activeReassignAgents, setActiveReassignAgents] = useState<CustomAgentWire[] | null>(null);
+  const [activeReassignRevision, setActiveReassignRevision] = useState(0);
   const [callerLevels, setCallerLevels] = useState<Record<string, EmployeeAccessLevel>>({});
   const canManage = (id: string) => !workspaceId || callerLevels[id] === "manage";
   useEffect(() => {
@@ -280,7 +281,7 @@ function ScopedCustomAgentsView({
       .then((active) => { if (!cancelled && isActive()) setActiveReassignAgents(active); })
       .catch(() => { if (!cancelled && isActive()) setActiveReassignAgents([]); });
     return () => { cancelled = true; };
-  }, [workspaceId, showArchived, isActive]);
+  }, [workspaceId, showArchived, activeReassignRevision, isActive]);
   const [editingConfig, setEditingConfig] = useState<CustomAgentConfig | null>(null);
   const managerOptions = new Map<string, { label: string; reportsTo?: CustomAgentConfig["reportsTo"] }>();
   managerOptions.set("", { label: "No manager" });
@@ -660,6 +661,7 @@ function ScopedCustomAgentsView({
       if (action === "restore" && body.agent) {
         const restored = body.agent;
         setActiveReassignAgents((current) => current ? [restored, ...current.filter((item) => item.id !== restored.id)] : current);
+        setActiveReassignRevision((current) => current + 1);
       }
       if (editingId === agent.id) resetForm();
       setNotice({ tone: "ok", text: action === "archive" ? "Bot archived. Its conversation history is preserved." : "Bot restored." });

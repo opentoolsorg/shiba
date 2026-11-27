@@ -746,7 +746,9 @@ describe("account-scoped employee directory", () => {
     };
     render(<CustomAgentsView workspaceId={designWorkspace} sharedTasks={[task]} onUpdateSharedTask={vi.fn()} />);
     fireEvent.click(await screen.findByRole("button", { name: "Archived bots" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Restore bot Archived Helper" }));
+    const restore = await screen.findByRole("button", { name: "Restore bot Archived Helper" });
+    await waitFor(() => expect(restore).toHaveProperty("disabled", false));
+    fireEvent.click(restore);
     await waitFor(() => expect(screen.queryByRole("button", { name: "View profile Archived Helper" })).toBeNull());
     fireEvent.click(await screen.findByRole("button", { name: "View profile Other Archived" }));
     const queue = await screen.findByRole("region", { name: "Other Archived task queue" });
