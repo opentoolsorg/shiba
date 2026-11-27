@@ -534,9 +534,13 @@ select:focus-visible,
 
 .shiba-work-shell,
 .shiba-work-shell * {
-  scrollbar-width: none;
+  scrollbar-width: thin;
 }
 .shiba-work-shell *::-webkit-scrollbar {
+  width: 0;
+  height: 8px;
+}
+.shiba-work-shell *::-webkit-scrollbar:vertical {
   display: none;
 }
 

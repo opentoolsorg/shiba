@@ -83,7 +83,7 @@ export function WorkQuickAdd({
   return (
     <form
       aria-busy={pending}
-      className={`rounded-2xl border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 shadow-[var(--sh-card)] ${className}`.trim()}
+      className={`rounded-2xl border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 shadow-[var(--sh-card)] max-h-[45dvh] overflow-y-auto ${className}`.trim()}
       onSubmit={(e) => {
         e.preventDefault();
         void submit();
