@@ -275,6 +275,18 @@ export class EmployeeRuntimeStore {
     ).map(rowToExecution);
   }
 
+  listExecutionsByStatus(status: EmployeeRuntimeExecution["status"], limit = 100): EmployeeRuntimeExecution[] {
+    return this.exec(
+      `SELECT * FROM employee_runtime_executions WHERE status=? ORDER BY created_at DESC, rowid DESC,id DESC LIMIT ?`,
+      status, Math.max(1, Math.min(500, Math.floor(limit))),
+    ).map(rowToExecution);
+  }
+
+  executionInputJson(executionId: string): string | null {
+    const row = this.exec(`SELECT input_json FROM employee_runtime_executions WHERE id=?`, cleanId(executionId, "executionId"))[0];
+    return row ? String(row.input_json) : null;
+  }
+
   markInterruptedRunning(now = Date.now(), excludeIds: ReadonlySet<string> = new Set()): number {
     const rows = this.exec(`SELECT id FROM employee_runtime_executions WHERE status='running'`)
       .filter((row) => !excludeIds.has(String(row.id)));

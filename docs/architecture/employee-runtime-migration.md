@@ -95,7 +95,7 @@ Implemented in this branch:
 - Namespace conversations by the authenticated actor at the Worker boundary so
   shared employees do not expose private threads. Cancellation is bound to the
   scoped conversation and recovery requires manage authority.
-- Add cancellation and interrupted-execution recovery markers.
+- Add cancellation plus checkpointed interrupted-execution recovery. Cold-start or manager-initiated recovery replays the exact pinned user message when no assistant response was persisted, completes already-persisted executions without duplicating them, and fails closed for unfunded team inference.
 - Add SSE streaming for runtime chat and a details-panel runtime chat surface
   that streams answers and can stop generation without creating a sandbox.
 
