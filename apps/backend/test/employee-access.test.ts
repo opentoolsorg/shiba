@@ -117,6 +117,17 @@ describe("employee access", () => {
     fetch.mockResolvedValue(Response.json({ error: "Not found" }, { status: 404 }));
     expect((await enforceEmployeeRouteAccess(resume(), env))?.status).toBe(404);
   });
+  it("does not reauthenticate API keys during additional runtime access checks", async () => {
+    const { env, employee, workspaceId, set } = await fixture();
+    await set("everyone", "*", "chat");
+    const record = { principal: member, orgId: `team:${workspaceId}`, kind: "api_key" as const, scopes: ["api:write" as const], created: 1, revoked: false };
+    vi.mocked(verifyToken).mockResolvedValue(record);
+    vi.mocked(resolveOrgForApiRequest).mockClear();
+    const request = new Request(`https://app.test/api/v1/org-agents/${employee.id}/runtime/memory/update`, { method: "POST", headers: { authorization: "Bearer human-key" }, body: "{}" });
+    expect(await enforceEmployeeRouteAccess(request, env)).toBeNull();
+    expect(resolveOrgForApiRequest).not.toHaveBeenCalled();
+  });
+
   it("does not let human API keys or arbitrary authorization headers bypass access", async () => {
     const { env, employee, workspaceId, set, auth } = await fixture(); auth();
     await set("everyone", "*", "none");
