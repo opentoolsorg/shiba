@@ -2,13 +2,14 @@ import { founderHubSpotDraftSchema } from "@shiba/shared";
 import type { Env } from "../env.js";
 import type { WorkspaceNativeMember } from "../workspace-native-authority.js";
 import { membershipSql, WorkspaceIntegrationError } from "../workspace-integrations-store.js";
+import { nativeSessionFence } from "./native-session.js";
 import { FOUNDER_SQL_NOW } from "./founder-connector-context.js";
 import { FOUNDER_HUBSPOT_EXECUTOR_DIGEST } from "./founder-hubspot-generated.js";
 import { sealFounderHubSpotCredential, type FounderHubSpotCredentialScope } from "./founder-hubspot-credential.js";
 import { validateHubSpotSelection, hubspotAccountUrl, FOUNDER_HUBSPOT_SOURCE_PIN, type HubSpotReadSelection } from "./founder-hubspot-read.js";
 export type HubSpotEnv=Env & {FOUNDER_HUBSPOT_READS_ENABLED?:string;FOUNDER_HUBSPOT_CREDENTIAL_KEY?:string};
 export type HubSpotDecisionSession={id:string;expiresAt:number};
-export function hubspotDecisionSessionSql(member:WorkspaceNativeMember,session:HubSpotDecisionSession){if(!session?.id||!Number.isSafeInteger(session.expiresAt)||session.expiresAt<=Date.now())throw new WorkspaceIntegrationError("hubspot_native_session_required",403);return {sql:`EXISTS(SELECT 1 FROM "session" ms WHERE ms.id=? AND ms.userId=? AND (CASE WHEN typeof(ms.expiresAt) IN ('integer','real') THEN ms.expiresAt ELSE (CAST(strftime('%s',ms.expiresAt) AS INTEGER)*1000+CAST(substr(strftime('%f',ms.expiresAt),4,3) AS INTEGER)) END)>${FOUNDER_SQL_NOW} AND (CASE WHEN typeof(ms.expiresAt) IN ('integer','real') THEN ms.expiresAt ELSE (CAST(strftime('%s',ms.expiresAt) AS INTEGER)*1000+CAST(substr(strftime('%f',ms.expiresAt),4,3) AS INTEGER)) END)>=?)`,values:[session.id,member.accountId,session.expiresAt]};}
+export function hubspotDecisionSessionSql(member:WorkspaceNativeMember,session:HubSpotDecisionSession){if(!session?.id||!Number.isSafeInteger(session.expiresAt)||session.expiresAt<=Date.now())throw new WorkspaceIntegrationError("hubspot_native_session_required",403);return nativeSessionFence({...session,userId:member.accountId},"ms");}
 export interface HubSpotGrantRow {id:string;workspace_id:string;owner_id:string;owner_account_id:string;owner_json:string;account_id:string;revision:number;expires_at:number;ciphertext:string;fingerprint:string;selection_json:string;contract_digest:string;executor_digest:string;currency:string|null;timezone_name:string|null;max_calls:number;used_calls:number;state:string;next_due_at:number|null}
 export function hubspotAvailable(env:HubSpotEnv){if(env.FOUNDER_HUBSPOT_READS_ENABLED!=="true"||!/^[a-f0-9]{64}$/i.test(env.FOUNDER_HUBSPOT_CREDENTIAL_KEY??""))throw new WorkspaceIntegrationError("hubspot_reads_unavailable",503);}
 export const hubspotScope=(r:HubSpotGrantRow):FounderHubSpotCredentialScope=>({workspaceId:r.workspace_id,ownerAccountId:r.owner_account_id,credentialId:r.id,revision:r.revision,accountId:r.account_id,expiresAt:r.expires_at});

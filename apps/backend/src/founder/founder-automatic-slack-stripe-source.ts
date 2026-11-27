@@ -1,14 +1,10 @@
-import { z } from "zod";
+import { founderStripeReportSchema as reportSchema } from "@shiba/shared";
 import { FOUNDER_SQL_NOW } from "./founder-connector-context.js";
 import { membershipSql, WorkspaceIntegrationError } from "../workspace-integrations-store.js";
 import { stripeAvailable, stripeDigest, validStripeContract, type StripeEnv, type StripeGrantRow } from "./founder-stripe-store.js";
 import type { WorkspaceNativeMember } from "../workspace-native-authority.js";
 import { renderAutomaticSlackReport, type AutomaticSlackGuard } from "./founder-automatic-slack-store.js";
 
-const id=z.string().regex(/^[A-Za-z0-9_]{1,200}$/),hash=z.string().regex(/^[a-f0-9]{64}$/),integer=z.number().int().safe();
-const balance=z.strictObject({id:id.regex(/^txn_/),created:integer,currency:z.string().regex(/^[a-z]{3}$/),amount:integer,fee:integer,net:integer,type:z.string().regex(/^[a-z_]{1,100}$/),source:id.nullable()});
-const invoice=z.strictObject({id:id.regex(/^in_/),created:integer,currency:z.string().regex(/^[a-z]{3}$/),amountPaid:integer,status:z.enum(['draft','open','paid','uncollectible','void']).nullable(),livemode:z.boolean()});
-const reportSchema=z.strictObject({format:z.literal('shiba.stripe-read-report.v1'),principal:z.strictObject({kind:z.literal('schedule'),id:z.string()}),accountId:id.regex(/^acct_/),mode:z.enum(['test','live']),grantId:id,revision:integer,contractDigest:hash,executorDigest:hash,apiVersion:z.literal('2025-10-29.clover'),capturedAt:integer,capturedBytes:integer,notice:z.string().max(1000),capture:z.strictObject({kind:z.enum(['invoices','balance_transactions']),interval:z.strictObject({createdGte:integer,createdLt:integer}),hasMore:z.boolean(),rows:z.array(z.union([balance,invoice])).max(25),captureCompleteness:z.literal('bounded-response'),datasetCompleteness:z.literal('unknown'),businessSuccess:z.literal('unverified')}),summary:z.unknown()});
 export interface StripeSlackReceipt { id:string;grant_id:string;grant_revision:number;state:string;selection_json:string;report_json:string;result_digest:string;created_at:number;expires_at:number }
 export interface StripeSlackSource {grant:StripeGrantRow;receipt:StripeSlackReceipt;content:string}
 const deny=():never=>{throw new WorkspaceIntegrationError('automatic_slack_stripe_source_unavailable',403);};

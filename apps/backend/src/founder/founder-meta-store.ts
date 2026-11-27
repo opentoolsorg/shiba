@@ -2,13 +2,14 @@ import { founderMetaDraftSchema } from "@shiba/shared";
 import type { Env } from "../env.js";
 import type { WorkspaceNativeMember } from "../workspace-native-authority.js";
 import { membershipSql, WorkspaceIntegrationError } from "../workspace-integrations-store.js";
+import { nativeSessionFence } from "./native-session.js";
 import { FOUNDER_SQL_NOW } from "./founder-connector-context.js";
 import { FOUNDER_META_EXECUTOR_DIGEST } from "./founder-meta-generated.js";
 import { sealFounderMetaCredential, type FounderMetaCredentialScope } from "./founder-meta-credential.js";
 import { validateMetaSelection, metaAccountUrl, FOUNDER_META_UPSTREAM_PIN, type MetaReadSelection } from "./founder-meta-read.js";
 export type MetaEnv=Env & {FOUNDER_META_READS_ENABLED?:string;FOUNDER_META_CREDENTIAL_KEY?:string};
 export type MetaDecisionSession={id:string;expiresAt:number};
-export function metaDecisionSessionSql(member:WorkspaceNativeMember,session:MetaDecisionSession){if(!session?.id||!Number.isSafeInteger(session.expiresAt)||session.expiresAt<=Date.now())throw new WorkspaceIntegrationError("meta_native_session_required",403);return {sql:`EXISTS(SELECT 1 FROM "session" ms WHERE ms.id=? AND ms.userId=? AND (CASE WHEN typeof(ms.expiresAt) IN ('integer','real') THEN ms.expiresAt ELSE (CAST(strftime('%s',ms.expiresAt) AS INTEGER)*1000+CAST(substr(strftime('%f',ms.expiresAt),4,3) AS INTEGER)) END)>${FOUNDER_SQL_NOW} AND (CASE WHEN typeof(ms.expiresAt) IN ('integer','real') THEN ms.expiresAt ELSE (CAST(strftime('%s',ms.expiresAt) AS INTEGER)*1000+CAST(substr(strftime('%f',ms.expiresAt),4,3) AS INTEGER)) END)>=?)`,values:[session.id,member.accountId,session.expiresAt]};}
+export function metaDecisionSessionSql(member:WorkspaceNativeMember,session:MetaDecisionSession){if(!session?.id||!Number.isSafeInteger(session.expiresAt)||session.expiresAt<=Date.now())throw new WorkspaceIntegrationError("meta_native_session_required",403);return nativeSessionFence({...session,userId:member.accountId},"ms");}
 export interface MetaGrantRow {id:string;workspace_id:string;owner_id:string;owner_account_id:string;owner_json:string;account_id:string;revision:number;expires_at:number;ciphertext:string;fingerprint:string;selection_json:string;contract_digest:string;executor_digest:string;currency:string|null;timezone_name:string|null;max_calls:number;used_calls:number;state:string;next_due_at:number|null}
 export function metaAvailable(env:MetaEnv){if(env.FOUNDER_META_READS_ENABLED!=="true"||!/^[a-f0-9]{64}$/i.test(env.FOUNDER_META_CREDENTIAL_KEY??""))throw new WorkspaceIntegrationError("meta_reads_unavailable",503);}
 export const metaScope=(r:MetaGrantRow):FounderMetaCredentialScope=>({workspaceId:r.workspace_id,ownerAccountId:r.owner_account_id,credentialId:r.id,revision:r.revision,accountId:r.account_id,expiresAt:r.expires_at});
