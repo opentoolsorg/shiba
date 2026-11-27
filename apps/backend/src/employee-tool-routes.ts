@@ -1,4 +1,4 @@
-import { knowledgeSearchToolArgsSchema, parseChatThreadName, type IntegrationProviderConnection } from "@shiba/shared";
+import { knowledgeReadToolArgsSchema, knowledgeSearchToolArgsSchema, parseChatThreadName, type IntegrationProviderConnection } from "@shiba/shared";
 import { registerIntegrationTools, integrationToolInput } from "./mcp-integration-tools.js";
 import { getIntegrationProvider } from "./ports/connector/registry.js";
 import { assertActionArgumentsAllowed, assertActionInputAllowed, IntegrationActionInputPolicyError, CREDENTIAL_INPUT_UNAVAILABLE } from "./integrations/action-input-policy.js";
@@ -122,6 +122,7 @@ export const EMPLOYEE_TOOL_ACTIONS = {
   queue_run: { risk: "external_write", requiredScope: "sandbox:exec", resourceArgument: "repoUrl", resourceRequired: true, requiresLiveVerification: false },
   send_email: { risk: "external_write", requiredScope: "email:send", resourceArgument: "mailbox", resourceRequired: true, requiresLiveVerification: false },
   knowledge_search: { risk: "read", requiredScope: "knowledge:read", resourceArgument: undefined, resourceRequired: false, requiresLiveVerification: false },
+  knowledge_read: { risk: "read", requiredScope: "knowledge:read", resourceArgument: "sourceId", resourceRequired: true, requiresLiveVerification: false },
 } as const;
 
 function jsonError(error: string, status: number): Response {
@@ -482,9 +483,13 @@ export async function dispatchEmployeeToolForPrincipal(
   const gmailIds = toolName === "gmail_read" && resourceKey ? args[resourceKey] : undefined;
   let resourceId: string;
   let connection;
+  if (toolName === "knowledge_search" || toolName === "knowledge_read") {
+    const schema = toolName === "knowledge_search" ? knowledgeSearchToolArgsSchema : knowledgeReadToolArgsSchema;
+    const allowedKeys = toolName === "knowledge_search" ? ["query", "limit"] : ["sourceKind", "sourceId", "maxChars"];
+    const parsed = schema.safeParse(args);
+    if (!parsed.success || Object.keys(args).some((key) => !allowedKeys.includes(key))) return jsonError("invalid_knowledge_tool_input", 400);
+  }
   if (toolName === "knowledge_search") {
-    const parsed = knowledgeSearchToolArgsSchema.safeParse(args);
-    if (!parsed.success || Object.keys(args).some((key) => key !== "query" && key !== "limit")) return jsonError("invalid_knowledge_search_input", 400);
     resourceId = "workspace";
     connection = await resolveEmployeeConnectionGrant(env, {
       orgId, employeeId, employeeVersion: employee.version, actorId,

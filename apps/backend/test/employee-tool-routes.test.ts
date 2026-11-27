@@ -298,6 +298,7 @@ describe("employee tool local workflow", () => {
     });
     expect((await handleEmployeeTools(policyRequest(employee.id, {
       "mcp:shiba:knowledge_search": ["workspace"],
+      "mcp:shiba:knowledge_read": ["file-1"],
     }), bindings))?.status).toBe(200);
     await bindings.AGENT_AUDIT.prepare(
       `INSERT INTO files (id,workspace_id,scope,name,mime,size,r2_key,sha256,created_by,version,created_at,updated_at,ingestion_state)
@@ -311,6 +312,11 @@ describe("employee tool local workflow", () => {
       `INSERT INTO knowledge_fts (chunk_id,workspace_id,scope,source_kind,source_id,text)
        VALUES ('chunk-1','self-hosted','personal','file','file-1','needle passage for employee knowledge')`,
     ).run();
+    (bindings as unknown as { FILES: unknown }).FILES = {
+      async get(key: string) {
+        return key === "r2-1" ? { arrayBuffer: async () => new TextEncoder().encode("needle passage for employee knowledge\nsecond line").buffer } : null;
+      },
+    };
     tokenState.scopes = [...tokenState.scopes, "knowledge:read"];
     authState.dashboard = false;
 
@@ -323,11 +329,23 @@ describe("employee tool local workflow", () => {
     expect(body.result?.content?.[0]?.text).toContain("needle passage for employee knowledge");
     expect(body.result?.content?.[0]?.text).toContain("brief.md");
 
+    const malformedRead = await handleEmployeeTools(callRequest(employee.id, "knowledge_read", { sourceKind: "file", sourceId: "file-1", unexpected: true }), bindings);
+    expect(malformedRead?.status).toBe(400);
+    const read = await handleEmployeeTools(callRequest(employee.id, "knowledge_read", { sourceKind: "file", sourceId: "file-1" }), bindings);
+    expect(read?.status).toBe(200);
+    const readBody = await read?.json() as { ok?: boolean; result?: { content?: Array<{ text?: string }> } };
+    expect(readBody.ok).toBe(true);
+    expect(readBody.result?.content?.[0]?.text).toContain('"sourceId": "file-1"');
+    expect(readBody.result?.content?.[0]?.text).toContain("second line");
+    const ungrantedRead = await handleEmployeeTools(callRequest(employee.id, "knowledge_read", { sourceKind: "file", sourceId: "file-other" }), bindings);
+    expect(ungrantedRead?.status).toBe(403);
+
     const sessionTools = createEmployeeRunTools(bindings, () => employee.id,
       () => appSession("agent-a", employee.id), () => "self-hosted", () => "agent-a");
     const catalog = sessionTools.employee_tool_catalog as unknown as { execute: (args: Record<string, never>) => Promise<{ actions: Array<{ tool: string; resources?: string[] }> }> };
     expect(await catalog.execute({})).toMatchObject({ actions: expect.arrayContaining([
       expect.objectContaining({ tool: "knowledge_search", resources: ["workspace"] }),
+      expect.objectContaining({ tool: "knowledge_read", resources: ["file-1"] }),
     ]) });
     const modelCall = sessionTools.employee_tool_call as unknown as { execute: (input: { tool: string; args: Record<string, unknown> }) => Promise<{ ok?: boolean; result?: { content?: Array<{ text?: string }> } }> };
     expect(await modelCall.execute({ tool: "knowledge_search", args: { query: "needle" } }))
