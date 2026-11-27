@@ -33,7 +33,7 @@ const BTN_PRIMARY =
   "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-[var(--radius-button)] border border-[var(--primary)] bg-[var(--primary)] px-4 text-xs font-medium text-[var(--primary-text)] hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-50";
 const STAGE = "flex flex-col gap-4 border-t border-[var(--border-1)] pt-5";
 const ROLE_FILTER_ALL = "all";
-const ACTIVE_QUEUE_STATUSES = new Set<TeamWorkItem["status"]>(["backlog", "todo", "queued", "in-progress", "running", "needs-approval"]);
+const ACTIVE_QUEUE_STATUSES = new Set<TeamWorkItem["status"]>(["backlog", "todo", "queued", "in-progress", "running", "in-review", "needs-approval", "unknown"]);
 
 function actorMatchesEmployee(task: TeamWorkItem, employeeId: string): boolean {
   const actorId = task.assigneeActorId ?? task.ownerId;

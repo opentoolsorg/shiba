@@ -701,7 +701,7 @@ describe("account-scoped employee directory", () => {
     const boardId = `task_${"a".repeat(24)}`;
     const handoff = {
       id: "handoff-1", workspaceId: designWorkspace, roomId: "room-1", roomTitle: "Launch room", title: "Approval handoff",
-      assigneeKind: "agent" as const, assigneeActorId: "agent:eng-1", status: "needs-approval" as const, updatedAt: 300,
+      assigneeKind: "agent" as const, assigneeActorId: "agent:eng-1", status: "unknown" as const, updatedAt: 300,
     };
     const newer = {
       id: boardId, workspaceId: designWorkspace, roomId: "", roomTitle: "", title: "Second board task",
@@ -710,15 +710,17 @@ describe("account-scoped employee directory", () => {
     const older = {
       ...newer, id: `task_${"b".repeat(24)}`, title: "First board task", updatedAt: 100,
     };
+    const review = { ...newer, id: `task_${"d".repeat(24)}`, title: "Review board task", status: "in-review" as const, updatedAt: 400 };
     const done = { ...newer, id: `task_${"c".repeat(24)}`, title: "Finished board task", status: "done" as const, updatedAt: 50 };
     const onUpdateSharedTask = vi.fn();
     const onOpenSharedTask = vi.fn();
-    render(<CustomAgentsView workspaceId={designWorkspace} sharedTasks={[newer, handoff, older, done]} onUpdateSharedTask={onUpdateSharedTask} onOpenSharedTask={onOpenSharedTask} />);
+    render(<CustomAgentsView workspaceId={designWorkspace} sharedTasks={[newer, handoff, older, review, done]} onUpdateSharedTask={onUpdateSharedTask} onOpenSharedTask={onOpenSharedTask} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "View profile Builder" }));
     const queue = await screen.findByRole("region", { name: "Builder task queue" });
-    expect(within(queue).getByText("3 active")).toBeTruthy();
+    expect(within(queue).getByText("4 active")).toBeTruthy();
     expect(within(queue).queryByText("Finished board task")).toBeNull();
+    expect(within(queue).getByText("Review board task")).toBeTruthy();
     expect(queue.textContent!.indexOf("First board task")).toBeLessThan(queue.textContent!.indexOf("Second board task"));
     fireEvent.click(within(queue).getAllByRole("button", { name: "Cancel" })[0]!);
     expect(onUpdateSharedTask).toHaveBeenCalledWith(older.id, { status: "cancelled" });
