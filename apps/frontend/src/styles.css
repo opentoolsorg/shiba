@@ -1321,6 +1321,32 @@ select:focus-visible,
 .note-writing-surface h3 { font-size: 1.25em; font-weight: 600; }
 .note-writing-surface ul { list-style: disc; padding-left: 1.5em; }
 .note-writing-surface ol { list-style: decimal; padding-left: 1.5em; }
+.note-writing-surface .ProseMirror ul[data-type="taskList"] { list-style: none; padding-left: 0; }
+.note-writing-surface .ProseMirror ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 10px; padding-left: 0; }
+.note-writing-surface .ProseMirror ul[data-type="taskList"] li > label { display: flex; flex-shrink: 0; margin-top: calc((1.65em - 16px) / 2 + 3px); user-select: none; }
+.note-writing-surface .ProseMirror ul[data-type="taskList"] li > div { flex: 1 1 auto; min-width: 0; }
+.note-writing-surface .ProseMirror ul[data-type="taskList"] input[type="checkbox"] {
+  appearance: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1.5px solid var(--muted-light);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 120ms, border-color 120ms;
+}
+.note-writing-surface .ProseMirror ul[data-type="taskList"] input[type="checkbox"]:checked {
+  border-color: var(--fg);
+  background-color: var(--fg);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 11px;
+}
+.note-writing-surface .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div { color: var(--knowledge-muted); text-decoration: line-through; text-decoration-color: var(--muted-light); }
 .note-writing-surface blockquote { border-left: 3px solid var(--border-1); padding-left: 1em; }
 .note-writing-surface pre { background: var(--panel); border-radius: 12px; padding: 1em; overflow-x: auto; }
 .note-writing-surface .is-editor-empty:first-child::before { content: attr(data-placeholder); float: left; height: 0; pointer-events: none; color: var(--muted-light); }
