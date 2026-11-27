@@ -69,6 +69,54 @@ function inline(text: string, marks: NonNullable<JSONContent["marks"]> = []): JS
 
 const listLine = /^( *)([-+*]|\d+\.) +(.*)$/;
 const taskLine = /^( *)- +\[([ xX])\] +(.*)$/;
+
+function leadingSpaces(line: string): number {
+  return line.length - line.trimStart().length;
+}
+
+function parseTaskList(lines: string[], start: number, indent: number): { node: JSONContent; next: number } {
+  const items: JSONContent[] = [];
+  let i = start;
+  while (i < lines.length) {
+    const item = taskLine.exec(lines[i] ?? "");
+    if (!item || (item[1] ?? "").length !== indent) break;
+    const width = item[0].length - (item[3] ?? "").length;
+    const body = [(item[3] ?? "")];
+    const childBlocks: JSONContent[] = [];
+    i++;
+    while (i < lines.length) {
+      const line = lines[i] ?? "";
+      if (!line.trim()) {
+        const following = lines[i + 1] ?? "";
+        if (following.trim() && leadingSpaces(following) > indent) {
+          body.push("");
+          i++;
+          continue;
+        }
+        break;
+      }
+      const lineIndent = leadingSpaces(line);
+      if (lineIndent <= indent) break;
+      const nestedTask = taskLine.exec(line);
+      if (nestedTask) {
+        const nested = parseTaskList(lines, i, lineIndent);
+        childBlocks.push(nested.node);
+        i = nested.next;
+        continue;
+      }
+      const strip = line.startsWith(" ".repeat(width)) ? width : lineIndent;
+      body.push(line.slice(strip));
+      i++;
+    }
+    items.push({
+      type: "taskItem",
+      attrs: { checked: (item[2] ?? " ").toLowerCase() === "x" },
+      content: [...(parseNoteMarkdown(body.join("\n")).content ?? []), ...childBlocks],
+    });
+  }
+  return { node: { type: "taskList", content: items }, next: i };
+}
+
 const startsBlock = (line: string) => /^(#{1,6} |>|```|~~~|(?:[-*_] *){3,}$)/.test(line) || listLine.test(line);
 
 /** The supported Markdown subset maps to the note editor schema; inline HTML is limited to safe formatting wrappers. */
@@ -76,7 +124,7 @@ export function parseNoteMarkdown(markdown: string): JSONContent {
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
   const content: JSONContent[] = [];
   for (let i = 0; i < lines.length;) {
-    const line = (lines[i] ?? "");
+    let line = (lines[i] ?? "");
     if (!line.trim()) { i++; continue; }
     const fence = /^(`{3,}|~{3,})(.*)$/.exec(line);
     if (fence) {
@@ -95,6 +143,16 @@ export function parseNoteMarkdown(markdown: string): JSONContent {
       while (i < lines.length && (lines[i] ?? "").startsWith(">")) body.push((lines[i++] ?? "").replace(/^> ?/, ""));
       content.push({ type: "blockquote", content: parseNoteMarkdown(body.join("\n")).content }); continue;
     }
+    const alignedOpen = /^<(p|h[1-6]) style="text-align: (?:left|center|right|justify)">/.exec(line);
+    if (alignedOpen) {
+      const closeTag = `</${alignedOpen[1]}>`;
+      let closing = i;
+      while (closing < lines.length && !(lines[closing] ?? "").includes(closeTag)) closing++;
+      if (closing > i && closing < lines.length) {
+        line = lines.slice(i, closing + 1).join("\n");
+        i = closing;
+      }
+    }
     const alignedParagraph = /^<p style="text-align: (left|center|right|justify)">([\s\S]*)<\/p>$/.exec(line);
     if (alignedParagraph) {
       content.push({ type: "paragraph", attrs: { textAlign: alignedParagraph[1] }, content: inline((alignedParagraph[2] ?? "")) });
@@ -107,20 +165,10 @@ export function parseNoteMarkdown(markdown: string): JSONContent {
     }
     const firstTask = taskLine.exec(line);
     if (firstTask) {
-      const items: JSONContent[] = [];
-      const indent = (firstTask[1] ?? "").length;
-      while (i < lines.length) {
-        const item = taskLine.exec((lines[i] ?? ""));
-        if (!item || (item[1] ?? "").length !== indent) break;
-        const body = [(item[3] ?? "")];
-        const width = item[0].length - (item[3] ?? "").length;
-        i++;
-        while (i < lines.length && ((lines[i] ?? "").startsWith(" ".repeat(width)) || (!(lines[i] ?? "").trim() && lines[i + 1]?.startsWith(" ".repeat(width))))) {
-          body.push((lines[i++] ?? "").slice(width));
-        }
-        items.push({ type: "taskItem", attrs: { checked: (item[2] ?? " ").toLowerCase() === "x" }, content: parseNoteMarkdown(body.join("\n")).content });
-      }
-      content.push({ type: "taskList", content: items }); continue;
+      const parsed = parseTaskList(lines, i, (firstTask[1] ?? "").length);
+      content.push(parsed.node);
+      i = parsed.next;
+      continue;
     }
     const first = listLine.exec(line);
     if (first) {
@@ -129,7 +177,7 @@ export function parseNoteMarkdown(markdown: string): JSONContent {
       const indent = (first[1] ?? "").length;
       while (i < lines.length) {
         const item = listLine.exec((lines[i] ?? ""));
-        if (!item || (item[1] ?? "").length !== indent || /\d/.test((item[2] ?? "")) !== ordered) break;
+        if (!item || (item[1] ?? "").length !== indent || /\d/.test((item[2] ?? "")) !== ordered || taskLine.test((lines[i] ?? ""))) break;
         const body = [(item[3] ?? "")];
         const width = item[0].length - (item[3] ?? "").length;
         i++;

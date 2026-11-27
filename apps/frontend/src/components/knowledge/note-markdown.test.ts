@@ -64,4 +64,27 @@ describe("note Markdown", () => {
     expect(doc.content?.[3]?.attrs).toEqual({ level: 2, textAlign: "right" });
     expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
   });
+
+  it("preserves alignment across hard breaks", () => {
+    const source = '<p style="text-align: center">first  \nsecond</p>\n';
+    const doc = parseNoteMarkdown(source);
+    expect(doc.content?.[0]?.attrs).toEqual({ textAlign: "center" });
+    expect(doc.content?.[0]?.content?.some((node) => node.type === "hardBreak")).toBe(true);
+    expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
+  });
+
+  it("keeps nested checklist items inside their parent task", () => {
+    const doc = parseNoteMarkdown("- [ ] Parent\n  - [ ] Child\n  - [x] Done child\n- [ ] Next parent\n");
+    const list = doc.content?.[0];
+    expect(list?.type).toBe("taskList");
+    expect(list?.content).toHaveLength(2);
+    expect(list?.content?.[0]?.content?.some((node) => node.type === "taskList")).toBe(true);
+    expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
+  });
+
+  it("keeps checkboxes after an ordinary bullet", () => {
+    const doc = parseNoteMarkdown("- Plain bullet\n- [ ] Toggle me\n");
+    expect(doc.content?.map((node) => node.type)).toEqual(["bulletList", "taskList"]);
+    expect(doc.content?.[1]?.content?.[0]?.type).toBe("taskItem");
+  });
 });
