@@ -1317,7 +1317,7 @@ select:focus-visible,
 .note-writing-surface { font-size: var(--note-size, 16px); line-height: 1.65; }
 .note-writing-surface .ProseMirror > * + * { margin-top: 0.75em; }
 .note-writing-surface a { color: var(--text-link); text-decoration: underline; text-underline-offset: 2px; }
-.note-writing-surface table { display: block; width: 100%; max-width: 100%; margin: 0.75em 0; border-collapse: collapse; font-size: 0.92em; overflow-x: auto; }
+.note-writing-surface table { width: 100%; max-width: 100%; margin: 0.75em 0; border-collapse: collapse; font-size: 0.92em; table-layout: fixed; }
 .note-writing-surface th, .note-writing-surface td { border: 1px solid var(--border-1); padding: 6px 8px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
 .note-writing-surface th { background: var(--surface-subtle); font-weight: 600; }
 .note-writing-surface h1 { font-size: 2em; font-weight: 700; }
