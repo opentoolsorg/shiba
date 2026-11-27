@@ -95,12 +95,11 @@ describe("local immutable repository capture", () => {
     expect(result.files[0]).toEqual({ path: "brief.md", content: "# Approved settled brief\n", encoding: "utf8" });
   });
 
-  it("refuses named bytes that differ from the staged checkpoint", async () => {
-    await writeFile(path.join(root, "brief.md"), "approved version\n");
-    await expect(collectLocalRepositorySnapshot({ cloneDir: root, baseRevision, expectedDeliverables: ["brief.md"], git: async (args, maxBytes) => {
-      if (gitCommand(args)[0] === "add") await writeFile(path.join(root, "brief.md"), "modified version\n");
-      return git(args, maxBytes);
-    } })).rejects.toThrow(/do not match the frozen Git blob/);
+  it("captures normalized text bytes from the frozen tree", async () => {
+    await git(["config", "core.autocrlf", "true"]);
+    await writeFile(path.join(root, "brief.txt"), "approved version\r\nwith CRLF\r\n");
+    const result = await collectLocalRepositorySnapshot({ cloneDir: root, baseRevision, expectedDeliverables: ["brief.txt"], git });
+    expect(result.files[0]).toEqual({ path: "brief.txt", content: "approved version\nwith CRLF\n", encoding: "utf8" });
   });
 
   it.each(["truncated", "corrupt"])("rejects %s immutable blob transport", async (mode) => {

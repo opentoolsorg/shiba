@@ -159,6 +159,50 @@ export async function captureExpectedDeliverables(cloneDir, requested) {
   return files;
 }
 
+
+/**
+ * Validate one frozen expected-deliverable body with the same per-file and
+ * aggregate limits as the worktree preflight. The validator is stateful so
+ * large frozen blobs are checked one at a time rather than buffered together.
+ */
+export function createExpectedDeliverableValidator() {
+  let totalBytes = 0;
+  let largeBytes = 0;
+  let officeMediaBytes = 0;
+  return {
+    validate(relativePath, bytes) {
+      validateExpectedDeliverables([relativePath]);
+      if (!Buffer.isBuffer(bytes)) throw new Error("frozen deliverable bytes must be a Buffer");
+      const extension = path.extname(relativePath).slice(1).toLowerCase();
+      const officeMedia = officeMediaSignatures[extension];
+      const maxBytes = extension === "mp4" ? MAX_MP4_BYTES : officeMedia ? MAX_OFFICE_IMAGE_BYTES
+        : extension === "pdf" ? MAX_PDF_BYTES : extension === "html" ? MAX_HTML_BYTES : MAX_FILE_BYTES;
+      const length = bytes.length;
+      if (length === 0 || length > maxBytes) throw new Error(`file must contain 1–${maxBytes} bytes`);
+      if (extension === "html" || extension === "pdf") {
+        largeBytes += length;
+        if (largeBytes > MAX_LARGE_BYTES) throw new Error(`HTML and PDF deliverables exceed the ${MAX_LARGE_BYTES}-byte total limit`);
+      } else if (officeMedia) {
+        officeMediaBytes += length;
+        if (officeMediaBytes > MAX_OFFICE_MEDIA_TOTAL) throw new Error(`Office and media deliverables exceed the ${MAX_OFFICE_MEDIA_TOTAL}-byte total limit`);
+      } else {
+        totalBytes += length;
+        if (totalBytes > MAX_TOTAL_BYTES) throw new Error("deliverables exceed the 65536-byte total limit");
+      }
+      const signature = extension === "pdf" ? pdf : officeMedia;
+      if (signature) {
+        if (!signature(bytes)) throw new Error(`file is not a valid ${extension.toUpperCase()} file`);
+        return { path: relativePath, content: bytes.toString("base64"), encoding: "base64" };
+      }
+      const content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+      if (!content.trim() || containsBinaryControl(content)) {
+        throw new Error("file must contain nonblank UTF-8 text, not binary data");
+      }
+      return { path: relativePath, content, encoding: "utf8" };
+    },
+  };
+}
+
 /** Read one changed worktree file with symlink/hard-link containment (local daemon). */
 export async function readContainedChangedFile(cloneDir, relativePath, limits = {}) {
   const maxBytes = limits.maxBytes ?? 400_000;

@@ -1,7 +1,7 @@
 /** Dependency-free immutable publication capture for the local daemon. */
 import { createHash } from "node:crypto";
 import { TextDecoder } from "node:util";
-import { captureExpectedDeliverables, readContainedChangedFile } from "./local-deliverables.mjs";
+import { captureExpectedDeliverables, createExpectedDeliverableValidator, readContainedChangedFile } from "./local-deliverables.mjs";
 
 const MAX_FILES = 50;
 const MAX_FILE_BYTES = 100_000;
@@ -39,7 +39,9 @@ export async function collectLocalRepositorySnapshot({ cloneDir, baseRevision, e
   // refs cannot redirect their trees or blobs to other valid objects.
   const git = (args, maxBytes) => invokeGit(["--no-replace-objects", ...args], maxBytes);
   if (!/^[a-f0-9]{40}$/.test(baseRevision)) throw new Error("Repository capture requires an immutable base revision.");
-  const files = await captureExpectedDeliverables(cloneDir, expectedDeliverables);
+  // Keep the native link/containment checks before staging. Returned file bodies
+  // below come exclusively from the frozen Git tree, never this worktree read.
+  await captureExpectedDeliverables(cloneDir, expectedDeliverables);
   await git(["status", "--porcelain", "-z", "-uall"], 1_000_000);
   const pending = [...new Set([
     ...nulRecords(await git(["diff", "--name-only", "-z", "--no-renames", "--no-ext-diff", "--no-textconv", baseRevision, "--"], 1_000_000)),
@@ -77,29 +79,32 @@ export async function collectLocalRepositorySnapshot({ cloneDir, baseRevision, e
     changes.push({ path: name, objectId: deleted ? null : match[4] });
   }
   if (new Set([...requested, ...changes.map((change) => change.path)]).size > MAX_FILES) throw new Error("Repository checkpoint exceeds the 50-file limit; refusing to publish a partial tree.");
+  const files = [];
+  const validateFrozenExpected = createExpectedDeliverableValidator();
+  const MAX_FROZEN_EXPECTED_BYTES = 12 * 1024 * 1024;
   let totalBytes = 0;
-  async function capture(name, objectId) {
+  async function capture(name, objectId, required = false) {
     const sizeText = (await git(["cat-file", "-s", objectId], 1024)).toString("utf8");
     const size = Number(sizeText.trim());
-    if (!/^\d+\s*$/.test(sizeText) || !Number.isSafeInteger(size) || size > MAX_FILE_BYTES) {
+    const maxBytes = required ? MAX_FROZEN_EXPECTED_BYTES : MAX_FILE_BYTES;
+    if (!/^\d+\s*$/.test(sizeText) || !Number.isSafeInteger(size) || size > maxBytes) {
       throw new Error(`File ${name} exceeds its complete capture size limit.`);
     }
     const bytes = await git(["cat-file", "blob", objectId], size);
     const hash = createHash("sha1").update(`blob ${size}\0`).update(bytes).digest("hex");
     if (bytes.length !== size || hash !== objectId) throw new Error(`File ${name} has truncated or corrupt Git blob bytes.`);
-    totalBytes += size;
-    if (totalBytes > MAX_TOTAL_BYTES) throw new Error("Captured files exceed their complete byte limit.");
-    files.push({ path: name, ...textContent(bytes) });
+    if (!required) {
+      totalBytes += size;
+      if (totalBytes > MAX_TOTAL_BYTES) throw new Error("Captured files exceed their complete byte limit.");
+    }
+    files.push(required ? validateFrozenExpected.validate(name, bytes) : { path: name, ...textContent(bytes) });
   }
-  for (const file of files) {
-    const name = file.path;
+  for (const name of requested) {
     try {
       const entry = nulRecords(await git(["ls-tree", "-z", tree, "--", name], 4096));
       const match = entry.length === 1 && /^(100644|100755) blob ([a-f0-9]{40})\t(.+)$/.exec(entry[0]);
       if (!match || match[3] !== name) throw new Error("Expected a regular checkpoint file.");
-      const bytes = Buffer.from(file.content, file.encoding);
-      const hash = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
-      if (hash !== match[2]) throw new Error("Validated bytes do not match the frozen Git blob.");
+      await capture(name, match[2], true);
     } catch (error) {
       throw new Error(`Expected deliverable ${name} could not be captured: ${error.message}`);
     }
