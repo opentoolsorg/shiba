@@ -398,6 +398,9 @@ function ScopedCustomAgentsView({
   }, [initialTemplateId, editingId, busy, applyTemplate, onInitialTemplateApplied, form]);
 
   const resetForm = (discardDraft = false) => {
+    if (discardDraft && draftScope) {
+      try { localStorage.removeItem(`shiba-role-draft-v1:${draftScope}`); } catch { /* Storage is optional. */ }
+    }
     setPendingTemplate(null);
     setEditingId(null);
     setForm(discardDraft ? EMPTY_FORM : readRoleDraft(draftScope));
