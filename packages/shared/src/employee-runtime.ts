@@ -95,6 +95,7 @@ export interface EmployeeRuntimeState {
   messages: EmployeeRuntimeMessage[];
   memories: EmployeeRuntimeMemory[];
   executions: EmployeeRuntimeExecution[];
+  permissions?: { canRecover?: boolean };
 }
 
 export interface EmployeeRuntimeChatResponse {

@@ -150,6 +150,22 @@ describe("EmployeeRuntime Durable Object", () => {
     expect(db.prepare("SELECT COUNT(*) AS count FROM employee_runtime_messages WHERE conversation_id='default'").get()).toMatchObject({ count: 1 });
   });
 
+  it("scopes manager recovery to the requested conversation", async () => {
+    const { runtime, db } = fixture();
+    for (const conversationId of ["default", "other"]) {
+      db.prepare(`INSERT INTO employee_runtime_profiles(conversation_id,profile_json,updated_at) VALUES(?,?,1)`).run(conversationId, JSON.stringify(profile));
+      db.prepare(`INSERT INTO employee_runtime_messages(id,conversation_id,role,content,created_at) VALUES(?,?,?,?,1)`).run(`msg_${conversationId}`, conversationId, "user", "recover this");
+      db.prepare(`INSERT INTO employee_runtime_executions(id,conversation_id,mode,status,checkpoint,input_json,created_at,updated_at)
+        VALUES(?,?,'chat','running','inference',?,1,1)`).run(`run_${conversationId}`, conversationId, JSON.stringify({ userMessageId: `msg_${conversationId}` }));
+    }
+    const response = await runtime.onRequest(new Request("https://do/internal/employee-runtime/recover", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ conversationId: "default" }),
+    }));
+    expect(await response.json()).toMatchObject({ interrupted: 1, recovered: 1 });
+    expect(db.prepare("SELECT status FROM employee_runtime_executions WHERE id='run_default'").get()).toEqual({ status: "completed" });
+    expect(db.prepare("SELECT status FROM employee_runtime_executions WHERE id='run_other'").get()).toEqual({ status: "running" });
+  });
+
   it("does not cancel an execution from a different conversation", async () => {
     const { runtime, db } = fixture();
     db.prepare(`INSERT INTO employee_runtime_executions(id,conversation_id,mode,status,checkpoint,input_json,created_at,updated_at)

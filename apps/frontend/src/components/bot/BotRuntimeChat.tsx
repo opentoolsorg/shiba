@@ -40,6 +40,9 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId }: {
   const [pendingUser, setPendingUser] = useState<ChatMessage | null>(null);
   const [streamingText, setStreamingText] = useState("");
   const [activeExecution, setActiveExecution] = useState<EmployeeRuntimeExecution | null>(null);
+  const [executions, setExecutions] = useState<EmployeeRuntimeExecution[]>([]);
+  const [canRecover, setCanRecover] = useState(false);
+  const [recovering, setRecovering] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const draft = drafts[conversationId] ?? "";
   const [loading, setLoading] = useState(true);
@@ -63,6 +66,8 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId }: {
       if (!response.ok || !Array.isArray(body.messages)) throw new Error(body.error ?? `Runtime chat could not be loaded (${response.status}).`);
       if (request === loadRequest.current) {
         setMessages(body.messages.filter((message) => message.role === "user" || message.role === "assistant"));
+        setExecutions(Array.isArray(body.executions) ? body.executions : []);
+        setCanRecover(body.permissions?.canRecover === true);
       }
     } catch (cause) {
       if (request === loadRequest.current) setError(cause instanceof Error ? cause.message : "Runtime chat could not be loaded.");
@@ -76,6 +81,8 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId }: {
     setPendingUser(null);
     setStreamingText("");
     setActiveExecution(null);
+    setExecutions([]);
+    setCanRecover(false);
     void load();
   }, [load]);
 
@@ -128,6 +135,26 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId }: {
     }
   };
 
+  const recover = async () => {
+    setRecovering(true);
+    setError(null);
+    try {
+      const response = await fetch(runtimePath("/recover"), {
+        method: "POST", credentials: "same-origin",
+        headers: { "content-type": "application/json", ...teamWorkspaceHeaders(workspaceId) },
+        body: JSON.stringify({ conversationId }),
+      });
+      const payload = await response.json().catch(() => ({})) as { error?: string; failed?: number };
+      if (!response.ok) throw new Error(payload.error ?? `Recovery failed (${response.status}).`);
+      if (payload.failed) throw new Error("Interrupted work could not be recovered. Inspect the employee runtime execution state.");
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Recovery failed.");
+    } finally {
+      setRecovering(false);
+    }
+  };
+
   const cancel = async () => {
     if (!activeExecution) return;
     setError(null);
@@ -157,6 +184,16 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId }: {
       <p className="text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
         Lightweight Chat mode uses this employee's identity, instructions, and runtime memory directly. It does not create a repository, sandbox, or coding harness.
       </p>
+      {executions.some((execution) => execution.status === "interrupted") ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--border-1)] bg-[var(--warning-subtle)] px-3 py-2 text-[11px] text-[var(--fg)]">
+          <span>Interrupted runtime work needs recovery.</span>
+          {canRecover ? (
+            <button type="button" disabled={recovering || busy} onClick={() => void recover()} className="min-h-11 rounded-md border border-[var(--border-1)] px-3 font-medium disabled:opacity-50">
+              {recovering ? "Recovering…" : "Recover interrupted work"}
+            </button>
+          ) : <span className="text-[var(--muted-foreground-2)]">A manager can recover it.</span>}
+        </div>
+      ) : null}
       {error ? <p role="alert" className="text-[11px] text-[var(--destructive)]">{error}</p> : null}
       <div aria-live="polite" className="max-h-72 overflow-y-auto rounded-md border border-[var(--border-1)] bg-[var(--card)] p-3">
         {loading && visible.length === 0 ? <p role="status" className="text-[11px] text-[var(--muted-foreground-2)]">Loading runtime chat…</p> : null}

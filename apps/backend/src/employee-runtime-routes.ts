@@ -61,12 +61,14 @@ function decodeConversations(value: unknown): unknown {
   return value;
 }
 /** Internal storage keys must never become client conversation ids, and JSON stays valid for arbitrary client ids. */
-async function forwardConversation(response: Response): Promise<Response> {
+async function forwardConversation(response: Response, extra?: Record<string, unknown>): Promise<Response> {
   const headers = new Headers(response.headers);
   headers.set("Cache-Control", "no-store");
   headers.delete("content-length");
   try {
-    return new Response(JSON.stringify(decodeConversations(await response.json())), { status: response.status, statusText: response.statusText, headers });
+    const decoded = decodeConversations(await response.json());
+    const body = extra && decoded && typeof decoded === "object" && !Array.isArray(decoded) ? { ...decoded, ...extra } : decoded;
+    return new Response(JSON.stringify(body), { status: response.status, statusText: response.statusText, headers });
   } catch {
     return new Response(null, { status: response.status, statusText: response.statusText, headers });
   }
@@ -169,7 +171,7 @@ export async function handleEmployeeRuntimeRequest(
       const value = incoming.searchParams.get(key);
       if (value) url.searchParams.set(key, value);
     }
-    return forwardConversation(await stub.fetch(url));
+    return forwardConversation(await stub.fetch(url), { permissions: { canRecover: manager && !agent.archivedAt } });
   }
 
   if (action === "memory-search") {
@@ -251,7 +253,11 @@ export async function handleEmployeeRuntimeRequest(
   }
 
   if (action === "recover") {
-    return forward(await stub.fetch(internal, { method: "POST", body: "{}" }));
+    const parsed = employeeRuntimeConversationRequestSchema.safeParse(body);
+    const recoveryBody = parsed.success ? { conversationId: await scopedConversationId(actorIdentity, parsed.data.conversationId) } : {};
+    return forwardConversation(await stub.fetch(internal, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(recoveryBody),
+    }));
   }
 
   return json({ ok: false, error: "not_found" }, { status: 404 });

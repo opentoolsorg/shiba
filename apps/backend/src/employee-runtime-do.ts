@@ -102,7 +102,7 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
       if (url.pathname === `${PREFIX}/memory/delete` && request.method === "POST") return await this.deleteMemory(request);
       if (url.pathname === `${PREFIX}/memory/search` && request.method === "GET") return this.searchMemory(url);
       if (url.pathname === `${PREFIX}/cancel` && request.method === "POST") return await this.cancel(request);
-      if (url.pathname === `${PREFIX}/recover` && request.method === "POST") return this.recover();
+      if (url.pathname === `${PREFIX}/recover` && request.method === "POST") return this.recover(request);
       return json({ error: "Not found." }, { status: 404 });
     } catch (error) {
       if (error instanceof InputError) return bad(error);
@@ -350,15 +350,17 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
     return json({ execution: updated ?? execution, cancelled: true });
   }
 
-  private async recover(): Promise<Response> {
-    return json(await this.recoverInterrupted());
+  private async recover(request: Request): Promise<Response> {
+    const body = await bodyObject(request);
+    const conversationId = internalConversationIdSchema.parse(body.conversationId);
+    return json(await this.recoverInterrupted(conversationId));
   }
 
-  private async recoverInterrupted(): Promise<{ interrupted: number; recovered: number; completed: number; failed: number; skipped: number }> {
-    const interrupted = this.store.markInterruptedRunning(Date.now(), new Set(this.active.keys()));
+  private async recoverInterrupted(conversationId?: string): Promise<{ interrupted: number; recovered: number; completed: number; failed: number; skipped: number }> {
+    const interrupted = this.store.markInterruptedRunning(Date.now(), new Set(this.active.keys()), conversationId);
     let recovered = 0, completed = 0, failed = 0, skipped = 0;
     const seen = new Set<string>();
-    for (const execution of this.store.listExecutionsByStatus("interrupted", 100)) {
+    for (const execution of this.store.listExecutionsByStatus("interrupted", 100, conversationId)) {
       if (seen.has(execution.conversationId)) {
         this.store.updateExecution(execution.id, { status: "failed", checkpoint: "recovery_superseded", error: "A newer interrupted execution superseded this recovery." });
         skipped += 1;

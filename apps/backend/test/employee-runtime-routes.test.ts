@@ -136,7 +136,7 @@ describe("employee runtime routes", () => {
       agent.id,
       "state",
     );
-    expect(await response.json()).toMatchObject({ conversationId: "client-thread" });
+    expect(await response.json()).toMatchObject({ conversationId: "client-thread", permissions: { canRecover: true } });
     expect(calls).toHaveLength(1);
     expect(calls[0]?.url).not.toBe("https://internal/internal/employee-runtime/recover");
     expect(new URL(calls[0]!.url).searchParams.get("conversationId")).toMatch(/^u_[a-f0-9]{32}_[A-Za-z0-9_-]+$/);
@@ -155,6 +155,7 @@ describe("employee runtime routes", () => {
       "state",
     );
     expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ permissions: { canRecover: false } });
     expect(calls).toHaveLength(1);
     expect(calls[0]?.url).not.toBe("https://internal/internal/employee-runtime/recover");
     expect(new URL(calls[0]!.url).searchParams.get("conversationId")).toMatch(/^u_[a-f0-9]{32}_[A-Za-z0-9_-]+$/);
@@ -199,6 +200,18 @@ describe("employee runtime routes", () => {
     const response = await handleCustomAgents(post(`/${agent.id}/runtime/clear`, { conversationId: "private-thread" }), env);
     expect(response?.status).toBe(200);
     expect(calls[0]?.url).toBe("https://internal/internal/employee-runtime/clear");
+    const forwarded = JSON.parse(String(calls[0]?.init?.body)) as { conversationId: string };
+    expect(forwarded.conversationId).toMatch(/^u_[a-f0-9]{32}_[A-Za-z0-9_-]+$/);
+    expect(forwarded.conversationId).not.toBe("private-thread");
+  });
+
+  it("scopes manager recovery to the requested client conversation", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const env = runtimeEnv(calls);
+    const agent = await createCustomAgent(env, "self-hosted", "recover-scout", { name: "Scout", instructions: "Answer carefully." });
+    const response = await handleCustomAgents(post(`/${agent.id}/runtime/recover`, { conversationId: "private-thread" }), env);
+    expect(response?.status).toBe(200);
+    expect(calls[0]?.url).toBe("https://internal/internal/employee-runtime/recover");
     const forwarded = JSON.parse(String(calls[0]?.init?.body)) as { conversationId: string };
     expect(forwarded.conversationId).toMatch(/^u_[a-f0-9]{32}_[A-Za-z0-9_-]+$/);
     expect(forwarded.conversationId).not.toBe("private-thread");

@@ -98,6 +98,31 @@ describe("BotRuntimeChat", () => {
     expect(calls.some((path) => path.includes("/runtime/chat/stream"))).toBe(false);
   });
 
+  it("recovers interrupted work against the selected thread", async () => {
+    let recovered = false;
+    const recoverBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.includes("/runtime/state")) {
+        return json({
+          conversationId: "thread-1", messages: [user], memories: [],
+          executions: recovered ? [] : [{ ...execution, status: "interrupted", checkpoint: "recovery_required" }],
+          permissions: { canRecover: true },
+        });
+      }
+      if (path.includes("/runtime/recover")) {
+        recoverBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        recovered = true;
+        return json({ interrupted: 1, recovered: 1, completed: 0, failed: 0, skipped: 0 });
+      }
+      throw new Error(`unexpected fetch ${path}`);
+    }));
+    render(<BotRuntimeChat agentId="agent-1" conversationId="thread-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Recover interrupted work" }));
+    await waitFor(() => expect(recoverBodies).toEqual([{ conversationId: "thread-1" }]));
+    await waitFor(() => expect(screen.queryByText("Interrupted runtime work needs recovery.")).toBeNull());
+  });
+
   it("cancels the active streamed execution against the exact thread", async () => {
     const streamControl: { current: ReadableStreamDefaultController<Uint8Array> | null } = { current: null };
     const cancelBodies: Array<Record<string, unknown>> = [];

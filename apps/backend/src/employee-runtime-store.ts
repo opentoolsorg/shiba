@@ -279,11 +279,17 @@ export class EmployeeRuntimeStore {
     ).map(rowToExecution);
   }
 
-  listExecutionsByStatus(status: EmployeeRuntimeExecution["status"], limit = 100): EmployeeRuntimeExecution[] {
-    return this.exec(
-      `SELECT * FROM employee_runtime_executions WHERE status=? ORDER BY created_at DESC, rowid DESC,id DESC LIMIT ?`,
-      status, Math.max(1, Math.min(500, Math.floor(limit))),
-    ).map(rowToExecution);
+  listExecutionsByStatus(status: EmployeeRuntimeExecution["status"], limit = 100, conversationId?: string): EmployeeRuntimeExecution[] {
+    const boundedLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+    return (conversationId
+      ? this.exec(
+        `SELECT * FROM employee_runtime_executions WHERE status=? AND conversation_id=? ORDER BY created_at DESC, rowid DESC,id DESC LIMIT ?`,
+        status, cleanId(conversationId, "conversationId"), boundedLimit,
+      )
+      : this.exec(
+        `SELECT * FROM employee_runtime_executions WHERE status=? ORDER BY created_at DESC, rowid DESC,id DESC LIMIT ?`,
+        status, boundedLimit,
+      )).map(rowToExecution);
   }
 
   executionInputJson(executionId: string): string | null {
@@ -299,8 +305,10 @@ export class EmployeeRuntimeStore {
     return this.getExecution(executionId)?.error === claimToken;
   }
 
-  markInterruptedRunning(now = Date.now(), excludeIds: ReadonlySet<string> = new Set()): number {
-    const rows = this.exec(`SELECT id FROM employee_runtime_executions WHERE status='running'`)
+  markInterruptedRunning(now = Date.now(), excludeIds: ReadonlySet<string> = new Set(), conversationId?: string): number {
+    const rows = (conversationId
+      ? this.exec(`SELECT id FROM employee_runtime_executions WHERE status='running' AND conversation_id=?`, cleanId(conversationId, "conversationId"))
+      : this.exec(`SELECT id FROM employee_runtime_executions WHERE status='running'`))
       .filter((row) => !excludeIds.has(String(row.id)));
     for (const row of rows) {
       this.updateExecution(String(row.id), { status: "interrupted", checkpoint: "recovery_required", error: "Execution was interrupted before completion.", now });
