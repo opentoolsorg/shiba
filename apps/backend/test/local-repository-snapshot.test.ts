@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { link, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -93,6 +94,17 @@ describe("local immutable repository capture", () => {
       return output;
     } });
     expect(result.files[0]).toEqual({ path: "brief.md", content: "# Approved settled brief\n", encoding: "utf8" });
+  });
+
+  it("materializes a checksummed Git LFS deliverable instead of returning its pointer", async () => {
+    const content = "account,total\ninfra,42\n";
+    const oid = createHash("sha256").update(content).digest("hex");
+    const objectPath = path.join(root, ".git", "lfs", "objects", oid.slice(0, 2), oid.slice(2, 4));
+    await mkdir(objectPath, { recursive: true });
+    await writeFile(path.join(objectPath, oid), content);
+    await writeFile(path.join(root, "report.csv"), `version https://git-lfs.github.com/spec/v1\noid sha256:${oid}\nsize ${content.length}\n`);
+    const result = await collectLocalRepositorySnapshot({ cloneDir: root, baseRevision, expectedDeliverables: ["report.csv"], git });
+    expect(result.files[0]).toEqual({ path: "report.csv", content, encoding: "utf8" });
   });
 
   it("captures normalized text bytes from the frozen tree", async () => {

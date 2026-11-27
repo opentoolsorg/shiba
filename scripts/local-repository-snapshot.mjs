@@ -1,5 +1,8 @@
 /** Dependency-free immutable publication capture for the local daemon. */
 import { createHash } from "node:crypto";
+import { constants } from "node:fs";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { TextDecoder } from "node:util";
 import { captureExpectedDeliverables, createExpectedDeliverableValidator, readContainedChangedFile } from "./local-deliverables.mjs";
 
@@ -30,6 +33,48 @@ function textContent(bytes) {
     return { content: text, encoding: "utf8" };
   } catch {
     return { content: bytes.toString("base64"), encoding: "base64" };
+  }
+}
+
+
+function lfsPointer(bytes) {
+  if (bytes.length > 1024) return null;
+  let text;
+  try { text = decoder().decode(bytes); } catch { return null; }
+  const match = /^version https:\/\/git-lfs\.github\.com\/spec\/v1\noid sha256:([a-f0-9]{64})\nsize ([0-9]+)\n?$/.exec(text);
+  if (!match) return null;
+  const size = Number(match[2]);
+  return Number.isSafeInteger(size) ? { oid: match[1], size } : null;
+}
+
+async function readLfsObject(git, cloneDir, pointer, maxBytes) {
+  if (pointer.size > maxBytes) throw new Error("Git LFS object exceeds its complete capture size limit.");
+  const commonText = (await git(["rev-parse", "--git-common-dir"], 1024)).toString("utf8").trim();
+  if (!commonText || commonText.includes("\n") || commonText.includes("\0")) throw new Error("Git did not return one common object directory.");
+  const gitDir = path.resolve(cloneDir, commonText);
+  const objectPath = path.join(gitDir, "lfs", "objects", pointer.oid.slice(0, 2), pointer.oid.slice(2, 4), pointer.oid);
+  const realGitDir = await fs.realpath(gitDir);
+  const realObjectPath = await fs.realpath(objectPath);
+  const relative = path.relative(realGitDir, realObjectPath);
+  if (relative === "" || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error("Git LFS object escapes the repository object store.");
+  }
+  const handle = await fs.open(realObjectPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.size !== pointer.size) throw new Error("Git LFS object is missing or has the wrong size.");
+    const bytes = Buffer.alloc(pointer.size);
+    let length = 0;
+    while (length < bytes.length) {
+      const read = await handle.read(bytes, length, bytes.length - length, length);
+      if (read.bytesRead === 0) break;
+      length += read.bytesRead;
+    }
+    if (length !== pointer.size) throw new Error("Git LFS object is truncated.");
+    if (createHash("sha256").update(bytes).digest("hex") !== pointer.oid) throw new Error("Git LFS object digest does not match its pointer.");
+    return bytes;
+  } finally {
+    await handle.close();
   }
 }
 
@@ -97,7 +142,8 @@ export async function collectLocalRepositorySnapshot({ cloneDir, baseRevision, e
       totalBytes += size;
       if (totalBytes > MAX_TOTAL_BYTES) throw new Error("Captured files exceed their complete byte limit.");
     }
-    files.push(required ? validateFrozenExpected.validate(name, bytes) : { path: name, ...textContent(bytes) });
+    const materialized = required && lfsPointer(bytes) ? await readLfsObject(git, cloneDir, lfsPointer(bytes), maxBytes) : bytes;
+    files.push(required ? validateFrozenExpected.validate(name, materialized) : { path: name, ...textContent(bytes) });
   }
   for (const name of requested) {
     try {
