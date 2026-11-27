@@ -114,7 +114,7 @@ Phase boundaries preserve precedence: `capability` runs before identity verifica
 | filesResponse | model | `*` | `^/api/files` | session |  |
 | notesResponse | model | `*` | `^/api/notes` | session |  |
 | knowledgeResponse | model | `*` | `^/api/knowledge/search$` | session |  |
-| projectsResponse | model | `*` | `^/api/projects$` | session |  |
+| projectsResponse | model | `*` | `^/api/projects(?:/.*)?$` | session |  |
 | outputsResponse | model | `*` | `^/api/outputs` | session |  |
 | auditResponse | model | `*` | `^/api/audit$` | session |  |
 | sandboxRouteResponse | model | `*` | `^/api/sandboxes/` | session |  |
