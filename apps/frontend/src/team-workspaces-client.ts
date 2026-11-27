@@ -205,6 +205,7 @@ export function useTeamWorkspaceDirectory({
         )
           return previous;
         remember(scope, id);
+        if (id) rememberLastTeamWorkspace(scope, id);
         rememberRevoked(scope, "");
         return { ...previous, verified: true, selectedWorkspaceId: id, error: null };
       });

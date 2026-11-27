@@ -26,7 +26,7 @@ import { RoomExecutionPanel } from "./components/RoomExecutionPanel";
 import { RoomApprovalReview } from "./components/RoomApprovalReview";
 import { TeamWorkspaceView } from "./components/TeamWorkspaceView";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
-import { lastTeamWorkspace, rememberLastTeamWorkspace, useTeamWorkspaceDirectory } from "./team-workspaces-client";
+import { lastTeamWorkspace, useTeamWorkspaceDirectory } from "./team-workspaces-client";
 import { useWorkTasks } from "./work-mutations";
 import { useFirstRunSeed } from "./first-run-seed";
 import { AnalyticsView } from "./components/AnalyticsView";
@@ -976,11 +976,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   useEffect(() => {
     if (mainView === "settings" && teamWorkspaceId) setSettingsSection("team");
   }, [mainView, teamWorkspaceId]);
-  // The directory forgets its selection when switching to Personal; keep only a server-verified team separately for the Workspace tab.
-  useEffect(() => {
-    if (teamWorkspaceId && orchestratorName && teamDirectory.workspaces.some((item) => item.workspaceId === teamWorkspaceId))
-      rememberLastTeamWorkspace(orchestratorName.trim().toLowerCase(), teamWorkspaceId);
-  }, [teamWorkspaceId, orchestratorName, teamDirectory.workspaces]);
   const teamWorkspace = teamDirectory.workspaces.find(item => item.workspaceId === teamWorkspaceId);
   useEffect(() => {
     setMailboxCounts({});
