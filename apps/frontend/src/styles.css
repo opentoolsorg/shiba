@@ -1314,6 +1314,7 @@ select:focus-visible,
   .note-page[data-layout="panel"] { --note-gutter: 28px; }
 }
 
+.note-writing-surface { font-size: var(--note-size, 16px); line-height: 1.65; }
 .note-writing-surface .ProseMirror > * + * { margin-top: 0.75em; }
 .note-writing-surface h1 { font-size: 2em; font-weight: 700; }
 .note-writing-surface h2 { font-size: 1.5em; font-weight: 600; }

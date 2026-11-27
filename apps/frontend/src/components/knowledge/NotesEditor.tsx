@@ -407,7 +407,7 @@ export function NotesEditor({ workspaceId = null, workspaceRole, actorId, onNavi
           </label>
           <div className="max-h-48 overflow-y-auto p-2 md:max-h-none md:flex-1">
             {loading && !notes.length ? <div role="status" aria-label="Loading notes" className="space-y-2 p-2">{[0, 1, 2].map((i) => <div key={i} className="h-6 rounded-md bg-[var(--surface-subtle)] motion-safe:animate-pulse" />)}</div> : notes.length ? <ul className="space-y-0.5">{notes.map((note) => <li key={note.id} className={pendingIds.has(note.id) ? "opacity-60" : undefined} aria-busy={pendingIds.has(note.id)}>
-              <button type="button" disabled={note.id.startsWith("pending:")} aria-current={activeId === note.id ? "page" : undefined} onClick={() => void openNote(note)} className={`w-full truncate rounded-md px-2.5 py-1.5 text-left text-xs ${activeId === note.id ? "bg-[var(--surface-subtle)] text-[var(--fg)]" : "text-[var(--knowledge-muted)] hover:bg-[var(--surface-subtle)]"}`}>{note.title || "Untitled"}</button>
+              <button type="button" disabled={note.id.startsWith("pending:")} aria-current={activeId === note.id ? "page" : undefined} onClick={() => void openNote(note)} className={`w-full truncate rounded-[6px] px-2.5 py-1.5 text-left text-xs ${activeId === note.id ? "bg-[var(--surface-subtle)] text-[var(--fg)]" : "text-[var(--knowledge-muted)] hover:bg-[var(--surface-subtle)]"}`}>{note.title || "Untitled"}</button>
             </li>)}</ul> : <p className="p-2 text-xs text-[var(--knowledge-muted)]">No notes yet</p>}
           </div>
         </aside>
@@ -427,7 +427,7 @@ export function NotesEditor({ workspaceId = null, workspaceRole, actorId, onNavi
           {activeId && editor ? <NoteDocument editor={editor} notes={notes} title={title} loading={bodyLoading} saveStatus={activeId && notes.find((note) => note.id === activeId && !canWriteNote(note)) ? "Read-only" : saveStatus} readOnly={Boolean(activeId && notes.find((note) => note.id === activeId && !canWriteNote(note)))}
             chatOpen={chatOpen} onToggleChat={() => setChatOpen((open) => !open)}
             onTitleChange={(value) => { setTitle(value); markDirty(); }} onSave={async () => { await saveDraft(); }} /> : <div className="flex flex-1 items-center justify-center px-6 py-16 text-center"><div>
-              <h1 className="mb-2 text-3xl font-normal" style={{ fontFamily: "var(--font-serif, Georgia, serif)" }}>notes</h1>
+              <h1 className="mb-2 text-3xl font-normal" style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}>notes</h1>
               <p className="mb-4 text-sm text-[var(--knowledge-muted)]">Select a note or create a new one</p>
               <button type="button" disabled={creating} onClick={() => void newNote()} className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-1)] px-3 py-2 text-sm"><Plus size={14} /> New Note</button>
             </div></div>}

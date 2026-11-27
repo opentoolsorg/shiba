@@ -56,7 +56,7 @@ export function NoteDocument({ editor, notes, title, loading, saveStatus, readOn
             }
           }} />
         <p className="mb-7 text-[12.5px] text-[var(--muted-light)]">{editor.getText().trim().split(/\s+/).filter(Boolean).length} words</p>
-        <EditorContent editor={editor} data-testid="composer" className="note-writing-surface text-[var(--note-size,16px)] leading-[1.65] [&_.ProseMirror]:min-h-[18rem] [&_.ProseMirror]:outline-none" />
+        <EditorContent editor={editor} data-testid="composer" className="note-writing-surface [&_.ProseMirror]:min-h-[18rem] [&_.ProseMirror]:outline-none" />
       </div>}
     </div>
     {!loading && <NoteSuggestions editor={editor} notes={notes} />}
