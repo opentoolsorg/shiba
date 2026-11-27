@@ -7,6 +7,7 @@ import type { OpenCodeAgent } from "./agents/opencode-agent.js";
 import type { CodingOrchestrator } from "./agents/orchestrator.js";
 import type { Sandbox } from "./sandbox.js";
 import type { ConversationRoom } from "./conversation-room-do.js";
+import type { EmployeeRuntime } from "./employee-runtime-do.js";
 
 export interface Env {
   /** Opt in to workspace or owner scoped Durable Object names during migration. */
@@ -32,6 +33,8 @@ export interface Env {
   CodingOrchestrator: DurableObjectNamespace<CodingOrchestrator>;
   /** Per-owner, per-session live viewer presence and persisted chat stream deltas. */
   ConversationRoom: DurableObjectNamespace<ConversationRoom>;
+  /** Provider-independent per-employee runtime coordination boundary. */
+  EmployeeRuntime?: DurableObjectNamespace<EmployeeRuntime>;
   BrowserSession?: DurableObjectNamespace<import("./tools/browser-session-do.js").BrowserSession>;
   OpenCodeAgent: DurableObjectNamespace<OpenCodeAgent>;
   Sandbox: DurableObjectNamespace<Sandbox>;

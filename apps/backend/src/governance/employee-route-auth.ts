@@ -11,6 +11,7 @@ import { employeeAccessDenial, resolveEmployeeAccess } from "./employee-access.j
 type Route = { path: RegExp; required: (method: string) => EmployeeAccessLevel; source: "path" | "body" | "handoff" | "turn" | "turn-body" | "session"; bodyKey?: "recipientActorId" | "metadata" | "customAgentId" };
 const settings = (method: string): EmployeeAccessLevel => ["GET", "HEAD"].includes(method) ? "view" : "manage";
 export const employeeRouteAuth: readonly Route[] = [
+  { path: /^\/api\/custom-agents\/([^/]+)\/runtime\/(chat|state|memory|memory\/search|cancel|recover)\/?$/, required: (method) => method === "GET" ? "view" : "chat", source: "path" },
   { path: /^\/api\/custom-agents\/([^/]+)(?:\/.*)?$/, required: settings, source: "path" },
   { path: /^\/api\/employee-tools\/(?!approvals(?:\/|$))([^/]+)\/(policy|call)\/?$/, required: settings, source: "path" },
   { path: /^\/api\/governance\/employees\/([^/]+)\/access\/?$/, required: settings, source: "path" },

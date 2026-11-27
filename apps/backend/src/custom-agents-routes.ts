@@ -15,6 +15,7 @@ import { resolveHarness } from "./harness/index.js";
 import { resolveUserId } from "./request-auth.js";
 import { recordEmployeeBundleProfileOwner } from "./employee-bundles-store.js";
 import { visibleEmployees } from "./governance/employee-access.js";
+import { handleEmployeeRuntimeRequest } from "./employee-runtime-routes.js";
 
 function publicAgent(record: Awaited<ReturnType<typeof listCustomAgents>>[number]) {
   return {
@@ -36,10 +37,6 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
   if (!url.pathname.startsWith("/api/custom-agents")) return null;
   const auth = await resolveOrgForApiRequest(request, env, { allowMemberWrite: Boolean(url.pathname.match(/^\/api\/custom-agents\/[^/]+/)) });
   if (auth instanceof Response) return auth;
-  // Only explicit lifecycle suffixes are supported. An unknown suffix must
-  // never turn DELETE /:id/unknown into deletion of the real agent.
-  const route = url.pathname.match(/^\/api\/custom-agents(?:\/([^/]+)(?:\/(archive|restore))?)?\/?$/);
-  if (!route) return Response.json({ ok: false, error: "not_found" }, { status: 404 });
   if (!env.AGENT_AUDIT) {
     return Response.json({ ok: false, error: "AGENT_AUDIT D1 binding is not configured." }, { status: 503 });
   }
@@ -56,6 +53,23 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
     }
   }
 
+  const runtimeRoute = url.pathname.match(/^\/api\/custom-agents\/([^/]+)\/runtime\/(chat|state|memory|memory\/search|cancel|recover)\/?$/);
+  if (runtimeRoute) {
+    let runtimeAgentId: string;
+    try {
+      runtimeAgentId = decodeURIComponent(runtimeRoute[1]!);
+    } catch {
+      return Response.json({ ok: false, error: "invalid_agent_id" }, { status: 400 });
+    }
+    if (/[/\\]/.test(runtimeAgentId)) return Response.json({ ok: false, error: "invalid_agent_id" }, { status: 400 });
+    const action = runtimeRoute[2] === "memory/search" ? "memory-search" : runtimeRoute[2]!;
+    return handleEmployeeRuntimeRequest(request, env, auth.orgId, runtimeAgentId, action);
+  }
+
+  // Only explicit lifecycle suffixes are supported. An unknown suffix must
+  // never turn DELETE /:id/unknown into deletion of the real agent.
+  const route = url.pathname.match(/^\/api\/custom-agents(?:\/([^/]+)(?:\/(archive|restore))?)?\/?$/);
+  if (!route) return Response.json({ ok: false, error: "not_found" }, { status: 404 });
   let agentId: string | null = null;
   if (route[1]) {
     try {

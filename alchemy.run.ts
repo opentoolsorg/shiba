@@ -59,6 +59,7 @@ import type { Waitlist } from "./apps/backend/src/waitlist-do.js";
 import type { Spaces } from "./apps/backend/src/spaces-do.js";
 import type { ConversationRoom } from "./apps/backend/src/conversation-room-do.js";
 import type { WorkspaceEvents } from "./apps/backend/src/platform/workspace-events-do.js";
+import type { EmployeeRuntime } from "./apps/backend/src/employee-runtime-do.js";
 import type { DiscordGateway } from "./apps/backend/src/discord-gateway-do.js";
 import type { ModelConfig } from "./apps/backend/src/model-config-do.js";
 
@@ -293,6 +294,9 @@ export const Worker = Cloudflare.Worker("Worker", {
     }),
     WorkspaceEvents: Cloudflare.DurableObject<WorkspaceEvents>("WorkspaceEvents", {
       className: "WorkspaceEvents",
+    }),
+    EmployeeRuntime: Cloudflare.DurableObject<EmployeeRuntime>("EmployeeRuntime", {
+      className: "EmployeeRuntime",
     }),
     DISCORD_GATEWAY: Cloudflare.DurableObject<DiscordGateway>("DiscordGateway", {
       className: "DiscordGateway",

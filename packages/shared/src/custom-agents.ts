@@ -141,6 +141,8 @@ export interface CustomAgentConfig {
    * link cannot widen who may read it.
    */
   libraryFileIds?: readonly string[];
+  /** Provider-independent conversational/runtime model; falls back to deployment default when unset. */
+  model?: string;
   harness: string;
   codingModel?: string;
   connectionId?: string;
