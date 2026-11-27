@@ -207,6 +207,10 @@ export const handlers = {
     const { request, env } = context;
     return handleTeamWork(request, env);
   },
+  async chiefOfStaffResponse(context: RequestContext): Promise<Response | null> {
+    const { request, env } = context;
+    return (await import("../chief-of-staff-name-routes.js")).handleChiefOfStaffName(request, env);
+  },
   async primaryBotResponse(context: RequestContext): Promise<Response | null> {
     const { request, env } = context;
     return handlePrimaryBot(request, env);

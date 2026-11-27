@@ -379,6 +379,31 @@ describe("CodingOrchestrator internal web-sessions handler and teardown", () => 
     return orchestrator;
   }
 
+  it("PATCH paused:true sets pausedAt, paused:false clears it, other patches keep it", async () => {
+    const session = createWebSession("alice", { name: "Thread" });
+    const orchestrator = createTestOrchestrator([session]);
+    const patch = async (body: unknown) => ((await (await orchestrator.onRequest(
+      new Request(`https://internal/internal/web-sessions/${session.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      }),
+    )).json()) as { session: WebSessionRecord }).session;
+
+    expect((await patch({ paused: true })).pausedAt).toBeGreaterThan(0);
+    expect((await patch({ name: "Renamed" })).pausedAt).toBeGreaterThan(0);
+    expect((await patch({ paused: false })).pausedAt).toBeUndefined();
+  });
+
+  it("refuses new runs with 409 thread_paused while paused and leaves in-flight runs alone", async () => {
+    const orchestrator = createTestOrchestrator([]);
+    Object.assign(orchestrator, { sessionPaused: async () => true });
+    for (const path of ["/api/runs", "/api/runs/run_1/steer", "/api/runs/run_1/fork", "/api/runs/subagents/spawn", "/api/runs/run_1/subagents", "/api/runs/run_1/review", "/api/runs/run_1/review/retry", "/api/runs/run_1/review-loop", "/api/runs/run_1/deliverables/0/revision", "/api/tasks/t1/retry"]) {
+      const res = await orchestrator.onRequest(new Request(`https://internal${path}`, { method: "POST", body: "{}" }));
+      expect(res.status, path).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toBe("thread_paused");
+    }
+    expect((orchestrator.state as OrchestratorState).runs).toEqual([]);
+  });
+
   it("handles GET /internal/web-sessions", async () => {
     const session = createWebSession("alice", { name: "Test" });
     const orchestrator = createTestOrchestrator([session]);

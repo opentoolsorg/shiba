@@ -5,6 +5,8 @@ interface ShellNavigation {
   activeView: AppNavView;
   onNavigate: (view: AppNavView) => void;
   pendingApprovalCount: number;
+  /** Limits the listed destinations (team scope); omitted means all. */
+  visibleViews?: readonly AppNavView[];
 }
 const ShellNavigationContext = createContext<ShellNavigation | null>(null);
 
@@ -24,12 +26,14 @@ export function AppAreaNavigation() {
   const shell = useContext(ShellNavigationContext);
   if (!shell) return null;
   const area = areaForView(shell.activeView);
+  const views = area.views.filter((view) => !shell.visibleViews || shell.visibleViews.includes(view));
+  if (views.length === 0) return null;
   return (
     <nav aria-label={`${area.label} destinations`} className="shiba-area-navigation">
       <p className="px-2 pb-1 text-xs font-semibold text-[var(--muted-foreground-2)]">
         {area.label}
       </p>
-      {area.views.map((view) => (
+      {views.map((view) => (
         <button
           type="button"
           key={view}

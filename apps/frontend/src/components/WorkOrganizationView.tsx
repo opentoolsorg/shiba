@@ -4,6 +4,7 @@ import type { JSX } from "react";
 import { employeeRole, employeeRoleLabel } from "../employee-templates";
 import { avatarStatusFromTask } from "../agent-mascots";
 import { AgentAvatar } from "./AgentAvatar";
+import { ChiefRenameForm } from "./ChiefRenameForm";
 import { SHIBA_BRAND_LOOK } from "./ShibaMark";
 
 export interface OrganizationEmployee {
@@ -52,6 +53,8 @@ export interface WorkOrganizationViewProps {
   user?: OrganizationUser;
   /** Name of the workspace chief of staff; defaults to "Shiba". */
   chiefName?: string;
+  /** Persists a new chief name; omit unless the viewer may manage the chief. */
+  onRenameChief?: (name: string) => Promise<void>;
   className?: string;
 }
 
@@ -101,6 +104,7 @@ export function WorkOrganizationView({
   onOpenOutputs,
   user,
   chiefName = "Shiba",
+  onRenameChief,
   className = "",
 }: WorkOrganizationViewProps): JSX.Element {
   const userName = user?.name?.trim();
@@ -143,6 +147,7 @@ export function WorkOrganizationView({
             </div>
             <p className={`truncate text-xs ${MUTED}`}>{workspaceLabel}</p>
             <p className={`truncate text-xs ${MUTED}`}>Workspace chief of staff</p>
+            {onRenameChief ? <ChiefRenameForm key={chiefName} name={chiefName} onSave={onRenameChief} /> : null}
             {onOpenChief ? <button type="button" onClick={onOpenChief} className="mt-1 inline-flex min-h-11 items-center text-xs text-[var(--primary)] underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">Open conversation</button> : null}
             {onOpenChiefPage ? <button type="button" onClick={onOpenChiefPage} className="ml-3 mt-1 inline-flex min-h-11 items-center text-xs text-[var(--primary)] underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">Chief of Staff page</button> : null}
           </div>

@@ -355,7 +355,7 @@ describe("end-to-end session flow", () => {
     expect(whoami.status).toBe(200);
     expect(whoami.headers.get("Server-Timing")).toMatch(/total;dur=\d+, auth;dur=\d+, db;dur=\d+;desc="n=\d+"/);
     const identity = (await whoami.json()) as { agent: string; auth: string };
-    expect(identity).toEqual({ agent: "owner@example.com", auth: "better-auth" });
+    expect(identity).toEqual({ agent: "owner@example.com", auth: "better-auth", emailVerified: false });
 
     // Sign-out revokes the session — the gate locks again.
     const out = await handleBetterAuth(

@@ -13,6 +13,7 @@ export function ChatMessageComposer({
   onStop,
   onRetry,
   busy,
+  locked = false,
   streaming,
   failed,
   placeholder = "What do you want to get done?",
@@ -34,6 +35,8 @@ export function ChatMessageComposer({
   onStop: () => void;
   onRetry: () => void;
   busy: boolean;
+  /** Locks the textarea (e.g. a paused thread); busy alone still lets a draft be typed. */
+  locked?: boolean;
   streaming: boolean;
   failed: boolean;
   placeholder?: string;
@@ -88,7 +91,7 @@ export function ChatMessageComposer({
           rows={3}
           maxLength={8000}
           className="w-full resize-none bg-transparent px-2 py-1 text-sm text-[var(--fg)] placeholder:text-[var(--muted-foreground-3)] focus:outline-none disabled:opacity-60 min-h-[72px]"
-          disabled={streaming}
+          disabled={streaming || locked}
         />
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 pt-1 [@container(min-width:42rem)]:flex">
           <div className="flex min-w-0 flex-wrap items-center gap-2">

@@ -115,6 +115,40 @@ describe("custom agent archive and version HTTP contracts", () => {
     expect((await getCustomAgentById(bindings, "self-hosted", created.id))?.version).toBe(1);
   });
 
+  it("validates reportsTo agents: missing, archived, self, cycle, and a valid manager", async () => {
+    authState.dashboard = true;
+    const bindings = env();
+    const boss = await createCustomAgent(bindings, "self-hosted", "boss", config);
+    const mid = await createCustomAgent(bindings, "self-hosted", "mid", { ...config, reportsTo: { kind: "agent", agentId: boss.id } });
+    const gone = await createCustomAgent(bindings, "self-hosted", "gone", config);
+    await handleCustomAgents(request(`/${gone.id}/archive`, "POST"), bindings);
+    const to = (agentId: string) => ({ ...config, reportsTo: { kind: "agent", agentId } });
+    const status = async (path: string, method: string, body: unknown) => {
+      const res = await handleCustomAgents(request(path, method, body), bindings);
+      return { code: res?.status, body: await res?.json() as { error?: string } };
+    };
+    expect((await status("", "POST", { slug: "x1", config: to("cag-missing") })).code).toBe(400);
+    expect((await status("", "POST", { slug: "x2", config: to(gone.id) })).code).toBe(400);
+    expect((await status(`/${boss.id}`, "PATCH", { config: to(boss.id), expectedVersion: 1 })).body.error).toBe("invalid_reports_to");
+    expect((await status(`/${boss.id}`, "PATCH", { config: to(mid.id), expectedVersion: 1 })).code).toBe(400);
+    expect((await status("", "POST", { slug: "x3", config: to(mid.id) })).code).toBe(201);
+    expect((await status(`/${boss.id}`, "PATCH", { config: { ...config, reportsTo: { kind: "user", userId: "owner@example.test" } }, expectedVersion: 1 })).code).toBe(200);
+  });
+
+  it("skips reportsTo validation when unchanged, but rejects newly pointing at an archived manager", async () => {
+    authState.dashboard = true;
+    const bindings = env();
+    const boss = await createCustomAgent(bindings, "self-hosted", "boss", config);
+    const reportsTo = { kind: "agent" as const, agentId: boss.id };
+    const report = await createCustomAgent(bindings, "self-hosted", "report", { ...config, reportsTo });
+    const other = await createCustomAgent(bindings, "self-hosted", "other", config);
+    await handleCustomAgents(request(`/${boss.id}/archive`, "POST"), bindings);
+    const rename = await handleCustomAgents(request(`/${report.id}`, "PATCH", { config: { ...config, name: "Renamed", reportsTo }, expectedVersion: 1 }), bindings);
+    expect(rename?.status).toBe(200);
+    const repoint = await handleCustomAgents(request(`/${other.id}`, "PATCH", { config: { ...config, reportsTo }, expectedVersion: 1 }), bindings);
+    expect(repoint?.status).toBe(400);
+  });
+
   it("rejects unsupported tool scopes without erasing legacy stored scopes", async () => {
     authState.dashboard = true;
     const bindings = env();

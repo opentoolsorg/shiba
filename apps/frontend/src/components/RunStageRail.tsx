@@ -17,7 +17,7 @@ const DOT: Record<StageState, string> = {
   blocked: "bg-[var(--destructive)]",
 };
 
-/** Maps recorded approval and run status to the Request → Approval → Execution → Evidence rail. */
+/** Maps recorded approval and run status to the Task brief → Review → Execution → Results rail. */
 export function runStages({ approval, runStatus, queued = false }: { approval?: StageApproval; runStatus?: string; queued?: boolean }): RunStage[] {
   const approvalStage: Omit<RunStage, "label"> =
     approval === "approved" ? { state: "done", note: "Approved" }
@@ -31,10 +31,10 @@ export function runStages({ approval, runStatus, queued = false }: { approval?: 
     : queued ? { state: "current", note: "Queued" }
     : { state: "upcoming", note: approval === "rejected" ? "Will not run" : "Not started" };
   return [
-    { label: "Request", state: "done", note: "Recorded" },
-    { label: "Approval", ...approvalStage },
+    { label: "Task brief", state: "done", note: "Recorded" },
+    { label: "Review", ...approvalStage },
     { label: "Execution", ...execution },
-    runStatus === "completed" ? { label: "Evidence", state: "done", note: "Ready to review" } : { label: "Evidence", state: "upcoming", note: "After execution" },
+    runStatus === "completed" ? { label: "Results", state: "done", note: "Ready to review" } : { label: "Results", state: "upcoming", note: "After execution" },
   ];
 }
 

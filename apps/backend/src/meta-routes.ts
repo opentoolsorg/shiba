@@ -9,6 +9,7 @@ import type { Env } from "./env.js";
 import { isRestrictedTeamMember } from "./team-member-auth.js";
 import { agentCliCatalog } from "./harness/catalog.js";
 import { isBetterAuthConfigured } from "./better-auth.js";
+import { resolveBetterAuthSessionAccount } from "@shiba/auth/better-auth";
 import { describeRoleModels } from "./agents/roles.js";
 import { modelConfigStub } from "./model-config-do.js";
 import {
@@ -88,8 +89,10 @@ export async function handleMeta(request: Request, env: Env): Promise<Response |
         : "none";
     const { userId } = await resolveRequestIdentity(request, env);
     const agent = userId ?? "default";
+    const account = auth === "better-auth" && env.AGENT_AUDIT ? await resolveBetterAuthSessionAccount(request, env) : null;
+    const emailVerified = account ? account.emailVerified === true : undefined;
     return Response.json(
-      { agent, auth, ...(await isRestrictedTeamMember(request, env) ? { teamMember: true } : {}) },
+      { agent, auth, ...(emailVerified === undefined ? {} : { emailVerified }), ...(await isRestrictedTeamMember(request, env) ? { teamMember: true } : {}) },
       { headers: { "Cache-Control": "no-store" } },
     );
   }

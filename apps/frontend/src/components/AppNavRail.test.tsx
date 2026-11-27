@@ -2,9 +2,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
-import { AppNavRail, workspaceLabel, navStatusDotClass } from "./AppNavRail";
-import { APP_AREAS, APP_NAV_ITEMS, navigationLabel, areaForView } from "../app-navigation";
-import { AppShell } from "../layouts/AppShell";
+import { AppNavRail, workspaceLabel, navStatusDotClass, type AppNavView } from "./AppNavRail";
+import { APP_AREAS, APP_NAV_ITEMS, TEAM_WORKSPACE_VIEWS, navigationLabel, areaForView } from "../app-navigation";
+import { AppShell, AppAreaNavigation } from "../layouts/AppShell";
 import { ContextPanel } from "./ui/ContextPanel";
 import { WorkLeftPanel } from "./WorkLeftPanel";
 
@@ -143,6 +143,31 @@ describe("five-area desktop shell", () => {
     fireEvent.click(profile);
     fireEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
     expect(onSignOut).toHaveBeenCalledOnce();
+  });
+});
+
+describe("team scope navigation", () => {
+  const visibleViews = TEAM_WORKSPACE_VIEWS as readonly AppNavView[];
+  it("lists only team views in the sheet and drops empty areas", () => {
+    render(<AppNavRail activeView="work" onNavigate={vi.fn()} variant="sheet" visibleViews={visibleViews} />);
+    const areas = screen.getByRole("navigation", { name: "Workspace areas" });
+    expect(within(areas).queryByRole("button", { name: "Approvals" })).toBeNull();
+    expect(within(areas).queryByRole("button", { name: "Memory" })).toBeNull();
+    expect(within(areas).queryByRole("button", { name: "Knowledge" })).toBeNull();
+    expect(within(areas).getByRole("button", { name: navigationLabel("threads") })).toBeTruthy();
+  });
+  it("hides personal-only areas from the rail and shows them again in personal scope", () => {
+    const { rerender } = render(<AppNavRail activeView="work" onNavigate={vi.fn()} visibleViews={visibleViews} />);
+    expect(screen.queryByRole("button", { name: "Knowledge" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Work" })).toBeTruthy();
+    rerender(<AppNavRail activeView="work" onNavigate={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Knowledge" })).toBeTruthy();
+  });
+  it("filters the area destinations in the shell", () => {
+    render(<AppShell activeView="work" onNavigate={vi.fn()} pendingApprovalCount={0} visibleViews={visibleViews}><AppAreaNavigation /></AppShell>);
+    const nav = screen.getByRole("navigation", { name: "Work destinations" });
+    expect(within(nav).queryByRole("button", { name: "Approvals" })).toBeNull();
+    expect(within(nav).getByRole("button", { name: navigationLabel("work") })).toBeTruthy();
   });
 });
 

@@ -22,6 +22,13 @@ describe("HandoffCard", () => {
     expect(open).toHaveBeenCalledOnce();
   });
 
+  it("shows runtime, destination and owner only when present", () => {
+    const { rerender } = render(<HandoffCard body="Shiba → Fixer: fix it" status="working" details={{ runtime: "local", destination: "github.com/acme/app", owner: "Fixer" }} />);
+    expect(screen.getByRole("button").textContent).toContain("Runtime: local · Destination: github.com/acme/app · Owner: Fixer");
+    rerender(<HandoffCard body="Shiba → Fixer: fix it" status="working" />);
+    expect(screen.getByRole("button").textContent).not.toContain("Runtime");
+  });
+
   it.each(["working", "reported", "cancelled"] as const)("shows status %s", (status) => {
     render(<HandoffCard body="Shiba → Fixer: fix the README typo" status={status} />);
     expect(screen.getByRole("button").textContent).toContain(status);

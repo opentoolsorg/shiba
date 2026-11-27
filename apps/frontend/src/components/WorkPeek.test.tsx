@@ -416,18 +416,18 @@ describe("WorkPeek progress stepper", () => {
 
   it("marks a completed approved run as ready to review", () => {
     render(<WorkPeek {...base} task={task} run={{ ...run, status: "completed", approval: { approvalId: "a", decidedBy: "me", decidedAt: 1, inputHash: "h" } as RetainedRun["approval"] }} />);
-    expect(steps()).toEqual(["RequestRecorded", "→ApprovalApproved", "→ExecutionCompleted", "→EvidenceReady to review"]);
+    expect(steps()).toEqual(["Task briefRecorded", "→ReviewApproved", "→ExecutionCompleted", "→ResultsReady to review"]);
   });
 
   it("shows a pending approval as waiting for the human, with nothing started", () => {
     render(<WorkPeek {...base} task={{ ...task, kind: "approval", id: "gate-one" }} storedApproval={approval} />);
-    expect(steps()).toEqual(["RequestRecorded", "→ApprovalWaiting for you", "→ExecutionNot started", "→EvidenceAfter execution"]);
+    expect(steps()).toEqual(["Task briefRecorded", "→ReviewWaiting for you", "→ExecutionNot started", "→ResultsAfter execution"]);
     expect(within(screen.getByRole("list", { name: "Request progress" })).getAllByRole("listitem")[1]?.getAttribute("aria-current")).toBe("step");
   });
 
   it("stops at a recorded rejection and omits the stepper for threads", () => {
     const { unmount } = render(<WorkPeek {...base} task={{ ...task, kind: "approval", id: "gate-one" }} storedApproval={{ ...approval, status: "rejected" }} />);
-    expect(steps()).toEqual(["RequestRecorded", "→ApprovalRejected", "→ExecutionWill not run", "→EvidenceAfter execution"]);
+    expect(steps()).toEqual(["Task briefRecorded", "→ReviewRejected", "→ExecutionWill not run", "→ResultsAfter execution"]);
     unmount();
     render(<WorkPeek {...base} task={{ ...task, kind: "session" }} />);
     expect(screen.queryByRole("list", { name: "Request progress" })).toBeNull();

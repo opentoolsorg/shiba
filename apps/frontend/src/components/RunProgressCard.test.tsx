@@ -151,12 +151,12 @@ describe("RunProgressCard", () => {
   it("renders the stage rail from recorded run data only", () => {
     const { rerender } = render(<RunProgressCard run={baseRun({ status: "running" })} />);
     const items = () => within(screen.getByRole("list", { name: "Request progress" })).getAllByRole("listitem").map((item) => item.textContent);
-    expect(items()).toEqual(["RequestRecorded", "→ApprovalNot recorded", "→ExecutionRunning", "→EvidenceAfter execution"]);
+    expect(items()).toEqual(["Task briefRecorded", "→ReviewNot recorded", "→ExecutionRunning", "→ResultsAfter execution"]);
     const approval = { approvalId: "a", decidedBy: "me", decidedAt: 1, inputHash: "h" };
     rerender(<RunProgressCard run={baseRun({ status: "completed", approval })} />);
-    expect(items()).toEqual(["RequestRecorded", "→ApprovalApproved", "→ExecutionCompleted", "→EvidenceReady to review"]);
+    expect(items()).toEqual(["Task briefRecorded", "→ReviewApproved", "→ExecutionCompleted", "→ResultsReady to review"]);
     rerender(<RunProgressCard run={baseRun({ status: "cancelled", approval })} />);
-    expect(items()).toEqual(["RequestRecorded", "→ApprovalApproved", "→ExecutionCancelled", "→EvidenceAfter execution"]);
+    expect(items()).toEqual(["Task briefRecorded", "→ReviewApproved", "→ExecutionCancelled", "→ResultsAfter execution"]);
     rerender(<RunProgressCard run={baseRun({ status: "error", approval, error: "boom" })} />);
     expect(items()[2]).toBe("→ExecutionError");
   });

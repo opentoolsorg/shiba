@@ -24,6 +24,8 @@ const state = vi.hoisted(() => ({
     summary?: string;
     error?: string;
     pullUrl?: string;
+    runtime?: string;
+    repoUrl?: string;
     customAgentId?: string;
     customAgentVersion?: number;
     approval?: { approvalId: string };
@@ -413,6 +415,8 @@ describe("approval-gated employee handoffs", () => {
       status: "completed",
       summary: "No release blockers found.",
       pullUrl: "https://github.com/example/repo/pull/7",
+      runtime: "local",
+      repoUrl: "https://user:secret@github.com/example/repo.git?token=x",
       customAgentId: employeeV1.id,
       customAgentVersion: employeeV1.version,
       approval: { approvalId: handoff.handoff.approvalId },
@@ -438,7 +442,12 @@ describe("approval-gated employee handoffs", () => {
       runStatus: "completed",
       summary: "No release blockers found.",
       pullUrl: "https://github.com/example/repo/pull/7",
+      runtime: "local",
+      repo: "github.com/example/repo",
     });
+    state.run = { ...state.run!, repoUrl: "file:///etc/passwd" };
+    const nonHttps = await json<{ handoffs: Array<{ execution?: { repo?: string } }> }>(await f.send(`/rooms/${roomId}`));
+    expect(nonHttps.handoffs[0]?.execution?.repo).toBeUndefined();
     const replyView = await json<{
       messages: Array<{
         senderActorId: string;

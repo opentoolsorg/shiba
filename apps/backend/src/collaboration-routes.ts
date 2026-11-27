@@ -102,6 +102,17 @@ const PREFIX = "/api/collaboration";
 const BODY_LIMIT = 16 * 1024;
 const MAX_MESSAGE_LENGTH = 5_000;
 
+/** Repo host/path only: never echo credentials or query strings from a stored URL. */
+function publicRepo(value: string | undefined): string | undefined {
+  try {
+    const url = new URL(value ?? "");
+    if (url.protocol !== "https:") return undefined;
+    return `${url.host}${url.pathname}`.replace(/\.git$/, "").slice(0, 200);
+  } catch {
+    return undefined;
+  }
+}
+
 export interface CollaborationRouteDeps {
   /** Testable intent sink; production records intents and never calls Slack. */
   onSlackDeliveryIntent?: (intent: {
@@ -662,6 +673,8 @@ export async function handleCollaboration(
                     error?: string;
                     errorWire?: { userMessage?: string };
                     pullUrl?: string;
+                    runtime?: string;
+                    repoUrl?: string;
                     customAgentId?: string;
                     customAgentVersion?: number;
                     approval?: { approvalId?: string };
@@ -748,6 +761,8 @@ export async function handleCollaboration(
                       ? { error: "The employee run ended with an error." }
                       : {}),
                 ...(runBody.run?.pullUrl ? { pullUrl: runBody.run.pullUrl } : {}),
+                ...(runBody.run?.runtime === "local" || runBody.run?.runtime === "sandbox" ? { runtime: runBody.run.runtime } : {}),
+                ...(publicRepo(runBody.run?.repoUrl) ? { repo: publicRepo(runBody.run?.repoUrl) } : {}),
                 ...(!runBody.run && approval?.status !== "pending"
                   ? { runStatus: "unknown", error: "The run outcome could not be verified." }
                   : {}),
