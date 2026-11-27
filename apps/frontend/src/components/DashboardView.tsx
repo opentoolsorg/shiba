@@ -373,7 +373,7 @@ export function DashboardView({
             </section>
           ) : null}
 
-          <div className="shiba-overview-columns">
+          <div className={`shiba-overview-columns${scope === "workspace" ? " shiba-overview-columns-workspace" : ""}`}>
             {scope !== "workspace" ? (
             <section className="shiba-overview-panel" aria-labelledby="dashboard-recent-title">
               <header className="shiba-overview-section-header">

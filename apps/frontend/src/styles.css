@@ -1172,6 +1172,8 @@ select:focus-visible,
 .shiba-overview-next p { max-width: 66ch; margin-top: 5px; font-size: 12px; line-height: 1.65; color: var(--muted-foreground-2); }
 .shiba-overview-next-icon, .shiba-overview-run-icon { display: grid; flex-shrink: 0; place-items: center; width: 38px; height: 38px; border: 1px solid var(--border-1); border-radius: 9px; background: var(--card); color: var(--muted-foreground-2); }
 .shiba-overview-columns { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(240px, 1fr); gap: 20px; align-items: start; }
+.shiba-overview-columns-workspace { grid-template-columns: minmax(0, 1fr); }
+.shiba-overview-columns-workspace > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
 .shiba-overview-panel { min-width: 0; overflow: hidden; border: 1px solid var(--border-1); border-radius: 10px; }
 .shiba-overview-section-header { display: flex; min-height: 76px; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border-1); }
 .shiba-overview-section-header h2 { font-size: 13px; font-weight: 600; }
