@@ -4,7 +4,8 @@ import { expectedDeliverablesSchema } from "./deliverables.js";
 import { redactSecrets } from "./security.js";
 
 export const MAX_EMPLOYEE_BUNDLE_BYTES = 200_000;
-export const EMPLOYEE_BUNDLE_FORMAT = "shiba.employee-bundle.v1" as const;
+export const EMPLOYEE_BUNDLE_FORMAT_V1 = "shiba.employee-bundle.v1" as const;
+export const EMPLOYEE_BUNDLE_FORMAT = "shiba.employee-bundle.v2" as const;
 
 const text = (max: number) => z.string().trim().min(1).max(max).refine(
   // biome-ignore lint/suspicious/noControlCharactersInRegex: Rejects control bytes in untrusted identity or portable text input.
@@ -18,7 +19,7 @@ const source = z.object({
 
 /** Portable instructions and setup requirements, never authority or executable extensions. */
 export const EmployeeBundleSchema = z.object({
-  format: z.literal(EMPLOYEE_BUNDLE_FORMAT),
+  format: z.enum([EMPLOYEE_BUNDLE_FORMAT_V1, EMPLOYEE_BUNDLE_FORMAT]),
   audience: z.literal("personal"),
   profile: z.object({
     name: text(120),
@@ -72,6 +73,7 @@ function hasSecretShape(value: unknown): boolean {
 
 export function validateEmployeeBundle(input: unknown): EmployeeBundle {
   const bundle = EmployeeBundleSchema.parse(input);
+  if (bundle.format === EMPLOYEE_BUNDLE_FORMAT_V1 && !bundle.profile.harness) throw new Error("Harnessless employees require shiba.employee-bundle.v2.");
   if (hasSecretShape(bundle)) throw new Error("Remove credential-shaped content before sharing this bundle.");
   let bytes = 0;
   for (const character of JSON.stringify(bundle)) {

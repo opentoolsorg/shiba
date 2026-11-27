@@ -1,4 +1,5 @@
 import {
+  EMPLOYEE_BUNDLE_FORMAT,
   validateEmployeeBundle,
   type EmployeeBundle,
   type EmployeeBundleImportResult,
@@ -78,7 +79,7 @@ export async function exportEmployeeBundle(
   }
   const config = profile.config;
   return validateEmployeeBundle({
-    format: "shiba.employee-bundle.v1", audience: "personal",
+    format: EMPLOYEE_BUNDLE_FORMAT, audience: "personal",
     profile: { name: config.name, instructions: config.instructions,
       ...(config.harness ? { harness: config.harness } : {}),
       ...(config.codingModel ? { codingModel: config.codingModel } : {}),
