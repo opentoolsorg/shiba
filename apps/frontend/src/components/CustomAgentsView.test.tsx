@@ -976,4 +976,44 @@ describe("employee directory and hire design", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit bot" }));
     expect(screen.queryByText(/saved avatar, which takes precedence/)).toBeNull();
   });
+
+  it("filters the directory by department chips with real counts and opens a workspace", async () => {
+    const mk = (id: string, name: string, department: "finance" | "engineering"): CustomAgentWire => ({ id, slug: id, version: 1, config: { name, instructions: "Work.", harness: "opencode", department } });
+    stubWorkspaceDirectory([mk("a", "Ledger", "finance"), mk("b", "Tally", "finance"), mk("c", "Builder", "engineering")]);
+    const onOpenWorkspace = vi.fn();
+    render(<CustomAgentsView onOpenWorkspace={onOpenWorkspace} />);
+    await screen.findByText("Ledger");
+    const chips = screen.getByRole("group", { name: "Filter by department" });
+    expect(within(chips).getByRole("button", { name: "All (3)" })).toBeTruthy();
+    expect(within(chips).getByRole("button", { name: "finance (2)" })).toBeTruthy();
+    fireEvent.click(within(chips).getByRole("button", { name: "engineering (1)" }));
+    expect(screen.getByRole("heading", { name: "Department: engineering (1)" })).toBeTruthy();
+    expect(screen.queryByText("Ledger")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open workspace Builder" }));
+    expect(onOpenWorkspace).toHaveBeenCalledWith(expect.objectContaining({ id: "c" }));
+    fireEvent.click(within(chips).getByRole("button", { name: "All (3)" }));
+    expect(screen.queryByRole("heading", { name: /^Department:/ })).toBeNull();
+    expect(screen.getByText("Ledger")).toBeTruthy();
+  });
+
+  it("hides Open workspace when no callback is given", async () => {
+    stubWorkspaceDirectory([scopedAgent("Solo")]);
+    render(<CustomAgentsView />);
+    await screen.findByText("Solo");
+    expect(screen.queryByRole("button", { name: /Open workspace/ })).toBeNull();
+  });
+
+  it("disables Open workspace while an edit is in progress and counts the filtered department", async () => {
+    const mk = (id: string, name: string): CustomAgentWire => ({ id, slug: id, version: 1, config: { name, instructions: "Work.", harness: "opencode", department: "finance" } });
+    const other: CustomAgentWire = { id: "z", slug: "z", version: 1, config: { name: "Builder", instructions: "Work.", harness: "opencode", department: "engineering" } };
+    stubWorkspaceDirectory([mk("a", "Ledger"), mk("b", "Tally"), other]);
+    render(<CustomAgentsView onOpenWorkspace={vi.fn()} />);
+    await screen.findByText("Ledger");
+    fireEvent.click(within(screen.getByRole("group", { name: "Filter by department" })).getByRole("button", { name: "finance (2)" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search employees" }), { target: { value: "Ledger" } });
+    expect(screen.getByRole("heading", { name: "Department: finance (1)" })).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Open workspace Ledger" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit bot" })[0]!);
+    expect((screen.getByRole("button", { name: "Open workspace Ledger" }) as HTMLButtonElement).disabled).toBe(true);
+  });
 });

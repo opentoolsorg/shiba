@@ -13,6 +13,7 @@ interface OutputItem {
   mime: string;
   downloadPath: string;
   createdAt: number;
+  runId?: string;
   documentKind?: GeneratedDocument["kind"];
   media?: { kind: "image" | "video"; mode: string; label: string; prompt: string; aspectRatio: string; durationSeconds?: number; width?: number; height?: number };
 }
@@ -21,7 +22,7 @@ interface MediaOptions { imageModels: Array<{ id: string; label: string; support
 const modeLabels: Record<string, string> = { "text-to-image": "Created from a description", "text-to-video": "Created from a description", "image-to-video": "Animated from an image", "reference-to-video": "Made with reference images", "motion-control": "Motion copied from a video", "video-editing": "Edited from a video" };
 const shapeLabels: Record<string, string> = { "1:1": "Square", "16:9": "Wide", "9:16": "Tall", "4:3": "Landscape", "3:4": "Portrait" };
 
-export function OutputsView({ onNavigate }: { onNavigate?: (view: AppNavView) => void } = {}): JSX.Element {
+export function OutputsView({ onNavigate, onOpenEvidence }: { onNavigate?: (view: AppNavView) => void; onOpenEvidence?: (runId: string) => void } = {}): JSX.Element {
   const [items, setItems] = useState<OutputItem[] | null>(null);
   const [filter, setFilter] = useState<"" | "archive" | "image" | "video" | "document">("");
   const [revision, refresh] = useReducer((n: number) => n + 1, 0);
@@ -134,14 +135,14 @@ export function OutputsView({ onNavigate }: { onNavigate?: (view: AppNavView) =>
         {error ? <LoadErrorState message={error} onRetry={refresh} /> : null}
         {items === null ? <p role="status" className="py-6 text-sm">Loading outputs…</p> : !items.length && !error ? <div className="border border-dashed border-[var(--border-1)] px-4 py-12 text-center"><h2 className="font-medium">{filter === "document" ? "No documents yet" : "No outputs yet"}</h2><p className="mt-2 text-sm text-[var(--muted-foreground-2)]">{filter === "document" ? "Create a report or a page in Chat to see it here." : "Create an image, generate a document in Chat, or finish a task to see your work here."}</p></div> : null}
         <ul className="grid gap-4 text-sm sm:grid-cols-2 xl:grid-cols-3">
-          {items?.map((item) => <OutputTile key={item.id} item={item} documentsOnly={filter === "document"} />)}
+          {items?.map((item) => <OutputTile key={item.id} item={item} documentsOnly={filter === "document"} onOpenEvidence={onOpenEvidence} />)}
         </ul>
       </MainCard>
     </div>
   );
 }
 
-function OutputTile({ item, documentsOnly }: { item: OutputItem; documentsOnly: boolean }): JSX.Element {
+function OutputTile({ item, documentsOnly, onOpenEvidence }: { item: OutputItem; documentsOnly: boolean; onOpenEvidence?: (runId: string) => void }): JSX.Element {
   const image = typeof item.mime === "string" && item.mime.startsWith("image/");
   const media = item.kind === "output" && (image || item.mime === "video/mp4");
   const archive = item.kind === "run-deliverable" && item.mime === "application/zip";
@@ -178,6 +179,7 @@ function OutputTile({ item, documentsOnly }: { item: OutputItem; documentsOnly: 
         <p className="text-xs text-[var(--muted-foreground-2)] [overflow-wrap:anywhere]">{label}</p>
         {!isDocument && item.media?.prompt && <details><summary className="cursor-pointer truncate" title="Expand description">{item.media.prompt}</summary><p className="mt-2 whitespace-pre-wrap break-words">{item.media.prompt}</p></details>}
         <time dateTime={date.toISOString()} className="text-xs text-[var(--muted-foreground-2)]">{date.toLocaleDateString()}</time>
+        {item.runId && onOpenEvidence ? <button type="button" className="min-h-11 border border-[var(--border-1)] px-3 text-xs" onClick={() => onOpenEvidence(item.runId!)}>Inspect run evidence</button> : null}
         {actions && <div className="mt-auto">{actions}</div>}
       </div>
     </li>
