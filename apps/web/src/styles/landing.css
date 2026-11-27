@@ -8,19 +8,19 @@
 .landing {
   --lp-paper: #ffffff;
   --lp-card: #ffffff;
-  --lp-panel: #f6f4ff;
+  --lp-panel: #f7f7f7;
   --lp-raised: #ffffff;
-  --lp-ink: #0a0a0a;
-  --lp-ink2: #71717a;
-  --lp-line: rgba(10, 10, 10, 0.12);
-  --lp-line2: rgba(10, 10, 10, 0.18);
-  --lp-dot: rgba(91, 33, 182, 0.16);
+  --lp-ink: #171717;
+  --lp-ink2: #737373;
+  --lp-line: #ebebeb;
+  --lp-line2: #e2e2e2;
+  --lp-dot: rgba(23, 23, 23, 0.14);
   --lp-shadow: 0 3px 6px #00000008, 0 14px 38px #00000014;
-  --lp-accent: #5b21b6;
+  --lp-accent: #171717;
   --lp-onaccent: #ffffff;
-  --lp-ctabg: #171127;
+  --lp-ctabg: #171717;
   --lp-ctafg: #fafafa;
-  --lp-logowell: #f6f4ff;
+  --lp-logowell: #f7f7f7;
 
   --lp-font-sans: 'Geist', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --lp-font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -47,10 +47,10 @@ html[data-theme='dark'] .landing {
   --lp-line2: rgba(250, 250, 250, 0.2);
   --lp-dot: rgba(250, 250, 250, 0.22);
   --lp-shadow: 0 14px 38px #00000066;
-  --lp-accent: #c4b5fd;
+  --lp-accent: #ededed;
   --lp-onaccent: #171127;
-  --lp-ctabg: #f6f4ff;
-  --lp-ctafg: #171127;
+  --lp-ctabg: #ededed;
+  --lp-ctafg: #111111;
   color-scheme: dark;
 }
 
@@ -66,10 +66,10 @@ html[data-theme='dark'] .landing {
     --lp-line2: rgba(250, 250, 250, 0.2);
     --lp-dot: rgba(250, 250, 250, 0.22);
     --lp-shadow: 0 14px 38px #00000066;
-    --lp-accent: #c4b5fd;
+    --lp-accent: #ededed;
     --lp-onaccent: #171127;
-    --lp-ctabg: #f6f4ff;
-    --lp-ctafg: #171127;
+    --lp-ctabg: #ededed;
+    --lp-ctafg: #111111;
     color-scheme: dark;
   }
 }
