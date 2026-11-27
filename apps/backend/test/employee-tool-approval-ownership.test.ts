@@ -103,10 +103,13 @@ async function fixture(action: Action = "integrations.execute", appSession = fal
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   const list = (userId = OWNER, bearer = false) => handleEmployeeTools(request(userId, "GET", undefined, bearer), env);
+  const history = (userId = OWNER) => handleEmployeeTools(new Request("https://dashboard.test/api/employee-tools/approvals?view=history", {
+    headers: { "X-Fixture-User": userId, Origin: "https://dashboard.test" },
+  }), env);
   const decide = (userId = OWNER, approved = true, bearer = false) => handleEmployeeTools(request(userId, "POST", { employeeId: employee.id, approved }, bearer), env);
   const dispatch = () => dispatchEmployeeToolForPrincipal(env, employee.id, principal, action, args, session?.agentName ?? runtimeExecutionId);
   const stored = () => getEmployeeActionApproval(env, { orgId: ORG, employeeId: employee.id, approvalId: pending.approvalId });
-  return { env, sqlite, employee, pending, session, runtimeExecutionId, list, decide, dispatch, stored };
+  return { env, sqlite, employee, pending, session, runtimeExecutionId, list, history, decide, dispatch, stored };
 }
 
 async function approvals(response: Response | null): Promise<Array<{ approvalId: string; payload: unknown }>> {
@@ -177,6 +180,14 @@ describe("native employee approval owner and operator authorization", () => {
     expect((await f.decide(OPERATOR, false))?.status).toBe(409);
     expect((await f.stored())?.status).toBe("approved");
     noEffects();
+  });
+
+  it("keeps native decision history visible after a later employee profile edit", async () => {
+    const f = await fixture();
+    expect((await f.decide())?.status).toBe(200);
+    await updateCustomAgent(f.env, ORG, f.employee.id, { ...f.employee.config, instructions: "Changed after the decision" }, f.employee.version);
+    expect(await approvals(await f.history())).toEqual([expect.objectContaining({ approvalId: f.pending.approvalId })]);
+    expect(await approvals(await f.list())).toEqual([]);
   });
 
   it("rechecks operator removal before dispatch and leaves the approval unconsumed", async () => {

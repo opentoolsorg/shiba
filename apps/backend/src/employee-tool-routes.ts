@@ -701,7 +701,7 @@ async function handleApprovals(request: Request, env: Env, approvalId?: string):
       if (auth.workspace && await resolveEmployeeAccess(env, auth.workspace.workspaceId, employeeId, ownerId) === "none") return null;
       return row.employeeContext
         ? await getExternalMcpServer(env, auth.orgId, ownerId, row.employeeId) ? row : null
-        : await nativeApprovalAudience(env, row, ownerId, ownerAccountId) ? row : null;
+        : nativeApprovalViewer(env, row, ownerId, ownerAccountId) ? row : null;
     }));
     return Response.json({ ok: true, approvals: visible.filter((row) => row !== null) }, { headers: { "cache-control": "no-store" } });
   }
