@@ -664,7 +664,7 @@ ${input.prompt}`, mode: "chat" };
       executions: this.store.listExecutions(conversationId).map((execution) => ({
         ...execution,
         ...(execution.status === "interrupted" || (execution.status === "running" && !this.active.has(execution.id)) ? { recoverable: true } : {}),
-        ...(this.executionResumable(execution.id) ? { resumable: true } : {}),
+        ...(execution.checkpoint !== "recovery_inference" && this.executionResumable(execution.id) ? { resumable: true } : {}),
       })),
       conversationSummary: this.store.conversationSummary(conversationId) ?? undefined,
     };

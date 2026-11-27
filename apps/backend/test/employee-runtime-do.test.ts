@@ -132,6 +132,22 @@ describe("EmployeeRuntime Durable Object", () => {
     expect(persisted.executions[0]?.resumable).toBe(true);
   });
 
+  it("does not advertise stream resume while an interrupted stream is replaying through recovery", async () => {
+    const { runtime, db } = fixture();
+    const response = await runtime.onRequest(new Request("https://do/internal/employee-runtime/chat/stream", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ profile, conversationId: "default", message: "stream hello", mode: "chat" }),
+    }));
+    expect(response.status).toBe(200);
+    await response.text();
+    const executionId = String((db.prepare("SELECT id FROM employee_runtime_executions WHERE conversation_id='default' ORDER BY created_at DESC LIMIT 1").get() as { id: string }).id);
+    db.prepare("UPDATE employee_runtime_executions SET status='running', checkpoint='recovery_inference' WHERE id=?").run(executionId);
+    const state = await runtime.onRequest(new Request("https://do/internal/employee-runtime/state?conversationId=default"));
+    const persisted = await state.json() as { executions: Array<{ status: string; checkpoint: string; resumable?: boolean }> };
+    expect(persisted.executions[0]).toMatchObject({ status: "running", checkpoint: "recovery_inference" });
+    expect(persisted.executions[0]?.resumable).toBeUndefined();
+  });
+
   it("resumes a stream from durable events after the client disconnects", async () => {
     const { runtime, db } = fixture();
     const first = await runtime.onRequest(new Request("https://do/internal/employee-runtime/chat/stream", {
