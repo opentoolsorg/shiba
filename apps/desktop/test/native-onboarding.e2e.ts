@@ -251,9 +251,9 @@ test("actual native shared UI retains goal, thread, approved output and review a
     await page.getByText("Advanced settings", { exact: true }).click();
     await page.getByLabel("Slug", { exact: true }).fill("native-fixture-researcher");
     await page.getByLabel("Name", { exact: true }).fill("Native Fixture Researcher");
-    await page
-      .getByLabel("Instructions", { exact: true })
-      .fill("Use only supplied fixture facts. Produce the required report for human review.");
+    const instructionsInput = page.getByLabel("Instructions", { exact: true });
+    await instructionsInput.click();
+    await instructionsInput.pressSequentially("Use only supplied fixture facts. Produce the required report for human review.");
     await page.getByLabel("Required deliverables").fill("reports/native-fixture.md");
     await expect.poll(() => page.getByLabel("Name", { exact: true }).inputValue()).toBe("Native Fixture Researcher");
     await expect.poll(() => page.getByLabel("Instructions", { exact: true }).inputValue()).toBe("Use only supplied fixture facts. Produce the required report for human review.");
