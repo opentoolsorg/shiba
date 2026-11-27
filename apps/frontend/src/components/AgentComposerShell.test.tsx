@@ -30,6 +30,20 @@ function Harness({ initial = "", onSubmit = vi.fn(), list = agents, onPrepareWor
 const textbox = () => screen.getByRole("textbox", { name: "Message Agni" }) as HTMLTextAreaElement;
 
 describe("AgentComposerShell", () => {
+  it("forwards the selected Computer only for this submit without losing the creation choice", async () => {
+    const onSubmit = vi.fn(async () => false);
+    render(<AgentComposerShell agentName="Agni" agents={agents} value="Make a report"
+      onChange={vi.fn()} onSubmit={onSubmit} onStop={vi.fn()} onRetry={vi.fn()}
+      busy={false} streaming={false} failed={false} computerRunId="approved-run" />);
+    fireEvent.change(screen.getByLabelText("Create for this message"), { target: { value: "report" } });
+    const checkbox = screen.getByRole("checkbox", { name: /use this run’s cloud computer/i });
+    fireEvent.click(checkbox);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send message" })); });
+    expect(onSubmit).toHaveBeenNthCalledWith(1, expect.anything(), { computerRunId: "approved-run", create: "report" });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send message" })); });
+    expect(onSubmit).toHaveBeenNthCalledWith(2, expect.anything(), { computerRunId: undefined, create: "report" });
+  });
+
   it("shows the agent placeholder, footer, and a send button disabled while empty", () => {
     const onSubmit = vi.fn();
     render(<Harness onSubmit={onSubmit} />);

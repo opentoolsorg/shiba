@@ -8,7 +8,7 @@ export type MentionableAgent = { id: string; name: string; role?: EmployeeRole; 
 
 type ComposerProps = Omit<ComponentProps<typeof ChatMessageComposer>, "agentName" | "onMention" | "mentionOpen" | "textareaRef" | "children" | "placeholder" | "createChoice" | "onCreateChange" | "onSubmit"> & {
   onVideoHandoff?: () => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>, create?: ChatCreateChoice) => void | Promise<boolean | void>;
+  onSubmit: (event: FormEvent<HTMLFormElement>, options: { create?: ChatCreateChoice; computerRunId?: string }) => void | Promise<boolean | void>;
 };
 
 export function AgentComposerShell({ agentName, agents, onVideoHandoff, ...composer }: ComposerProps & { agentName: string; agents: readonly MentionableAgent[] }): JSX.Element {
@@ -92,10 +92,10 @@ export function AgentComposerShell({ agentName, agents, onVideoHandoff, ...compo
       onChange={editDraft}
       createChoice={creation?.choice}
       onCreateChange={(choice) => setCreation(choice ? { choice, draft: value } : null)}
-      onSubmit={async (event) => {
+      onSubmit={async (event, options) => {
         event.preventDefault();
         if (composer.busy || composer.streaming || !value.trim()) return;
-        if (await composer.onSubmit(event, creation?.choice)) setCreation(null);
+        if (await composer.onSubmit(event, { create: creation?.choice, computerRunId: options?.computerRunId })) setCreation(null);
       }}
       agentName={agentName}
       textareaRef={textareaRef}

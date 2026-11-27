@@ -24,6 +24,14 @@ describe("ApprovalCard", () => {
     rerender(<ApprovalCard approval={signIn} decided decision onDecideApproval={decide} />);
     expect(screen.getByRole("status").textContent).toBe("Approved — saved sign-in permitted");
   });
+  it("explains that rejecting a screen action leaves the existing run alone", () => {
+    const screenApproval = { ...approval, tool: "screen_key", input: { runId: "first", keys: "Return" } };
+    const { rerender } = render(<ApprovalCard approval={screenApproval} decided={false} onDecideApproval={vi.fn()} />);
+    expect(screen.getByText(/Reject to leave the screen unchanged/)).toBeTruthy();
+    rerender(<ApprovalCard approval={screenApproval} decided decision onDecideApproval={vi.fn()} />);
+    expect(screen.getByRole("status").textContent).toBe("Approved — screen input permitted");
+  });
+
   it("identifies the cloud computer from the inline approval input, not ordinary runs", () => {
     const { rerender } = render(<ApprovalCard approval={{ ...approval, input: { ...approval.input, computer: true } }} decided={false} onDecideApproval={vi.fn()} />);
     expect(screen.getByText("Uses a cloud computer")).toBeTruthy();

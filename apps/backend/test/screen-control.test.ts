@@ -349,6 +349,36 @@ describe("POST /api/runs/<id>/screen", () => {
 });
 
 describe("chat screen tool policy", () => {
+  it("only exposes and executes screen tools for the live run selected by the latest Chat message", async () => {
+    const instance = agent();
+    const run = seedRun(instance, "running");
+    instance.state.runs.push({ ...run, runId: "run-2" });
+    Object.assign(instance, { name: "person@example.test", messages: [] });
+    const turn = async (runId?: string) => {
+      Object.assign(instance, { messages: [...instance.messages, { role: "user", metadata: { shibaMode: "chat", shibaComputerRunId: runId } }] });
+      const tools = instance.getTools();
+      return { tools, ...await instance.beforeTurn({ tools, system: instance.getSystemPrompt() } as never) };
+    };
+    expect((await turn()).activeTools).toEqual([]);
+    expect((await turn("other")).activeTools).toEqual([]);
+    const selected = await turn("run-1");
+    expect(selected.activeTools?.sort()).toEqual(["screen_click", "screen_key", "screen_scroll", "screen_shot", "screen_type"]);
+    expect(selected.instructions).toContain("run-1");
+    const execute = selected.tools.screen_scroll?.execute;
+    if (!execute) throw new Error("The selected screen has no scroll tool.");
+    const scroll = (input: { runId: string; dx: number; dy: number }) =>
+      execute(input, { toolCallId: "scroll", messages: [], context: undefined });
+    expect(await scroll({ runId: "run-2", dx: 0, dy: 1 })).toMatchObject({ error: expect.any(String) });
+    expect(okExec).not.toHaveBeenCalled();
+    expect(await scroll({ runId: "run-1", dx: 0, dy: 1 })).toMatchObject({ ok: true });
+    expect((await turn()).tools).not.toHaveProperty("screen_scroll");
+    expect(await scroll({ runId: "run-1", dx: 0, dy: 1 })).toMatchObject({ error: expect.any(String) });
+    instance.state.runs[0] = { ...run, task: "Changed after approval." };
+    expect((await turn("run-1")).activeTools).toEqual([]);
+    instance.state.runs[0] = { ...run, status: "completed" };
+    expect((await turn("run-1")).activeTools).toEqual([]);
+  });
+
   it("requires confirmation to click, type or send keys, and treats screenshots as reads", () => {
     const tools = createChatScreenTools({} as never, { userId: "u", workspaceId: "w", act: vi.fn() });
     for (const name of ["screen_click", "screen_type", "screen_key"]) {

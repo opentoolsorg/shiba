@@ -13,9 +13,11 @@ import type { ScreenAction } from "../screen-control.js";
 export function createChatScreenTools(env: Env, ctx: {
   userId: string;
   workspaceId: string;
+  canUse?: (runId: string) => boolean;
   act: (runId: string, action: ScreenAction) => Promise<Response>;
 }): ToolSet {
   const act = async (runId: string, action: ScreenAction) => {
+    if (ctx.canUse && !ctx.canUse(runId)) return { error: "This message has not enabled that computer." };
     const response = await ctx.act(runId, action);
     return response.json() as Promise<{ ok?: boolean; screenshotBase64?: string; error?: string; paused?: boolean }>;
   };
@@ -57,7 +59,7 @@ export function createChatScreenTools(env: Env, ctx: {
         }
       },
       toModelOutput: async ({ input, output }) => {
-        const data = output.artifactId ? await readRunComputerScreenshot(env, {
+        const data = output.artifactId && (!ctx.canUse || ctx.canUse(input.runId)) ? await readRunComputerScreenshot(env, {
           ...ctx, runId: input.runId, artifactId: output.artifactId,
         }).catch(() => null) : null;
         return data ? { type: "content", value: [
