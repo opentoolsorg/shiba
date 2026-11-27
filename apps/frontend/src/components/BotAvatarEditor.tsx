@@ -30,7 +30,7 @@ const contrast = (a: string, b: string) => {
   return (high + 0.05) / (low + 0.05);
 };
 
-/** Readable text on a coat: whichever of the ink and paper colours contrasts more. */
+/** Readable text on a shell: whichever of the ink and paper colours contrasts more. */
 export function textOnCoat(color: string): string {
   return contrast(color, "#222320") >= contrast(color, "#fafafa") ? "#222320" : "#fafafa";
 }
@@ -42,8 +42,8 @@ function deepen(color: string, amount: number): string {
 }
 
 /**
- * The name pill's tone: the coat itself when its text clears 4.5:1, otherwise
- * the same hue deepened just enough. A mid-tone coat such as dusk cannot carry
+ * The name pill's tone: the shell itself when its text clears 4.5:1, otherwise
+ * the same hue deepened just enough. A mid-tone shell such as dusk cannot carry
  * 12px text at any text colour, and a washed-out pill would hide the name.
  */
 export function pillTone(color: string): { background: string; color: string } {
@@ -77,9 +77,9 @@ export interface BotAvatarEditorProps {
 }
 
 /**
- * Bot avatar editor: gallery, glyphs, coats, shuffle and a live preview. The
+ * Bot avatar editor: gallery, glyphs, shells, shuffle and a live preview. The
  * avatar itself is parameterised SVG, so every choice is a variant id and a
- * coat — no image files, no uploaded markup.
+ * shell — no image files, no uploaded markup.
  */
 export function BotAvatarEditor({ name, current, busy = false, error = null, onSave, onCancel }: BotAvatarEditorProps): JSX.Element {
   const base = useId();
@@ -168,7 +168,7 @@ export function BotAvatarEditor({ name, current, busy = false, error = null, onS
               <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
                 {variantChoice ? ACC_LABEL[avatarVariant(variantChoice.variant)?.acc ?? "none"] ?? "Mark" : "Uploaded portrait"}
                 {" · "}
-                {AGENT_AVATAR_COATS.indexOf(coat as AgentAvatarCoat) >= 0 ? `Coat ${AGENT_AVATAR_COATS.indexOf(coat as AgentAvatarCoat) + 1} of ${AGENT_AVATAR_COATS.length}` : "Custom colour"}
+                {AGENT_AVATAR_COATS.indexOf(coat as AgentAvatarCoat) >= 0 ? `Shell ${AGENT_AVATAR_COATS.indexOf(coat as AgentAvatarCoat) + 1} of ${AGENT_AVATAR_COATS.length}` : "Custom colour"}
               </p>
             </div>
           </div>
@@ -238,13 +238,13 @@ export function BotAvatarEditor({ name, current, busy = false, error = null, onS
           {tab === "upload" ? (
             <div id={`${base}-upload`} role="tabpanel" aria-label="Upload" className="border border-dashed border-[var(--border-1)] px-3 py-4 text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
               <p className="font-medium text-[var(--fg)]">Uploaded portraits are not available yet.</p>
-              <p className="mt-1">A portrait has to be re-encoded and checked before a bot can wear it, and that service is not switched on in this workspace. Use a shape and coat instead — they render everywhere without a network request.</p>
+              <p className="mt-1">A portrait has to be re-encoded and checked before a bot can wear it, and that service is not switched on in this workspace. Use a shape and shell instead — they render everywhere without a network request.</p>
             </div>
           ) : null}
 
           <div>
-            <p className="mb-1.5 text-[11px] font-medium text-[var(--muted-foreground-2)]">Coat</p>
-            <div role="group" aria-label="Coat" className="flex flex-wrap gap-1.5">
+            <p className="mb-1.5 text-[11px] font-medium text-[var(--muted-foreground-2)]">Shell</p>
+            <div role="group" aria-label="Shell" className="flex flex-wrap gap-1.5">
               {AGENT_AVATAR_COATS.map((color, index) => {
                 const selected = coat === color;
                 return (
@@ -252,7 +252,7 @@ export function BotAvatarEditor({ name, current, busy = false, error = null, onS
                     key={color}
                     type="button"
                     aria-pressed={selected}
-                    aria-label={`Coat ${index + 1}`}
+                    aria-label={`Shell ${index + 1}`}
                     onClick={() => pickCoat(color)}
                     className={`flex size-11 items-center justify-center border ${selected ? "border-[var(--primary)] bg-[var(--secondary)]" : "border-transparent hover:border-[var(--border-1)]"} ${FOCUS_RING}`}
                   >

@@ -21,7 +21,32 @@ export function nativeSessionFence(session: NativeSession, alias = "ns"): { sql:
   };
 }
 
+/**
+ * The human-session rule for a statement that must also learn the deadline: the row's own expiry as a SELECT
+ * column, the fence for the WHERE clause, and the fold that turns both into one deadline.
+ */
+export function nativeSessionProof(session: NativeSession) {
+  const fence = nativeSessionFence(session);
+  return {
+    select: '(SELECT expiresAt FROM "session" WHERE id=? AND userId=?) AS session_expires',
+    selectValues: [session.id, session.userId] as unknown[],
+    where: fence.sql,
+    whereValues: fence.values as unknown[],
+    /** min(captured expiry, the row's expiry now); NaN when the row is missing or unreadable, so `Date.now() < deadline` refuses. */
+    deadline: (raw: number | string | null | undefined) => Math.min(session.expiresAt, raw == null ? NaN : sessionExpiryMs(raw) ?? NaN),
+  };
+}
+
 export function sessionExpiryMs(raw: number | string): number | null {
   const value = typeof raw === "number" ? raw : raw.trim() === "" ? NaN : Number.isFinite(Number(raw)) ? Number(raw) : Date.parse(raw);
   return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * The one way to ask "is it too late?". Passed unless EVERY candidate is a finite time still ahead of the clock:
+ * null, undefined, NaN, an unparseable stored expiry, an infinite value or no candidate at all refuse.
+ * Never compare `Date.now()` with `Math.min(...)` of an expiry directly; NaN there compares false and lets the step through.
+ */
+export function deadlinePassed(...candidates: Array<number | null | undefined>): boolean {
+  return !candidates.length || candidates.some((candidate) => typeof candidate !== "number" || !Number.isFinite(candidate) || Date.now() >= candidate);
 }

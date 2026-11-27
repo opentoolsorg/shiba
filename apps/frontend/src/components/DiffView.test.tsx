@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { DiffView } from "./DiffView";
 import type { VMRun } from "../types";
 
@@ -52,6 +52,27 @@ describe("DiffView", () => {
 
     expect(screen.getByRole("region", { name: "Diff for run-receipt" })).toBeTruthy();
     expect(screen.queryByText("No diff yet")).toBeNull();
+  });
+
+  it("shows only the pending publication approval for the displayed run", () => {
+    const onOpenApproval = vi.fn();
+    const other = run({ runId: "run-other", status: "completed", diff: patch });
+    const selected = run({ runId: "run-publish", status: "completed", diff: patch });
+    const otherApproval = { approvalId: "pr-publish:run-other", kind: "pr_publish", status: "pending" };
+    const selectedApproval = { approvalId: "pr-publish:run-publish", kind: "pr_publish", status: "pending" };
+    const approvals = [otherApproval, selectedApproval];
+    const { rerender } = render(
+      <DiffView runs={[other, selected]} selectedRunId="run-publish" publicationApprovals={approvals} onOpenApproval={onOpenApproval} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Review publication" }));
+    expect(onOpenApproval).toHaveBeenCalledWith("pr-publish:run-publish");
+
+    rerender(<DiffView runs={[other, selected]} selectedRunId="run-other" publicationApprovals={[selectedApproval]} onOpenApproval={onOpenApproval} />);
+    expect(screen.queryByRole("button", { name: "Review publication" })).toBeNull();
+    rerender(<DiffView runs={[selected]} publicationApprovals={[{ ...selectedApproval, status: "approved" }]} onOpenApproval={onOpenApproval} />);
+    expect(screen.queryByRole("button", { name: "Review publication" })).toBeNull();
+    rerender(<DiffView runs={[selected]} publicationApprovals={approvals} />);
+    expect(screen.queryByRole("button", { name: "Review publication" })).toBeNull();
   });
 
   it("explains a selected run that has not written a diff", () => {

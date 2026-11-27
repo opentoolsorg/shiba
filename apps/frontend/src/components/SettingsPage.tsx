@@ -227,6 +227,8 @@ export function SettingsPanel({
 }
 
 export interface SettingsPageProps extends Partial<TeamWorkspaceViewProps> {
+  slackWorkspaceId?: string;
+  slackActorId?: string;
   section?: string;
   initialSection?: string;
   onSectionChange?: (section: string) => void;
@@ -526,6 +528,8 @@ export function SettingsPage({
   onScopeChange,
   actorId,
   workspaceId,
+  slackWorkspaceId,
+  slackActorId,
   invitationToken,
   onInvitationAccepted,
   onSelectWorkspace,
@@ -655,6 +659,8 @@ export function SettingsPage({
               onNavigate={onNavigate}
               onSignOut={onSignOut}
               onSelectSection={handleSectionChange}
+              slackWorkspaceId={slackWorkspaceId}
+              slackActorId={slackActorId}
             />
           </div>
         )}

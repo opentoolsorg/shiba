@@ -1283,6 +1283,76 @@ describe("app Work and Threads routing", () => {
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url) === "/api/sessions")).toBe(false);
   });
 
+  it("shows Review publication on the Pull requests view for a pending pr_publish approval", async () => {
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    window.history.replaceState(null, "", "/diff/");
+    const originalFetch = fetch;
+    const run = { runId: "run-pub", task: "Ship the fix", status: "completed", repoUrl: "https://github.com/acme/shop", sandboxId: "s", baseBranch: "main", publishPullRequest: false, generation: 1, createdAt: 1, updatedAt: 2, diff: "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+b\n" };
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const path = String(url);
+      if (path.startsWith("/api/runs")) return Response.json({ runs: [run] });
+      if (path === "/api/approvals") return Response.json({ approvals: [{ approvalId: "pr-publish:run-pub", threadKey: "t", status: "pending", kind: "pr_publish", task: "Publish", createdAt: 1, payload: { repoUrl: "https://github.com/acme/shop", baseBranch: "main", runId: "run-pub", sha256: "abc", bytes: 1, fileCount: 1 } }], decided: [] });
+      return originalFetch(url, options);
+    }));
+    render(<App />);
+    await screen.findByRole("button", { name: /Review publication/ });
+  });
+
+  describe("employee workspace navigation", () => {
+    const employee = { id: "employee-1", slug: "finance-auditor", version: 1, config: { name: "Finance Auditor", instructions: "Review supplied records.", harness: "opencode", roleTemplateId: "finance" } };
+    const stub = () => {
+      const originalFetch = fetch;
+      localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+      vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+        const path = String(url);
+        if (path === "/api/whoami") return Response.json({ agent: "owner@example.com", auth: "access" });
+        if (path === "/api/workspaces") return Response.json({ workspaces: [] });
+        if (path.startsWith("/api/custom-agents")) return Response.json({ agents: [employee] });
+        return originalFetch(url, options);
+      }));
+    };
+    it("opens an employee workspace from the directory and Back returns", async () => {
+      window.history.replaceState(null, "", "/custom-agents/");
+      stub();
+      render(<App />);
+      fireEvent.click(await screen.findByRole("button", { name: "Open workspace Finance Auditor" }));
+      const back = await screen.findByRole("button", { name: "Back to employees" });
+      fireEvent.click(back);
+      await screen.findByRole("button", { name: "Open workspace Finance Auditor" });
+      expect(screen.queryByRole("button", { name: "Back to employees" })).toBeNull();
+    });
+    it("opens that employee's workspace from the Chief of Staff page", async () => {
+      window.history.replaceState(null, "", "/chief-of-staff/");
+      stub();
+      render(<App />);
+      await screen.findByRole("region", { name: "Chief of staff" });
+      fireEvent.click(await screen.findByRole("button", { name: /Finance Auditor/ }));
+      await screen.findByRole("button", { name: "Back to employees" });
+    });
+  });
+
+  it("shows the Chief of Staff page in personal scope and the personal-only notice in a team workspace", async () => {
+    const id = `ws_${"e".repeat(24)}`, actor = "owner@example.com";
+    window.history.replaceState(null, "", "/chief-of-staff/");
+    const originalFetch = fetch;
+    const mock = (workspaces: unknown[]) => vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
+      const requested = String(url);
+      if (requested === "/api/whoami") return Response.json({ agent: actor, auth: "access" });
+      if (requested === "/api/workspaces") return Response.json({ workspaces });
+      return originalFetch(url, options);
+    }));
+    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
+    mock([]);
+    const personal = render(<App />);
+    await screen.findByRole("region", { name: "Chief of staff" });
+    expect(screen.queryByRole("heading", { name: "Open this feature in your personal workspace" })).toBeNull();
+    personal.unmount();
+    mock([{ workspaceId: id, name: "Design team", version: 1, createdAt: 1, membership: { workspaceId: id, userId: actor, role: "owner", version: 1, joinedAt: 1 } }]);
+    localStorage.setItem(`shiba:team-workspace:${encodeURIComponent(actor)}`, id);
+    render(<App />);
+    await screen.findByRole("heading", { name: "Open this feature in your personal workspace" });
+  });
+
   it.each(["/inbox/", "/memory/"])("never fetches or shows personal %s data in a team workspace", async (path) => {
     const id = `ws_${"f".repeat(24)}`, actor = "owner@example.com";
     window.history.replaceState(null, "", path);

@@ -1,55 +1,55 @@
 ---
 import MarketingPage from '../layouts/MarketingPage.astro';
-import ShibaMascot from '../components/ShibaMascot.astro';
+import RobotAvatar from '../components/RobotAvatar.astro';
 import AgentCast from '../components/AgentCast.astro';
 
 const states = [
-  { state: 'idle', label: 'Ready when you are', detail: 'A breath, a blink, a little tail wag.' },
-  { state: 'thinking', label: 'Thinking it through', detail: 'A head tilt before the next step.' },
-  { state: 'waiting-approval', label: 'Your move, human', detail: 'One raised paw. Standard sandbox execution waits for approval.' },
-  { state: 'working', label: 'Paws on the keyboard', detail: 'A tiny laptop. A focused coworker.' },
+  { state: 'idle', label: 'Ready when you are', detail: 'A calm visor and a steady standby signal.' },
+  { state: 'thinking', label: 'Thinking it through', detail: 'The visor pauses while the plan takes shape.' },
+  { state: 'waiting-approval', label: 'Your move, human', detail: 'Standard sandbox execution waits for approval.' },
+  { state: 'working', label: 'Focused on the task', detail: 'A compact robot coworker preparing reviewable work.' },
   { state: 'done', label: 'Ready for your review', detail: 'Happy to hand the work back to you.' },
 ] as const;
 ---
-<MarketingPage title="Shiba Mascot — Character Preview" description="Private design preview of Shiba’s original mascot and agent character cast." path="/mascot-preview/" noindex>
+<MarketingPage title="Shiba Robot Mascot — Character Preview" description="Private design preview of Shiba’s customizable robot employees and agent character cast." path="/mascot-preview/" noindex>
   <div class="preview-shell">
     <header class="preview-intro">
       <p class="eyebrow">SHIBA / CHARACTER STUDIO / 01</p>
-      <h1>A little dog.<br /><em>A lot of good work.</em></h1>
-      <p class="intro">An original Shiba Inu for the paper desktop. Eight role-based characters share pointed ears, a curled tail and a clear working agreement. No character represents a harness or model.</p>
+      <h1>A small robot crew.<br /><em>A lot of good work.</em></h1>
+      <p class="intro">A configurable robot identity for the Shiba workspace. Role-based characters share an antenna, visor, shell colors and a clear working agreement. No character represents a harness or model.</p>
       <div class="studio-label"><span aria-hidden="true">●</span> CHARACTER PREVIEW · NOT A LIVE RUN</div>
     </header>
     <section aria-labelledby="states-title" class="states-section">
-      <div class="section-heading"><h2 id="states-title">One Shiba. Five moods.</h2><span>01 — BEHAVIOR STUDIES</span></div>
+      <div class="section-heading"><h2 id="states-title">One robot system. Five states.</h2><span>01 — BEHAVIOR STUDIES</span></div>
       <div class="states-grid">
         {states.map(({ state, label, detail }, index) => (
           <article class="state-card">
             <div class="state-top"><span>{String(index + 1).padStart(2, '0')}</span><code>{state}</code></div>
-            <ShibaMascot state={state} size="card" title={`Shiba ${state.replaceAll('-', ' ')}`} />
+            <RobotAvatar size="card" title={`Robot ${state.replaceAll('-', ' ')}`} />
             <h3>{label}</h3><p>{detail}</p>
           </article>
         ))}
       </div>
-      <p class="motion-note">CSS-only motion. Your device’s reduced-motion preference keeps every pose still. Use the site’s theme button to check both papers.</p>
+      <p class="motion-note">CSS-only motion. Your device’s reduced-motion preference keeps every pose still. Use the site’s theme button to check both themes.</p>
     </section>
     <section aria-labelledby="cast-title" class="cast-section">
-      <div class="section-heading"><h2 id="cast-title">Meet the rest of the pack.</h2><span>02 — AGENT CAST</span></div>
+      <div class="section-heading"><h2 id="cast-title">Meet the robot crew.</h2><span>02 — AGENT CAST</span></div>
       <p class="cast-intro">Engineering, marketing, sales, product, design, research, operations and your own custom role. Original role props, not provider identities. Hover over a portrait for a small hello. Planning may precede approval; standard sandbox execution is gated, with scoped unattended automation only by explicit opt-in.</p>
       <AgentCast />
     </section>
     <section class="hero-studies" aria-labelledby="hero-states-title">
-      <div class="section-heading"><h2 id="hero-states-title">Big feelings. Same little Shiba.</h2><span>03 — 240PX EXPRESSION STUDIES</span></div>
+      <div class="section-heading"><h2 id="hero-states-title">Clear states. Same robot system.</h2><span>03 — 240PX EXPRESSION STUDIES</span></div>
       <div class="hero-states">
-        {states.map(({ state, label }) => <article class="state-card"><ShibaMascot state={state} size="hero" title={label} /><h3>{label}</h3></article>)}
+        {states.map(({ state, label }) => <article class="state-card"><RobotAvatar size="hero" title={label} /><h3>{label}</h3></article>)}
       </div>
       <div class="state-lab">
-        <div id="live-expression"><ShibaMascot size="hero" title="Interactive Shiba expression preview" /></div>
+        <div id="live-expression"><RobotAvatar size="hero" title="Interactive robot expression preview" /></div>
         <fieldset hidden data-preview-controls><legend>Change the live SVG’s data-state</legend>{states.map(({ state }) => <button type="button" data-preview-state={state} aria-pressed={state === 'idle'}>{state}</button>)}</fieldset>
         <noscript><p>All five expression studies remain visible above without JavaScript.</p></noscript>
       </div>
     </section>
     <section class="hero-studies" aria-labelledby="hero-cast-title">
-      <div class="section-heading"><h2 id="hero-cast-title">The pack, up close.</h2><span>04 — HERO SIZE</span></div>
+      <div class="section-heading"><h2 id="hero-cast-title">The crew, up close.</h2><span>04 — HERO SIZE</span></div>
       <AgentCast size="hero" />
     </section>
     <footer class="studio-footer"><span>ORIGINAL SVG ART / NO IMAGE ASSETS / NO ANIMATION LIBRARY</span><span>SHIBA CHARACTER STUDIO</span></footer>
@@ -59,8 +59,8 @@ const states = [
   document.querySelector<HTMLElement>('[data-preview-controls]')?.removeAttribute('hidden');
   document.querySelectorAll<HTMLButtonElement>('[data-preview-state]').forEach((button) => {
     button.addEventListener('click', () => {
-      const mascot = document.querySelector('#live-expression svg');
-      if (mascot) mascot.setAttribute('data-state', button.dataset.previewState ?? 'idle');
+      const robot = document.querySelector('#live-expression svg');
+      if (robot) robot.setAttribute('data-state', button.dataset.previewState ?? 'idle');
       document.querySelectorAll('[data-preview-state]').forEach((choice) => choice.setAttribute('aria-pressed', String(choice === button)));
     });
   });
@@ -68,7 +68,7 @@ const states = [
 <style>
   button { min-height: 44px; min-width: 44px; }
   .hero-studies { margin-top: 56px; } .hero-states { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; } .hero-states :global(svg), .state-card :global(svg) { margin: auto; }
-  .state-lab { display: flex; align-items: center; flex-wrap: wrap; gap: 24px; margin: 24px 0; padding: 20px; border: 1px solid var(--line-2); } .state-lab fieldset { flex: 1 1 260px; min-width: 0; border: 0; padding: 0; } legend { font-size: 14px; margin-bottom: 14px; } button { font: 12px/1.5 'Geist Mono', monospace; color: var(--ink); background: var(--card); border: 1px solid var(--line-2); padding: 9px 12px; margin: 0 8px 8px 0; cursor: pointer; } button[aria-pressed='true'] { color: var(--paper); background: var(--navy); } button:focus-visible { outline: 3px solid var(--navy); outline-offset: 3px; }
+  .state-lab { display: flex; align-items: center; flex-wrap: wrap; gap: 24px; margin: 24px 0; padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); } .state-lab fieldset { flex: 1 1 260px; min-width: 0; border: 0; padding: 0; } legend { font-size: 14px; margin-bottom: 14px; } button { font: 12px/1.5 'Geist Mono', monospace; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; margin: 0 8px 8px 0; cursor: pointer; } button[aria-pressed='true'] { color: var(--paper); background: var(--navy); } button:focus-visible { outline: 3px solid var(--navy); outline-offset: 3px; }
   @media (max-width: 680px) { .hero-states { grid-template-columns: 1fr; } }
 
   .preview-shell { max-width: 1280px; margin: 0 auto; padding: 64px 28px 40px; color: var(--ink); }
@@ -83,7 +83,7 @@ const states = [
   h2 { font-size: clamp(24px, 3vw, 34px); line-height: 1.2; letter-spacing: -.035em; font-weight: 500; margin: 0; }
   .section-heading > span { font-size: 12px; letter-spacing: .05em; color: var(--navy); }
   .states-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; }
-  .state-card { min-width: 0; padding: 16px; background: var(--card); border: 1px solid var(--line-2); }
+  .state-card { min-width: 0; padding: 16px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
   .state-top { display: flex; justify-content: space-between; align-items: start; gap: 8px; font-size: 12px; color: var(--navy); }
   .state-top code { text-align: right; overflow-wrap: anywhere; }
   .state-card h3 { font-size: 14px; font-weight: 600; line-height: 1.5; margin: 16px 0 7px; }

@@ -18,6 +18,8 @@ import { AgentAvatar } from "./AgentExperience";
 import type { AgentTemplate, EmployeeAccessLevel } from "@shiba/shared";
 import { PrimaryBotPicker } from "./collab/PrimaryBotPicker";
 import { teamWorkspaceHeaders } from "../team-workspaces-client";
+import type { TeamWorkItem } from "../team-work-items";
+import type { WorkTaskPatch } from "../work-mutations";
 
 const FIELD =
   "bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/40 placeholder-[var(--muted-foreground-3)]/60 transition-colors w-full";
@@ -31,6 +33,23 @@ const BTN_PRIMARY =
   "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-[var(--radius-button)] border border-[var(--primary)] bg-[var(--primary)] px-4 text-xs font-medium text-[var(--primary-text)] hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-50";
 const STAGE = "flex flex-col gap-4 border-t border-[var(--border-1)] pt-5";
 const ROLE_FILTER_ALL = "all";
+const ACTIVE_QUEUE_STATUSES = new Set<TeamWorkItem["status"]>(["backlog", "todo", "queued", "in-progress", "running", "in-review", "needs-approval", "unknown"]);
+
+function actorMatchesEmployee(task: TeamWorkItem, employeeId: string): boolean {
+  const actorId = task.assigneeActorId ?? task.ownerId;
+  const normalized = actorId?.startsWith("agent:") ? actorId.slice("agent:".length) : actorId;
+  return task.assigneeKind === "agent" && normalized === employeeId;
+}
+
+export function employeeQueueTasks(tasks: readonly TeamWorkItem[], employeeId: string): TeamWorkItem[] {
+  return tasks
+    .filter((task) => actorMatchesEmployee(task, employeeId) && ACTIVE_QUEUE_STATUSES.has(task.status))
+    .sort((a, b) => (a.createdAt ?? a.updatedAt) - (b.createdAt ?? b.updatedAt) || a.id.localeCompare(b.id));
+}
+
+function canCancelBoardTask(task: TeamWorkItem): boolean {
+  return task.id.startsWith("task_") && ACTIVE_QUEUE_STATUSES.has(task.status);
+}
 
 /** Every interactive task and scheduled automation requires human approval. */
 const INTERACTIVE_APPROVAL = "Interactive tasks need your approval of the exact task before anything runs.";
@@ -121,8 +140,15 @@ export interface CustomAgentsViewProps {
   draftScope?: string;
   workspaceId?: string;
   actorId?: string;
+  sharedTasks?: readonly TeamWorkItem[];
+  sharedTasksLoading?: boolean;
+  onCreateSharedTask?: (title: string, patch: WorkTaskPatch) => Promise<TeamWorkItem | null>;
+  onUpdateSharedTask?: (id: string, patch: WorkTaskPatch) => unknown;
+  onOpenSharedTask?: (task: TeamWorkItem) => void;
   // Receives the employee to preselect after a hire; plain links pass nothing.
   onOpenToolPolicy?: (employeeId?: string) => void;
+  /** Opens the per-employee workspace page; the action is hidden when absent. */
+  onOpenWorkspace?: (employee: CustomAgentWire) => void;
 }
 
 /** Keep drafts and async callbacks in the account/workspace that created them. */
@@ -141,6 +167,7 @@ function ScopedCustomAgentsView({
   threadsUnavailable = false,
   onOpenThread,
   onOpenToolPolicy,
+  onOpenWorkspace,
   connections = [],
   modelSuggestions = [],
   initialTemplateId = null,
@@ -150,6 +177,11 @@ function ScopedCustomAgentsView({
   draftScope,
   workspaceId,
   actorId,
+  sharedTasks = [],
+  sharedTasksLoading = false,
+  onCreateSharedTask,
+  onUpdateSharedTask,
+  onOpenSharedTask,
   isCurrent,
 }: CustomAgentsViewProps & { isCurrent: () => boolean }): JSX.Element {
   const alive = useRef(true);
@@ -161,6 +193,8 @@ function ScopedCustomAgentsView({
     return () => { alive.current = false; };
   }, []);
   const [agents, setAgents] = useState<CustomAgentWire[] | null>(null);
+  const [activeReassignAgents, setActiveReassignAgents] = useState<CustomAgentWire[] | null>(null);
+  const [activeReassignRevision, setActiveReassignRevision] = useState(0);
   const [callerLevels, setCallerLevels] = useState<Record<string, EmployeeAccessLevel>>({});
   const canManage = (id: string) => !workspaceId || callerLevels[id] === "manage";
   useEffect(() => {
@@ -213,13 +247,19 @@ function ScopedCustomAgentsView({
       setRoleFilter(ROLE_FILTER_ALL);
     }
   }, [agents, roleFilter, rosterRolesKey]);
-  const visibleAgents = agents?.filter((agent) => (roleFilter === ROLE_FILTER_ALL || employeeRole(agent.slug, agent.config.roleTemplateId) === roleFilter)
+  const departmentOf = (agent: CustomAgentWire): CustomAgentDepartment => agent.config.department ?? departmentForRoleTemplate(agent.config.roleTemplateId);
+  const [departmentFilter, setDepartmentFilter] = useState<CustomAgentDepartment | typeof ROLE_FILTER_ALL>(ROLE_FILTER_ALL);
+  const departmentCounts = new Map<CustomAgentDepartment, number>();
+  for (const agent of agents ?? []) departmentCounts.set(departmentOf(agent), (departmentCounts.get(departmentOf(agent)) ?? 0) + 1);
+  // A department that no longer has employees falls back to All instead of an empty directory.
+  const activeDepartment = departmentFilter !== ROLE_FILTER_ALL && departmentCounts.has(departmentFilter) ? departmentFilter : ROLE_FILTER_ALL;
+  const visibleAgents = agents?.filter((agent) => (activeDepartment === ROLE_FILTER_ALL || departmentOf(agent) === activeDepartment) && (roleFilter === ROLE_FILTER_ALL || employeeRole(agent.slug, agent.config.roleTemplateId) === roleFilter)
     && [agent.config.name, agent.slug, agent.config.harness,
     agent.config.codingModel ?? "", employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))]
     .some((value) => value.toLocaleLowerCase().includes(rosterQuery)));
   const agentsByDepartment = new Map<CustomAgentDepartment, CustomAgentWire[]>();
   for (const agent of visibleAgents ?? []) {
-    const department = agent.config.department ?? departmentForRoleTemplate(agent.config.roleTemplateId);
+    const department = departmentOf(agent);
     agentsByDepartment.set(department, [...(agentsByDepartment.get(department) ?? []), agent]);
   }
   const departmentOrder: readonly CustomAgentDepartment[] = [...CUSTOM_AGENT_DEPARTMENTS.filter((dept) => dept !== "general"), "general"];
@@ -242,6 +282,15 @@ function ScopedCustomAgentsView({
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [startingAgentId, setStartingAgentId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  useEffect(() => {
+    if (!workspaceId || !showArchived) { setActiveReassignAgents(null); return; }
+    let cancelled = false;
+    fetch("/api/custom-agents", { headers: teamWorkspaceHeaders(workspaceId) })
+      .then(async (response) => response.ok ? ((await response.json()) as { agents?: CustomAgentWire[] }).agents ?? [] : [])
+      .then((active) => { if (!cancelled && isActive()) setActiveReassignAgents(active); })
+      .catch(() => { if (!cancelled && isActive()) setActiveReassignAgents([]); });
+    return () => { cancelled = true; };
+  }, [workspaceId, showArchived, activeReassignRevision, isActive]);
   const [editingConfig, setEditingConfig] = useState<CustomAgentConfig | null>(null);
   const managerOptions = new Map<string, { label: string; reportsTo?: CustomAgentConfig["reportsTo"] }>();
   managerOptions.set("", { label: "No manager" });
@@ -618,6 +667,11 @@ function ScopedCustomAgentsView({
       if (!isActive()) return;
       if (!response.ok || !body.agent) throw new Error(body.error ?? `Could not ${action} bot (${response.status}).`);
       setAgents((current) => (current ?? []).filter((item) => item.id !== agent.id));
+      if (action === "restore" && body.agent) {
+        const restored = body.agent;
+        setActiveReassignAgents((current) => current ? [restored, ...current.filter((item) => item.id !== restored.id)] : current);
+        setActiveReassignRevision((current) => current + 1);
+      }
       if (editingId === agent.id) resetForm();
       setNotice({ tone: "ok", text: action === "archive" ? "Bot archived. Its conversation history is preserved." : "Bot restored." });
       refresh();
@@ -672,6 +726,18 @@ function ScopedCustomAgentsView({
     }
   };
 
+  const [queueTitle, setQueueTitle] = useState("");
+  useEffect(() => setQueueTitle(""), [selectedAgent?.id]);
+  const selectedQueue = selectedAgent && workspaceId ? employeeQueueTasks(sharedTasks, selectedAgent.id) : [];
+  const reassignTargets = (showArchived ? activeReassignAgents ?? [] : agents ?? []).filter((agent) => !agent.archivedAt);
+  const queueTask = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const title = queueTitle.trim();
+    if (!selectedAgent || !onCreateSharedTask || !title) return;
+    const created = await onCreateSharedTask(title, { ownerId: `agent:${selectedAgent.id}`, status: "todo" });
+    if (created && isActive()) setQueueTitle("");
+  };
+
   return (
     <div className="employee-directory flex h-full min-w-0 flex-1 flex-col overflow-hidden border border-[var(--border-1)] bg-[var(--bg)] text-[var(--fg)]">
       <header className="flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--border-1)] bg-[var(--card)] px-4 py-2">
@@ -702,6 +768,7 @@ function ScopedCustomAgentsView({
                   if (archived === showArchived) return;
                   setAgents(null);
                   setRoleFilter(ROLE_FILTER_ALL);
+                  setDepartmentFilter(ROLE_FILTER_ALL);
                   resetForm();
                   setShowArchived(archived);
                 }}
@@ -782,6 +849,52 @@ function ScopedCustomAgentsView({
                     <h3 className="text-xs font-medium">Instructions</h3>
                     <p className="mt-1 whitespace-pre-wrap break-words text-sm text-[var(--muted-foreground-2)]">{selectedAgent.config.instructions}</p>
                   </div>
+                  {workspaceId ? (
+                    <section aria-label={`${selectedAgent.config.name} task queue`} className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)] p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <h3 className="text-xs font-medium text-[var(--fg)]">Task queue</h3>
+                          <p className="mt-0.5 text-[11px] text-[var(--muted-foreground-2)]">Oldest active work first. Approval-gated handoffs stay linked to their room.</p>
+                        </div>
+                        <span className="border border-[var(--line)] px-1.5 font-mono text-[10px] text-[var(--ink-2)]">{selectedQueue.length} active</span>
+                      </div>
+                      {onCreateSharedTask ? (
+                        <form onSubmit={(event) => void queueTask(event)} className="mt-3 flex gap-2">
+                          <label className="sr-only" htmlFor="employee-queue-task">Queue work for {selectedAgent.config.name}</label>
+                          <input id="employee-queue-task" value={queueTitle} onChange={(event) => setQueueTitle(event.target.value)} placeholder="Queue work for this employee" className={`${FIELD} min-w-0 flex-1`} maxLength={200} />
+                          <button type="submit" disabled={!queueTitle.trim()} className={BTN_PRIMARY}>Queue</button>
+                        </form>
+                      ) : null}
+                      {sharedTasksLoading ? <p className="mt-3 text-xs text-[var(--muted-foreground-2)]">Loading queue…</p> : selectedQueue.length === 0 ? (
+                        <p className="mt-3 text-xs text-[var(--muted-foreground-2)]">No active work is assigned to this employee.</p>
+                      ) : (
+                        <ol className="mt-3 flex flex-col gap-2">
+                          {selectedQueue.map((task, index) => (
+                            <li key={task.id} className="flex flex-wrap items-center gap-2 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] p-2 text-xs">
+                              <span className="w-6 text-center font-mono text-[10px] text-[var(--muted-foreground-3)]">{index + 1}</span>
+                              <button type="button" onClick={() => onOpenSharedTask?.(task)} className="min-h-11 min-w-0 flex-1 truncate text-left font-medium text-[var(--fg)] hover:text-[var(--primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">
+                                {task.title}
+                              </button>
+                              <span className="capitalize text-[var(--muted-foreground-2)]">{task.status.replaceAll("-", " ")}</span>
+                              <span className="text-[var(--muted-foreground-3)]">{task.roomTitle || "Board"}</span>
+                              {onUpdateSharedTask && canCancelBoardTask(task) ? (
+                                <>
+                                  <label className="sr-only" htmlFor={`reassign-${task.id}`}>Reassign {task.title}</label>
+                                  <select id={`reassign-${task.id}`} value={reassignTargets.some((agent) => agent.id === selectedAgent.id) ? selectedAgent.id : ""} disabled={!reassignTargets.some((agent) => agent.id !== selectedAgent.id)} onChange={(event) => void onUpdateSharedTask(task.id, { ownerId: `agent:${event.target.value}` })} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)] px-2 text-[11px] text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] disabled:opacity-50">
+                                    {!reassignTargets.some((agent) => agent.id === selectedAgent.id) ? <option value="" disabled>Choose employee</option> : null}
+                                    {reassignTargets.map((agent) => <option key={agent.id} value={agent.id}>{agent.config.name}</option>)}
+                                  </select>
+                                  <button type="button" onClick={() => void onUpdateSharedTask(task.id, { status: "cancelled" })} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--destructive)]/40 px-2 text-[11px] text-[var(--destructive)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">
+                                    Cancel
+                                  </button>
+                                </>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ol>
+                      )}
+                    </section>
+                  ) : null}
                   {(() => {
                     const template = EMPLOYEE_TEMPLATES.find((item) => item.id === employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId));
                     const policyTools = profilePolicy?.employeeId === selectedAgent.id ? profilePolicy.tools : null;
@@ -813,7 +926,10 @@ function ScopedCustomAgentsView({
               </div>
               {!workspaceId ? <EmployeeRoutines key={selectedAgent.id} employeeId={selectedAgent.id} /> : null}
               {workspaceId ? <EmployeeAccessSettings key={selectedAgent.id} workspaceId={workspaceId} employeeId={selectedAgent.id} onAccessChange={(level) => setCallerLevels((current) => ({ ...current, [selectedAgent.id]: level }))} /> : null}
-              {!showArchived ? <button type="button" disabled={busy || !canManage(selectedAgent.id)} onClick={() => startEdit(selectedAgent)} className={`${BTN} mt-4`}>Edit profile</button> : null}
+              {!showArchived ? <div className="mt-4 flex flex-wrap gap-2">
+                {onOpenWorkspace ? <button type="button" disabled={busy || editingId !== null} title={busy || editingId !== null ? "Finish or cancel the current edit first." : undefined} onClick={() => onOpenWorkspace(selectedAgent)} className={BTN}>Open workspace<span className="sr-only"> for {selectedAgent.config.name}</span></button> : null}
+                <button type="button" disabled={busy || !canManage(selectedAgent.id)} onClick={() => startEdit(selectedAgent)} className={BTN}>Edit profile</button>
+              </div> : null}
             </section>
           ) : null}
           {loadError ? <LoadErrorState message={loadError} onRetry={refresh} /> : null}
@@ -844,9 +960,18 @@ function ScopedCustomAgentsView({
           {agents && agents.length > 0 && visibleAgents?.length === 0 ? (
             <div className="rounded-[var(--radius-card)] border border-dashed border-[var(--border-2)] p-5 text-sm text-[var(--muted-foreground-2)]">
               <p>No employees match your search.</p>
-              <button type="button" onClick={() => { setDirectoryQuery(""); setRoleFilter(ROLE_FILTER_ALL); }} className={`${BTN} mt-2`}>Clear employee search</button>
+              <button type="button" onClick={() => { setDirectoryQuery(""); setRoleFilter(ROLE_FILTER_ALL); setDepartmentFilter(ROLE_FILTER_ALL); }} className={`${BTN} mt-2`}>Clear employee search</button>
             </div>
           ) : null}
+          {agents && agents.length > 0 && departmentCounts.size > 1 ? (
+            <div role="group" aria-label="Filter by department" className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+              {[[ROLE_FILTER_ALL, "All", agents.length] as const, ...departmentOrder.filter((dept) => departmentCounts.has(dept)).map((dept) => [dept, dept, departmentCounts.get(dept)!] as const)].map(([id, label, count]) => (
+                <button key={id} type="button" aria-pressed={activeDepartment === id} onClick={() => setDepartmentFilter(id)}
+                  className={`min-h-11 shrink-0 rounded-full border px-3.5 text-xs font-medium capitalize focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] ${activeDepartment === id ? "border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-text)]" : "border-[var(--border-1)] text-[var(--fg)]"}`}>{label} ({count})</button>
+              ))}
+            </div>
+          ) : null}
+          {activeDepartment !== ROLE_FILTER_ALL ? <h2 className="text-sm font-semibold capitalize text-[var(--fg)]">Department: {activeDepartment} ({agentsByDepartment.get(activeDepartment)?.length ?? 0})</h2> : null}
           {agents && agents.length > 0 ? (
             <ul aria-label="Saved employees" className="flex flex-col gap-6">
               {departmentOrder.map((department) => {
@@ -917,6 +1042,8 @@ function ScopedCustomAgentsView({
                     ) : null}
                   </div>
                   <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                    {onOpenWorkspace && !showArchived ? <button type="button" disabled={busy || editingId !== null} title={busy || editingId !== null ? "Finish or cancel the current edit first." : undefined} onClick={() => onOpenWorkspace(agent)} aria-label={`Open workspace ${agent.config.name}`}
+                      className="min-h-11 rounded-[var(--radius-button)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] text-[11px] border border-[var(--border-1)] px-2 py-1 disabled:opacity-50">Open workspace</button> : null}
                     {onStartThread && !showArchived ? (
                       <button
                         type="button"
@@ -975,11 +1102,12 @@ function ScopedCustomAgentsView({
           <AgentTemplatesCatalog workspaceId={workspaceId} onUse={async (template: AgentTemplate, savedConfig?: CustomAgentConfig) => {
             if (!isActive()) return;
             const response = await fetch("/api/custom-agents", { method: "POST", headers: { "Content-Type": "application/json", ...teamWorkspaceHeaders(workspaceId) }, body: JSON.stringify({ slug: savedConfig ? `${template.id.slice(0, 39)}-${crypto.randomUUID().slice(0, 8)}` : template.id, config: savedConfig ?? { name: template.name, look: defaultLookFor(template.id, template.roleTemplateId), instructions: template.instructions, harness: template.harness ?? "opencode", ...(template.roleTemplateId ? { roleTemplateId: template.roleTemplateId } : {}), ...(template.expectedDeliverables ? { expectedDeliverables: template.expectedDeliverables } : {}), ...(template.appearance ? { emoji: template.appearance } : {}) } }) });
-            const body = await response.json().catch(() => ({})) as { error?: string };
+            const body = await response.json().catch(() => ({})) as { error?: string; agent?: { id?: string } };
             if (!isActive()) return;
             if (!response.ok) throw new Error(body.error ?? `Could not add template (${response.status}).`);
             refresh();
-          }} />
+            return body.agent;
+          }} onReviewToolPolicy={onOpenToolPolicy ? (employeeId) => onOpenToolPolicy(employeeId) : undefined} />
 
           {!showArchived ? (
             <form

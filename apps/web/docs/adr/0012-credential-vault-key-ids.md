@@ -5,7 +5,8 @@
 Hand-written AES-GCM lives in eight files: `apps/backend/src/env.ts`,
 `apps/backend/src/founder-hubspot-credential.ts`,
 `apps/backend/src/founder-meta-credential.ts`,
-`apps/backend/src/founder-stripe-credential.ts`, `apps/backend/src/gmail.ts`,
+`apps/backend/src/founder-stripe-credential.ts` (these three since merged into
+`apps/backend/src/founder/reads/seal.ts`), `apps/backend/src/gmail.ts`,
 `apps/backend/src/provider-oauth/types.ts`, `apps/backend/src/run-env-seal.ts`
 and `apps/backend/src/subscription-credentials.ts`.
 `apps/backend/src/child-dispatch.ts` keeps a

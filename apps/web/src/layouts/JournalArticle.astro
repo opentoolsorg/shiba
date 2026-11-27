@@ -43,7 +43,7 @@ const articleSchema = {
 	publisher: {
 		'@type': 'Organization',
 		name: 'Shiba',
-		logo: { '@type': 'ImageObject', url: 'https://tryshiba.dev/assets/mascot/pet-logo.png' },
+		logo: { '@type': 'ImageObject', url: 'https://tryshiba.dev/shiba-mark.svg' },
 	},
 	datePublished: pubDate.toISOString(),
 	...(updatedDate ? { dateModified: updatedDate.toISOString() } : {}),

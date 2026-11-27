@@ -1,5 +1,6 @@
 ---
 import IntegrationLogos from '../components/IntegrationLogos.astro';
+import RobotAvatar from '../components/RobotAvatar.astro';
 import MarketingPage from '../layouts/MarketingPage.astro';
 import PlannedCatalog from '../components/landing/PlannedCatalog.astro';
 import '../styles/landing.css';
@@ -13,7 +14,7 @@ const repoUrl = 'https://github.com/opentoolsorg/shiba';
 const workflows = [
   {
     title: 'Brief a campaign',
-    mascot: '/landing/mascots/marketing.svg',
+    robot: 'marketing',
     left: 'Slack · task brief',
     right: 'GitHub · draft files',
     copy: 'Supply the product context in a conversation. Review the proposed run before an employee prepares campaign files in your repository.',
@@ -22,7 +23,7 @@ const workflows = [
   },
   {
     title: 'Research with context',
-    mascot: '/landing/mascots/research.svg',
+    robot: 'research',
     left: 'Gmail · read-only context',
     right: 'GitHub · research files',
     copy: 'Use permitted email search results to frame a focused question. Approve the repository task and review its sources and open questions.',
@@ -31,7 +32,7 @@ const workflows = [
   },
   {
     title: 'Repeat the useful work',
-    mascot: '/landing/mascots/engineering.svg',
+    robot: 'engineering',
     left: 'Cron · scheduled request',
     right: 'GitHub · changes + checks',
     copy: 'Schedule a request for repository maintenance. The proposed run still waits for human approval before the configured AI tool acts.',
@@ -82,7 +83,7 @@ const boundaries = [
         <div class="tool-chip chip-c"><IntegrationLogos providerKey="github" />GitHub · your repository</div>
         <div class="visual-center">
           <div class="visual-tag">Instructions + your approval</div>
-          <img src="/landing/mascots/operations.svg" alt="" width="260" height="240" decoding="async" />
+          <RobotAvatar character="shiba" size="hero" />
           <div class="employee-label">Your Shiba employee</div>
           <div class="visual-tag">Your own servers</div>
         </div>
@@ -107,7 +108,7 @@ const boundaries = [
             <article class="workflow" data-motion="reveal">
               <div class="workflow-art">
                 <span class="mini-chip mini-left">{flow.left}</span>
-                <img src={flow.mascot} alt="" width="190" height="176" loading="lazy" decoding="async" />
+                <RobotAvatar character={flow.robot} size="card" />
                 <span class="mini-chip mini-right">{flow.right}</span>
               </div>
               <div class="workflow-copy">
@@ -193,7 +194,7 @@ const boundaries = [
 
     <section class="cta" aria-labelledby="cta-title">
       <div class="lp-shell" data-motion="reveal">
-        <img src="/landing/mascots/custom.svg" alt="" width="130" height="120" loading="lazy" decoding="async" />
+        <RobotAvatar character="custom" size="mark" />
         <h2 id="cta-title">Start with one employee.<br />Give it one clear brief.</h2>
         <p>Set up your own workspace, choose a repository, and verify the tools you plan to use. Free software; hosting and model usage cost extra.</p>
         <div class="actions">
@@ -222,7 +223,7 @@ const boundaries = [
   .catalog-meta, .card-description, .verification { color: var(--lp-ink2); line-height: 1.65; }
   .catalog-meta { margin: 0; }
   .integration-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-  .integration-card { display: flex; flex-direction: column; padding: 24px; border: 1px solid var(--lp-line); background: var(--lp-card); }
+  .integration-card { display: flex; flex-direction: column; padding: 24px; border: 1px solid var(--lp-line); border-radius: 12px; background: var(--lp-card); }
   .card-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
   .card-heading h3 { font-size: 21px; line-height: 1.25; margin: 0; }
   .card-description { font-size: 15px; }
@@ -241,24 +242,36 @@ const boundaries = [
   .accent { color: var(--lp-accent); }
   .hero-copy { max-width: 640px; margin: 0 auto 30px; color: var(--lp-ink2); font-size: 19px; line-height: 1.6; }
   .actions { display: flex; justify-content: center; gap: 18px; flex-wrap: wrap; }
-  /* Canvas paper-OS buttons: square edge, hard offset shadow. */
-  .actions .lp-btn { border-radius: 0; border: 1.5px solid var(--lp-ink); background: var(--lp-raised); color: var(--lp-ink); box-shadow: -3px 3px 0 var(--lp-ink); font-size: 12px; }
-  .actions .lp-btn-primary { background: var(--lp-accent); color: var(--lp-onaccent); border-color: var(--lp-accent); }
+  /* Integration actions use the shared pill-shaped marketing buttons. */
 
   /* Conceptual figure */
-  .visual { position: relative; max-width: 1050px; min-height: 410px; margin: 54px auto 20px; border: 2px solid var(--lp-ink); box-shadow: -5px 5px 0 var(--lp-ink); background: var(--lp-card); overflow: hidden; display: flex; align-items: center; justify-content: center; }
-  .visual-paper { position: absolute; inset: 0; background-image: radial-gradient(var(--lp-dot) 1px, transparent 1px); background-size: 15px 15px; opacity: .42; }
-  .visual-center { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 10px; }
-  .visual-center img { width: 260px; height: 240px; object-fit: contain; }
-  .employee-label { font: 400 27px/1.05 'Geist', system-ui, sans-serif; letter-spacing: -.01em; color: var(--lp-ink); }
-  .visual-tag { font: 500 10px/1.5 'Geist Mono', monospace; color: var(--lp-ink2); letter-spacing: .08em; text-transform: uppercase; }
-  .tool-chip { position: absolute; z-index: 2; display: flex; align-items: center; justify-content: center; min-height: 52px; padding: 10px 18px; background: var(--lp-raised); color: var(--lp-ink); border: 1.5px solid var(--lp-ink); box-shadow: -3px 3px 0 var(--lp-ink); font: 500 13px/1.4 'Geist Mono', monospace; }
-  .chip-a { top: 58px; left: 10%; transform: rotate(-5deg); }
-  .chip-b { top: 178px; left: 5%; transform: rotate(3deg); }
-  .chip-c { bottom: 50px; left: 16%; transform: rotate(-3deg); }
-  .chip-d { top: 62px; right: 10%; transform: rotate(4deg); }
-  .chip-e { top: 184px; right: 5%; transform: rotate(-4deg); }
-  .chip-f { bottom: 48px; right: 14%; transform: rotate(3deg); }
+  .visual {
+    position: relative;
+    max-width: 1050px;
+    margin: 54px auto 20px;
+    padding: 36px;
+    border: 1px solid var(--lp-line2);
+    border-radius: 18px;
+    box-shadow: var(--lp-shadow);
+    background: var(--lp-card);
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 30px 36px;
+    align-items: center;
+  }
+  .visual-paper { position: absolute; inset: 0; background-image: radial-gradient(var(--lp-dot) 1px, transparent 1px); background-size: 15px 15px; opacity: .26; }
+  .visual-center { position: relative; z-index: 1; grid-column: 2; grid-row: 1 / 4; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-height: 300px; }
+  .visual-center svg { width: 210px; height: 210px; }
+  .employee-label { font: 500 24px/1.1 'Geist', system-ui, sans-serif; letter-spacing: -.025em; color: var(--lp-ink); text-align: center; }
+  .visual-tag { font: 500 10px/1.5 'Geist Mono', monospace; color: var(--lp-ink2); letter-spacing: .08em; text-transform: uppercase; text-align: center; }
+  .tool-chip { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; justify-self: center; min-height: 44px; padding: 9px 15px; background: var(--lp-raised); color: var(--lp-ink); border: 1px solid var(--lp-line2); border-radius: 999px; font: 500 12px/1.4 'Geist Mono', monospace; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+  .chip-a { grid-column: 1; grid-row: 1; }
+  .chip-b { grid-column: 1; grid-row: 2; }
+  .chip-c { grid-column: 1; grid-row: 3; }
+  .chip-d { grid-column: 3; grid-row: 1; }
+  .chip-e { grid-column: 3; grid-row: 2; }
+  .chip-f { grid-column: 3; grid-row: 3; }
   .caption { max-width: 760px; margin: 22px auto 0; font: 400 12px/1.6 'Geist Mono', monospace; color: var(--lp-ink2); }
 
   /* Section heads */
@@ -267,12 +280,12 @@ const boundaries = [
 
   /* Workflows */
   .workflow-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
-  .workflow { min-width: 0; display: flex; flex-direction: column; background: var(--lp-paper); border: 2px solid var(--lp-ink); box-shadow: -3px 3px 0 var(--lp-ink); }
-  .workflow-art { position: relative; min-height: 220px; display: grid; place-items: center; background: var(--lp-panel); border-bottom: 1.5px solid var(--lp-ink); overflow: hidden; }
+  .workflow { min-width: 0; display: flex; flex-direction: column; background: var(--lp-card); border: 1px solid var(--lp-line); border-radius: 14px; overflow: hidden; }
+  .workflow-art { position: relative; min-height: 220px; display: grid; place-items: center; background: var(--lp-panel); border-bottom: 1px solid var(--lp-line); overflow: hidden; }
   .workflow-art img { width: 190px; height: 176px; object-fit: contain; }
-  .mini-chip { position: absolute; padding: 6px 9px; border: 1px solid var(--lp-ink); background: var(--lp-raised); color: var(--lp-ink); font: 500 10px/1.5 'Geist Mono', monospace; }
-  .mini-left { top: 20px; left: 16px; transform: rotate(-4deg); }
-  .mini-right { bottom: 20px; right: 16px; transform: rotate(3deg); }
+  .mini-chip { position: absolute; padding: 6px 9px; border: 1px solid var(--lp-line2); border-radius: 999px; background: var(--lp-raised); color: var(--lp-ink); font: 500 10px/1.5 'Geist Mono', monospace; }
+  .mini-left { top: 20px; left: 16px;  }
+  .mini-right { bottom: 20px; right: 16px;  }
   .workflow-copy { flex: 1; display: flex; flex-direction: column; padding: 24px; }
   .workflow h3 { font: 400 30px/1.05 'Geist', system-ui, sans-serif; letter-spacing: -.01em; margin: 0 0 12px; color: var(--lp-ink); }
   .workflow p { font: 400 13px/1.6 'Geist Mono', monospace; color: var(--lp-ink2); margin: 0 0 20px; }
@@ -300,33 +313,28 @@ const boundaries = [
     .workflow-copy { padding: 20px; }
     .trust-grid { gap: 36px; }
     .tool-chip { font-size: 11px; }
-    .chip-a, .chip-c { left: 5%; }
-    .chip-d, .chip-f { right: 5%; }
-    .chip-b { left: 3%; }
-    .chip-e { right: 3%; }
   }
   @media (max-width: 700px) {
     .hero { padding-top: 56px; }
     .hero h1 { font-size: 48px; }
     .lp-h2 { font-size: 36px; }
     .hero-copy { font-size: 16px; }
-    .visual { min-height: 500px; margin-top: 40px; }
-    .visual-center { padding-top: 40px; }
-    .visual-center img { width: 210px; height: 194px; }
+    .visual { margin-top: 40px; padding: 22px; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .visual-center { grid-column: 1 / -1; grid-row: 1; min-height: 220px; }
+    .visual-center svg { width: 150px; height: 150px; }
     .visual-tag { font-size: 10px; }
     .tool-chip { font-size: 10px; min-height: 38px; padding: 8px 10px; }
-    .chip-a { top: 24px; left: 5%; }
-    .chip-d { top: 28px; right: 5%; }
-    .chip-b { top: 82px; left: 3%; }
-    .chip-e { top: 86px; right: 3%; }
-    .chip-c { bottom: 22px; left: 5%; }
-    .chip-f { bottom: 22px; right: 5%; }
+    .chip-a, .chip-b, .chip-c { grid-column: 1; }
+    .chip-d, .chip-e, .chip-f { grid-column: 2; }
+    .chip-a, .chip-d { grid-row: 2; }
+    .chip-b, .chip-e { grid-row: 3; }
+    .chip-c, .chip-f { grid-row: 4; }
     .workflow-grid, .trust-grid { grid-template-columns: 1fr; }
     .workflow-art { min-height: 210px; }
     .cta h2 { font-size: 38px; }
   }
   @media (max-width: 480px) {
-    .tool-chip { font-size: 10px; padding-inline: 6px; }
+    .tool-chip { font-size: 10px; padding-inline: 8px; }
     .section-head { gap: 20px; }
     .cta { padding-block: 60px; }
   }

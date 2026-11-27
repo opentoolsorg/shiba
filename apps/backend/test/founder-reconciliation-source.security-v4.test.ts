@@ -1,10 +1,6 @@
 import { afterEach,describe,it,expect,vi } from "vitest";
-import { readFileSync } from "node:fs";
-import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
-import { createTeamWorkspace,getTeamWorkspaceMembership } from "../src/team-workspaces-store.js";
-import { createStripeDraft,stripeDigest,type StripeEnv } from "../src/founder-stripe-store.js";
-import { createHubSpotDraft,getHubSpotGrant,enableHubSpotGrant,type HubSpotEnv } from "../src/founder-hubspot-store.js";
-import { verifyFounderHubSpotAccount,tickFounderHubSpotReads } from "../src/founder-hubspot-runtime.js";
+import { sha256Json as stripeDigest,sha256Json as hubspotDigest,type FounderReadsEnv as StripeEnv } from "../src/founder/reads/index.js";
+import { seedFounderRead } from "./fixtures/founder-read.js";
 import { loadReconciliationSources } from "../src/founder-reconciliation-sources.js";
 const source=vi.hoisted(()=>({authority:null as unknown,expiresAt:Date.now()+86400000}));
 import { createFounderReconciliation,composeFounderReconciliation,readFounderReconciliation } from "../src/founder-reconciliation-store.js";
@@ -13,13 +9,14 @@ import { handleFounderReconciliations } from "../src/founder-reconciliation-rout
 vi.mock("../src/request-auth.js",async original=>({...await original<typeof import("../src/request-auth.js")>(),isAuthorizedRequest:async()=>true,resolveUserId:async()=>"fixture@example.test"}));
 vi.mock("@shiba/auth/better-auth",async original=>({...await original<typeof import("@shiba/auth/better-auth")>(),resolveBetterAuthSessionAccount:async()=>({policy:{accountId:"native-fixture",email:"fixture@example.test",kind:"invited"},emailVerified:true,sessionId:"fixture-session",sessionExpiresAt:source.expiresAt})}));
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();});
+// Both source grants and their receipts come from the read-grant module's interface (draft, verify, enable, tick against a stubbed provider).
 async function fixture(){
- const db=customAgentD1(),email="fixture@example.test",account="native-fixture";db.sqlite.exec('CREATE TABLE hub_fixture(current INTEGER);INSERT INTO hub_fixture VALUES(1)');db.sqlite.prepare(`INSERT INTO "user"(id,email,emailVerified,name,createdAt,updatedAt) VALUES(?,?,1,'Fixture',1,1)`).run(account,email);db.sqlite.prepare(`INSERT INTO shiba_auth_account_policy(account_id,email,kind,invitation_id,workspace_id) VALUES(?,?,'invited','fixture-invite','fixture-workspace')`).run(account,email);db.sqlite.exec(readFileSync(new URL('../migrations/0027_founder_stripe_reads.sql',import.meta.url),'utf8'));
- const env={AGENT_AUDIT:db.database,FOUNDER_STRIPE_READS_ENABLED:"true",FOUNDER_STRIPE_CREDENTIAL_KEY:"ab".repeat(32),FOUNDER_HUBSPOT_READS_ENABLED:"true",FOUNDER_HUBSPOT_CREDENTIAL_KEY:"cd".repeat(32)} as StripeEnv & HubSpotEnv,ws=await createTeamWorkspace(env,email,{name:"Fixture"}),member={...(await getTeamWorkspaceMembership(env,ws.workspaceId,email))!,accountId:account},expires=Date.now()+600000,selection={kind:"invoices",createdGte:100,createdLt:200,limit:5};
- db.sqlite.prepare('INSERT INTO "session"(id,userId,expiresAt,token,createdAt,updatedAt) VALUES(?,?,?,lower(hex(randomblob(16))),1,1)').run('fixture-session',account,expires);db.sqlite.exec(readFileSync(new URL('../migrations/0030_founder_reconciliation.sql',import.meta.url),'utf8'));db.sqlite.exec(readFileSync(new URL('../migrations/0032_founder_hubspot_reads.sql',import.meta.url),'utf8'));
- const grant=await createStripeDraft(env,member,{accountId:"acct_Fixture",mode:"test",restrictedKey:`rk_test_${"F".repeat(24)}`,expiresAt:expires,maxCalls:2,selection,readOnlyAttestation:"restricted-key-read-only-for-selected-resources"},{id:"fixture-session",expiresAt:expires});db.sqlite.prepare("UPDATE founder_stripe_read_grants SET state='enabled' WHERE id=?").run(grant.id);const pin=(db.sqlite.prepare("SELECT executor_digest FROM founder_stripe_read_grants WHERE id=?").get(grant.id) as {executor_digest:string}).executor_digest,receipt=`fsr_${"b".repeat(32)}`;
- const stripe=JSON.stringify({format:"shiba.stripe-read-report.v1",grantId:grant.id,revision:1,accountId:"acct_Fixture",mode:"test",contractDigest:grant.digest,executorDigest:pin,capturedAt:Date.now(),capture:{kind:"invoices",interval:{createdGte:100,createdLt:200},hasMore:false,rows:[{id:"in_A",currency:"usd",amountPaid:1000,status:"paid",created:150,livemode:false}],datasetCompleteness:"unknown",businessSuccess:"unverified"}});db.sqlite.prepare("INSERT INTO founder_stripe_read_receipts VALUES(?,?,?,'completed',?,?,?,?,?)").run(receipt,grant.id,1,JSON.stringify(selection),stripe,await stripeDigest(stripe),Date.now(),expires);
- const hub=await createHubSpotDraft(env,member,{accountId:"123",accessToken:"fixture-hubspot-token-123456789",expiresAt:expires,maxCalls:2,selection:{dealIds:["1","2"],invoiceIdProperty:"invoice_id",paidAmountProperty:"paid_amount",currencyProperty:"currency"},credentialAttestation:"creator-attests-token-appropriate-for-hubspot-deals-read"},{id:"fixture-session",expiresAt:expires});vi.stubGlobal("fetch",vi.fn(async(url:RequestInfo|URL)=>String(url).endsWith("/details")?Response.json({portalId:123,companyCurrency:"USD",timeZone:"UTC"}):Response.json({status:"COMPLETE",results:[{id:"1",properties:{invoice_id:"in_A",paid_amount:"10.00",currency:"USD"}}]})));await verifyFounderHubSpotAccount(env,member,hub.id,hub.digest,{id:"fixture-session",expiresAt:expires});const verified=(await getHubSpotGrant(env,member,hub.id))!;await enableHubSpotGrant(env,member,hub.id,verified.contract_digest,{id:"fixture-session",expiresAt:expires});db.sqlite.prepare("UPDATE founder_hubspot_read_grants SET next_due_at=?").run(Date.now()-1000);await tickFounderHubSpotReads(env);vi.unstubAllGlobals();const hubReceipt=(db.sqlite.prepare("SELECT id FROM founder_hubspot_read_receipts WHERE state='completed'").get() as {id:string}).id;
+ const expires=Date.now()+600000,identity={email:"fixture@example.test",account:"native-fixture",sessionId:"fixture-session"};
+ const hubSeed=await seedFounderRead("hubspot",{identity,sessionExpiresAt:expires,maxCalls:2,draft:{expiresAt:expires,selection:{dealIds:["1","2"],invoiceIdProperty:"invoice_id",paidAmountProperty:"paid_amount",currencyProperty:"currency"}},readBody:{status:"COMPLETE",results:[{id:"1",properties:{invoice_id:"in_A",paid_amount:"10.00",currency:"USD"}}]}});
+ const stripeSeed=await seedFounderRead("stripe",{on:hubSeed,maxCalls:2,draft:{expiresAt:expires,selection:{kind:"invoices",createdGte:100,createdLt:200,limit:5}},readBody:{object:"list",has_more:false,data:[{id:"in_A",object:"invoice",created:150,currency:"usd",amount_paid:1000,status:"paid",livemode:false}]}});
+ vi.unstubAllGlobals();
+ const {env,member}=hubSeed,db={sqlite:hubSeed.db,database:env.AGENT_AUDIT};db.sqlite.exec('CREATE TABLE hub_fixture(current INTEGER);INSERT INTO hub_fixture VALUES(1)');
+ const hub={id:hubSeed.grantId},hubReceipt=hubSeed.receiptId,grant={id:stripeSeed.grantId},receipt=stripeSeed.receiptId;
  const input={hubspot:{grantId:hub.id,grantVersion:1,occurrenceId:hubReceipt,sourceOrdinal:0 as const},stripe:{grantId:grant.id,receiptId:receipt},mapping:{invoiceIdProperty:"invoice_id",paidAmountProperty:"paid_amount",currencyProperty:"currency",amountUnit:"major-decimal" as const,basisAttestation:"crm-property-represents-stripe-invoice-amount-paid" as const},expiresAt:expires-1000};
  source.expiresAt=expires;return {db,env,member,input,grant,receipt,session:{id:"fixture-session",expiresAt:expires}};
 }
@@ -60,5 +57,17 @@ describe("independent reconciliation with real stored Stripe source and SQL proo
   const row=f.db.sqlite.prepare("SELECT report_json FROM founder_stripe_read_receipts WHERE id=?").get(f.receipt) as {report_json:string};const report=JSON.parse(row.report_json);report.capture.rows[0].amountPaid=900;const changed=JSON.stringify(report);
   f.db.sqlite.prepare("UPDATE founder_stripe_read_receipts SET report_json=?,result_digest=? WHERE id=?").run(changed,await stripeDigest(changed),f.receipt);
   await expect(composeFounderReconciliation(f.env,f.member,draft.id,draft.digest,f.session)).rejects.toThrow();
+ });
+ it.each(["non-digit deal id","duplicate deal id","too many records"]) ("rejects HubSpot evidence with %s",async(kind)=>{
+  const f=await fixture();const receipt=f.db.sqlite.prepare("SELECT id,report_json FROM founder_hubspot_read_receipts WHERE state='completed'").get() as {id:string;report_json:string};
+  const report=JSON.parse(receipt.report_json);const first=report.capture.records[0];report.capture.records=kind==="non-digit deal id"?[{...first,dealId:"x"}]:kind==="duplicate deal id"?[first,{...first}]:[first,{...first,dealId:"2"},{...first,dealId:"3"}];const changed=JSON.stringify(report);
+  f.db.sqlite.prepare("UPDATE founder_hubspot_read_receipts SET report_json=?,result_digest=? WHERE id=?").run(changed,await hubspotDigest(changed),receipt.id);
+  await expect(loadReconciliationSources(f.env,f.member,f.input)).rejects.toThrow();
+ });
+ it("rejects HubSpot evidence whose capture selection differs from the pinned selection",async()=>{
+  const f=await fixture();const receipt=f.db.sqlite.prepare("SELECT id,report_json FROM founder_hubspot_read_receipts WHERE state='completed'").get() as {id:string;report_json:string};
+  const report=JSON.parse(receipt.report_json);report.capture.selection={dealIds:["999"],invoiceIdProperty:"invoice_id",paidAmountProperty:"paid_amount",currencyProperty:"currency"};const changed=JSON.stringify(report);
+  f.db.sqlite.prepare("UPDATE founder_hubspot_read_receipts SET report_json=?,result_digest=? WHERE id=?").run(changed,await hubspotDigest(changed),receipt.id);
+  await expect(loadReconciliationSources(f.env,f.member,f.input)).rejects.toThrow();
  });
 });

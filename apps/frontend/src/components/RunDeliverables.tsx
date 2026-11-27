@@ -31,12 +31,14 @@ export function RunDeliverables({
   expected = [],
   deliverables = [],
   sessionId,
+  onOpenEvidence,
 }: {
   runId: string;
   status: RunStatus;
   expected?: readonly string[];
   deliverables?: readonly RunDeliverable[];
   sessionId?: string;
+  onOpenEvidence?: (runId: string) => void;
 }): JSX.Element | null {
   const paths = expected.length > 0 ? expected : deliverables.map((file) => file.path);
   if (paths.length === 0) return null;
@@ -48,6 +50,7 @@ export function RunDeliverables({
       className="border-t border-[var(--border-1)] pt-3 flex flex-col gap-2"
     >
       <h4 className="text-xs font-semibold text-[var(--fg)]">Deliverables</h4>
+      {onOpenEvidence ? <button type="button" className="min-h-11 self-start border border-[var(--border-1)] px-3 text-xs" onClick={() => onOpenEvidence(runId)}>Inspect run evidence</button> : null}
       <p className="text-xs text-[var(--muted-foreground-2)]">
         Captured files pass presence and size checks, with JSON syntax checked when applicable.
         Review their content before using or publishing it.

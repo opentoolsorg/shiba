@@ -62,5 +62,6 @@ jobs:
           INTERNAL_SIGNING_KEY: ${{ secrets.INTERNAL_SIGNING_KEY }}
           ARTIFACT_SIGNING_KEY: ${{ secrets.ARTIFACT_SIGNING_KEY }}
           WORKER_HOSTNAME: ${{ inputs.stage == 'dogfood' && format('shiba-ai-coworker-dogfood.{0}.workers.dev', secrets.WORKERS_SUBDOMAIN) || 'app.tryshiba.dev' }}
+          OPEN_CONNECTOR_WORKER: ${{ vars.OPEN_CONNECTOR_WORKER || '' }}
           BETTER_AUTH_URL: ${{ inputs.stage == 'dogfood' && format('https://shiba-ai-coworker-dogfood.{0}.workers.dev', secrets.WORKERS_SUBDOMAIN) || 'https://app.tryshiba.dev' }}
         run: node scripts/deploy.mjs --stage="$ALCHEMY_STAGE"

@@ -61,6 +61,7 @@ import { handleWebSessions } from "../sessions-routes.js";
 import { handleSlackCanvas } from "../slack-canvas-routes.js";
 import { redactSecrets } from "../security.js";
 import { handleBetterAuth } from "../better-auth.js";
+import { handleFounderReads } from "../founder/reads/index.js";
 import { handleEmailDeliveryRoutes } from "../email/routes.js";
 import { SIGNATURE_AUTHENTICATED } from "../request-auth.js";
 import { handleSlackInteract } from "../slack-approval.js";
@@ -350,16 +351,13 @@ export const handlers = {
     );
   },
   async founderStripeResponse(context: RequestContext): Promise<Response | null> {
-    const { request, env } = context;
-    return (await import("../founder-stripe-routes.js")).handleFounderStripeReads(request, env);
+    return handleFounderReads(context.request, context.env);
   },
   async founderMetaResponse(context: RequestContext): Promise<Response | null> {
-    const { request, env } = context;
-    return (await import("../founder-meta-routes.js")).handleFounderMetaReads(request, env);
+    return handleFounderReads(context.request, context.env);
   },
   async founderHubSpotResponse(context: RequestContext): Promise<Response | null> {
-    const { request, env } = context;
-    return (await import("../founder-hubspot-routes.js")).handleFounderHubSpotReads(request, env);
+    return handleFounderReads(context.request, context.env);
   },
   async reconciliationResponse(context: RequestContext): Promise<Response | null> {
     const { request, env } = context;

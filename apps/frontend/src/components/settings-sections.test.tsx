@@ -68,3 +68,14 @@ describe("Environments section", () => {
     expect(screen.getByText(/Read-only readiness surface/)).toBeTruthy();
   });
 });
+
+describe("Slack import section", () => {
+  it("mounts the installations panel only when workspace and actor are provided", () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({})));
+    const view = render(<SettingsSectionBody section="slack-import" />);
+    expect(screen.queryByText(/Select a verified native workspace owner/)).toBeNull();
+    view.unmount();
+    render(<SettingsSectionBody section="slack-import" slackWorkspaceId="bad" slackActorId="a@b.co" />);
+    expect(screen.getByText(/Select a verified native workspace owner/)).toBeTruthy();
+  });
+});

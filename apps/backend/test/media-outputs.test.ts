@@ -29,6 +29,15 @@ function request(path: string, body?: unknown, user = "alice") {
   return new Request(`https://app.test/api/outputs${path}`, { method: body === undefined ? "GET" : "POST", headers: user ? { "x-test-user": user, "Content-Type": "application/json" } : {}, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 }
 
+describe("run deliverable outputs", () => {
+  it("includes the source runId on archive rows", async () => {
+    const { env, sqlite } = fixture();
+    sqlite.prepare("INSERT INTO run_output_archive_reservations VALUES ('arch-1','run-9',1,'alice','reserved',?)").run(Date.now() + 60_000);
+    const body = await (await handleKnowledgeOutputs(request("?type=archive"), env))!.json() as { items: Array<{ kind: string; runId?: string }> };
+    expect(body.items).toMatchObject([{ kind: "run-deliverable", runId: "run-9" }]);
+  });
+});
+
 describe("image catalog and storage", () => {
   it.each(Object.entries(imageDimensions))("sends actual dimensions for %s and registers file provenance", async (aspectRatio, dimensions) => {
     const { env, run, sqlite } = fixture();

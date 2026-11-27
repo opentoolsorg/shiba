@@ -197,7 +197,7 @@ export function WorkTimelineView({
     <div
       ref={scrollerRef}
       data-testid="timeline-scroller"
-      className={`relative w-full overflow-auto [--tl-left:10rem] sm:[--tl-left:16rem] ${className}`.trim()}
+      className={`relative w-full min-w-0 max-w-full overflow-auto [--tl-left:7rem] sm:[--tl-left:16rem] ${className}`.trim()}
     >
       <div
         className="relative min-w-full"
@@ -284,9 +284,10 @@ export function WorkTimelineView({
                       type="button"
                       onClick={() => onReview(task.id)}
                       aria-label={`Review ${task.title}`}
-                      className={`${viewButtonClass} shrink-0`}
+                      className={`${viewButtonClass} h-11 w-11 shrink-0 p-0 sm:h-auto sm:w-auto sm:px-3`}
                     >
-                      Review
+                      <CheckSquare className="size-4 sm:hidden" aria-hidden="true" />
+                      <span className="hidden sm:inline">Review</span>
                     </button>
                   ) : null}
                   {task.assigneeName ? (

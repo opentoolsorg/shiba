@@ -213,6 +213,8 @@ export function FilesView({ onNavigate, appPreviewOwner }: { onNavigate?: (view:
                 /^file_[a-f0-9]{24}$/.test(file.id) && file.name.endsWith(".app-preview.json");
               return <li key={file.id} className={canPreview ? "flex flex-wrap items-center gap-x-3 gap-y-2 py-2" : "flex items-center justify-between gap-3 py-2"}>
                 <span className={canPreview ? "min-w-0 flex-1 font-medium [overflow-wrap:anywhere]" : "truncate font-medium"}>{file.name}</span>
+                <span className="hidden shrink-0 text-xs text-[var(--muted-foreground-2)] sm:inline">{file.mime}</span>
+                <span className="shrink-0 text-xs text-[var(--muted-foreground-2)]">{new Date(file.updatedAt).toLocaleDateString()}</span>
                 <span className="shrink-0 text-xs text-[var(--muted-foreground-2)]">{file.size.toLocaleString()} bytes</span>
                 <span className="shrink-0 rounded bg-[var(--panel)] px-2 py-0.5 text-xs text-[var(--muted-foreground-2)]">{file.ingestion.state}</span>
                 {canPreview && <div className="basis-full sm:basis-auto"><FileAppPreview key={appPreviewOwner} fileId={file.id} fileName={file.name} /></div>}

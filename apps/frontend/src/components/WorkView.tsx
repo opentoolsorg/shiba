@@ -81,6 +81,7 @@ export interface WorkViewProps {
   onOpenEmployee?: (id: string) => void;
   onOpenApprovals?: () => void;
   onOpenChief?: () => void;
+  onOpenChiefPage?: () => void;
   onHireEmployee?: () => void;
   onOpenOutputs?: () => void;
   /** Renders the Work left panel (scope tabs, nav, task sections) inside this view when given. */
@@ -277,6 +278,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
     onOpenEmployee,
     onOpenApprovals,
     onOpenChief,
+    onOpenChiefPage,
     onHireEmployee,
     onOpenOutputs,
   } = props;
@@ -602,6 +604,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
             onOpen={onOpenEmployee}
             onOpenApprovals={onOpenApprovals}
             onOpenChief={onOpenChief}
+            onOpenChiefPage={onOpenChiefPage}
             onHireEmployee={onHireEmployee}
             onOpenOutputs={onOpenOutputs}
             user={props.user}
@@ -670,6 +673,7 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
     onOpenEmployee,
     onOpenApprovals,
     onOpenChief,
+    onOpenChiefPage,
     onHireEmployee,
     onOpenOutputs,
     user,
@@ -786,7 +790,7 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
             </section>
           ) : (
             <section aria-label="Organization view" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-              <WorkOrganizationView employees={employees} onOpen={onOpenEmployee} onOpenApprovals={onOpenApprovals} onOpenChief={onOpenChief} onHireEmployee={onHireEmployee} onOpenOutputs={onOpenOutputs} user={user} />
+              <WorkOrganizationView employees={employees} onOpen={onOpenEmployee} onOpenApprovals={onOpenApprovals} onOpenChief={onOpenChief} onOpenChiefPage={onOpenChiefPage} onHireEmployee={onHireEmployee} onOpenOutputs={onOpenOutputs} user={user} />
             </section>
           )}
       </div>

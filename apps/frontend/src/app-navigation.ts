@@ -24,6 +24,7 @@ export type AppNavView =
   | "spaces"
   | "custom-agents"
   | "employee-tools"
+  | "chief-of-staff"
   | "remote"
   | "settings";
 
@@ -54,6 +55,7 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
   { id: "skills", label: "Skills", description: "Your Saved Skills" },
   { id: "spaces", label: "Spaces", description: "Hosted coworker mini-apps" },
   { id: "custom-agents", label: "Agents", description: "Reusable agents, instructions & defaults" },
+  { id: "chief-of-staff", label: "Chief of Staff", description: "Your chief of staff, approvals & handoffs" },
   { id: "employee-tools", label: "Tool policy", description: "Employee tool grants & approvals" },
   { id: "agents", label: "MCP", description: "Client configuration, gateway & agent tokens" },
   { id: "inbox", label: "Mailbox", description: "Cloudflare Email Routing & Send" },
@@ -89,7 +91,7 @@ export const APP_AREAS: readonly {
     id: "team",
     label: "Team",
     defaultView: "custom-agents",
-    views: ["custom-agents", "employee-tools", "providers", "skills", "agents", "team"],
+    views: ["custom-agents", "chief-of-staff", "employee-tools", "providers", "skills", "agents", "team"],
   },
   { id: "knowledge", label: "Knowledge", defaultView: "memory", views: ["memory", "files", "notes", "projects", "outputs", "spaces"] },
   {

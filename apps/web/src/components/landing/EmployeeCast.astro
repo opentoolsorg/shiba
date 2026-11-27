@@ -1,14 +1,16 @@
 ---
+import RobotAvatar from '../RobotAvatar.astro';
+
 const roles = [
-  { t: 'Marketing', kind: 'Built-in template', mascot: 'marketing', d: 'Turn a product brief into campaign drafts for your review.', a: 'Launch brief', b: 'Campaign copy' },
-  { t: 'Sales', kind: 'Custom role example', mascot: 'sales', d: 'Prepare account research and outreach drafts from supplied context.', a: 'Account brief', b: 'Draft outreach' },
-  { t: 'Research', kind: 'Built-in template', mascot: 'research', d: 'Answer a focused question with sources and gaps made clear.', a: 'Research report', b: 'Sources and open questions' },
-  { t: 'Product', kind: 'Custom role example', mascot: 'product', d: 'Turn customer evidence into a product brief your team can discuss.', a: 'Product brief', b: 'Scope and acceptance checks' },
-  { t: 'Design', kind: 'Custom role example', mascot: 'design', d: 'Map a user flow and draft interface copy before you build.', a: 'Design specification', b: 'States and accessibility checks' },
-  { t: 'Engineering', kind: 'Built-in template', mascot: 'engineering', d: 'Make a focused code change and report the checks run.', a: 'Code changes and tests', b: 'Review handoff' },
-  { t: 'QA & Testing', kind: 'Custom role example', mascot: 'engineering', d: 'Check a feature and document what passed, failed, or needs another look.', a: 'Test report', b: 'Reproduction steps' },
-  { t: 'Operations', kind: 'Built-in template', mascot: 'operations', d: 'Turn a recurring process into a checklist someone can follow.', a: 'Operating runbook', b: 'Readiness and recovery steps' },
-  { t: 'Your custom role', kind: 'Custom role', mascot: 'custom', d: 'Give an employee instructions for the work your team repeats.', a: 'Your working brief', b: 'The files you need' },
+  { t: 'Marketing', kind: 'Built-in template', robot: 'marketing', d: 'Turn a product brief into campaign drafts for your review.', a: 'Launch brief', b: 'Campaign copy' },
+  { t: 'Sales', kind: 'Custom role example', robot: 'sales', d: 'Prepare account research and outreach drafts from supplied context.', a: 'Account brief', b: 'Draft outreach' },
+  { t: 'Research', kind: 'Built-in template', robot: 'research', d: 'Answer a focused question with sources and gaps made clear.', a: 'Research report', b: 'Sources and open questions' },
+  { t: 'Product', kind: 'Custom role example', robot: 'product', d: 'Turn customer evidence into a product brief your team can discuss.', a: 'Product brief', b: 'Scope and acceptance checks' },
+  { t: 'Design', kind: 'Custom role example', robot: 'design', d: 'Map a user flow and draft interface copy before you build.', a: 'Design specification', b: 'States and accessibility checks' },
+  { t: 'Engineering', kind: 'Built-in template', robot: 'engineering', d: 'Make a focused code change and report the checks run.', a: 'Code changes and tests', b: 'Review handoff' },
+  { t: 'QA & Testing', kind: 'Custom role example', robot: 'engineering', d: 'Check a feature and document what passed, failed, or needs another look.', a: 'Test report', b: 'Reproduction steps' },
+  { t: 'Operations', kind: 'Built-in template', robot: 'operations', d: 'Turn a recurring process into a checklist someone can follow.', a: 'Operating runbook', b: 'Readiness and recovery steps' },
+  { t: 'Your custom role', kind: 'Custom role', robot: 'custom', d: 'Give an employee instructions for the work your team repeats.', a: 'Your working brief', b: 'The files you need' },
 ];
 ---
 
@@ -34,7 +36,7 @@ const roles = [
               <span aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>
             </div>
             <div class="lp-avatar">
-              <img src={`/landing/mascots/${e.mascot}.svg`} alt="" width="260" height="240" loading="lazy" decoding="async" />
+              <RobotAvatar character={e.robot} size="card" />
             </div>
             <h3>{e.t}</h3>
             <p class="lp-role">{e.d}</p>
@@ -87,7 +89,7 @@ const roles = [
   .lp-cast-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 24px;
+    gap: 14px;
   }
 
   .lp-agent-card {
@@ -96,9 +98,8 @@ const roles = [
     flex-direction: column;
     padding: 24px;
     background: var(--lp-card);
-    border: 2px solid var(--lp-ink);
-    border-radius: 0;
-    box-shadow: -3px 3px 0 var(--lp-ink);
+    border: 1px solid var(--lp-line);
+    border-radius: 12px;
   }
 
   .lp-card-top {
@@ -113,7 +114,7 @@ const roles = [
 
   .lp-template-label {
     padding: 3px 8px;
-    border: 1.5px solid var(--lp-ink);
+    border: 1px solid var(--lp-line2);
     border-radius: 4px;
     font-size: 11px;
     font-weight: 500;
@@ -122,9 +123,9 @@ const roles = [
   }
 
   .lp-avatar {
-    width: 180px;
+    width: 160px;
     max-width: 100%;
-    min-height: 160px;
+    min-height: 144px;
     display: grid;
     place-items: center;
     margin: 16px auto;
@@ -140,9 +141,8 @@ const roles = [
   .lp-agent-card h3 {
     margin: 0 0 10px;
     color: var(--lp-ink);
-    font: 400 32px/1 var(--lp-font-display);
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
+    font: 500 24px/1.2 var(--lp-font-sans);
+    letter-spacing: -0.02em;
   }
 
   .lp-role {

@@ -157,4 +157,16 @@ describe("Outputs gallery", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open pull requests" }));
     expect(onNavigate.mock.calls).toEqual([["approvals"], ["diff"]]);
   });
+  it("offers run evidence only when an item has a run and a handler is given", async () => {
+    api([{ ...image, runId: "run-1" }, { ...report, runId: undefined }]);
+    const onOpenEvidence = vi.fn();
+    const view = render(<OutputsView onOpenEvidence={onOpenEvidence} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Inspect run evidence" }));
+    expect(onOpenEvidence).toHaveBeenCalledWith("run-1");
+    expect(screen.getAllByRole("button", { name: "Inspect run evidence" })).toHaveLength(1);
+    view.unmount();
+    render(<OutputsView />);
+    await screen.findByText("Generated image.jpg");
+    expect(screen.queryByRole("button", { name: "Inspect run evidence" })).toBeNull();
+  });
 });

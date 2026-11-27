@@ -276,4 +276,29 @@ describe("AgentTemplatesCatalog", () => {
     fireEvent.click(screen.getByRole("tab", { name: "MCP servers" }));
     expect(screen.queryByRole("region", { name: "Share an employee" })).toBeNull();
   });
+
+  it("tells the user a new hire has zero tool access and offers Tool policy only when wired", async () => {
+    const onReview = vi.fn();
+    const onUse = vi.fn().mockResolvedValue({ id: "emp-9" });
+    const { unmount } = render(<AgentTemplatesCatalog onUse={onUse} onReviewToolPolicy={onReview} />);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search templates" }), { target: { value: "Sales report" } });
+    fireEvent.click(screen.getByRole("button", { name: "Hire" }));
+    await screen.findByText("Sales report starts with zero tool access.");
+    fireEvent.click(screen.getByRole("button", { name: "Review grants in Tool policy" }));
+    expect(onReview).toHaveBeenCalledWith("emp-9");
+    unmount();
+    render(<AgentTemplatesCatalog onUse={onUse} />);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search templates" }), { target: { value: "Sales report" } });
+    fireEvent.click(screen.getByRole("button", { name: "Hire" }));
+    await screen.findByText("Sales report starts with zero tool access.");
+    expect(screen.queryByRole("button", { name: "Review grants in Tool policy" })).toBeNull();
+  });
+
+  it("shows no zero-access notice when the hire fails", async () => {
+    render(<AgentTemplatesCatalog onUse={vi.fn().mockRejectedValue(new Error("nope"))} onReviewToolPolicy={vi.fn()} />);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search templates" }), { target: { value: "Sales report" } });
+    fireEvent.click(screen.getByRole("button", { name: "Hire" }));
+    await screen.findByText("nope");
+    expect(screen.queryByText(/zero tool access/)).toBeNull();
+  });
 });

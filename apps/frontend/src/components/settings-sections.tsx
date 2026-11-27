@@ -23,6 +23,7 @@ import { useTheme } from "./ThemeProvider";
 import { useSavedRepos, saveRepo, removeRepo } from "../saved";
 import { NotificationPrefsSection } from "./settings/NotificationPrefsSection";
 import { SlackImportSection } from "./settings/SlackImportSection";
+import { SlackInstallationsPanel } from "./SlackInstallationsPanel";
 import { ProvidersView } from "./ProvidersView";
 import { ConnectedApps } from "./settings/ConnectedApps";
 import { WorkspaceFactsSettings } from "./settings/WorkspaceFacts";
@@ -959,11 +960,15 @@ export function SettingsSectionBody({
   onNavigate,
   onSignOut,
   onSelectSection,
+  slackWorkspaceId,
+  slackActorId,
 }: {
   section: SettingsSectionId;
   onSelectSection?: (section: string) => void;
   onNavigate?: (view: AppNavView) => void;
   onSignOut?: () => Promise<void>;
+  slackWorkspaceId?: string;
+  slackActorId?: string;
 }): JSX.Element {
   const hostname = typeof window !== "undefined" ? window.location.hostname : "";
 
@@ -1023,6 +1028,7 @@ export function SettingsSectionBody({
   if (section === "slack-import") {
     return (
       <SectionShell title="Slack import" description="Import selected Slack channel history into a room. Thread replies stay on the same thread root.">
+        {slackWorkspaceId && slackActorId ? <SlackInstallationsPanel workspaceId={slackWorkspaceId} actorId={slackActorId} /> : null}
         <SlackImportSection />
       </SectionShell>
     );

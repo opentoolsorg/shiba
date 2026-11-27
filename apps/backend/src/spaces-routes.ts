@@ -197,6 +197,9 @@ export async function handleSpaces(request: Request, env: Env): Promise<Response
       const body = await parseJson(request);
       const kind = body?.kind;
       const ref = typeof body?.ref === "string" ? body.ref : "";
+      if (kind !== "skill" && kind !== "repo" && kind !== "automation" && kind !== "run") {
+        return Response.json({ ok: false, error: "invalid_item" }, { status: 400 });
+      }
       const response = await spaceFetch(env, auth.orgId, spaceId, "items", "DELETE", { kind, ref });
       const payload = await response.json().catch(() => ({}));
       if (response.ok) await touchSpaceIndexUpdatedAt(env, auth.orgId, spaceId, Date.now());
