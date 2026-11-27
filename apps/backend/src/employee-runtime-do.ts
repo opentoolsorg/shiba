@@ -691,7 +691,7 @@ ${input.prompt}`, mode: "chat" };
         failed += 1;
         continue;
       }
-      if (messages.some((message, index) => index > userIndex && message.role === "user")) {
+      if (messages.some((message, index) => index > userIndex && message.role === "user" && message.origin !== "routine")) {
         this.store.updateExecution(execution.id, { status: "failed", checkpoint: "recovery_superseded", error: "A newer user message superseded this interrupted execution." });
         skipped += 1;
         continue;
@@ -723,7 +723,7 @@ ${input.prompt}`, mode: "chat" };
         }
         const latestMessages = this.store.listMessages(execution.conversationId, 500);
         const latestUserIndex = latestMessages.findIndex((message) => message.id === user.id);
-        if (latestUserIndex < 0 || latestMessages.some((message, index) => index > latestUserIndex && message.role === "user")) {
+        if (latestUserIndex < 0 || latestMessages.some((message, index) => index > latestUserIndex && message.role === "user" && message.origin !== "routine")) {
           this.store.updateExecution(execution.id, { status: "failed", checkpoint: "recovery_superseded", error: "A newer user message superseded this interrupted execution." });
           skipped += 1;
           continue;

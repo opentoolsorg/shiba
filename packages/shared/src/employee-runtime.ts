@@ -100,6 +100,7 @@ export interface EmployeeRuntimeMessage {
   content: string;
   createdAt: number;
   executionId?: string;
+  origin?: "interactive" | "routine";
 }
 
 export interface EmployeeRuntimeMemory {

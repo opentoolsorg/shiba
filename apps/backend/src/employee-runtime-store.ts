@@ -147,6 +147,7 @@ export class EmployeeRuntimeStore {
       id: id("msg"), conversationId: cleanId(input.conversationId, "conversationId"), role: input.role,
       content, createdAt: input.now ?? Date.now(),
       ...(input.executionId ? { executionId: input.executionId } : {}),
+      ...(input.origin ? { origin: input.origin } : {}),
     };
     this.exec(
       `INSERT INTO employee_runtime_messages(id,conversation_id,role,content,execution_id,origin,created_at) VALUES(?,?,?,?,?,?,?)`,
@@ -394,6 +395,7 @@ function rowToMessage(row: SqlRow): EmployeeRuntimeMessage {
     id: String(row.id), conversationId: String(row.conversation_id), role: row.role as EmployeeRuntimeMessage["role"],
     content: String(row.content), createdAt: Number(row.created_at),
     ...(row.execution_id != null ? { executionId: String(row.execution_id) } : {}),
+    ...(row.origin === "routine" ? { origin: "routine" as const } : {}),
   };
 }
 

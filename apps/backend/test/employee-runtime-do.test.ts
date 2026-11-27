@@ -361,6 +361,19 @@ describe("EmployeeRuntime Durable Object", () => {
     expect(update.status).toBe(200);
   });
 
+  it("does not let an automatic routine prompt supersede interactive recovery", async () => {
+    const { runtime, db } = fixture();
+    db.prepare(`INSERT INTO employee_runtime_profiles(conversation_id,profile_json,updated_at) VALUES('default',?,1)`).run(JSON.stringify(profile));
+    db.prepare(`INSERT INTO employee_runtime_messages(id,conversation_id,role,content,origin,created_at) VALUES('msg_human','default','user','finish this interactive answer','interactive',1)`).run();
+    db.prepare(`INSERT INTO employee_runtime_messages(id,conversation_id,role,content,origin,created_at) VALUES('msg_routine','default','user','Scheduled routine','routine',2)`).run();
+    const inputJson = JSON.stringify({ conversationId: "default", mode: "chat", employeeVersion: 2, userMessageId: "msg_human", messageLength: 29 });
+    db.prepare(`INSERT INTO employee_runtime_executions(id,conversation_id,mode,status,checkpoint,input_json,created_at,updated_at)
+      VALUES('run_interrupted','default','chat','running','inference',?,1,1)`).run(inputJson);
+    const response = await runtime.onRequest(new Request("https://do/internal/employee-runtime/recover", { method: "POST", body: "{}" }));
+    expect(await response.json()).toMatchObject({ interrupted: 1, recovered: 1, failed: 0, skipped: 0 });
+    expect(db.prepare("SELECT status,checkpoint FROM employee_runtime_executions WHERE id='run_interrupted'").get()).toMatchObject({ status: "completed", checkpoint: "terminal" });
+  });
+
   it("creates, deduplicates, lists, and clears actor-scoped routines", async () => {
     const { runtime } = fixture();
     const write = () => runtime.onRequest(new Request("https://do/internal/employee-runtime/routines", {
