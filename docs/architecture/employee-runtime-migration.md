@@ -43,6 +43,32 @@ Use one ownership rule for the target architecture:
 - Sandbox harnesses are execution providers. They are not employee identity,
   memory, or chat infrastructure.
 
+```mermaid
+flowchart LR
+  actor[Authenticated user or API key] --> worker[Cloudflare Worker adapter]
+  worker --> authority[D1 employee profile, access, approvals, audit]
+  worker --> runtime[EmployeeRuntime Durable Object]
+  runtime --> sqlite[(DO SQLite<br/>messages, pinned profiles,<br/>memories + FTS5, checkpoints)]
+  runtime --> model[Workers AI direct inference<br/>Chat mode, no sandbox]
+  runtime --> memory[Employee, thread, and shared memory scopes]
+  runtime --> cancel[Cancellation, recovery,<br/>execution checkpoints]
+  worker --> tools[Employee tool policy<br/>scoped credentials]
+  worker --> approval[Human approval gate]
+  approval --> coding[Optional coding provider<br/>OpenCode, Claude Code, Codex]
+  coding --> sandbox[Isolated sandbox container]
+  sandbox --> evidence[Diffs, artifacts, PR evidence]
+  worker --> storage[R2 document and artifact bytes]
+  worker --> vector[Vectorize optional semantic recall]
+  runtime -. future provider contract .-> tools
+  runtime -. approved execution only .-> coding
+```
+
+The solid path is the current trust boundary: the Worker authenticates and
+scopes the actor, the employee object coordinates live state, and sandbox work
+remains approval-gated. The dotted paths are the migration target: the runtime
+chooses providers without transferring employee identity or memory ownership to
+those providers.
+
 ## Migration phases
 
 ### Phase 0. Runtime foundation
@@ -70,10 +96,12 @@ Implemented in this branch:
   shared employees do not expose private threads. Cancellation is bound to the
   scoped conversation and recovery requires manage authority.
 - Add cancellation and interrupted-execution recovery markers.
+- Add SSE streaming for runtime chat and a details-panel runtime chat surface
+  that streams answers and can stop generation without creating a sandbox.
 
-This slice proves the boundary only. It does not complete streaming, tools,
-scheduling, workspace files, provider switching, or the full employee memory
-migration.
+This slice proves the boundary only. It does not complete resumable streaming,
+tools, scheduling, workspace files, provider switching, funded team inference,
+or the full employee memory migration.
 
 ### Phase 1. Decouple employee identity from coding providers
 
@@ -93,8 +121,10 @@ Remaining:
 
 ### Phase 2. Move chat onto the employee runtime
 
-- Replace the HTTP adapter's request/response inference with resumable
-  streaming through the Agents SDK chat patterns.
+- Move the main employee conversation surface from the legacy orchestrator to
+  the runtime; the details-panel SSE slice is only the first streaming surface.
+- Make streams resumable after disconnects through the Agents SDK chat patterns
+  or an equivalent checkpointed transport.
 - Share employee identity, memory, and conversation context across Chat and
   Work modes.
 - Add cancellation of live streams, checkpoint replay after eviction, retry

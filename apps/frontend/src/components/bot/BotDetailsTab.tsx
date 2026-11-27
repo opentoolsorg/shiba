@@ -4,6 +4,7 @@ import { BotNotice, Disclosure, FIELD_CLASS, QUIET_BUTTON } from "./BotPanel";
 import { BOT_TOOL_STATE_LABEL, type BotToolRow } from "../../bot-tools";
 import type { EmployeeRuntimeMemory, EmployeeRuntimeState } from "@shiba/shared";
 import { teamWorkspaceHeaders } from "../../team-workspaces-client";
+import { BotRuntimeChat } from "./BotRuntimeChat";
 
 export interface BotModelOption {
   id: string;
@@ -390,15 +391,26 @@ export function BotDetailsTab(props: BotDetailsTabProps) {
       </Disclosure>
 
       {agentId && conversationId ? (
-        <Disclosure
-          id={`${generated}-memory`}
-          label="Memory"
-          summary="Runtime"
-          open={openRow === "memory"}
-          onOpenChange={toggle("memory")}
-        >
-          {openRow === "memory" ? <BotMemoryPanel agentId={agentId} workspaceId={workspaceId} conversationId={conversationId} canEdit={editing} /> : null}
-        </Disclosure>
+        <>
+          <Disclosure
+            id={`${generated}-runtime-chat`}
+            label="Runtime chat"
+            summary="No sandbox"
+            open={openRow === "runtime-chat"}
+            onOpenChange={toggle("runtime-chat")}
+          >
+            {openRow === "runtime-chat" ? <BotRuntimeChat agentId={agentId} workspaceId={workspaceId} conversationId={conversationId} /> : null}
+          </Disclosure>
+          <Disclosure
+            id={`${generated}-memory`}
+            label="Memory"
+            summary="Runtime"
+            open={openRow === "memory"}
+            onOpenChange={toggle("memory")}
+          >
+            {openRow === "memory" ? <BotMemoryPanel agentId={agentId} workspaceId={workspaceId} conversationId={conversationId} canEdit={editing} /> : null}
+          </Disclosure>
+        </>
       ) : null}
 
       <Disclosure
