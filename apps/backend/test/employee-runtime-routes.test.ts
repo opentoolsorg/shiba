@@ -137,6 +137,25 @@ describe("employee runtime routes", () => {
       "state",
     );
     expect(await response.json()).toMatchObject({ conversationId: "client-thread" });
+    expect(calls[0]?.url).toBe("https://internal/internal/employee-runtime/recover");
+    expect(new URL(calls[1]!.url).searchParams.get("conversationId")).toMatch(/^u_[a-f0-9]{32}_[A-Za-z0-9_-]+$/);
+  });
+
+  it("does not trigger recovery inference when reading an archived employee", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const env = runtimeEnv(calls);
+    const agent = await createCustomAgent(env, "self-hosted", "archived-state-scout", { name: "Scout", instructions: "Answer carefully." });
+    await env.AGENT_AUDIT.prepare(`UPDATE org_custom_agents SET archived_at=? WHERE org_id=? AND id=?`).bind(1, "self-hosted", agent.id).run();
+    const response = await handleEmployeeRuntimeRequest(
+      new Request(`https://x/api/custom-agents/${agent.id}/runtime/state?conversationId=client-thread`),
+      env,
+      { orgId: "self-hosted", principal: null },
+      agent.id,
+      "state",
+    );
+    expect(response.status).toBe(200);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).not.toBe("https://internal/internal/employee-runtime/recover");
     expect(new URL(calls[0]!.url).searchParams.get("conversationId")).toMatch(/^u_[a-f0-9]{32}_[A-Za-z0-9_-]+$/);
   });
 

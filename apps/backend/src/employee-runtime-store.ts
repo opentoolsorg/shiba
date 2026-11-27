@@ -21,6 +21,7 @@ export const EMPLOYEE_RUNTIME_SCHEMA = [
     conversation_id TEXT NOT NULL,
     role TEXT NOT NULL CHECK(role IN ('user','assistant','system')),
     content TEXT NOT NULL,
+    execution_id TEXT,
     created_at INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS employee_runtime_messages_conversation
@@ -87,6 +88,8 @@ export class EmployeeRuntimeStore {
 
   init(): void {
     for (const statement of EMPLOYEE_RUNTIME_SCHEMA) this.exec(statement);
+    const columns = this.exec(`PRAGMA table_info(employee_runtime_messages)`).map((row) => String(row.name));
+    if (!columns.includes("execution_id")) this.exec(`ALTER TABLE employee_runtime_messages ADD COLUMN execution_id TEXT`);
   }
 
   pinProfile(conversationId: string, profile: EmployeeRuntimeProfile, now = Date.now()): void {
@@ -102,16 +105,17 @@ export class EmployeeRuntimeStore {
     try { return JSON.parse(String(row.profile_json)) as EmployeeRuntimeProfile; } catch { return null; }
   }
 
-  appendMessage(input: { conversationId: string; role: EmployeeRuntimeMessage["role"]; content: string; now?: number }): EmployeeRuntimeMessage {
+  appendMessage(input: { conversationId: string; role: EmployeeRuntimeMessage["role"]; content: string; executionId?: string; now?: number }): EmployeeRuntimeMessage {
     const content = input.content.trim();
     if (!content || content.length > 16000) throw new InputError("Message content must be 1-16000 characters.");
     const message: EmployeeRuntimeMessage = {
       id: id("msg"), conversationId: cleanId(input.conversationId, "conversationId"), role: input.role,
       content, createdAt: input.now ?? Date.now(),
+      ...(input.executionId ? { executionId: input.executionId } : {}),
     };
     this.exec(
-      `INSERT INTO employee_runtime_messages(id,conversation_id,role,content,created_at) VALUES(?,?,?,?,?)`,
-      message.id, message.conversationId, message.role, message.content, message.createdAt,
+      `INSERT INTO employee_runtime_messages(id,conversation_id,role,content,execution_id,created_at) VALUES(?,?,?,?,?,?)`,
+      message.id, message.conversationId, message.role, message.content, message.executionId ?? null, message.createdAt,
     );
     this.pruneMessages(message.conversationId);
     return message;
@@ -287,6 +291,14 @@ export class EmployeeRuntimeStore {
     return row ? String(row.input_json) : null;
   }
 
+  claimInterruptedExecution(executionId: string, claimToken: string, now = Date.now()): boolean {
+    this.exec(
+      `UPDATE employee_runtime_executions SET status='running',checkpoint='recovery_inference',error=?,updated_at=? WHERE id=? AND status='interrupted'`,
+      claimToken, now, cleanId(executionId, "executionId"),
+    );
+    return this.getExecution(executionId)?.error === claimToken;
+  }
+
   markInterruptedRunning(now = Date.now(), excludeIds: ReadonlySet<string> = new Set()): number {
     const rows = this.exec(`SELECT id FROM employee_runtime_executions WHERE status='running'`)
       .filter((row) => !excludeIds.has(String(row.id)));
@@ -309,6 +321,7 @@ function rowToMessage(row: SqlRow): EmployeeRuntimeMessage {
   return {
     id: String(row.id), conversationId: String(row.conversation_id), role: row.role as EmployeeRuntimeMessage["role"],
     content: String(row.content), createdAt: Number(row.created_at),
+    ...(row.execution_id != null ? { executionId: String(row.execution_id) } : {}),
   };
 }
 

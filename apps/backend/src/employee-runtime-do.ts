@@ -87,11 +87,6 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
   override async onStart(): Promise<void> {
     this.store.init();
     if (!this.state.startedAt) this.setState({ startedAt: Date.now() });
-    const recovery = this.recoverInterrupted().catch((error) => {
-      log.error("employee_runtime_recovery_failed", { error: redactSecrets(error instanceof Error ? error.message : String(error)) });
-    });
-    if (typeof this.ctx.waitUntil === "function") this.ctx.waitUntil(recovery);
-    else await recovery;
   }
 
   override async onRequest(request: Request): Promise<Response> {
@@ -146,7 +141,7 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
       if (!current || current.status === "cancelled") {
         return json({ error: "Employee execution was cancelled.", execution: current ?? execution }, { status: 409 });
       }
-      const assistant = this.store.appendMessage({ conversationId: body.conversationId, role: "assistant", content: answer });
+      const assistant = this.store.appendMessage({ conversationId: body.conversationId, role: "assistant", content: answer, executionId: execution.id });
       const completed = this.store.updateExecution(execution.id, {
         status: "completed", checkpoint: "terminal", resultJson: JSON.stringify({ assistantMessageId: assistant.id }),
       });
@@ -218,7 +213,7 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
               send({ type: "error", error: "Employee execution was cancelled.", execution: current ?? execution });
               return;
             }
-            const assistant = this.store.appendMessage({ conversationId: body.conversationId, role: "assistant", content: answer });
+            const assistant = this.store.appendMessage({ conversationId: body.conversationId, role: "assistant", content: answer, executionId: execution.id });
             const completed = this.store.updateExecution(execution.id, {
               status: "completed", checkpoint: "terminal", resultJson: JSON.stringify({ assistantMessageId: assistant.id }),
             });
@@ -388,13 +383,12 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
         failed += 1;
         continue;
       }
-      const nextUser = messages.findIndex((message, index) => index > userIndex && message.role === "user");
-      if (nextUser >= 0) {
+      if (messages.some((message, index) => index > userIndex && message.role === "user")) {
         this.store.updateExecution(execution.id, { status: "failed", checkpoint: "recovery_superseded", error: "A newer user message superseded this interrupted execution." });
         skipped += 1;
         continue;
       }
-      const assistant = messages.slice(userIndex + 1).find((message) => message.role === "assistant");
+      const assistant = messages.slice(userIndex + 1).find((message) => message.role === "assistant" && message.executionId === execution.id);
       if (assistant) {
         this.store.updateExecution(execution.id, { status: "completed", checkpoint: "terminal", resultJson: JSON.stringify({ assistantMessageId: assistant.id, recovery: "already_persisted" }), error: "" });
         completed += 1;
@@ -405,9 +399,13 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
         failed += 1;
         continue;
       }
+      const claimToken = `claim:${crypto.randomUUID()}`;
+      if (!this.store.claimInterruptedExecution(execution.id, claimToken)) {
+        skipped += 1;
+        continue;
+      }
       const controller = new AbortController();
       this.active.set(execution.id, controller);
-      this.store.updateExecution(execution.id, { status: "running", checkpoint: "recovery_inference", error: "" });
       try {
         const answer = await this.answer({ profile, conversationId: execution.conversationId, message: user.content, mode: execution.mode }, controller.signal);
         const current = this.store.getExecution(execution.id);
@@ -415,7 +413,20 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
           skipped += 1;
           continue;
         }
-        const persisted = this.store.appendMessage({ conversationId: execution.conversationId, role: "assistant", content: answer });
+        const latestMessages = this.store.listMessages(execution.conversationId, 500);
+        const latestUserIndex = latestMessages.findIndex((message) => message.id === user.id);
+        if (latestUserIndex < 0 || latestMessages.some((message, index) => index > latestUserIndex && message.role === "user")) {
+          this.store.updateExecution(execution.id, { status: "failed", checkpoint: "recovery_superseded", error: "A newer user message superseded this interrupted execution." });
+          skipped += 1;
+          continue;
+        }
+        const existing = latestMessages.slice(latestUserIndex + 1).find((message) => message.role === "assistant" && message.executionId === execution.id);
+        if (existing) {
+          this.store.updateExecution(execution.id, { status: "completed", checkpoint: "terminal", resultJson: JSON.stringify({ assistantMessageId: existing.id, recovery: "already_persisted" }), error: "" });
+          completed += 1;
+          continue;
+        }
+        const persisted = this.store.appendMessage({ conversationId: execution.conversationId, role: "assistant", content: answer, executionId: execution.id });
         this.store.updateExecution(execution.id, { status: "completed", checkpoint: "terminal", resultJson: JSON.stringify({ assistantMessageId: persisted.id, recovery: "replayed" }), error: "" });
         recovered += 1;
       } catch (error) {

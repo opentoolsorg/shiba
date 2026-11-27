@@ -107,14 +107,15 @@ describe("EmployeeRuntime Durable Object", () => {
     expect(await response.json()).toMatchObject({ interrupted: 1, recovered: 0, completed: 0, failed: 1 });
     expect(db.prepare("SELECT status,checkpoint FROM employee_runtime_executions WHERE id='run_test'").get()).toMatchObject({ status: "failed", checkpoint: "recovery_input_missing" });
   });
-  it("replays an interrupted execution on cold start from its pinned profile and exact user message", async () => {
+  it("replays an interrupted execution from its pinned profile and exact user message", async () => {
     const { runtime, db } = fixture();
     db.prepare(`INSERT INTO employee_runtime_profiles(conversation_id,profile_json,updated_at) VALUES('default',?,1)`).run(JSON.stringify(profile));
     db.prepare(`INSERT INTO employee_runtime_messages(id,conversation_id,role,content,created_at) VALUES('msg_user','default','user','recover this',1)`).run();
     const inputJson = JSON.stringify({ conversationId: "default", mode: "chat", employeeVersion: 2, userMessageId: "msg_user", messageLength: 12 });
     db.prepare(`INSERT INTO employee_runtime_executions(id,conversation_id,mode,status,checkpoint,input_json,created_at,updated_at)
       VALUES('run_replay','default','chat','running','inference',?,1,1)`).run(inputJson);
-    await runtime.onStart();
+    const response = await runtime.onRequest(new Request("https://do/internal/employee-runtime/recover", { method: "POST", body: "{}" }));
+    expect(await response.json()).toMatchObject({ interrupted: 1, recovered: 1, failed: 0 });
     expect(db.prepare("SELECT status,checkpoint FROM employee_runtime_executions WHERE id='run_replay'").get()).toMatchObject({ status: "completed", checkpoint: "terminal" });
     const messages = db.prepare("SELECT role,content FROM employee_runtime_messages WHERE conversation_id='default' ORDER BY rowid").all() as Array<{ role: string; content: string }>;
     expect(messages.map((message) => message.role)).toEqual(["user", "assistant"]);
@@ -124,8 +125,8 @@ describe("EmployeeRuntime Durable Object", () => {
   it("marks interrupted work completed without duplicating an already persisted assistant", async () => {
     const { runtime, db } = fixture();
     db.prepare(`INSERT INTO employee_runtime_profiles(conversation_id,profile_json,updated_at) VALUES('default',?,1)`).run(JSON.stringify(profile));
-    db.prepare(`INSERT INTO employee_runtime_messages(id,conversation_id,role,content,created_at) VALUES
-      ('msg_user','default','user','recover this',1),('msg_assistant','default','assistant','already saved',2)`).run();
+    db.prepare(`INSERT INTO employee_runtime_messages(id,conversation_id,role,content,execution_id,created_at) VALUES
+      ('msg_user','default','user','recover this',NULL,1),('msg_assistant','default','assistant','already saved','run_persisted',2)`).run();
     const inputJson = JSON.stringify({ conversationId: "default", mode: "chat", employeeVersion: 2, userMessageId: "msg_user" });
     db.prepare(`INSERT INTO employee_runtime_executions(id,conversation_id,mode,status,checkpoint,input_json,created_at,updated_at)
       VALUES('run_persisted','default','chat','running','inference',?,1,1)`).run(inputJson);

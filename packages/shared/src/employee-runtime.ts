@@ -65,6 +65,7 @@ export interface EmployeeRuntimeMessage {
   role: "user" | "assistant" | "system";
   content: string;
   createdAt: number;
+  executionId?: string;
 }
 
 export interface EmployeeRuntimeMemory {
