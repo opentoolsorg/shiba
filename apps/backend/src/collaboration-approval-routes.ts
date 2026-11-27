@@ -3,7 +3,7 @@ import { getAgentByName } from "agents/routing";
 import { isCollaborationApprovalDispatchable } from "./collaboration-context.js";
 import { collaborationExecutorIdentity } from "./collaboration-executor.js";
 import { canReadCollaborationRoom } from "./collaboration-room-access.js";
-import { collaborationEmployeeOrgId, getCollaborationHandoff, getCollaborationMembership, humanActorId, type CollaborationHandoffRow, type CollaborationScope } from "./collaboration-store.js";
+import { collaborationEmployeeOrgId, cancelCollaborationHandoff, getCollaborationHandoff, getCollaborationMembership, humanActorId, type CollaborationHandoffRow, type CollaborationScope } from "./collaboration-store.js";
 import { getCustomAgentById, getCustomAgentVersion } from "./custom-agents-store.js";
 import { signInternalRequest } from "./edge-identity.js";
 import type { Env } from "./env.js";
@@ -135,6 +135,7 @@ export async function handleCollaborationApproval(request: Request, env: Env): P
     const result = await resolved.json() as { result?: string };
     if (result.result !== (decision.approved ? "approved" : "rejected")) return unavailable();
     if (!await current(request, env, scope, owner, handoff, approval)) return unavailable();
+    if (!decision.approved) await cancelCollaborationHandoff(env, scope, handoff.handoffId, Date.now());
     return json({ result: result.result, approvalId: approval.approvalId, inputHash });
   } catch { return unavailable(503); }
 }

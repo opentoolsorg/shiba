@@ -144,8 +144,9 @@ describe("requester-only collaboration run approval", () => {
     const forwarded = await state.calls.find((r) => r.method === "POST")!.clone().json();
     expect(forwarded).toMatchObject({ threadKey: EXECUTOR, approvalId: APPROVAL, expectedInputHash, decidedBy: OWNER, source: "dashboard", approved });
     expect(state.names.every((name) => name === EXECUTOR)).toBe(true);
-    expect((await f.send("POST", { expectedInputHash, reviewed: true, approved }))?.status).toBe(409);
+    expect((await f.send("POST", { expectedInputHash, reviewed: true, approved }))?.status).toBe(approved ? 409 : 404);
     expect(state.decisions).toBe(1);
+    expect(f.sqlite.prepare("SELECT status FROM collaboration_handoffs WHERE handoff_id=?").get(HANDOFF)).toMatchObject({ status: approved ? "active" : "cancelled" });
   });
   it("rejects members other than the requester, outsiders, bearer identities and cross-site decisions before RPC", async () => {
     const f = await fixture();
