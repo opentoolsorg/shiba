@@ -29,6 +29,11 @@ test("core lanes require build:validate on pull requests but still run on main",
   }
 });
 
+test("expensive lanes stop early when a cheaper prerequisite fails", () => {
+  assert.match(jobBody("check"), /^ {4}needs: biome-knip$/m);
+  assert.match(jobBody("verify-shiba"), /^ {4}needs: check$/m);
+});
+
 test("verify-shiba is separately opt-in and ci:deferred is an explicit gate decision", () => {
   const verify = jobBody("verify-shiba");
   assert.match(verify, /^ {4}if: .*\bpush\b.*verify:shiba/m);

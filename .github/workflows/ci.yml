@@ -36,6 +36,7 @@ jobs:
     timeout-minutes: 30
   check:
     if: "${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'build:validate') }}"
+    needs: biome-knip
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -90,6 +91,7 @@ jobs:
     timeout-minutes: 30
   verify-shiba:
     if: "${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'verify:shiba') }}"
+    needs: check
     # The pinned Playwright 1.55.1 browser/dependency map supports Ubuntu 24.04.
     # Keep runner image upgrades separate from browser-version upgrades.
     runs-on: ubuntu-24.04
