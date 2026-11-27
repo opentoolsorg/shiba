@@ -184,7 +184,7 @@ describe("NotesEditor", () => {
     fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === "POST" ? Response.json({ note: { ...note, title: "Untitled", id: "new-note" } }) : _url.endsWith("/body") ? new Response("") : Response.json({ notes: [] }));
     render(<NotesEditor />);
     await screen.findByText("No notes yet");
-    fireEvent.click(screen.getByRole("button", { name: "+ New Note" }));
+    fireEvent.click(screen.getByRole("button", { name: "New Note" }));
     await screen.findByRole("textbox", { name: "Note title" });
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true);
   });

@@ -427,9 +427,9 @@ export function NotesEditor({ workspaceId = null, workspaceRole, actorId, onNavi
           {activeId && editor ? <NoteDocument editor={editor} notes={notes} title={title} loading={bodyLoading} saveStatus={activeId && notes.find((note) => note.id === activeId && !canWriteNote(note)) ? "Read-only" : saveStatus} readOnly={Boolean(activeId && notes.find((note) => note.id === activeId && !canWriteNote(note)))}
             chatOpen={chatOpen} onToggleChat={() => setChatOpen((open) => !open)}
             onTitleChange={(value) => { setTitle(value); markDirty(); }} onSave={async () => { await saveDraft(); }} /> : <div className="flex flex-1 items-center justify-center px-6 py-16 text-center"><div>
-              <h1 className="mb-2 font-serif text-3xl font-normal">notes</h1>
+              <h1 className="mb-2 text-3xl font-normal" style={{ fontFamily: "var(--font-serif, Georgia, serif)" }}>notes</h1>
               <p className="mb-4 text-sm text-[var(--knowledge-muted)]">Select a note or create a new one</p>
-              <button type="button" disabled={creating} onClick={() => void newNote()} className="rounded-xl border border-[var(--border-1)] px-3 py-2 text-sm">+ New Note</button>
+              <button type="button" disabled={creating} onClick={() => void newNote()} className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-1)] px-3 py-2 text-sm"><Plus size={14} /> New Note</button>
             </div></div>}
           {onNavigate && <p className="sr-only">
             Notes are not memory until you add them as a source.{" "}

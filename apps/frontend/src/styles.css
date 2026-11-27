@@ -1292,6 +1292,7 @@ select:focus-visible,
 }
 
 .note-page {
+  --note-size: 16px;
   --note-gutter: 96px;
   position: relative;
   width: 100%;
@@ -1299,11 +1300,18 @@ select:focus-visible,
   margin: 0 auto;
   padding: 64px var(--note-gutter) 160px;
 }
+.note-page[data-layout="panel"] {
+  --note-size: 14.5px;
+  --note-gutter: 44px;
+  max-width: none;
+  padding: 28px var(--note-gutter) 120px;
+}
 @media (max-width: 900px) {
   .note-page { --note-gutter: 56px; padding-top: 40px; }
 }
 @media (max-width: 560px) {
   .note-page { --note-gutter: 24px; padding-top: 28px; }
+  .note-page[data-layout="panel"] { --note-gutter: 28px; }
 }
 
 .note-writing-surface .ProseMirror > * + * { margin-top: 0.75em; }

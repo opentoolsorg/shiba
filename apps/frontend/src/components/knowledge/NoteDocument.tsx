@@ -45,7 +45,7 @@ export function NoteDocument({ editor, notes, title, loading, saveStatus, readOn
       </div> : null}
     </div>
     <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-      {loading ? <div role="status" aria-label="Loading note" className="mx-auto max-w-[708px] space-y-4 motion-safe:animate-pulse"><div className="h-10 w-2/3 rounded-xl bg-[var(--surface-subtle)]" /><div className="h-4 rounded-xl bg-[var(--surface-subtle)]" /><div className="h-4 w-4/5 rounded-xl bg-[var(--surface-subtle)]" /></div> : <div className="note-page">
+      {loading ? <div role="status" aria-label="Loading note" className="mx-auto max-w-[708px] space-y-4 motion-safe:animate-pulse"><div className="h-10 w-2/3 rounded-xl bg-[var(--surface-subtle)]" /><div className="h-4 rounded-xl bg-[var(--surface-subtle)]" /><div className="h-4 w-4/5 rounded-xl bg-[var(--surface-subtle)]" /></div> : <div className="note-page" data-layout={chatOpen ? "panel" : undefined}>
         <textarea ref={titleRef} rows={1} aria-label="Note title" placeholder="Untitled" value={title} spellCheck={false}
           readOnly={readOnly}
           className="mb-1.5 block min-h-12 w-full resize-none overflow-hidden rounded-xl border-0 bg-transparent p-0 text-[30px] font-bold leading-[1.18] tracking-[-0.02em] outline-none placeholder:text-[var(--muted-light)] read-only:cursor-default sm:text-[38px]"
@@ -56,7 +56,7 @@ export function NoteDocument({ editor, notes, title, loading, saveStatus, readOn
             }
           }} />
         <p className="mb-7 text-[12.5px] text-[var(--muted-light)]">{editor.getText().trim().split(/\s+/).filter(Boolean).length} words</p>
-        <EditorContent editor={editor} data-testid="composer" className="note-writing-surface text-base leading-[1.65] [&_.ProseMirror]:min-h-[18rem] [&_.ProseMirror]:outline-none" />
+        <EditorContent editor={editor} data-testid="composer" className="note-writing-surface text-[var(--note-size,16px)] leading-[1.65] [&_.ProseMirror]:min-h-[18rem] [&_.ProseMirror]:outline-none" />
       </div>}
     </div>
     {!loading && <NoteSuggestions editor={editor} notes={notes} />}
