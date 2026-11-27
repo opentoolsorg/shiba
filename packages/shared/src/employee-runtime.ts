@@ -30,6 +30,11 @@ export const employeeRuntimeConversationRequestSchema = z.object({
 });
 export type EmployeeRuntimeConversationRequest = z.infer<typeof employeeRuntimeConversationRequestSchema>;
 
+export const employeeRuntimeRecoveryRequestSchema = z.object({
+  conversationId: z.string().trim().min(1).max(128).optional(),
+}).strict();
+export type EmployeeRuntimeRecoveryRequest = z.infer<typeof employeeRuntimeRecoveryRequestSchema>;
+
 export const employeeRuntimeMemoryWriteSchema = z.object({
   conversationId: z.string().trim().min(1).max(128).optional(),
   scope: z.enum(["employee", "thread"]).default("employee"),
@@ -88,6 +93,7 @@ export interface EmployeeRuntimeExecution {
   createdAt: number;
   updatedAt: number;
   error?: string;
+  recoverable?: boolean;
 }
 
 export interface EmployeeRuntimeState {

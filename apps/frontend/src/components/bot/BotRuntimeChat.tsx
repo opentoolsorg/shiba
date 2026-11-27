@@ -184,7 +184,7 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId }: {
       <p className="text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
         Lightweight Chat mode uses this employee's identity, instructions, and runtime memory directly. It does not create a repository, sandbox, or coding harness.
       </p>
-      {executions.some((execution) => execution.status === "interrupted") ? (
+      {executions.some((execution) => execution.recoverable === true) ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--border-1)] bg-[var(--warning-subtle)] px-3 py-2 text-[11px] text-[var(--fg)]">
           <span>Interrupted runtime work needs recovery.</span>
           {canRecover ? (

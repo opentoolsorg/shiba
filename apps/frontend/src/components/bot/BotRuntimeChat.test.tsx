@@ -106,7 +106,7 @@ describe("BotRuntimeChat", () => {
       if (path.includes("/runtime/state")) {
         return json({
           conversationId: "thread-1", messages: [user], memories: [],
-          executions: recovered ? [] : [{ ...execution, status: "interrupted", checkpoint: "recovery_required" }],
+          executions: recovered ? [] : [{ ...execution, status: "running", checkpoint: "inference", recoverable: true }],
           permissions: { canRecover: true },
         });
       }

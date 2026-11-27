@@ -6,6 +6,7 @@ import {
   employeeRuntimeMemoryDeleteSchema,
   employeeRuntimeMemoryUpdateSchema,
   employeeRuntimeMemoryWriteSchema,
+  employeeRuntimeRecoveryRequestSchema,
 } from "@shiba/shared";
 import type { Env } from "./env.js";
 import { getCustomAgentById } from "./custom-agents-store.js";
@@ -253,8 +254,9 @@ export async function handleEmployeeRuntimeRequest(
   }
 
   if (action === "recover") {
-    const parsed = employeeRuntimeConversationRequestSchema.safeParse(body);
-    const recoveryBody = parsed.success ? { conversationId: await scopedConversationId(actorIdentity, parsed.data.conversationId) } : {};
+    const parsed = employeeRuntimeRecoveryRequestSchema.safeParse(body);
+    if (!parsed.success) return json({ ok: false, error: "invalid_body" }, { status: 400 });
+    const recoveryBody = parsed.data.conversationId ? { conversationId: await scopedConversationId(actorIdentity, parsed.data.conversationId) } : {};
     return forwardConversation(await stub.fetch(internal, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(recoveryBody),
     }));

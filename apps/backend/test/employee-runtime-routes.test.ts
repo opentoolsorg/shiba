@@ -217,6 +217,15 @@ describe("employee runtime routes", () => {
     expect(forwarded.conversationId).not.toBe("private-thread");
   });
 
+  it("rejects malformed recovery scopes instead of recovering every thread", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const env = runtimeEnv(calls);
+    const agent = await createCustomAgent(env, "self-hosted", "recover-scope-scout", { name: "Scout", instructions: "Answer carefully." });
+    const response = await handleCustomAgents(post(`/${agent.id}/runtime/recover`, { conversationId: 42 }), env);
+    expect(response?.status).toBe(400);
+    expect(calls).toEqual([]);
+  });
+
   it("allows clearing runtime history for an archived employee", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const env = runtimeEnv(calls);

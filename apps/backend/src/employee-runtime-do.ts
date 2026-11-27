@@ -292,7 +292,10 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
       conversationId,
       messages: this.store.listMessages(conversationId),
       memories: this.store.listMemories({ conversationId, limit: memoryLimit, offset: memoryOffset }),
-      executions: this.store.listExecutions(conversationId),
+      executions: this.store.listExecutions(conversationId).map((execution) => ({
+        ...execution,
+        ...(execution.status === "interrupted" || (execution.status === "running" && !this.active.has(execution.id)) ? { recoverable: true } : {}),
+      })),
     };
     return json(state);
   }

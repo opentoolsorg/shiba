@@ -166,6 +166,15 @@ describe("EmployeeRuntime Durable Object", () => {
     expect(db.prepare("SELECT status FROM employee_runtime_executions WHERE id='run_other'").get()).toEqual({ status: "running" });
   });
 
+  it("marks abandoned running executions recoverable in state", async () => {
+    const { runtime, db } = fixture();
+    db.prepare(`INSERT INTO employee_runtime_executions(id,conversation_id,mode,status,checkpoint,input_json,created_at,updated_at)
+      VALUES('run_abandoned','default','chat','running','inference','{}',1,1)`).run();
+    const response = await runtime.onRequest(new Request("https://do/internal/employee-runtime/state?conversationId=default"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ executions: [{ id: "run_abandoned", status: "running", recoverable: true }] });
+  });
+
   it("does not cancel an execution from a different conversation", async () => {
     const { runtime, db } = fixture();
     db.prepare(`INSERT INTO employee_runtime_executions(id,conversation_id,mode,status,checkpoint,input_json,created_at,updated_at)
