@@ -2,7 +2,7 @@
   "name": "@shiba/shared",
   "version": "0.1.0",
   "private": true,
-  "description": "Shared wire contracts for @shiba/backend (Worker), @shiba/frontend (Vite/React), and @shiba/web (Astro). Pure TypeScript + zod only \u2014 no cloudflare:*, agents, or DOM dependencies.",
+  "description": "Shared wire contracts for @shiba/backend (Worker), @shiba/frontend (Vite/React), and @shiba/web (Astro). Pure TypeScript + zod only — no cloudflare:*, agents, or DOM dependencies.",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -10,7 +10,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "zod": "4.6.7"
+    "zod": "catalog:"
   },
   "scripts": {
     "typecheck": "tsc -b"

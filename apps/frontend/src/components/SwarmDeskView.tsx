@@ -1,5 +1,4 @@
 import { useMemo, useState, type JSX } from "react";
-// eslint-disable-next-line no-restricted-imports
 import {
   SWARM_LANES,
   formatRunAge,
@@ -9,7 +8,7 @@ import {
   type SwarmLane,
   type SwarmMode,
   type SwarmRunInput,
-} from "../../../../packages/shared/src/swarm-desk.js";
+} from "@shiba/shared";
 import { parseRepoName } from "../ui-helpers";
 
 export interface SwarmDeskViewProps {

@@ -9,7 +9,8 @@ import { SKILL_LIBRARY } from "../src/skill-library/index.js";
 // the skip keeps `pnpm test` (which runs before dist exists) green
 // locally instead of failing on a stale or absent build.
 const root = join(import.meta.dirname, "..", "..", "web", "dist");
-const built = existsSync(join(root, "waitlist", "index.html"));
+// Only `pnpm test:built` sets this; the normal unit-test shard must not race the self-building landing test.
+const built = process.env.SHIBA_TEST_BUILT_MARKETING === "1" && existsSync(join(root, "waitlist", "index.html"));
 
 describe.skipIf(!built)("new marketing pages", () => {
   const page = (path: string) => readFileSync(join(root, path), "utf8");

@@ -24,7 +24,7 @@
     "electron-builder": "26.18.0",
     "eslint": "^9.39.5",
     "playwright-core": "1.64.0",
-    "typescript": "5.9.3",
-    "vitest": "5.0.5"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }
