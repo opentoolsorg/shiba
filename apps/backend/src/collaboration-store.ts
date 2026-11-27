@@ -1650,6 +1650,24 @@ export async function cancelCollaborationHandoff(
   return Number(result.meta?.changes ?? 0) > 0;
 }
 
+/** Closes exactly the rejected handoff; a child decision must not cancel its parent or siblings. */
+export async function cancelRejectedCollaborationHandoff(
+  env: Pick<Env, "AGENT_AUDIT">,
+  scope: CollaborationScope,
+  handoffId: string,
+  cancelledAt: number,
+): Promise<boolean> {
+  await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
+  const result = await env.AGENT_AUDIT.prepare(
+    `UPDATE collaboration_handoffs SET status='cancelled',cancelled_at=?
+     WHERE tenant_id=? AND workspace_id=? AND handoff_id=? AND sender_user_id=? AND status='active'`,
+  )
+    .bind(cancelledAt, scope.tenantId, scope.workspaceId, handoffId, scope.userId)
+    .run();
+  return Number(result.meta?.changes ?? 0) === 1;
+}
+
 /** Rejects an unlinked request without cancelling its still-active ancestors. */
 export async function cancelCreatedCollaborationHandoff(
   env: Pick<Env, "AGENT_AUDIT">,

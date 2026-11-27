@@ -3,7 +3,7 @@ import { runInputHash, type PendingApproval } from "@shiba/shared";
 import { handleCollaborationApproval } from "../src/collaboration-approval-routes.js";
 import { bindCollaborationContextApproval, freezeCollaborationContext } from "../src/collaboration-context.js";
 import { createCollaborationMemory, revokeCollaborationMemory } from "../src/collaboration-memory.js";
-import { addCollaborationMember, createCollaborationRoom, createRootCollaborationHandoff, humanActorId,
+import { addCollaborationMember, cancelRejectedCollaborationHandoff, createCollaborationRoom, createRootCollaborationHandoff, humanActorId,
   linkCollaborationHandoffRun, pinCollaborationHandoffExecutor, type CollaborationHandoffRow } from "../src/collaboration-store.js";
 import { createCustomAgent } from "../src/custom-agents-store.js";
 import { INTERNAL_SIGNATURE_HEADER, verifyInternalRequest } from "../src/edge-identity.js";
@@ -148,6 +148,23 @@ describe("requester-only collaboration run approval", () => {
     expect(state.decisions).toBe(1);
     expect(f.sqlite.prepare("SELECT status FROM collaboration_handoffs WHERE handoff_id=?").get(HANDOFF)).toMatchObject({ status: approved ? "active" : "cancelled" });
   });
+  it("closes only the rejected child handoff, never its parent or siblings", async () => {
+    const f = await fixture();
+    const parent = f.sqlite.prepare("SELECT * FROM collaboration_handoffs WHERE handoff_id=?").get(HANDOFF) as Record<string, unknown>;
+    const keys = Object.keys(parent);
+    const insert = f.sqlite.prepare(`INSERT INTO collaboration_handoffs (${keys.join(",")}) VALUES (${keys.map((key) => `@${key}`).join(",")})`);
+    for (const id of ["child-rejected", "child-sibling"]) {
+      insert.run({ ...parent, handoff_id: id, parent_handoff_id: HANDOFF, depth: 1, status: "active", cancelled_at: null });
+    }
+    expect(await cancelRejectedCollaborationHandoff(f.env, f.scope, "child-rejected", 10)).toBe(true);
+    const statuses = f.sqlite.prepare("SELECT handoff_id,status FROM collaboration_handoffs ORDER BY handoff_id").all() as Array<{ handoff_id: string; status: string }>;
+    expect(Object.fromEntries(statuses.map((row) => [row.handoff_id, row.status]))).toMatchObject({
+      [HANDOFF]: "active",
+      "child-rejected": "cancelled",
+      "child-sibling": "active",
+    });
+  });
+
   it("rejects members other than the requester, outsiders, bearer identities and cross-site decisions before RPC", async () => {
     const f = await fixture();
     expect((await f.send("GET", undefined, MEMBER))?.status).toBe(404);
