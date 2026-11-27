@@ -557,9 +557,9 @@ function ProviderCard({
     <article
       data-testid={`provider-card-${card.id}`}
       aria-busy={busy}
-      className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-card)] transition duration-150 hover:border-[var(--border-2)] hover:shadow-[var(--sh-overlay)]"
+      className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-transparent bg-[var(--surface-subtle)] transition duration-150 hover:bg-[var(--card-hover)]"
     >
-      <header className="flex items-center justify-between gap-3 border-b border-[var(--border-1)] bg-[var(--panel)] px-4 py-3">
+      <header className="flex items-center justify-between gap-3 border-b border-transparent bg-transparent px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
           <span className="font-mono text-[10px] tabular-nums text-[var(--muted-foreground-3)]">
             {ordinal}
@@ -609,7 +609,7 @@ function ProviderCard({
         />
       </div>
 
-      <footer className="mt-auto flex min-w-0 flex-wrap gap-px rounded-b-2xl border-t border-[var(--border-1)] bg-[var(--border-1)] font-mono text-[10px] text-[var(--muted-foreground-2)]">
+      <footer className="mt-auto flex min-w-0 flex-wrap gap-px rounded-b-xl border-t border-transparent bg-transparent font-mono text-[10px] text-[var(--muted-foreground-2)]">
         <Fact label="Registry protocol" value={card.protocol.toUpperCase()} />
         <Fact label="Registry adapter" value={card.harness} />
         <Fact label="Adapter default model" value={card.defaultModel} />
