@@ -46,11 +46,12 @@ async function validateThreadAgent(
     if (!agent) {
       return Response.json({ error: "Bot not found." }, { status: 404 });
     }
-    try {
-      if (typeof agent.config.harness !== "string" || !agent.config.harness.trim()) throw new Error();
-      resolveHarness(agent.config.harness, env);
-    } catch {
-      return Response.json({ error: "Bot harness is unavailable." }, { status: 409 });
+    if (typeof agent.config.harness === "string" && agent.config.harness.trim()) {
+      try {
+        resolveHarness(agent.config.harness, env);
+      } catch {
+        return Response.json({ error: "Bot harness is unavailable." }, { status: 409 });
+      }
     }
     return null;
   } catch (error) {
