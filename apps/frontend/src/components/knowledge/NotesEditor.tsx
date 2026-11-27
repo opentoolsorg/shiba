@@ -138,7 +138,22 @@ export function NotesEditor({ workspaceId = null, workspaceRole, actorId, onNavi
       if (!workspaceId || !event.kind.startsWith("note.")) return;
       eventRevision.current++;
       if (pendingIdsRef.current.has(event.entityId)) return;
+      const remainingAfterDelete = event.kind === "note.deleted" ? notesRef.current.filter((note) => note.id !== event.entityId) : [];
       setNotes((current) => patchNotes(current, event, workspaceId, scope));
+      if (event.kind === "note.deleted" && event.entityId === activeIdRef.current) {
+        dirty.current = false;
+        conflicted.current = false;
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        const next = remainingAfterDelete[0];
+        if (next) selectNote(next);
+        else {
+          bodyReady.current = false;
+          savedBody.current = null;
+          setActiveId(null);
+          setTitle("Untitled");
+        }
+        toast.info("The open note was deleted.");
+      }
       if (event.entityId === activeIdRef.current && !dirty.current && event.kind === "note.updated") {
         const parsed = knowledgeNoteSchema.safeParse(event.payload?.note);
         const note = parsed.success ? parsed.data : undefined;

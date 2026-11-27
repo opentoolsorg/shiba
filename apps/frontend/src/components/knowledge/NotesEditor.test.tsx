@@ -183,6 +183,16 @@ describe("NotesEditor", () => {
     expect(screen.getByRole("textbox", { name: "Note title" })).toHaveProperty("value", "Research");
   });
 
+  it("leaves a deleted open note instead of trapping the draft", async () => {
+    render(<NotesEditor workspaceId="ws" workspaceRole="owner" actorId="alice" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Plan" }));
+    await screen.findByRole("textbox", { name: "Note title" });
+    await waitFor(() => expect(current.editor?.isEditable).toBe(true));
+    act(() => current.options?.onEvent({ id: "evt-del", workspaceId: "ws", kind: "note.deleted", entityId: "note-1", at: 2, payload: {} }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveProperty("value", "Research"));
+    expect(screen.queryByRole("button", { name: "Plan" })).toBeNull();
+  });
+
   it("renders the notes list, empty editor prompt, and loading skeleton", async () => {
     render(<NotesEditor />);
     expect(screen.getByRole("status", { name: "Loading notes" })).toBeTruthy();
