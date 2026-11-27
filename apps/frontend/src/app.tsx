@@ -976,10 +976,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   useEffect(() => {
     if (mainView === "settings" && teamWorkspaceId) setSettingsSection("team");
   }, [mainView, teamWorkspaceId]);
-  // The directory forgets its selection when switching to Personal; keep the last team separately for the Workspace tab.
+  // The directory forgets its selection when switching to Personal; keep only a server-verified team separately for the Workspace tab.
   useEffect(() => {
-    if (teamWorkspaceId && orchestratorName) rememberLastTeamWorkspace(orchestratorName.trim().toLowerCase(), teamWorkspaceId);
-  }, [teamWorkspaceId, orchestratorName]);
+    if (teamWorkspaceId && orchestratorName && teamDirectory.workspaces.some((item) => item.workspaceId === teamWorkspaceId))
+      rememberLastTeamWorkspace(orchestratorName.trim().toLowerCase(), teamWorkspaceId);
+  }, [teamWorkspaceId, orchestratorName, teamDirectory.workspaces]);
   const teamWorkspace = teamDirectory.workspaces.find(item => item.workspaceId === teamWorkspaceId);
   useEffect(() => {
     setMailboxCounts({});

@@ -42,6 +42,7 @@ export function teamWorkspaceInvitationUrl(token: string, origin: string): strin
   return url.toString();
 }
 
+export const TEAM_WORKSPACE_REVOKED_ERROR = "Access to the selected workspace was removed. Choose another workspace or explicitly open your personal workspace.";
 const selectionKey = (actorId: string) => `shiba:team-workspace:${encodeURIComponent(actorId)}`;
 function remembered(actorId: string): string {
   try {
@@ -165,7 +166,7 @@ export function useTeamWorkspaceDirectory({
         }
         const revoked = !selected && revokedWorkspace(scope);
         return { verified: !unavailable && !revoked, scope, workspaces, selectedWorkspaceId: selected, loading: false,
-          error: unavailable || revoked ? "Access to the selected workspace was removed. Choose another workspace or explicitly open your personal workspace." : null };
+          error: unavailable || revoked ? TEAM_WORKSPACE_REVOKED_ERROR : null };
       });
     } catch (cause) {
       if (active())
