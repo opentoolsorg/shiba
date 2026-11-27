@@ -8,6 +8,8 @@ import type { AppNavView } from "../AppNavRail";
 import { LoadErrorState } from "../LoadErrorState";
 import { FileAppPreview } from "./FileAppPreview";
 
+const REVEAL_ON_HOVER = "transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100";
+
 export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavigate?: (view: AppNavView) => void; appPreviewOwner?: string; workspaceId?: string | null } = {}): JSX.Element {
   const [scope, setScope] = useState<KnowledgeScope>("personal");
   const [files, setFiles] = useState<KnowledgeFile[]>([]);
@@ -210,10 +212,10 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
               {searchHits.length ? (
                 <ol className="divide-y divide-[var(--border-1)] text-sm">
                   {searchHits.map((hit) => (
-                    <li key={hit.chunkId} className="px-3 py-2.5">
+                    <li key={hit.chunkId} className="group px-3 py-2.5">
                       <div className="flex items-center gap-2">
                         <span className="min-w-0 flex-1 truncate text-xs font-medium">{hit.sourceName || (hit.sourceKind === "note" ? "Untitled note" : "Untitled file")}</span>
-                        <span className="shrink-0 rounded-full bg-[var(--surface-subtle)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground-2)] opacity-0 transition-opacity group-hover:opacity-100">{hit.sourceKind === "note" ? "Note" : "File"}{hit.scope ? ` · ${hit.scope === "workspace" ? "Workspace" : "Personal"}` : ""}</span>
+                        <span className={`shrink-0 rounded-full bg-[var(--surface-subtle)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground-2)] ${REVEAL_ON_HOVER}`}>{hit.sourceKind === "note" ? "Note" : "File"}{hit.scope ? ` · ${hit.scope === "workspace" ? "Workspace" : "Personal"}` : ""}</span>
                       </div>
                       <p className="mt-1 line-clamp-3 text-xs leading-5 text-[var(--muted-foreground-1)]"><MarkedSnippet text={hit.text.slice(0, 600)} query={query} /></p>
                     </li>
@@ -243,13 +245,13 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
                     file.createdBy?.trim().toLowerCase() === appPreviewOwner &&
                     file.workspaceId === "self-hosted" && file.archivedAt === null && file.mime === "application/json" &&
                     /^file_[a-f0-9]{24}$/.test(file.id) && file.name.endsWith(".app-preview.json");
-                  return <li key={file.id} className={canPreview ? "rounded-[8px] border border-transparent px-3 py-2.5 transition-colors hover:border-[var(--border-1)] hover:bg-[var(--panel)]" : "group flex items-center gap-3 rounded-[8px] border border-transparent px-3 py-2.5 transition-colors hover:border-[var(--border-1)] hover:bg-[var(--panel)]"}>
+                  return <li key={file.id} className={canPreview ? "group rounded-[8px] border border-transparent px-3 py-2.5 transition-colors hover:border-[var(--border-1)] hover:bg-[var(--panel)]" : "group flex items-center gap-3 rounded-[8px] border border-transparent px-3 py-2.5 transition-colors hover:border-[var(--border-1)] hover:bg-[var(--panel)]"}>
                     {iconFor(file)}
                     <span className="min-w-0 flex-1 truncate font-normal leading-relaxed">{file.name}</span>
-                    <span className="hidden shrink-0 text-xs text-[var(--muted-light)] opacity-0 transition-opacity group-hover:opacity-100 lg:inline">{file.mime ?? "file"}</span>
-                    <span className="hidden shrink-0 text-xs text-[var(--muted-light)] opacity-0 transition-opacity group-hover:opacity-100 sm:inline">{new Date(file.updatedAt).toLocaleDateString()}</span>
-                    <span className="shrink-0 text-xs tabular-nums text-[var(--muted-light)] opacity-0 transition-opacity group-hover:opacity-100">{file.size.toLocaleString()} bytes</span>
-                    <span className="shrink-0 rounded-full bg-[var(--surface-subtle)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground-2)] opacity-0 transition-opacity group-hover:opacity-100">{file.ingestion.state}</span>
+                    <span className={`hidden shrink-0 text-xs text-[var(--muted-light)] ${REVEAL_ON_HOVER} lg:inline`}>{file.mime ?? "file"}</span>
+                    <span className={`hidden shrink-0 text-xs text-[var(--muted-light)] ${REVEAL_ON_HOVER} sm:inline`}>{new Date(file.updatedAt).toLocaleDateString()}</span>
+                    <span className={`shrink-0 text-xs tabular-nums text-[var(--muted-light)] ${REVEAL_ON_HOVER}`}>{file.size.toLocaleString()} bytes</span>
+                    <span className={`shrink-0 rounded-full bg-[var(--surface-subtle)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground-2)] ${REVEAL_ON_HOVER}`}>{file.ingestion.state}</span>
                     {canPreview && <div className="basis-full sm:basis-auto"><FileAppPreview key={appPreviewOwner} fileId={file.id} fileName={file.name} /></div>}
                   </li>;
                 })}
