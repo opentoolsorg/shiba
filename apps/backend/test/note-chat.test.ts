@@ -6,14 +6,14 @@ import { handleNotes } from "../src/notes/notes-routes.js";
 import { buildNoteChatContext } from "../src/notes/note-chat-context.js";
 import { listNoteChat } from "../src/notes/note-chat-store.js";
 
-const state = vi.hoisted(() => ({ userId: "alice", generate: vi.fn() }));
+const state = vi.hoisted(() => ({ userId: "alice", workspaceId: "ws_chat", generate: vi.fn() }));
 vi.mock("ai", () => ({ generateText: state.generate }));
 vi.mock("workers-ai-provider", () => ({ createWorkersAI: () => () => ({}) }));
 vi.mock("../src/request-auth.js", () => ({
   resolveRequestIdentity: async () => ({ authorized: true, userId: state.userId }),
   requireSameOriginBrowserMutation: (request: Request) => request.headers.get("Origin") === "https://shiba.test" ? null : new Response("Forbidden", { status: 403 }),
 }));
-vi.mock("../src/org-request-auth.js", () => ({ resolveOrgForApiRequest: async () => ({ workspace: { workspaceId: "ws_chat" } }) }));
+vi.mock("../src/org-request-auth.js", () => ({ resolveOrgForApiRequest: async () => ({ workspace: { workspaceId: state.workspaceId } }) }));
 
 function setup() {
   const { database, sqlite } = customAgentD1();
@@ -29,7 +29,7 @@ const request = (id: string, method = "GET", body?: unknown, origin = "https://s
 });
 
 describe("private notebook chat", () => {
-  beforeEach(() => { state.userId = "alice"; state.generate.mockReset().mockResolvedValue({ text: "An answer" }); });
+  beforeEach(() => { state.userId = "alice"; state.workspaceId = "ws_chat"; state.generate.mockReset().mockResolvedValue({ text: "An answer" }); });
   it("includes current and mentioned note bodies, saves both messages, and isolates users", async () => {
     const { env } = setup();
     const active = await createNote(env, { workspaceId: "ws_chat", scope: "personal", title: "Draft", markdown: "Active body", createdBy: "alice" });
@@ -63,6 +63,28 @@ describe("private notebook chat", () => {
     ]);
     expect(context).toContain("Not available");
     expect(context).not.toMatch(/Secret|Foreign|user supplied/);
+  });
+  it("uses only prepaid workspace credits for team note chat", async () => {
+    const { env, sqlite } = setup();
+    const teamWorkspace = "ws_abcdefabcdefabcdefabcdef";
+    state.workspaceId = teamWorkspace;
+    const note = await createNote(env, { workspaceId: teamWorkspace, scope: "personal", title: "Draft", markdown: "Body", createdBy: "alice" });
+    const denied = await handleNotes(request(note.id, "POST", { message: "Hello" }), env);
+    expect(denied?.status).toBe(403);
+    expect(state.generate).not.toHaveBeenCalled();
+
+    const fundedEnv = { ...env, STRIPE_SECRET_KEY: "sk_test_note_chat", STRIPE_WEBHOOK_SECRET: "whsec_note_chat" } as unknown as Env;
+    const unfunded = await handleNotes(request(note.id, "POST", { message: "Hello" }), fundedEnv);
+    expect(unfunded?.status).toBe(402);
+    expect(state.generate).not.toHaveBeenCalled();
+
+    sqlite.prepare(`INSERT INTO workspace_billing_topups (id,owner,amount_micro_usd,status,created_at) VALUES (?,?,?,?,?)`)
+      .run("top_note_chat", `team:${teamWorkspace}`, 100_000, "succeeded", 1);
+    const funded = await handleNotes(request(note.id, "POST", { message: "Hello" }), fundedEnv);
+    expect(funded?.status).toBe(200);
+    expect(state.generate).toHaveBeenCalledOnce();
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM workspace_billing_debits WHERE subject=? AND kind='run'`).get(`team:${teamWorkspace}`)?.count).toBe(1);
+    expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM workspace_billing_pending WHERE subject=?`).get(`team:${teamWorkspace}`)?.count).toBe(0);
   });
   it("validates input, requires same origin, returns friendly errors, and does not persist failed turns", async () => {
     const { env } = setup();

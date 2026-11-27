@@ -22,6 +22,7 @@ function projectDto(
     id: String(row.id),
     workspaceId: String(row.workspace_id),
     name: String(row.name),
+    ...(typeof row.created_by === "string" ? { createdBy: row.created_by } : {}),
     createdAt: Number(row.created_at),
     ...(counts ? counts : {}),
   };
@@ -33,10 +34,10 @@ export async function listProjects(
   viewer?: string,
 ): Promise<KnowledgeProject[]> {
   const rows = await env.AGENT_AUDIT.prepare(
-    `SELECT id, workspace_id, name, created_at FROM knowledge_projects WHERE workspace_id=? ORDER BY created_at DESC LIMIT 100`,
+    `SELECT id, workspace_id, name, created_by, created_at FROM knowledge_projects WHERE workspace_id=? ORDER BY created_at DESC LIMIT 100`,
   )
     .bind(workspaceId)
-    .all<{ id: string; workspace_id: string; name: string; created_at: number }>();
+    .all<{ id: string; workspace_id: string; name: string; created_by: string | null; created_at: number }>();
   if (!viewer) return rows.results.map((row) => projectDto(row));
   const [fileCounts, noteCounts] = await Promise.all([
     countProjectFiles(env, workspaceId, viewer),
@@ -56,7 +57,7 @@ export async function getProject(
   projectId: string,
 ): Promise<KnowledgeProject | null> {
   const row = await env.AGENT_AUDIT.prepare(
-    `SELECT id, workspace_id, name, created_at FROM knowledge_projects WHERE workspace_id=? AND id=?`,
+    `SELECT id, workspace_id, name, created_by, created_at FROM knowledge_projects WHERE workspace_id=? AND id=?`,
   )
     .bind(workspaceId, projectId)
     .first<Record<string, unknown>>();
@@ -67,6 +68,7 @@ export async function createProject(
   env: Env,
   workspaceId: string,
   name: string,
+  createdBy?: string,
 ): Promise<KnowledgeProject> {
   const trimmed = name.trim();
   if (!trimmed || trimmed.length > 120)
@@ -74,11 +76,11 @@ export async function createProject(
   const id = `proj_${randomHex(10)}`;
   const createdAt = Date.now();
   await env.AGENT_AUDIT.prepare(
-    `INSERT INTO knowledge_projects (id, workspace_id, name, created_at) VALUES (?,?,?,?)`,
+    `INSERT INTO knowledge_projects (id, workspace_id, name, created_by, created_at) VALUES (?,?,?,?,?)`,
   )
-    .bind(id, workspaceId, trimmed, createdAt)
+    .bind(id, workspaceId, trimmed, createdBy ?? null, createdAt)
     .run();
-  return { id, workspaceId, name: trimmed, createdAt, fileCount: 0, noteCount: 0 };
+  return { id, workspaceId, name: trimmed, ...(createdBy ? { createdBy } : {}), createdAt, fileCount: 0, noteCount: 0 };
 }
 
 export async function renameProject(

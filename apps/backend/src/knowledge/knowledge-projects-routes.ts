@@ -1,9 +1,10 @@
+import type { KnowledgeProject } from "@shiba/shared";
 import type { Env } from "../env.js";
 import { getFile } from "../files/files-store.js";
 import { getNote } from "../notes/notes-store.js";
-import { resolveOrgForApiRequest } from "../org-request-auth.js";
+import { resolveOrgForApiRequest, type ResolvedOrgAuth } from "../org-request-auth.js";
 import { requireSameOriginBrowserMutation, resolveRequestIdentity } from "../request-auth.js";
-import { assertKnowledgeRead, KnowledgeAccessError } from "./knowledge-access.js";
+import { assertKnowledgeWrite, KnowledgeAccessError } from "./knowledge-access.js";
 import {
   assignProjectResource,
   createProject,
@@ -31,6 +32,20 @@ function storeError(error: unknown): Response | null {
   return null;
 }
 
+
+function canMutateProject(project: KnowledgeProject, userId: string, org: ResolvedOrgAuth): boolean {
+  if (!org.workspace) return true;
+  if (org.workspace.role === "owner" || org.workspace.role === "admin") return true;
+  return Boolean(
+    project.createdBy &&
+    project.createdBy.trim().toLowerCase() === userId.trim().toLowerCase(),
+  );
+}
+
+function projectMutationForbidden(): Response {
+  return json({ error: "Only the project creator or a workspace owner/admin can change this project." }, 403);
+}
+
 export async function handleKnowledgeProjects(
   request: Request,
   env: Env,
@@ -53,7 +68,7 @@ export async function handleKnowledgeProjects(
       if (blocked) return blocked;
       const body = (await request.json().catch(() => null)) as { name?: string } | null;
       try {
-        const project = await createProject(env, workspaceId, body?.name ?? "");
+        const project = await createProject(env, workspaceId, body?.name ?? "", userId);
         return json({ project }, 201);
       } catch (error) {
         return storeError(error) ?? json({ error: "Could not create project." }, 400);
@@ -72,6 +87,7 @@ export async function handleKnowledgeProjects(
 
   if (match[2] === "/membership") {
     if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+    if (!canMutateProject(project, userId, org)) return projectMutationForbidden();
     const blocked = requireSameOriginBrowserMutation(request);
     if (blocked) return blocked;
     const body = (await request.json().catch(() => null)) as {
@@ -87,7 +103,7 @@ export async function handleKnowledgeProjects(
         const file = await getFile(env, body.resourceId);
         if (!file || file.workspaceId !== workspaceId || file.archivedAt)
           return json({ error: "File not found." }, 404);
-        await assertKnowledgeRead(env, userId, {
+        await assertKnowledgeWrite(env, userId, {
           workspaceId: file.workspaceId,
           scope: file.scope,
           createdBy: file.createdBy,
@@ -98,7 +114,7 @@ export async function handleKnowledgeProjects(
         const note = await getNote(env, body.resourceId);
         if (!note || note.workspaceId !== workspaceId || note.archivedAt)
           return json({ error: "Note not found." }, 404);
-        await assertKnowledgeRead(env, userId, {
+        await assertKnowledgeWrite(env, userId, {
           workspaceId: note.workspaceId,
           scope: note.scope,
           createdBy: note.createdBy,
@@ -127,6 +143,7 @@ export async function handleKnowledgeProjects(
     return json({ project, ...detail });
   }
   if (request.method === "PATCH") {
+    if (!canMutateProject(project, userId, org)) return projectMutationForbidden();
     const blocked = requireSameOriginBrowserMutation(request);
     if (blocked) return blocked;
     const body = (await request.json().catch(() => null)) as { name?: string } | null;
@@ -137,6 +154,7 @@ export async function handleKnowledgeProjects(
     }
   }
   if (request.method === "DELETE") {
+    if (!canMutateProject(project, userId, org)) return projectMutationForbidden();
     const blocked = requireSameOriginBrowserMutation(request);
     if (blocked) return blocked;
     return json({ deleted: await deleteProject(env, workspaceId, projectId) });

@@ -3,7 +3,7 @@ import type { Env } from "../env.js";
 import { requireSameOriginBrowserMutation, resolveRequestIdentity } from "../request-auth.js";
 import { resolveOrgForApiRequest } from "../org-request-auth.js";
 import { InputError } from "../security.js";
-import { assertKnowledgeRead, KnowledgeAccessError } from "../knowledge/knowledge-access.js";
+import { assertKnowledgeRead, assertKnowledgeWrite, KnowledgeAccessError } from "../knowledge/knowledge-access.js";
 import { enqueueIngestion } from "../knowledge/knowledge-ingestion.js";
 import { filesBucket } from "../knowledge/knowledge-ingestion.js";
 import { GENERATED_DOCUMENT_PREFIX } from "../tools/document-gen.js";
@@ -144,6 +144,13 @@ export async function handleFiles(request: Request, env: Env): Promise<Response 
     const blocked = requireSameOriginBrowserMutation(request);
     if (blocked) return blocked;
     try {
+      await assertKnowledgeWrite(env, userId, {
+        workspaceId: file.workspaceId,
+        scope: file.scope,
+        createdBy: file.createdBy,
+        resourceId: file.id,
+        resourceKind: "file",
+      });
       const updated = await retryFileIngestion(env, fileId, userId);
       const storage = await env.AGENT_AUDIT.prepare(`SELECT r2_key, mime FROM files WHERE id=?`)
         .bind(fileId).first<{ r2_key: string; mime: string }>();

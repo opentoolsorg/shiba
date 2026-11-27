@@ -3,7 +3,7 @@ import { publishWorkspaceEvent } from "../platform/workspace-events-do.js";
 import type { Env } from "../env.js";
 import { requireSameOriginBrowserMutation, resolveRequestIdentity } from "../request-auth.js";
 import { resolveOrgForApiRequest } from "../org-request-auth.js";
-import { assertKnowledgeRead, KnowledgeAccessError } from "../knowledge/knowledge-access.js";
+import { assertKnowledgeRead, assertKnowledgeWrite, KnowledgeAccessError } from "../knowledge/knowledge-access.js";
 import { enqueueIngestion } from "../knowledge/knowledge-ingestion.js";
 import { filesBucket } from "../knowledge/knowledge-ingestion.js";
 import { createNote, getNote, listNotes, NotesConflictError, NotesStoreError, updateNoteMarkdown } from "./notes-store.js";
@@ -85,6 +85,18 @@ export async function handleNotes(request: Request, env: Env): Promise<Response 
   if (!match[2] && request.method === "PATCH") {
     const blocked = requireSameOriginBrowserMutation(request);
     if (blocked) return blocked;
+    try {
+      await assertKnowledgeWrite(env, userId, {
+        workspaceId: note.workspaceId,
+        scope: note.scope,
+        createdBy: note.createdBy,
+        resourceId: note.id,
+        resourceKind: "note",
+      });
+    } catch (error) {
+      if (error instanceof KnowledgeAccessError) return json({ error: error.message }, error.status);
+      throw error;
+    }
     const body = await request.json().catch(() => null) as {
       markdown?: string; title?: string; expectedVersion?: number;
     } | null;

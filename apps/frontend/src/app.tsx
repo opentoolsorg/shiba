@@ -4765,11 +4765,11 @@ function employeeConversationRoomTitle(name: string): string {
               onNavigate={openView}
             />
           ) : mainView === "files" ? (
-            <FilesView appPreviewOwner={privateDataEnabled && authMode === "access" ? orchestratorName?.trim().toLowerCase() : undefined} onNavigate={(view) => { if (view === "memory") setMemoryView("sources"); openView(view); }} />
+            <FilesView key={teamWorkspaceId || "personal"} workspaceId={teamWorkspaceId || null} appPreviewOwner={privateDataEnabled && authMode === "access" ? orchestratorName?.trim().toLowerCase() : undefined} onNavigate={(view) => { if (view === "memory") setMemoryView("sources"); openView(view); }} />
           ) : mainView === "notes" ? (
             <NotesEditor workspaceId={teamWorkspaceId || null} onNavigate={(view) => { if (view === "memory") setMemoryView("sources"); openView(view); }} />
           ) : mainView === "projects" ? (
-            <ProjectsView key={teamWorkspaceId || "personal"} workspaceId={teamWorkspaceId || null} onNavigate={openView} />
+            <ProjectsView key={teamWorkspaceId || "personal"} workspaceId={teamWorkspaceId || null} workspaceRole={teamWorkspace?.membership.role} actorId={orchestratorName?.trim().toLowerCase()} onNavigate={openView} />
           ) : mainView === "outputs" ? (
             <OutputsView onNavigate={openView} onOpenEvidence={(runId) => {
               applyWorkSelection({ view: "board", task: runId, taskKind: "run", tab: "steps" }, "push");

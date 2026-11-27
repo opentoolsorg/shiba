@@ -98,6 +98,7 @@ export const knowledgeProjectSchema = z.object({
   id: z.string(),
   workspaceId: z.string(),
   name: z.string(),
+  createdBy: z.string().optional(),
   createdAt: z.number().int(),
   fileCount: z.number().int().nonnegative().optional(),
   noteCount: z.number().int().nonnegative().optional(),

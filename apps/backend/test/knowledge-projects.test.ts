@@ -17,7 +17,7 @@ import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 function fixture() {
   const { database, sqlite } = customAgentD1({ bare: true });
-  for (const migration of ["0050_files_notes.sql", "0051_knowledge_indexes.sql"]) {
+  for (const migration of ["0050_files_notes.sql", "0051_knowledge_indexes.sql", "0077_knowledge_project_owners.sql"]) {
     sqlite.exec(readFileSync(new URL(`../migrations/${migration}`, import.meta.url), "utf8"));
   }
   const objects = new Map<string, Uint8Array>();

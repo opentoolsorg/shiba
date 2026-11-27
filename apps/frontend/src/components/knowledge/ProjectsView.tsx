@@ -24,9 +24,13 @@ async function readJson<T>(response: Response, fallback: string): Promise<T> {
 export function ProjectsView({
   onNavigate,
   workspaceId,
+  workspaceRole,
+  actorId,
 }: {
   onNavigate?: (view: AppNavView) => void;
   workspaceId?: string | null;
+  workspaceRole?: "owner" | "admin" | "member";
+  actorId?: string;
 } = {}): JSX.Element {
   const [projects, setProjects] = useState<KnowledgeProject[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -183,6 +187,11 @@ export function ProjectsView({
   }
 
   const project = detail?.project ?? null;
+  const normalizedActorId = actorId?.trim().toLowerCase();
+  const canMutateProject = !workspaceId ||
+    workspaceRole === "owner" ||
+    workspaceRole === "admin" ||
+    Boolean(project?.createdBy && project.createdBy.trim().toLowerCase() === normalizedActorId);
 
   return (
     <div className="p-4">
@@ -253,7 +262,7 @@ export function ProjectsView({
                     <button
                       type="button"
                       className={buttonClass}
-                      disabled={busy || !rename.trim() || rename.trim() === project.name}
+                      disabled={!canMutateProject || busy || !rename.trim() || rename.trim() === project.name}
                       onClick={() =>
                         void mutate(
                           {
@@ -271,7 +280,7 @@ export function ProjectsView({
                     <button
                       type="button"
                       className={buttonClass}
-                      disabled={busy}
+                      disabled={!canMutateProject || busy}
                       onClick={() => {
                         if (window.confirm(`Delete ${project.name}? Files and notes are kept.`))
                           void (async () => {
@@ -303,6 +312,11 @@ export function ProjectsView({
                       Delete
                     </button>
                   </div>
+                  {!canMutateProject ? (
+                    <p className="mb-3 text-xs text-[var(--muted-foreground-2)]">
+                      Only the project creator or a workspace owner/admin can change this project.
+                    </p>
+                  ) : null}
                   <div className="grid gap-4 xl:grid-cols-2">
                     <section aria-label="Project files">
                       <h2 className="mb-2 font-medium">
@@ -315,6 +329,7 @@ export function ProjectsView({
                         <select
                           aria-label="Choose file to add"
                           className={inputClass}
+                          disabled={!canMutateProject}
                           value={fileChoice}
                           onChange={(e) => setFileChoice(e.target.value)}
                         >
@@ -328,7 +343,7 @@ export function ProjectsView({
                         <button
                           type="button"
                           className={buttonClass}
-                          disabled={busy || !fileChoice}
+                          disabled={!canMutateProject || busy || !fileChoice}
                           onClick={() => void setMembership("file", fileChoice, true)}
                         >
                           Add
@@ -344,7 +359,7 @@ export function ProjectsView({
                             <button
                               type="button"
                               className="shrink-0 text-xs underline underline-offset-2"
-                              disabled={busy}
+                              disabled={!canMutateProject || busy}
                               onClick={() => void setMembership("file", file.id, false)}
                             >
                               Remove
@@ -369,6 +384,7 @@ export function ProjectsView({
                         <select
                           aria-label="Choose note to add"
                           className={inputClass}
+                          disabled={!canMutateProject}
                           value={noteChoice}
                           onChange={(e) => setNoteChoice(e.target.value)}
                         >
@@ -382,7 +398,7 @@ export function ProjectsView({
                         <button
                           type="button"
                           className={buttonClass}
-                          disabled={busy || !noteChoice}
+                          disabled={!canMutateProject || busy || !noteChoice}
                           onClick={() => void setMembership("note", noteChoice, true)}
                         >
                           Add
@@ -398,7 +414,7 @@ export function ProjectsView({
                             <button
                               type="button"
                               className="shrink-0 text-xs underline underline-offset-2"
-                              disabled={busy}
+                              disabled={!canMutateProject || busy}
                               onClick={() => void setMembership("note", note.id, false)}
                             >
                               Remove
