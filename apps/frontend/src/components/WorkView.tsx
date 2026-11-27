@@ -534,7 +534,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
         </div>
       ) : null}
 
-      {props.routinesEnabled ? <div role="tablist" aria-label="Tasks filter" className="flex gap-2 border-b border-[var(--border-1)] px-4 py-2">
+      {props.routinesEnabled ? <div role="tablist" aria-label="Tasks filter" className="flex gap-2 border-b border-[var(--border-1)] px-4 py-1 sm:py-2">
         <button type="button" role="tab" aria-selected={!showRoutines} className={viewButtonClass} onClick={() => setShowRoutines(false)}>Tasks</button>
         <button type="button" role="tab" aria-selected={showRoutines} className={viewButtonClass} onClick={() => setShowRoutines(true)}>Routines</button>
       </div> : null}
@@ -613,7 +613,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
         </section>
       )}
       {/* Bottom-docked task composer, matching the Overlay work surface. */}
-      <div className="shrink-0 px-4 pb-4 pt-2">
+      <div className="shrink-0 px-4 pb-2 pt-2 sm:pb-4">
         <WorkQuickAdd
           onSubmit={(text) => onQuickAddTask?.(text)}
           disabled={!onQuickAddTask}
@@ -792,7 +792,7 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
             </section>
           )}
           {view !== "organization" ? (
-            <div ref={quickAddRef} className="shrink-0 px-4 pb-4 pt-2">
+            <div ref={quickAddRef} className="shrink-0 px-4 pb-2 pt-2 sm:pb-4">
               <WorkQuickAdd
                 onSubmit={async (title, patch) => (onCreateTask ? (await (patch ? onCreateTask(title, patch) : onCreateTask(title))) !== null : false)}
                 fields={{ owners: agents, tasks: all.filter((task) => !task.archived) }}

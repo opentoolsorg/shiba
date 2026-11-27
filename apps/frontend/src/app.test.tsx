@@ -1673,7 +1673,7 @@ describe("first-run setup reminders", () => {
     const updates = installProgress();
     render(<App />);
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Your first task is waiting" })).getByRole("button", { name: "Not now" }));
-    fireEvent.click(within(screen.getByRole("region", { name: "Setup reminder" })).getByRole("button", { name: "Dismiss for now" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "Setup reminder" })).getByRole("button", { name: "Dismiss" }));
     expect(screen.queryByRole("region", { name: "Setup reminder" })).toBeNull();
     cleanup();
     render(<App />);

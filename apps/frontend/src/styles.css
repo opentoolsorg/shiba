@@ -1250,6 +1250,16 @@ select:focus-visible,
 }
 
 
+
+/* Compact the mobile work composer so short phones keep both the board and composer visible. */
+@media (max-width: 639px) {
+  .shiba-main-card form textarea {
+    min-height: 40px !important;
+    height: 40px;
+    padding-block: 8px;
+  }
+}
+
 /* OpenBot-inspired dashboard polish: large quiet surfaces, pill actions, and accent-led hierarchy. */
 .shiba-dashboard {
   --dashboard-accent: var(--muted-foreground-2);
