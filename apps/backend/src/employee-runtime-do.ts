@@ -137,7 +137,7 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
   }
 
   private async answer(body: ChatBody, signal: AbortSignal): Promise<string> {
-    const essential = this.store.listMemories({ essential: true, limit: MAX_ESSENTIAL_MEMORIES });
+    const essential = this.store.listMemories({ conversationId: body.conversationId, essential: true, limit: MAX_ESSENTIAL_MEMORIES });
     const contextual = this.store.listMemories({ conversationId: body.conversationId, limit: 20 });
     const memoryBlock = [...essential, ...contextual.filter((memory) => !essential.some((item) => item.id === memory.id))]
       .slice(0, MAX_ESSENTIAL_MEMORIES)
