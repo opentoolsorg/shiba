@@ -154,4 +154,13 @@ describe("employee runtime routes", () => {
     const second = JSON.parse(String(calls[1]?.init?.body)) as { conversationId: string };
     expect(first.conversationId).not.toBe(second.conversationId);
   });
+  it("accepts maximum-length client conversation ids", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const env = runtimeEnv(calls);
+    const agent = await createCustomAgent(env, "self-hosted", "long-thread", { name: "Scout", instructions: "Answer carefully." });
+    const conversationId = "x".repeat(128);
+    const response = await handleCustomAgents(post(`/${agent.id}/runtime/chat`, { conversationId, message: "hello" }), env);
+    expect(response?.status).toBe(200);
+    expect(calls).toHaveLength(1);
+  });
 });

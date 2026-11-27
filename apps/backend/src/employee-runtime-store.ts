@@ -68,7 +68,7 @@ function id(prefix: string): string {
 
 function cleanId(value: string, label: string): string {
   const clean = value.trim();
-  if (!clean || clean.length > 128) throw new InputError(`${label} must be 1-128 characters.`);
+  if (!clean || clean.length > 600) throw new InputError(`${label} must be 1-600 characters.`);
   return clean;
 }
 
