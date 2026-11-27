@@ -683,7 +683,7 @@ describe("account-scoped employee directory", () => {
     fireEvent.click(await screen.findByRole("button", { name: "View profile Finance" }));
     fireEvent.click(await screen.findByRole("button", { name: "Edit avatar" }));
     const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Coat 3" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Shell 3" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Save avatar" }));
 
     const alert = await within(await screen.findByRole("dialog")).findByRole("alert");

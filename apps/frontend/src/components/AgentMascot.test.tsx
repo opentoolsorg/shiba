@@ -11,7 +11,7 @@ describe("AgentMascot", () => {
     const { container } = render(<AgentMascot look={resolveAgentMascotLook({ id: "constructor", role: "custom" })} />);
     expect(container.querySelector("svg")?.getAttribute("data-color")).toMatch(/^#[0-9a-f]{6}$/);
   });
-  it("marks the pointed ears, visor, eyes, and accessory", () => {
+  it("marks the robot antenna, ports, visor, eyes, and accessory", () => {
     const { container } = render(<AgentMascot look={mascotLookForPreset("sunglasses")} expression="squint" live label="Reviewer" />);
     const svg = container.querySelector("svg");
     expect(svg?.getAttribute("data-shape")).toBe("hex");
@@ -20,23 +20,24 @@ describe("AgentMascot", () => {
     expect(svg?.getAttribute("data-expression")).toBe("squint");
     expect(svg?.getAttribute("data-acc")).toBe("loupe");
     expect(svg?.getAttribute("data-live")).toBe("true");
-    expect(container.querySelector('[data-part="ears"]')?.querySelectorAll("path").length).toBe(2);
+    expect(container.querySelector('[data-part="antenna"]')).toBeTruthy();
+    expect(container.querySelector('[data-part="ports"]')?.querySelectorAll("rect").length).toBe(2);
     expect(container.querySelector('[data-part="visor"]')).toBeTruthy();
     expect(container.querySelector('[data-part="eyes"]')).toBeTruthy();
     expect(container.querySelector('[data-part="accessory"]')).toBeTruthy();
-    expect(container.querySelector('[data-part="fluff"]')).toBeTruthy();
+    expect(container.querySelector('[data-part="ears"]')).toBeNull();
+    expect(container.querySelector('[data-part="fluff"]')).toBeNull();
+    expect(svg?.getAttribute("data-renderer")).toBe("robot");
   });
 
   it("rims a dark coat so it does not vanish on a dark card", () => {
     const dark = render(<AgentMascot look={mascotLookForPreset("sunglasses")} />).container;
     const darkHead = dark.querySelector("svg > *:not([data-part])") ?? dark.querySelector("polygon");
     expect(darkHead?.getAttribute("stroke")).toMatch(/^rgba\(244,255,252,0\.38\)$/);
-    for (const ear of dark.querySelectorAll('[data-part="ears"] path')) {
-      expect(ear.getAttribute("stroke")).toMatch(/^rgba\(244,255,252,0\.38\)$/);
-    }
+    expect(dark.querySelector('[data-part="ports"]')?.getAttribute("stroke")).toMatch(/^rgba\(244,255,252,0\.38\)$/);
     cleanup();
     const light = render(<AgentMascot look={mascotLookForPreset("hero")} />).container;
-    expect(light.querySelector('[data-part="ears"] path')?.getAttribute("stroke")).toBeNull();
+    expect(light.querySelector('[data-part="ports"]')?.getAttribute("stroke")).toBeNull();
   });
 
   it("omits the accessory mark when the look has none", () => {

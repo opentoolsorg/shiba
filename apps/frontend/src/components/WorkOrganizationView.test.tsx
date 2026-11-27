@@ -21,9 +21,9 @@ describe("WorkOrganizationView", () => {
     expect(chief.textContent).toContain("Shiba");
     expect(chief.textContent).toContain("Workspace chief of staff");
     expect(screen.getByTestId("avatar-workspace-chief")).toBeDefined();
-    // Both chiefs of staff use the blue Shiba brand mascot, never a generated one.
-    expect(screen.getByTestId("avatar-workspace-chief").getAttribute("data-look-color")).toBe("#899bd0");
-    expect(screen.getByTestId("organization-user-card").querySelector("[data-look-color]")?.getAttribute("data-look-color")).toBe("#899bd0");
+    // Both chiefs of staff use the dark robot brand mascot, never a generated one.
+    expect(screen.getByTestId("avatar-workspace-chief").getAttribute("data-look-color")).toBe("#27272a");
+    expect(screen.getByTestId("organization-user-card").querySelector("[data-look-color]")?.getAttribute("data-look-color")).toBe("#27272a");
   });
 
   it("renders the member chief card with the private note and falls back without a user", () => {

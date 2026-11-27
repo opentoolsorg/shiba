@@ -1,0 +1,56 @@
+---
+interface Props {
+  character?: string;
+  size?: 'card' | 'hero' | 'mark';
+  title?: string;
+}
+
+const { character = 'shiba', size = 'card', title } = Astro.props;
+
+const configs: Record<string, { shell: string; trim: string; screen: string; shape: 'round' | 'square' | 'hex' | 'capsule'; accessory?: string }> = {
+  shiba: { shell: '#27272a', trim: '#a1a1aa', screen: '#e8f2ff', shape: 'square' },
+  marketing: { shell: '#e07a5f', trim: '#f2b5a5', screen: '#fff7ed', shape: 'round', accessory: 'megaphone' },
+  sales: { shell: '#82a0bd', trim: '#c7d7e7', screen: '#eff6ff', shape: 'capsule', accessory: 'bag' },
+  research: { shell: '#788c96', trim: '#c2ccd1', screen: '#ecfeff', shape: 'hex', accessory: 'loupe' },
+  product: { shell: '#cf977e', trim: '#e8c9b8', screen: '#fff7ed', shape: 'square', accessory: 'list' },
+  design: { shell: '#efcfac', trim: '#f7e4ca', screen: '#faf5ff', shape: 'round', accessory: 'pen' },
+  engineering: { shell: '#3f3f46', trim: '#a1a1aa', screen: '#e8f2ff', shape: 'hex', accessory: 'wrench' },
+  operations: { shell: '#89ad8d', trim: '#c6d8c8', screen: '#f0fdf4', shape: 'capsule', accessory: 'check' },
+  custom: { shell: '#8b7aa8', trim: '#cec4dc', screen: '#faf5ff', shape: 'round', accessory: 'star' },
+};
+const c = configs[character] ?? configs.custom!;
+const width = size === 'hero' ? 220 : size === 'mark' ? 96 : 150;
+const shellPath = {
+  round: 'M64 24c22 0 38 15 38 36s-16 36-38 36-38-15-38-36 16-36 38-36z',
+  square: 'M34 28h60c6 0 10 4 10 10v44c0 6-4 10-10 10H34c-6 0-10-4-10-10V38c0-6 4-10 10-10z',
+  hex: 'M64 20l34 19v38l-34 19-34-19V39z',
+  capsule: 'M42 24h44c18 0 32 14 32 32s-14 32-32 32H42c-18 0-32-14-32-32s14-32 32-32z',
+}[c.shape];
+const accessoryPaths: Record<string, string> = {
+  megaphone: 'M54 76h8l14-8v22l-14-8h-8z',
+  bag: 'M52 76h24v14H52z',
+  loupe: 'M70 80a6 6 0 1 0-12 0 6 6 0 0 0 12 0zm0 2 6 6',
+  list: 'M52 76h24m-18 6h18m-24 6h24',
+  pen: 'm57 88 16-14m-12 18 14-16',
+  wrench: 'm56 86 14-14m0 0 5-2m-5 2 2 5',
+  check: 'm53 82 8 8 16-18',
+  star: 'm64 72 3 7 8 1-6 5 2 8-7-4-7 4 2-8-6-5 8-1z',
+};
+---
+<svg class="robot-avatar" width={width} height={width} viewBox="0 0 128 128" role={title ? 'img' : undefined} aria-label={title} aria-hidden={title ? undefined : 'true'} focusable="false">
+  <path d="M64 26V13" fill="none" stroke={c.trim} stroke-width="5" stroke-linecap="round" />
+  <circle cx="64" cy="9" r="7" fill={c.trim} />
+  <circle cx="64" cy="9" r="2.5" fill={c.screen} />
+  <rect x="14" y="49" width="12" height="23" rx="5" fill={c.trim} />
+  <rect x="102" y="49" width="12" height="23" rx="5" fill={c.trim} />
+  <path d={shellPath} fill={c.shell} />
+  <path d="M43 34h42" fill="none" stroke={c.trim} stroke-width="3" opacity=".45" stroke-linecap="round" />
+  <rect x="36" y="42" width="56" height="31" rx="13" fill="#111318" />
+  <rect x="41" y="45" width="46" height="7" rx="3.5" fill="#2a303b" />
+  <rect x="50" y="56" width="8" height="5" rx="2.5" fill={c.screen} />
+  <rect x="70" y="56" width="8" height="5" rx="2.5" fill={c.screen} />
+  {c.accessory ? <path d={accessoryPaths[c.accessory]} fill="none" stroke="#d4d4d8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" /> : null}
+</svg>
+<style>
+  .robot-avatar { display: block; max-width: 100%; height: auto; overflow: visible; }
+</style>

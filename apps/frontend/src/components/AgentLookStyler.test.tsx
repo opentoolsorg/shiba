@@ -7,13 +7,13 @@ import { AgentLookStyler } from "./AgentLookStyler";
 
 afterEach(cleanup);
 
-it("supports roving focus, wraparound and Home/End for Fur color", () => {
+it("supports roving focus, wraparound and Home/End for Shell color", () => {
   function Harness() {
     const [look, setLook] = useState(defaultLookFor("shiba"));
     return <AgentLookStyler id="shiba" {...look} onCustomize={setLook} onAutomatic={() => {}} />;
   }
   render(<Harness />);
-  const radios = within(screen.getByRole("radiogroup", { name: "Fur color" })).getAllByRole("radio");
+  const radios = within(screen.getByRole("radiogroup", { name: "Shell color" })).getAllByRole("radio");
   expect(radios.filter((radio) => radio.tabIndex === 0)).toHaveLength(1);
   const first = radios[0]!;
   fireEvent.keyDown(first, { key: "End" });
@@ -27,4 +27,11 @@ it("supports roving focus, wraparound and Home/End for Fur color", () => {
   expect(document.activeElement).toBe(first);
   expect(first.getAttribute("aria-label")).toBe(AGENT_MASCOT_FURS[0]?.label);
   expect(radios.filter((radio) => radio.tabIndex === 0)).toHaveLength(1);
+});
+
+
+it("previews the generated robot portrait for an automatic custom employee", () => {
+  const { container } = render(<AgentLookStyler id="research-partner" shape="" color="" eyes="" acc="" onCustomize={() => {}} onAutomatic={() => {}} />);
+  expect(container.querySelector("svg.shiba-agent-mascot")).toBeTruthy();
+  expect(container.querySelector("svg[data-brand-mark='shiba-dog']")).toBeNull();
 });

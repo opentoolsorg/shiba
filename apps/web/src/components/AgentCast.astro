@@ -1,5 +1,5 @@
 ---
-import ShibaMascot from './ShibaMascot.astro';
+import RobotAvatar from './RobotAvatar.astro';
 
 // Built-in templates follow employee-templates.ts; other roles are custom-instruction examples.
 // Original Shiba characters represent responsibilities, not models or service connections.
@@ -21,7 +21,7 @@ const { size = 'card' } = Astro.props;
     {agents.map((agent, index) => (
       <article class="agent-card" data-character={agent.character}>
         <div class="card-top"><span class="template-label">{agent.kind}</span><span aria-hidden="true">{String(index + 1).padStart(2, '0')}</span></div>
-        <div class="avatar"><ShibaMascot character={agent.character} size={size} /></div>
+        <div class="avatar"><RobotAvatar character={agent.character} size={size} /></div>
         <h3>{agent.name}</h3>
         <p class="role">{agent.role}</p>
         <div class="deliverables"><h4>{agent.name === 'Your custom role' ? 'You define' : 'Example outputs'}</h4><ul>{agent.deliverables.map(deliverable => <li>{deliverable}</li>)}</ul></div>
