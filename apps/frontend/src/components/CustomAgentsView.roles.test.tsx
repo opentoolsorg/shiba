@@ -167,7 +167,7 @@ describe("role drafts in the Bots directory", () => {
     const editedName = `${template.label} assistant`;
     change("Name", editedName);
     fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
-    await screen.findByText("Bot created.");
+    await waitFor(() => expect(launch).toHaveBeenCalledOnce());
     expect(server.writes).toHaveLength(1);
     expect(server.writes[0]).toEqual({
       method: "POST", url: "/api/custom-agents",
@@ -180,7 +180,7 @@ describe("role drafts in the Bots directory", () => {
         },
       },
     });
-    expect(launch).not.toHaveBeenCalled();
+    expect(launch).toHaveBeenCalledOnce();
     expect(server.request.mock.calls.every(([url]) => url === "/api/custom-agents")).toBe(true);
   });
 

@@ -225,7 +225,7 @@ describe("employee onboarding", () => {
     const workspaceId = `ws_${"a".repeat(24)}`;
     await createEmployeeAgent(research, workspaceId);
     expect(fetcher).toHaveBeenCalledWith("/api/custom-agents", expect.objectContaining({ credentials: "same-origin", headers: { "Content-Type": "application/json", "X-Shiba-Workspace": workspaceId } }));
-    expect(JSON.parse(fetcher.mock.calls[0]?.[1]?.body)).toEqual({ slug: research.slug, config: { ...research.config, harness: "opencode", approvalPolicy: "standard" } });
+    expect(JSON.parse(fetcher.mock.calls[0]?.[1]?.body)).toEqual({ slug: research.slug, config: { ...research.config, approvalPolicy: "standard" } });
   });
   it("renders all ten optional roles and skips without creating anything", () => {
     const onSkip = vi.fn();
@@ -250,7 +250,7 @@ describe("employee onboarding", () => {
     fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${template.label}`) }));
     await waitFor(() => expect(request).toHaveBeenCalledOnce());
     const body = JSON.parse(String(request.mock.calls[0]?.[1]?.body));
-    expect(body.config).toEqual({ ...template.config, harness: "opencode", approvalPolicy: "standard" });
+    expect(body.config).toEqual({ ...template.config, approvalPolicy: "standard" });
     expect(body.config).not.toHaveProperty("connectionId");
     expect(body.config).not.toHaveProperty("toolScopes");
   });
@@ -265,7 +265,7 @@ describe("employee onboarding", () => {
     expect(onSelect).toHaveBeenCalledWith(research);
     const [url, options] = fetchMock.mock.calls[0]!;
     expect(url).toBe("/api/custom-agents");
-    expect(JSON.parse(options.body)).toEqual({ slug: research.slug, config: { ...research.config, harness: "opencode", approvalPolicy: "standard" } });
+    expect(JSON.parse(options.body)).toEqual({ slug: research.slug, config: { ...research.config, approvalPolicy: "standard" } });
   });
 
   it("keeps the choice available and reports creation failures", async () => {

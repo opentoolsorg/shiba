@@ -51,6 +51,7 @@ const snapshot = (value) => ({
 });
 let agentId;
 let sessionId;
+let setupSessionId;
 let approvalId;
 let runId;
 let stage = "create";
@@ -107,10 +108,16 @@ try {
   await page.getByRole("combobox", { name: /^Model connection/ }).selectOption("");
   await page.getByLabel("Default repository", { exact: true }).fill("https://github.com/cloudflare/ai-chat");
   const createResponse = page.waitForResponse((response) => response.url().endsWith("/api/custom-agents") && response.request().method() === "POST");
+  const setupSessionResponse = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
   await page.getByRole("button", { name: "Create bot", exact: true }).click();
-  const created = await createResponse;
+  const [created, setupSessionCreated] = await Promise.all([createResponse, setupSessionResponse]);
   assert.equal(created.status(), 201, await created.text());
+  assert.equal(setupSessionCreated.status(), 201, await setupSessionCreated.text());
   const { agent } = await created.json();
+  const { session: setupSession } = await setupSessionCreated.json();
+  setupSessionId = setupSession.id;
+  const setupRename = await page.request.patch(new URL(`/api/sessions/${encodeURIComponent(setupSessionId)}`, base).href, { headers: { origin: base.origin }, data: { name: `${name} setup` } });
+  assert(setupRename.ok(), `Renaming the automatic setup thread failed: ${setupRename.status()}`);
   agentId = agent.id;
   assert.equal(agent.version, 1);
   assert.equal(agent.config.codingModel, model);
@@ -327,7 +334,7 @@ try {
       report.cleanup.push({ kind: "pending-approval", status: rejected.status() });
     }
   }
-  for (const [kind, id] of [["sessions", sessionId], ["custom-agents", agentId]]) {
+  for (const [kind, id] of [["sessions", setupSessionId], ["sessions", sessionId], ["custom-agents", agentId]]) {
     if (!id) continue;
     try {
       const response = await page.request.delete(new URL(`/api/${kind}/${encodeURIComponent(id)}`, base).href, { headers: { origin: base.origin } });
