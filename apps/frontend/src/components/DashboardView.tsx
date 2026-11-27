@@ -25,6 +25,9 @@ import type { AgentPrincipal, RetainedRun, StoredApproval } from "../types";
 import type { PendingApproval } from "../ui-helpers";
 import type { AppNavView } from "./AppNavRail";
 import { MainCard, EmptyState, type Scope } from "./ui/ContextPanel";
+import { AgentAvatar } from "./AgentAvatar";
+import type { OrganizationEmployee } from "./WorkOrganizationView";
+import { teamWorkNeedsViewer, type TeamWorkItem } from "../team-work-items";
 
 export interface DashboardViewProps {
   runs: RetainedRun[];
@@ -38,6 +41,13 @@ export interface DashboardViewProps {
   onNavigate: (view: AppNavView) => void;
   onNewTask: () => void;
   onInspectRun: (runId: string) => void;
+  employees?: readonly OrganizationEmployee[];
+  workspaceId?: string;
+  workspaceName?: string;
+  currentActorId?: string;
+  sharedTasks?: readonly TeamWorkItem[];
+  onOpenEmployee?: (employeeId: string) => void;
+  onOpenSharedTask?: (task: TeamWorkItem) => void;
   scope?: Scope;
   sidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
@@ -70,6 +80,13 @@ export function DashboardView({
   onNavigate,
   onNewTask,
   onInspectRun,
+  employees = [],
+  workspaceId,
+  workspaceName,
+  currentActorId,
+  sharedTasks = [],
+  onOpenEmployee,
+  onOpenSharedTask,
   scope = "personal",
   sidebarCollapsed = false,
   onToggleSidebar,
@@ -103,6 +120,18 @@ export function DashboardView({
     [runs],
   );
   const liveAgents = agents.filter((agent) => agent.live).length;
+  const openSharedTasks = useMemo(
+    () => sharedTasks.filter((task) => !task.archived && !["done", "completed", "cancelled"].includes(task.status)),
+    [sharedTasks],
+  );
+  const employeeRows = useMemo(() => employees.map((employee) => {
+    const actorId = `agent:${employee.id}`;
+    const assigned = openSharedTasks.filter((task) => task.assigneeActorId === actorId || task.assigneeName === employee.name);
+    const needsViewer = assigned.filter(teamWorkNeedsViewer).length;
+    const working = assigned.filter((task) => ["in-progress", "running", "queued"].includes(task.status)).length;
+    return { employee, assigned, needsViewer, working, status: working ? "working" as const : needsViewer ? "needs-approval" as const : "idle" as const };
+  }), [employees, openSharedTasks]);
+  const visibleSharedTasks = openSharedTasks.slice(0, 6);
   const nextStep =
     approvalCount > 0
       ? {
@@ -285,6 +314,50 @@ export function DashboardView({
             </button>
           </section>
 
+          {workspaceId ? (
+            <section className="shiba-overview-panel" aria-labelledby="dashboard-work-title">
+              <header className="shiba-overview-section-header">
+                <div>
+                  <h2 id="dashboard-work-title">Shared work queue</h2>
+                  <p>{workspaceName ? `${workspaceName} · ` : ""}{openSharedTasks.length} open item{openSharedTasks.length === 1 ? "" : "s"} across the employee workspace</p>
+                </div>
+                <button type="button" onClick={() => onNavigate("work")} className="shiba-overview-link">
+                  Open work <ArrowRight className="size-3.5" aria-hidden="true" />
+                </button>
+              </header>
+              {visibleSharedTasks.length === 0 ? (
+                <div className="flex items-center gap-3 p-5 text-sm">
+                  <span className="shiba-overview-clear-icon"><Check className="size-4" aria-hidden="true" /></span>
+                  <span>No shared work is waiting.<span className="mt-1 block text-xs text-[var(--muted-foreground-2)]">Assign work to an employee and it will appear here.</span></span>
+                </div>
+              ) : (
+                <ul className="shiba-overview-run-list">
+                  {visibleSharedTasks.map((task) => (
+                    <li key={task.id}>
+                      <button type="button" onClick={() => onOpenSharedTask ? onOpenSharedTask(task) : onNavigate("work")} className="shiba-overview-run">
+                        <span className="shiba-overview-run-icon"><Activity className="size-4" aria-hidden="true" /></span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium" title={task.title}>{task.title}</span>
+                          <span className="mt-1 block truncate text-xs text-[var(--muted-foreground-2)]">
+                            {task.assigneeName ?? (task.assigneeKind === "agent" ? "Employee" : "Member")} · {task.roomTitle || "Workspace"}
+                          </span>
+                        </span>
+                        <span className="shiba-overview-run-meta">
+                          <span className={`rounded border px-2 py-0.5 text-[10px] font-medium ${statusChipClass(task.status)}`}>{statusLabel(task.status)}</span>
+                          <span className="text-[11px] text-[var(--muted-foreground-2)]">{formatTimeAgo(task.updatedAt)}</span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <footer className="shiba-overview-panel-footer">
+                <span>{visibleSharedTasks.length} shown</span>
+                <span>{openSharedTasks.filter(teamWorkNeedsViewer).length} need review</span>
+              </footer>
+            </section>
+          ) : null}
+
           <div className="shiba-overview-columns">
             <section className="shiba-overview-panel" aria-labelledby="dashboard-recent-title">
               <header className="shiba-overview-section-header">
@@ -426,28 +499,31 @@ export function DashboardView({
               <section className="shiba-overview-panel" aria-labelledby="dashboard-agents-title">
                 <header className="shiba-overview-section-header">
                   <div>
-                    <h2 id="dashboard-agents-title">MCP principals</h2>
+                    <h2 id="dashboard-agents-title">AI employees</h2>
                     <p>
-                      {liveAgents}/{agents.length} live · registered gateway identities
+                      {employees.length ? `${employeeRows.filter((row) => row.working > 0).length}/${employees.length} working · your employee roster` : `${liveAgents}/${agents.length} MCP principals live`}
                     </p>
                   </div>
                 </header>
-                {agents.length === 0 ? (
-                  <p className="px-5 py-4 text-sm text-[var(--muted-foreground-2)]">
-                    No MCP principals registered yet.
-                  </p>
+                {employees.length === 0 ? (
+                  <div className="flex items-center gap-3 p-5 text-sm">
+                    <span className="shiba-overview-clear-icon"><Plus className="size-4" aria-hidden="true" /></span>
+                    <span>No employees yet.<span className="mt-1 block text-xs text-[var(--muted-foreground-2)]">Create one from a role, then assign work from the queue.</span></span>
+                  </div>
                 ) : (
                   <ul className="shiba-overview-agent-list">
-                    {agents.slice(0, 4).map((agent) => (
-                      <li key={agent.principal}>
-                        <span
-                          className={`size-1.5 shrink-0 rounded-full ${agent.live ? "bg-[var(--success)]" : "bg-[var(--muted-foreground-3)]"}`}
-                          aria-hidden="true"
-                        />
-                        <span className="min-w-0 flex-1 truncate">{agent.principal}</span>
-                        <span className="text-xs text-[var(--muted-foreground-2)]">
-                          {agent.scopes.length} scope{agent.scopes.length === 1 ? "" : "s"}
-                        </span>
+                    {employeeRows.slice(0, 5).map(({ employee, assigned, needsViewer, working, status }) => (
+                      <li key={employee.id}>
+                        <button type="button" onClick={() => onOpenEmployee ? onOpenEmployee(employee.id) : onNavigate("custom-agents")} className="flex min-h-11 w-full min-w-0 items-center gap-2 text-left">
+                          <AgentAvatar id={employee.id} name={employee.name} size={30} status={status} mascotPreset={employee.config?.mascotPreset} look={employee.config?.look} avatar={employee.config ? null : undefined} />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-medium">{employee.name}</span>
+                            <span className="block truncate text-[11px] text-[var(--muted-foreground-2)]">{employee.role}</span>
+                          </span>
+                          <span className="text-right text-[11px] text-[var(--muted-foreground-2)]">
+                            {working ? `${working} working` : needsViewer ? `${needsViewer} review` : `${assigned.length} open`}
+                          </span>
+                        </button>
                       </li>
                     ))}
                   </ul>
@@ -455,10 +531,10 @@ export function DashboardView({
                 <div className="shiba-overview-panel-footer">
                   <button
                     type="button"
-                    onClick={() => onNavigate("agents")}
+                    onClick={() => onNavigate("custom-agents")}
                     className="shiba-overview-link"
                   >
-                    Manage MCP <ArrowRight className="size-3.5" aria-hidden="true" />
+                    {employees.length ? "Open roster" : "Create employee"} <ArrowRight className="size-3.5" aria-hidden="true" />
                   </button>
                 </div>
               </section>

@@ -379,7 +379,7 @@ function settingsSectionFromSearch(search: string): string {
 /** Views that work inside a team workspace; every other view is personal-only. */
 /** Views that render their own MainCard, so the shell must not add a second one. */
 const SELF_CARDED_VIEWS: readonly string[] = ["dashboard", "activity", "analytics", "diff", "approvals", "automations", "providers", "spaces", "integrations"];
-const TEAM_WORKSPACE_VIEWS: readonly string[] = ["team", "work", "threads", "collaboration", "custom-agents", "skills", "providers", "integrations", "settings"];
+const TEAM_WORKSPACE_VIEWS: readonly string[] = ["dashboard", "team", "work", "threads", "collaboration", "custom-agents", "skills", "providers", "integrations", "settings"];
 
 // Room/run links retain precedence over a view selector, including legacy /app links.
 function viewFromUrl(): AppNavView | null {
@@ -1036,7 +1036,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }, [sharedRoomScope]);
   const [sharedHandoffId, setSharedHandoffId] = useState<string | undefined>();
   const [sharedEmployeeId, setSharedEmployeeId] = useState<string | undefined>();
-  const sharedWork = useWorkTasks(signedIn ? orchestratorName : null, teamWorkspaceId, signedIn && mainView === "work");
+  const sharedWork = useWorkTasks(signedIn ? orchestratorName : null, teamWorkspaceId, signedIn && (mainView === "work" || mainView === "dashboard"));
   useEffect(() => { setSharedHandoffId(undefined); setSharedEmployeeId(undefined); }, [teamWorkspaceId, orchestratorName]);
   const projectContexts = useProjectContexts(privateDataEnabled ? orchestratorName : null);
   useEffect(() => setProjectContextId(""), [signedIn, orchestratorName]);
@@ -3853,7 +3853,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   onCommentTask={(id, text) => { void sharedWork.comment(id, text); }}
                   agents={teamWorkspaceId ? mentionableAgents.map((agent) => ({ ...agent, id: `agent:${agent.id}` })) : mentionableAgents}
                   onOpenTeam={() => openView("team")}
-                  onOpenSharedTask={(item) => { setSharedRoomId(item.roomId); setSharedHandoffId(item.id); setMainView("threads"); }}
+                  onOpenSharedTask={(item) => { roomRoute.clear(); setSharedRoomId(item.roomId); setSharedHandoffId(item.id); setMainView("threads"); }}
                   runs={retainedRuns}
                   sessions={sessions}
                   storedApprovals={visibleStoredApprovals}
@@ -3999,6 +3999,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               onNavigate={openView}
               onNewTask={handleNewTask}
               onInspectRun={openRunInAnalytics}
+              employees={workEmployees}
+              workspaceId={teamWorkspaceId || undefined}
+              workspaceName={teamWorkspace?.name}
+              currentActorId={orchestratorName ? `human:${orchestratorName.trim().toLowerCase()}` : undefined}
+              sharedTasks={sharedWork.tasks}
+              onOpenEmployee={(id) => { setInitialEmployeeId(id); openView("custom-agents"); }}
+              onOpenSharedTask={(item) => { roomRoute.clear(); setSharedRoomId(item.roomId); setSharedHandoffId(item.id); setMainView("threads"); }}
             />
           ) : mainView === "threads" && teamWorkspaceId ? (
             <CollaborationView key={`${orchestratorName}:${teamWorkspaceId}`} workspaceId={teamWorkspaceId} initialRoomId={roomRoute.roomId ?? sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} incomingMention={incomingRoomMention} onMentionConsumed={(id) => setRoomMention((current) => current?.id === id ? undefined : current)} incomingTaskDraft={currentSlackTask ?? undefined} onTaskDraftConsumed={(id) => setIncomingSlackTask((current) => current?.id === id ? null : current)} onRoomChange={(id) => { setSharedRoomId(id); roomRoute.onRoomChange(id); }} onOpenNotificationPreferences={teamWorkspaceId ? undefined : () => { setSettingsSection("notifications"); openView("settings"); }}

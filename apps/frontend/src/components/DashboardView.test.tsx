@@ -195,4 +195,33 @@ describe("Dashboard overview hierarchy", () => {
     fireEvent.click(screen.getByRole("button", { name: /Task 7/ }));
     expect(onInspectRun).toHaveBeenCalledWith("run-7");
   });
+
+  it("shows the shared employee work queue and opens the owning employee", () => {
+    const onOpenEmployee = vi.fn();
+    const onOpenSharedTask = vi.fn();
+    const task = {
+      id: "task-1", workspaceId: "ws-1", roomId: "room-1", roomTitle: "Launch room",
+      title: "Prepare launch brief", assigneeKind: "agent" as const, assigneeActorId: "agent:emp-1",
+      assigneeName: "Rex", status: "in-progress" as const, updatedAt: 2000,
+    };
+    render(
+      <DashboardView
+        {...props}
+        scope="workspace"
+        workspaceId="ws-1"
+        workspaceName="Acme"
+        employees={[{ id: "emp-1", name: "Rex", role: "Researcher" }]}
+        sharedTasks={[task]}
+        onOpenEmployee={onOpenEmployee}
+        onOpenSharedTask={onOpenSharedTask}
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "Shared work queue" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "AI employees" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Prepare launch brief/ }));
+    expect(onOpenSharedTask).toHaveBeenCalledWith(task);
+    fireEvent.click(screen.getByRole("button", { name: /Rex Researcher/ }));
+    expect(onOpenEmployee).toHaveBeenCalledWith("emp-1");
+  });
+
 });
