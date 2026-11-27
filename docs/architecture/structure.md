@@ -25,10 +25,13 @@ One Cloudflare Worker (`apps/backend`) serves the API and hosts the built React
 dashboard. Durable Objects coordinate live conversations, runs, sessions,
 mailboxes, and realtime state; D1 holds durable shared domain records; R2 stores
 private artifact bytes; KV stores token lookups; Vectorize stores embeddings;
-Queues and Workflows carry asynchronous work. The conceptual **Employee
-Orchestrator** plans and coordinates employee work; in current code this role is
-still exported as `CodingOrchestrator`. Approved work enters the run/event spine
-and is claimed by one execution lane. Repository work uses an ephemeral Sandbox
+Queues and Workflows carry asynchronous work. `EmployeeRuntime` is the
+provider-independent per-employee boundary for actor-private chat, memory,
+routines, cancellation, recovery, resumable streams, and lightweight tool turns.
+The legacy shared-room and repository-work spine is still exported as
+`CodingOrchestrator`; it remains authoritative there while orchestration is
+migrated. Approved work enters the run/event spine and is claimed by one
+execution lane. Repository work uses an ephemeral Sandbox
 container and a sandbox-side **Run Execution Agent** — currently implemented as
 `OpenCodeAgent` — which coordinates exactly one selected harness. Artifact, app,
 local-machine, browser, computer-assisted, research, marketing, and operations
@@ -69,7 +72,8 @@ hidden agent network. It remains review-only until its activation gates in
 |---|---|---|
 | **Presentation** | `apps/frontend`, `apps/web`, `apps/docs` | Dashboard, public docs, marketing surfaces. Frontend is built by turbo into `apps/backend/public`; Cloudflare Workers Assets serves it. |
 | **Ingress/API** | `apps/backend/src/index.ts`, `routes/`, channel ingress | Authentication, workspace selection, REST/RPC, Slack/Teams/Discord/Telegram/email/webhook/MCP ingress. |
-| **Employee orchestration** | `apps/backend/src/agents/orchestrator.ts` | Conversation, goal/plan/task interpretation, approval queue, delegation, run lineage. Conceptual Employee Orchestrator; current implementation `CodingOrchestrator`. |
+| **Employee runtime** | `apps/backend/src/employee-runtime-do.ts`, `employee-runtime-store.ts`, `employee-runtime-routes.ts` | Provider-independent actor-private conversation state, memory, routines, execution checkpoints, stream cursors, cancellation, recovery, and lightweight tool turns. |
+| **Legacy room/coding orchestration** | `apps/backend/src/agents/orchestrator.ts` | Shared-room conversation, goal/plan/task interpretation, approval queue, delegation, and run lineage. Current implementation `CodingOrchestrator`; migration into the employee runtime is in progress. |
 | **Run execution control** | `apps/backend/src/agents/opencode-agent.ts`, sandbox/run modules | Structured execution envelope, progress/events, result envelopes. Conceptual Run Execution Agent; current implementation `OpenCodeAgent`. |
 | **Authority and policy** | approvals, workspace/employee access, tool policy, funding/receipt modules | Decide whether a run/action is executable, what exact resources it may use, and whether a result may be published. |
 | **Execution lanes** | sandbox harnesses, artifact workspace, integrations, local daemon, browser/computer sessions | Perform approved work. Lanes share lineage and evidence contracts but have lane-specific runtimes. |

@@ -12,7 +12,7 @@ Current Durable Object bindings in `apps/backend/wrangler.jsonc`:
 
 | Durable Object | Coordinates |
 |---|---|
-| **Employee Orchestrator** (`CodingOrchestrator` in current code and binding) | Conversation, employee/run orchestration, approval queue, retained run lineage, delegation, and event-spine state. |
+| **Legacy Room/Coding Orchestrator** (`CodingOrchestrator` in current code and binding) | Shared-room conversation, employee/run orchestration, approval queue, retained run lineage, delegation, and event-spine state for the repository/room migration lane. |
 | **Run Execution Agent** (`OpenCodeAgent` in current code and binding) | Sandbox-side execution child session, structured input envelope, progress, and result envelope. |
 | `Sandbox` | Container lifecycle for one sandbox run. |
 | `Automations` | Automation definitions and scheduled trigger coordination. |
@@ -26,7 +26,7 @@ Current Durable Object bindings in `apps/backend/wrangler.jsonc`:
 | `Spaces` | Shared workspace/space presence and coordination. |
 | `ConversationRoom` | Room-scoped chat/session state. |
 | `WorkspaceEvents` | Workspace event distribution and realtime coordination. |
-| `EmployeeRuntime` | Per-employee live conversation coordination, execution checkpoints, cancellation, recovery, and private working memory. |
+| **Employee Runtime** (`EmployeeRuntime` in current code and binding) | Per-employee live actor-private conversation coordination, execution checkpoints, durable stream cursors, cancellation, recovery, routines, and private working memory. |
 | `DiscordGateway` | Discord gateway connection state. |
 | `BrowserSession` | Browser control/session state. |
 | `ComputerSession` where configured | Dedicated computer allocation, evidence, control, and release. |
