@@ -40,6 +40,21 @@ Thank you for helping build Shiba, an **open-source, self-hostable** workspace f
 
 5. **Do not** commit secrets, `.dev.vars`, or `.env`. Keep `.dev.vars.example` in sync (`check-dev-vars-example.mjs`).
 
+## PR validation labels
+
+Pull requests do not spend CI runner minutes when opened or updated. A maintainer opts in with labels; once applied, the label stays active for later pushes so checks always describe the current head.
+
+| Label | Effect |
+| --- | --- |
+| `build:validate` | Runs the required core lanes: `biome-knip` and `check`. |
+| `verify:shiba` | Runs the slow browser verification lane in addition to core validation. |
+| `ci:deferred` | Explicitly defers `verify-shiba` for the PR after maintainer review. It never skips `build:validate` core validation. |
+| `desktop:validate` | Runs the macOS/Electron desktop lane when changed files need it. |
+| `image:validate` | Builds and verifies changed sandbox or offline-computer images. |
+| `preview:deploy` | Deploys the isolated same-repository PR preview described in `docs/DEPLOY.md`. |
+
+Branch protection should require only `all-checks-pass`. That gate fails if core validation is missing, if a selected lane fails, or if browser verification was neither run with `verify:shiba` nor consciously deferred with `ci:deferred`.
+
 ## Docs and claims
 
 - Write behavior from **source** (`apps/backend/src/`, `wrangler.jsonc`, `env.ts`), not stale README prose.

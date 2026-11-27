@@ -1,15 +1,17 @@
 name: Desktop
+# Expensive macOS, Electron and image lanes never run merely because a pull
+# request opened or was labelled for core CI. Maintainers opt in separately
+# with desktop:validate or image:validate; the labels stay active for later pushes.
 on:
   workflow_dispatch: {}
   pull_request:
-    types:
-    - labeled
+    types: [labeled, unlabeled, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
 jobs:
   desktop-pr:
-    if: ${{ ((github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate') || github.event_name == 'workflow_dispatch') && needs.changes.outputs.desktop == 'true' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'desktop:validate')) && needs.changes.outputs.desktop == 'true' }}
 
     # Pin PR/Electron execution to the standard Intel pool. Native ARM
     # execution remains a separate coverage limit; packaging still builds both.
@@ -88,10 +90,10 @@ jobs:
           retention-days: 3
     concurrency:
       group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-desktop-pr
-      cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     needs: changes
   sandbox-image:
-    if: ${{ ((github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate') || github.event_name == 'workflow_dispatch') && needs.changes.outputs.sandbox_image == 'true' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'image:validate')) && needs.changes.outputs.sandbox_image == 'true' }}
     needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -136,9 +138,9 @@ jobs:
           SMOKE
     concurrency:
       group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-sandbox-image
-      cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
   computer-image:
-    if: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' && needs.changes.outputs.computer_image == 'true' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'image:validate')) && needs.changes.outputs.computer_image == 'true' }}
     needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -175,7 +177,7 @@ jobs:
           retention-days: 3
     concurrency:
       group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-computer-image
-      cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
   desktop-release:
     if: ${{ github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/desktop-v') }}
 
@@ -209,7 +211,7 @@ jobs:
       group: desktop-release-${{ github.ref }}
       cancel-in-progress: false
   changes:
-    if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate') || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'desktop:validate') || contains(github.event.pull_request.labels.*.name, 'image:validate') }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:

@@ -1,17 +1,26 @@
 name: CI
+# Pull requests spend runner minutes only after a maintainer opts in with
+# validation labels. build:validate selects the lint/check lanes and stays
+# active for later pushes, so a result always describes the current head.
+# verify:shiba selects the slow browser journey; ci:deferred is the explicit
+# maintainer decision to skip that journey on a pull request. Main runs all lanes.
+# all-checks-pass is the one check branch protection should require.
 on:
   pull_request:
-    types:
-    - labeled
+    types: [labeled, unlabeled, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
 jobs:
   biome-knip:
-    if: "${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' }}"
+    if: "${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'build:validate') }}"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -26,11 +35,13 @@ jobs:
       - run: pnpm check:knip
     timeout-minutes: 30
   check:
-    if: "${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' }}"
+    if: "${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'build:validate') }}"
+    needs: biome-knip
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           # check:deploy diffs the sandbox image inputs against the pull request base.
           fetch-depth: 0
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -49,7 +60,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm lint:imports
-      - run: node --test scripts/schema-snapshot.test.mjs
+      - run: node --test scripts/schema-snapshot.test.mjs scripts/ci-workflow.test.mjs
       - run: pnpm test
       - name: Verify personal native account isolation and daemon controls
         run: pnpm test:personal-daemon
@@ -67,7 +78,7 @@ jobs:
       - run: pnpm test:built
       - run: pnpm check:deploy
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
       - run: pnpm check:source-layout
       - run: cp .env.example .env
       - run: node scripts/check-dev-vars-example.mjs
@@ -79,13 +90,16 @@ jobs:
 
     timeout-minutes: 30
   verify-shiba:
-    if: "${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' }}"
+    if: "${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'verify:shiba') }}"
+    needs: check
     # The pinned Playwright 1.55.1 browser/dependency map supports Ubuntu 24.04.
     # Keep runner image upgrades separate from browser-version upgrades.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -153,6 +167,58 @@ jobs:
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 3
+  all-checks-pass:
+    # The single required check. Skipped jobs are not treated as passes: core
+    # lanes must succeed after build:validate, and browser verification must
+    # either run through verify:shiba or be explicitly deferred with ci:deferred.
+    if: >-
+      ${{ always() && !cancelled() &&
+        (github.event_name == 'push' ||
+          contains(github.event.pull_request.labels.*.name, 'build:validate') ||
+          contains(github.event.pull_request.labels.*.name, 'verify:shiba') ||
+          contains(github.event.pull_request.labels.*.name, 'ci:deferred')) }}
+    needs: [biome-knip, check, verify-shiba]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every selected lane
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+          BIOME_RESULT: ${{ needs.biome-knip.result }}
+          CHECK_RESULT: ${{ needs.check.result }}
+          VERIFY_RESULT: ${{ needs.verify-shiba.result }}
+          CORE_EXPECTED: ${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'build:validate') }}
+          VERIFY_EXPECTED: ${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'verify:shiba') }}
+          VERIFY_DEFERRED: ${{ contains(github.event.pull_request.labels.*.name, 'ci:deferred') }}
+        run: |
+          echo "lane results: $RESULTS"
+          if [ "$CORE_EXPECTED" != "true" ]; then
+            echo "Core validation has not been approved. Add build:validate to run biome-knip and check."; exit 1
+          fi
+          if [ "$BIOME_RESULT" != "success" ]; then
+            echo "biome-knip reported $BIOME_RESULT."; exit 1
+          fi
+          if [ "$CHECK_RESULT" != "success" ]; then
+            echo "check reported $CHECK_RESULT."; exit 1
+          fi
+          if [ "$VERIFY_RESULT" = "failure" ] || [ "$VERIFY_RESULT" = "cancelled" ]; then
+            echo "verify-shiba reported $VERIFY_RESULT."; exit 1
+          fi
+          if [ "$VERIFY_EXPECTED" = "true" ]; then
+            if [ "$VERIFY_RESULT" != "success" ]; then
+              echo "verify-shiba was expected on this run but reported $VERIFY_RESULT."; exit 1
+            fi
+            echo "Core and browser validation succeeded."; exit 0
+          fi
+          if [ "$VERIFY_RESULT" = "success" ]; then
+            echo "Core and browser validation succeeded."; exit 0
+          fi
+          if [ "$VERIFY_DEFERRED" = "true" ] && [ "$VERIFY_RESULT" = "skipped" ]; then
+            echo "verify-shiba was explicitly deferred with ci:deferred; core validation succeeded."; exit 0
+          fi
+          echo "Browser verification is undecided. Add verify:shiba or ci:deferred; ci:deferred never skips core validation."; exit 1
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.label.name || github.event_name }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' }}
+  # One run per pull request: a new push or label cancels the older run. Runs on
+  # main are never cancelled, so every merged commit gets a result.
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
