@@ -323,6 +323,16 @@ describe("employee tool local workflow", () => {
     expect(body.result?.content?.[0]?.text).toContain("needle passage for employee knowledge");
     expect(body.result?.content?.[0]?.text).toContain("brief.md");
 
+    const sessionTools = createEmployeeRunTools(bindings, () => employee.id,
+      () => appSession("agent-a", employee.id), () => "self-hosted", () => "agent-a");
+    const catalog = sessionTools.employee_tool_catalog as unknown as { execute: (args: Record<string, never>) => Promise<{ actions: Array<{ tool: string; resources?: string[] }> }> };
+    expect(await catalog.execute({})).toMatchObject({ actions: expect.arrayContaining([
+      expect.objectContaining({ tool: "knowledge_search", resources: ["workspace"] }),
+    ]) });
+    const modelCall = sessionTools.employee_tool_call as unknown as { execute: (input: { tool: string; args: Record<string, unknown> }) => Promise<{ ok?: boolean; result?: { content?: Array<{ text?: string }> } }> };
+    expect(await modelCall.execute({ tool: "knowledge_search", args: { query: "needle" } }))
+      .toMatchObject({ ok: true, result: { content: [{ text: expect.stringContaining("needle passage for employee knowledge") }] } });
+
     authState.dashboard = true;
     expect((await handleEmployeeTools(new Request(`https://x/api/employee-tools/${employee.id}/levels`, {
       method: "PUT", headers: { "content-type": "application/json", "CF-Access-Authenticated-User-Email": "owner@example.test" },
