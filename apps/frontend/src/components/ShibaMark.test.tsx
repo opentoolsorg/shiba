@@ -6,15 +6,11 @@ import { SHIBA_BRAND_LOOK, ShibaMark } from "./ShibaMark";
 afterEach(cleanup);
 
 describe("Shiba brand mark", () => {
-  it("renders the neutral squircle robot mascot", () => {
+  it("renders the geometric Shiba dog brand mark", () => {
     render(<ShibaMark />);
     const logo = screen.getByRole("img", { name: "Shiba" });
-    const svg = logo.querySelector("svg.shiba-agent-mascot");
-    expect(svg?.getAttribute("data-shape")).toBe("squircle");
-    expect(svg?.getAttribute("data-color")).toBe("#27272a");
-    expect(svg?.getAttribute("data-eyes")).toBe("pill");
-    expect(svg?.getAttribute("data-acc")).toBe("none");
-    expect(svg?.querySelector('[data-part="visor"]')).toBeTruthy();
+    const svg = logo.querySelector("svg[data-brand-mark='shiba-dog']");
+    expect(svg).toBeTruthy();
     expect(svg?.getAttribute("viewBox")).toBe("0 0 64 64");
     expect(SHIBA_BRAND_LOOK).toEqual({ shape: "squircle", color: "#27272a", eyes: "pill", acc: "none" });
   });

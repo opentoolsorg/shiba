@@ -70,14 +70,11 @@ describe("agent conversation", () => {
     render(<AgentPageHeader name="Shiba" detailsOpen={false} onToggleDetails={vi.fn()} />);
     expect(screen.queryByRole("button", { name: "Start shared conversation" })).toBeNull();
   });
-  it("uses the brand Shiba robot for the built-in profile, not a custom employee label", () => {
+  it("uses the Shiba dog brand mark for the built-in profile, not a custom employee label", () => {
     const { container } = render(<AgentDetailsPanel onClose={vi.fn()} onEdit={vi.fn()} />);
     expect(screen.getByText("Shiba · Runs on workspace default")).toBeTruthy();
-    const mascot = container.querySelector("svg.shiba-agent-mascot");
-    expect(mascot?.getAttribute("data-shape")).toBe("squircle");
-    expect(mascot?.getAttribute("data-color")).toBe("#27272a");
-    expect(mascot?.getAttribute("data-eyes")).toBe("pill");
-    expect(mascot?.getAttribute("data-acc")).toBe("none");
+    const mascot = container.querySelector("svg[data-brand-mark='shiba-dog']");
+    expect(mascot).toBeTruthy();
     expect(container.querySelector("[data-employee-role='custom']")).toBeNull();
   });
 
