@@ -131,6 +131,21 @@ describe("EmployeeRuntime Durable Object", () => {
     expect(await search.json()).toEqual({ memories: [] });
   });
 
+  it("accepts encoded internal conversation ids on memory mutations", async () => {
+    const { runtime } = fixture();
+    const conversationId = `u_${"a".repeat(32)}_${"x".repeat(500)}`;
+    const write = await runtime.onRequest(new Request("https://do/internal/employee-runtime/memory", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scope: "thread", kind: "fact", conversationId, content: "Encoded thread fact" }),
+    }));
+    const { memory } = await write.json() as { memory: { id: string } };
+    const update = await runtime.onRequest(new Request("https://do/internal/employee-runtime/memory/update", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ memoryId: memory.id, conversationId, content: "Updated encoded thread fact" }),
+    }));
+    expect(update.status).toBe(200);
+  });
+
   it("does not update or delete thread memory from another conversation", async () => {
     const { runtime } = fixture();
     const write = await runtime.onRequest(new Request("https://do/internal/employee-runtime/memory", {

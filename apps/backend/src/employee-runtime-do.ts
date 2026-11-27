@@ -8,6 +8,7 @@
  */
 import { Agent } from "agents";
 import { generateText, type ModelMessage } from "ai";
+import { z } from "zod";
 import { createWorkersAI } from "workers-ai-provider";
 import {
   employeeRuntimeCancelSchema,
@@ -28,6 +29,12 @@ import { EmployeeRuntimeStore, type SqlRow } from "./employee-runtime-store.js";
 import { log } from "./obs/log.js";
 
 type RuntimeState = { startedAt: number };
+
+
+const internalConversationIdSchema = z.string().trim().min(1).max(600).optional();
+const internalMemoryWriteSchema = employeeRuntimeMemoryWriteSchema.safeExtend({ conversationId: internalConversationIdSchema });
+const internalMemoryUpdateSchema = employeeRuntimeMemoryUpdateSchema.safeExtend({ conversationId: internalConversationIdSchema });
+const internalMemoryDeleteSchema = employeeRuntimeMemoryDeleteSchema.safeExtend({ conversationId: internalConversationIdSchema });
 
 const PREFIX = "/internal/employee-runtime";
 const MAX_ESSENTIAL_MEMORIES = 12;
@@ -190,7 +197,7 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
 
   private async writeMemory(request: Request): Promise<Response> {
     const raw = await bodyObject(request);
-    const parsed = employeeRuntimeMemoryWriteSchema.parse(raw);
+    const parsed = internalMemoryWriteSchema.parse(raw);
     if (parsed.scope === "employee" && raw.manager !== true) return json({ error: "Employee memory requires manage authority." }, { status: 403 });
     return json({ memory: this.store.createMemory(parsed) }, { status: 201 });
   }
@@ -203,7 +210,7 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
 
   private async updateMemory(request: Request): Promise<Response> {
     const raw = await bodyObject(request);
-    const parsed = employeeRuntimeMemoryUpdateSchema.parse(raw);
+    const parsed = internalMemoryUpdateSchema.parse(raw);
     const current = this.store.getMemory(parsed.memoryId);
     if (!current || !this.memoryAllowed(current.conversationId, parsed.conversationId)) return json({ error: "Memory not found." }, { status: 404 });
     if (current.scope === "employee" && raw.manager !== true) return json({ error: "Employee memory requires manage authority." }, { status: 403 });
@@ -216,7 +223,7 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
 
   private async deleteMemory(request: Request): Promise<Response> {
     const raw = await bodyObject(request);
-    const parsed = employeeRuntimeMemoryDeleteSchema.parse(raw);
+    const parsed = internalMemoryDeleteSchema.parse(raw);
     const current = this.store.getMemory(parsed.memoryId);
     if (!current || !this.memoryAllowed(current.conversationId, parsed.conversationId)) return json({ error: "Memory not found." }, { status: 404 });
     if (current.scope === "employee" && raw.manager !== true) return json({ error: "Employee memory requires manage authority." }, { status: 403 });

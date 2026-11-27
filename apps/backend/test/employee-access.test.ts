@@ -70,6 +70,15 @@ describe("employee access", () => {
     }
   });
 
+  it("applies runtime memory authority to public v1 org-agent aliases", async () => {
+    const { env, employee, workspaceId, set, auth } = await fixture(); auth();
+    const request = () => new Request(`https://app.test/api/v1/org-agents/${employee.id}/runtime/memory/update`, { method: "POST", headers: { "X-Shiba-Workspace": workspaceId }, body: "{}" });
+    for (const [level, status] of [["none", 404], ["view", 403], ["chat", undefined]] as const) {
+      await set("everyone", "*", level);
+      expect((await enforceEmployeeRouteAccess(request(), env))?.status).toBe(status);
+    }
+  });
+
   it("leaves empty or unparseable new session bodies to the session handler", async () => {
     const { env, auth } = await fixture(); auth();
     for (const body of [undefined, "", "{"]) expect(await enforceEmployeeRouteAccess(new Request("https://app.test/api/sessions", { method: "POST", body }), env)).toBeNull();
