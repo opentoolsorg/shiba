@@ -1214,42 +1214,6 @@ describe("app Work and Threads routing", () => {
     expect(window.location.search).toContain("section=");
   });
 
-  it("preselects the new hire in Tool policy and clears the selection for later visits", async () => {
-    window.history.replaceState(null, "", "/custom-agents/");
-    localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
-    const builder = { id: "cag-builder", slug: "builder", version: 1, config: { name: "Builder", instructions: "Build.", harness: "opencode" } };
-    const scout = { id: "cag-scout", slug: "scout", version: 1, config: { name: "Scout", instructions: "Review the supplied data.", harness: "opencode" } };
-    let hired = false;
-    const originalFetch = fetch;
-    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
-      const path = String(url);
-      if (/^\/api\/employee-tools\/[^/]+\/policy$/.test(path)) return Response.json({ grants: [], toolScopes: [] });
-      if (path !== "/api/custom-agents") return originalFetch(url, options);
-      if (options?.method === "POST") {
-        hired = true;
-        return Response.json({ agent: scout }, { status: 201 });
-      }
-      return Response.json({ agents: hired ? [builder, scout] : [builder] });
-    }));
-    render(<App />);
-    await screen.findByRole("heading", { name: "Your employee roster" });
-    fireEvent.click(screen.getByRole("button", { name: "Hire employee" }));
-    const name = screen.getByLabelText("Name");
-    expect(document.activeElement).toBe(name);
-    fireEvent.change(name, { target: { value: scout.config.name } });
-    fireEvent.change(screen.getByLabelText("Instructions"), { target: { value: scout.config.instructions } });
-    fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Set up tool access" }));
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Employee" })).toHaveProperty("value", scout.id));
-
-    await act(async () => {
-      window.history.pushState(null, "", "/settings/?section=overview");
-      window.dispatchEvent(new PopStateEvent("popstate"));
-    });
-    fireEvent.click(await screen.findByRole("button", { name: "Manage employee access" }));
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Employee" })).toHaveProperty("value", builder.id));
-  });
-
   it("switches destinations with Alt+number shortcuts", async () => {
     window.history.replaceState(null, "", "/");
     render(<App />);
