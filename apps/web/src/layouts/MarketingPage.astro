@@ -31,7 +31,7 @@ const {
   schema,
   breadcrumbs = [{ name: 'Home', path: '/' }],
   ogImage = '/assets/og/shiba-employees-v2.png',
-  ogImageAlt = 'Shiba — Your AI employees. Your final say. Engineering, marketing, research and operations mascots; self-hosted in your Cloudflare account, with approval before every run.',
+  ogImageAlt = 'Shiba — Your AI employees. Your final say. Customizable robot employees for engineering, marketing, research and operations; self-hosted in your Cloudflare account, with approval before every run.',
   noindex = false,
 } = Astro.props;
 const canonical = new URL(path, 'https://tryshiba.dev').href;
@@ -83,7 +83,7 @@ const finalSchemas = schema
     <meta name="description" content={description} />
     <meta name="robots" content={noindex ? 'noindex, nofollow' : 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1'} />
     <meta name="author" content="Prince Pal" />
-    <meta name="theme-color" content="#FBF8F1" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#131209" media="(prefers-color-scheme: dark)" />
 
     <!-- Open Graph -->
@@ -144,7 +144,7 @@ const finalSchemas = schema
           var theme = root.dataset.themePreference === 'system' ? (systemTheme.matches ? 'dark' : 'light') : stored;
           root.dataset.theme = theme;
           document.querySelectorAll('meta[name="theme-color"]').forEach(function(meta) {
-            meta.setAttribute('content', theme === 'dark' ? '#131209' : '#FBF8F1');
+            meta.setAttribute('content', theme === 'dark' ? '#131209' : '#FFFFFF');
           });
           document.querySelectorAll('source[data-theme-source]').forEach(function(source) {
             source.media = theme === 'dark' ? 'all' : 'not all';
@@ -248,6 +248,7 @@ const finalSchemas = schema
             <div class="footer-h text-[var(--ink)]">Product &amp; Story</div>
             <ul class="space-y-2 text-[var(--ink-2)]">
               <li><a href="/why-shiba/" class="hover:text-[var(--navy)] transition-colors">Why I'm building Shiba</a></li>
+              <li><a href="/about/" class="hover:text-[var(--navy)] transition-colors">Goal &amp; milestones</a></li>
               <li><a href="/blog/" class="hover:text-[var(--navy)] transition-colors">Journal</a></li>
               <li><a href="/integrations/" class="hover:text-[var(--navy)] transition-colors">Integrations</a></li>
               <li><a href="/network/" class="hover:text-[var(--navy)] transition-colors">Network</a></li>
@@ -333,8 +334,8 @@ const finalSchemas = schema
     --accent-border: #171717;
     --accent-hover: #404040;
     --on-accent: #ffffff;
-    --shadow-hard: -3px 3px 0 #111111;
-    --shadow-accent: -3px 3px 0 #171717;
+    --shadow-hard: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px -12px rgba(0,0,0,.08);
+    --shadow-accent: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px -12px rgba(0,0,0,.08);
     --navy: #171717;
     --navy-2: #525252;
     --paper-title: #171717;
@@ -376,13 +377,13 @@ const finalSchemas = schema
     --input-line: #85877b;
     --border: #F6F1E6;
     --accent: #FAFAFA;
-    --accent-border: #5b7ea8;
-    --accent-hover: #F2934F;
+    --accent-border: #FAFAFA;
+    --accent-hover: #D4D4D8;
     --on-accent: #111111;
-    --shadow-hard: -3px 3px 0 #000000;
-    --shadow-accent: -3px 3px 0 #5b7ea8;
+    --shadow-hard: 0 1px 2px rgba(0,0,0,.28), 0 8px 24px -12px rgba(0,0,0,.42);
+    --shadow-accent: 0 1px 2px rgba(0,0,0,.28), 0 8px 24px -12px rgba(0,0,0,.42);
     --navy: #FAFAFA;
-    --navy-2: #b4cde9;
+    --navy-2: #D4D4D8;
     --paper-title: #222320;
     --paper-title-fg: #eae8e1;
     --paper-shadow: rgba(0, 0, 0, 0.5);
@@ -415,13 +416,13 @@ const finalSchemas = schema
       --input-line: #85877b;
       --border: #F6F1E6;
       --accent: #FAFAFA;
-      --accent-border: #5b7ea8;
-      --accent-hover: #F2934F;
+      --accent-border: #FAFAFA;
+      --accent-hover: #D4D4D8;
       --on-accent: #111111;
-      --shadow-hard: -3px 3px 0 #000000;
-      --shadow-accent: -3px 3px 0 #5b7ea8;
+      --shadow-hard: 0 1px 2px rgba(0,0,0,.28), 0 8px 24px -12px rgba(0,0,0,.42);
+      --shadow-accent: 0 1px 2px rgba(0,0,0,.28), 0 8px 24px -12px rgba(0,0,0,.42);
       --navy: #FAFAFA;
-      --navy-2: #b4cde9;
+      --navy-2: #D4D4D8;
       --paper-title: #222320;
       --paper-title-fg: #eae8e1;
       --paper-shadow: rgba(0, 0, 0, 0.5);
@@ -507,7 +508,7 @@ const finalSchemas = schema
   }
   .header-inner { min-height: 56px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 20px; padding-inline: 16px; }
   .wordmark { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; text-decoration: none; white-space: nowrap; }
-  .wordmark-name { font-family: 'Geist', system-ui, sans-serif; font-size: 26px; line-height: 1; letter-spacing: 0.02em; color: var(--ink); }
+  .wordmark-name { font-family: 'Geist', system-ui, sans-serif; font-size: 20px; line-height: 1; font-weight: 600; letter-spacing: 0.02em; color: var(--ink); }
   .nav-links { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; white-space: nowrap; }
   .nav-link { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 44px; min-height: 44px; padding: 8px 10px; font: 500 12px/1.5 'Geist Mono', monospace; text-decoration: none; color: var(--ink-2); border: 0; background: transparent; cursor: pointer; border-radius: 6px; transition: color 150ms var(--ease-out), background 150ms var(--ease-out); }
   .nav-link[aria-current='page'], .nav-more-panel a[aria-current='page'] { color: var(--accent); font-weight: 600; }
@@ -515,7 +516,7 @@ const finalSchemas = schema
   .nav-theme-toggle { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid var(--hairline); border-radius: 8px; background: transparent; color: var(--ink-2); cursor: pointer; transition: color 150ms var(--ease-out), border-color 150ms var(--ease-out); }
   .nav-theme-toggle:hover { color: var(--ink); border-color: var(--border); }
   .nav-more { position: relative; min-width: 58px; }
-  .nav-more-panel { position: absolute; right: 0; top: calc(100% + 10px); min-width: 190px; padding: 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); box-shadow: -3px 3px 0 var(--border); }
+  .nav-more-panel { position: absolute; right: 0; top: calc(100% + 10px); min-width: 190px; padding: 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); box-shadow: var(--shadow-soft); }
   .nav-more-panel a { display: flex; align-items: center; min-height: 44px; padding: 10px 14px; font: 500 12px/1.5 'Geist Mono', monospace; color: var(--ink-2); text-decoration: none; border-radius: 6px; }
   .nav-more-panel a:hover, .nav-link:hover { background: var(--panel-2); color: var(--ink); }
   footer a { text-decoration: none; }
@@ -562,14 +563,15 @@ const finalSchemas = schema
   .lead { font-size: 16px; line-height: 24px; max-width: 680px; color: var(--ink-2); }
 
   /* Shared rounded surfaces and soft elevation across marketing pages. */
-  .button, input, select, textarea, details, .badge, .statuscell, .status, .monogram, .agent-mark, .harness-nodes span, .gate-stamp { border-radius: var(--r-sm); }
+  input, select, textarea, details, .badge, .statuscell, .status, .monogram, .agent-mark, .harness-nodes span, .gate-stamp { border-radius: var(--r-sm); }
+  .button { border-radius: 999px; }
   table { border-radius: var(--r-md); border-collapse: separate; border-spacing: 0; overflow: hidden; }
   .truth-box, .network-map, .map-node, .team-note, .surface, .security-grid article, .planned, .preview-terminal, .readiness, .integration-card, .empty-state { border-radius: var(--r-md); box-shadow: var(--shadow-soft); }
   /* Older editorial pages still carry hard-shadow utility classes. */
   #main [class*='shadow-[2px_2px_0_'], #main :is(.truth-box, .form-card, .feature-card, .contrib-card, .pull-quote, .friction-row, .pillar-row, .route-table, .compare-matrix, .watch-link) { border-radius: var(--r-md); box-shadow: var(--shadow-soft); }
   #main :is(.route-table, .compare-table, .compare-matrix, .data-list) { border-radius: var(--r-md); overflow: hidden; }
   #main :is(.watch-link, .friction-num, .pillar-icon, .check-list li) { border-radius: var(--r-sm); }
-  .button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 0 18px; height: 36px; border: 1px solid var(--navy); background: var(--navy); color: var(--on-accent); text-decoration: none; font-weight: 600; font-family: 'Geist Mono', monospace; font-size: 13px; cursor: pointer; box-shadow: var(--shadow-soft); transition: background 120ms ease, border-color 120ms ease, transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+  .button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 0 18px; height: 36px; border: 1px solid var(--navy); background: var(--navy); color: var(--on-accent); text-decoration: none; font-weight: 600; font-family: 'Geist', system-ui, sans-serif; font-size: 13px; cursor: pointer; box-shadow: var(--shadow-soft); transition: background 120ms ease, border-color 120ms ease, transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
   .button:active { transform: translate(1px, 1px); box-shadow: none; transition-duration: 60ms; }
   .button:disabled { background: var(--panel-2); color: var(--ink-2); border-color: var(--input-line); cursor: progress; transform: none; }
   .button-outline { background: var(--card); color: var(--navy); border-color: var(--navy); }

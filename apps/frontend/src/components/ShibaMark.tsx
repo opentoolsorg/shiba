@@ -3,10 +3,10 @@ import type { AgentMascotLook } from "@shiba/shared";
 import { AgentMascot } from "./AgentMascot";
 
 /**
- * The app mark uses the shared visor mascot, with a cool blue Shiba coat.
+ * The app mark uses the shared robot mascot, with the neutral Shiba shell.
  * Decorative wherever it sits beside the word Shiba.
  */
-export const SHIBA_BRAND_LOOK: AgentMascotLook = { shape: "pointed", color: "#899bd0", eyes: "big", acc: "headset" };
+export const SHIBA_BRAND_LOOK: AgentMascotLook = { shape: "squircle", color: "#27272a", eyes: "pill", acc: "none" };
 
 export function ShibaMark({ className = "size-14", decorative = false, label = "Shiba" }: { className?: string; decorative?: boolean; label?: string }): JSX.Element {
   const classes = `${className} inline-flex shrink-0`;
