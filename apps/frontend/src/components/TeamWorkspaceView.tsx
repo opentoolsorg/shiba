@@ -610,7 +610,7 @@ function TeamWorkspaceSurface({
               )}
             </div>
             {activeTab === "settings" && workspaceId ? (
-              <WorkspaceBillingCard sessionId="" sessionApiAvailable={false} workspaceId={workspaceId} />
+              <WorkspaceBillingCard sessionId="" sessionApiAvailable={false} workspaceId={workspaceId} canManage={manager} />
             ) : null}
 
             {/* People Tab (Members list) */}

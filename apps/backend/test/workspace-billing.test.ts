@@ -270,6 +270,8 @@ describe("team workspace credits", () => {
     auth.userId = "owner@example.test";
     const checkout = await handleWorkspaceBilling(dashboard("/api/billing/checkout", { method: "POST", body: JSON.stringify({ amountUsd: 50 }) }, { "X-Shiba-Workspace": workspaceId }), env());
     expect(await checkout!.json()).toEqual({ url: "https://checkout.stripe.com/c/pay/cs_team" });
+    const checkoutBody = new URLSearchParams(String((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.find(([input]) => String(input).endsWith("/checkout/sessions"))?.[1]?.body));
+    expect(checkoutBody.get("success_url")).toBe(`https://shiba.example/settings/?section=team&billing=success`);
 
     await webhook(paidSession("cs_team", "team:" + workspaceId, 5000));
     expect(await creditedMicroUsd(db, "team:" + workspaceId)).toBe(50_000_000);
