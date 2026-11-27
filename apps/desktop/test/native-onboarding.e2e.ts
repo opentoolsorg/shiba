@@ -102,11 +102,11 @@ test("actual native shared UI retains goal, thread, approved output and review a
   // connects a provider, so the task stage is reached from the step rail.
   async function openTaskStage(page: Page) {
     const journey = page.getByRole("region", { name: "Guided onboarding", exact: true });
-    if (!(await journey.isVisible().catch(() => false))) {
-      // The chat's draft footer opens the same flow when it is not already up.
-      const review = page.getByRole("button", { name: "Review setup draft", exact: true });
-      if (await review.isVisible().catch(() => false)) await review.click();
-    }
+    // The chat's draft footer opens the same flow when it is not already up;
+    // wait for whichever renders first instead of sampling once.
+    const review = page.getByRole("button", { name: "Review setup draft", exact: true });
+    await journey.or(review).first().waitFor({ state: "visible", timeout: 15_000 });
+    if (!(await journey.isVisible())) await review.click();
     await journey.waitFor({ state: "visible", timeout: 15_000 });
     await journey.getByRole("button", { name: /^Draft your first task/ }).click();
     await page.getByRole("region", { name: "First task setup", exact: true }).waitFor();
