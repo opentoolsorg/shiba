@@ -1,14 +1,18 @@
 name: CI
+# Every push to a pull request and to main runs the lint and check lanes, so a
+# result always describes the current head. verify-shiba is the slow browser
+# journey: it runs on main and on pull requests labelled build:validate.
+# all-checks-pass is the one check branch protection should require.
 on:
   pull_request:
-    types:
-    - labeled
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
 jobs:
   biome-knip:
-    if: "${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' }}"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -26,7 +30,6 @@ jobs:
       - run: pnpm check:knip
     timeout-minutes: 30
   check:
-    if: "${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' }}"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -49,7 +52,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm lint:imports
-      - run: node --test scripts/schema-snapshot.test.mjs
+      - run: node --test scripts/schema-snapshot.test.mjs scripts/ci-workflow.test.mjs
       - run: pnpm test
       - name: Verify personal native account isolation and daemon controls
         run: pnpm test:personal-daemon
@@ -67,7 +70,7 @@ jobs:
       - run: pnpm test:built
       - run: pnpm check:deploy
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
       - run: pnpm check:source-layout
       - run: cp .env.example .env
       - run: node scripts/check-dev-vars-example.mjs
@@ -79,7 +82,7 @@ jobs:
 
     timeout-minutes: 30
   verify-shiba:
-    if: "${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' }}"
+    if: "${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'build:validate') }}"
     # The pinned Playwright 1.55.1 browser/dependency map supports Ubuntu 24.04.
     # Keep runner image upgrades separate from browser-version upgrades.
     runs-on: ubuntu-24.04
@@ -153,6 +156,32 @@ jobs:
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 3
+  all-checks-pass:
+    # The single required check. It fails when any lane failed or was cancelled,
+    # and when verify-shiba was skipped although this run should have included it.
+    if: ${{ !cancelled() }}
+    needs: [biome-knip, check, verify-shiba]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every lane
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+          VERIFY_RESULT: ${{ needs.verify-shiba.result }}
+          VERIFY_EXPECTED: ${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'build:validate') }}
+        run: |
+          echo "lane results: $RESULTS"
+          if echo "$RESULTS" | grep -Eq '"(failure|cancelled)"'; then
+            echo "A required lane failed or was cancelled."; exit 1
+          fi
+          if [ "$VERIFY_EXPECTED" = "true" ] && [ "$VERIFY_RESULT" != "success" ]; then
+            echo "verify-shiba was expected on this run but reported $VERIFY_RESULT."; exit 1
+          fi
+          if [ "$(echo "$RESULTS" | grep -o '"skipped"' | wc -l)" -gt "$([ "$VERIFY_RESULT" = skipped ] && echo 1 || echo 0)" ]; then
+            echo "A lane other than verify-shiba was skipped."; exit 1
+          fi
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.label.name || github.event_name }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'build:validate' }}
+  # One run per pull request: a new push or label cancels the older run. Runs on
+  # main are never cancelled, so every merged commit gets a result.
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
