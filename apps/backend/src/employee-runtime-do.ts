@@ -410,12 +410,23 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
       this.store.updateExecution(execution.id, { status: "running", checkpoint: "recovery_inference", error: "" });
       try {
         const answer = await this.answer({ profile, conversationId: execution.conversationId, message: user.content, mode: execution.mode }, controller.signal);
+        const current = this.store.getExecution(execution.id);
+        if (!current || current.status === "cancelled") {
+          skipped += 1;
+          continue;
+        }
         const persisted = this.store.appendMessage({ conversationId: execution.conversationId, role: "assistant", content: answer });
         this.store.updateExecution(execution.id, { status: "completed", checkpoint: "terminal", resultJson: JSON.stringify({ assistantMessageId: persisted.id, recovery: "replayed" }), error: "" });
         recovered += 1;
       } catch (error) {
-        this.store.updateExecution(execution.id, { status: "failed", checkpoint: "recovery_failed", error: redactSecrets(error instanceof Error ? error.message : String(error)) });
-        failed += 1;
+        const cancelled = controller.signal.aborted || this.store.getExecution(execution.id)?.status === "cancelled";
+        this.store.updateExecution(execution.id, {
+          status: cancelled ? "cancelled" : "failed",
+          checkpoint: cancelled ? "cancelled" : "recovery_failed",
+          error: cancelled ? "Execution cancelled." : redactSecrets(error instanceof Error ? error.message : String(error)),
+        });
+        if (!cancelled) failed += 1;
+        else skipped += 1;
       } finally {
         this.active.delete(execution.id);
       }
