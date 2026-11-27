@@ -59,6 +59,23 @@ function remember(actorId: string, id: string): void {
     /* Storage is optional. */
   }
 }
+const revokedKey = (actorId: string) => `shiba:team-workspace-revoked:${encodeURIComponent(actorId)}`;
+function rememberRevoked(actorId: string, id: string): void {
+  try {
+    if (id) localStorage.setItem(revokedKey(actorId), id);
+    else localStorage.removeItem(revokedKey(actorId));
+  } catch {
+    /* Storage is optional. */
+  }
+}
+function revokedWorkspace(actorId: string): string {
+  try {
+    const id = localStorage.getItem(revokedKey(actorId));
+    return isTeamWorkspaceId(id) ? id : "";
+  } catch {
+    return "";
+  }
+}
 const lastKey = (actorId: string) => `shiba:last-team-workspace:${encodeURIComponent(actorId)}`;
 /** The last non-empty team workspace, which survives switching to the personal workspace. */
 export function lastTeamWorkspace(actorId: string): string {
@@ -143,10 +160,12 @@ export function useTeamWorkspaceDirectory({
         const unavailable = Boolean(selected && !workspaces.some((item) => item.workspaceId === selected));
         if (unavailable) {
           remember(scope, "");
+          rememberRevoked(scope, selected);
           try { localStorage.removeItem(lastKey(scope)); } catch { /* Storage is optional. */ }
         }
-        return { verified: !unavailable, scope, workspaces, selectedWorkspaceId: selected, loading: false,
-          error: unavailable ? "Access to the selected workspace was removed. Choose another workspace or explicitly open your personal workspace." : null };
+        const revoked = !selected && revokedWorkspace(scope);
+        return { verified: !unavailable && !revoked, scope, workspaces, selectedWorkspaceId: selected, loading: false,
+          error: unavailable || revoked ? "Access to the selected workspace was removed. Choose another workspace or explicitly open your personal workspace." : null };
       });
     } catch (cause) {
       if (active())
@@ -185,6 +204,7 @@ export function useTeamWorkspaceDirectory({
         )
           return previous;
         remember(scope, id);
+        rememberRevoked(scope, "");
         return { ...previous, verified: true, selectedWorkspaceId: id, error: null };
       });
     },
