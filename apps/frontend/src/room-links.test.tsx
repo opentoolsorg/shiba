@@ -132,6 +132,21 @@ describe("canonical workspace room links", () => {
     expect(window.location.pathname + window.location.search).toBe(roomLinkUrl({ workspaceId, roomId: nextRoomId }, window.location.origin).replace(window.location.origin, ""));
     expect(result.current.roomId).toBe(nextRoomId);
   });
+  it("can push a room transition instead of replacing the current entry", () => {
+    const value = { ...directory(), selectedWorkspaceId: workspaceId };
+    const { result } = renderHook(() => useRoomLinkRoute(actor, value));
+    const nextRoomId = `room_${"c".repeat(24)}`;
+    const push = vi.spyOn(window.history, "pushState");
+    const replace = vi.spyOn(window.history, "replaceState");
+
+    act(() => result.current.onRoomChange(nextRoomId, { push: true }));
+
+    expect(push).toHaveBeenCalledOnce();
+    expect(replace).not.toHaveBeenCalled();
+    expect(readRoomLink(window.location.search)).toEqual({ workspaceId, roomId: nextRoomId });
+    push.mockRestore();
+    replace.mockRestore();
+  });
   it("synchronizes a room selected during directory refresh after membership is reverified", () => {
     openLink();
     const value = { ...directory(), selectedWorkspaceId: workspaceId };

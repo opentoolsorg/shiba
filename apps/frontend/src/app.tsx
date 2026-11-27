@@ -3124,7 +3124,7 @@ function employeeConversationRoomTitle(name: string): string {
         body: JSON.stringify({ profileId: profile.id, profileVersion: profile.version }),
       });
       setSharedRoomId(created.room.roomId); setSharedHandoffId(undefined); setSharedEmployeeId(profile.id); setMainView("threads");
-      roomRoute.onRoomChange(created.room.roomId);
+      roomRoute.onRoomChange(created.room.roomId, { push: true });
       return created.room.roomId;
     }
     if (taskCreationBlocker) throw new Error(taskCreationBlocker);
