@@ -381,7 +381,7 @@ function settingsSectionFromSearch(search: string): string {
 /** Views that render their own MainCard, so the shell must not add a second one. */
 const SELF_CARDED_VIEWS: readonly string[] = ["dashboard", "activity", "analytics", "diff", "approvals", "automations", "providers", "spaces", "integrations"];
 /** Views that work inside a team workspace; every other view is personal-only. */
-const TEAM_WORKSPACE_VIEWS: readonly string[] = ["dashboard", "team", "work", "threads", "collaboration", "custom-agents", "skills", "providers", "integrations", "settings"];
+const TEAM_WORKSPACE_VIEWS: readonly string[] = ["dashboard", "team", "work", "threads", "collaboration", "custom-agents", "skills", "providers", "integrations", "files", "notes", "projects", "settings"];
 
 // Room/run links retain precedence over a view selector, including legacy /app links.
 function viewFromUrl(): AppNavView | null {
