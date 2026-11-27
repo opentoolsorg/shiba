@@ -13,6 +13,7 @@ const settings = (method: string): EmployeeAccessLevel => ["GET", "HEAD"].includ
 export const employeeRouteAuth: readonly Route[] = [
   { path: /^\/api\/custom-agents\/([^/]+)\/runtime\/recover\/?$/, required: () => "manage", source: "path" },
   { path: /^\/api\/custom-agents\/([^/]+)\/runtime\/(chat\/stream|chat|state|memory|memory\/search|memory\/update|memory\/delete|cancel|clear)\/?$/, required: (method) => method === "GET" ? "view" : "chat", source: "path" },
+  { path: /^\/api\/v1\/org-agents\/([^/]+)\/runtime\/recover\/?$/, required: () => "manage", source: "path" },
   { path: /^\/api\/v1\/org-agents\/([^/]+)\/runtime\/(chat\/stream|chat|state|memory|memory\/search|memory\/update|memory\/delete|cancel|clear)\/?$/, required: (method) => method === "GET" ? "view" : "chat", source: "path" },
   { path: /^\/api\/custom-agents\/([^/]+)(?:\/.*)?$/, required: settings, source: "path" },
   { path: /^\/api\/employee-tools\/(?!approvals(?:\/|$))([^/]+)\/(policy|call)\/?$/, required: settings, source: "path" },

@@ -64,9 +64,11 @@ describe("employee access", () => {
   it("requires manage authority for employee runtime recovery", async () => {
     const { env, employee, workspaceId, set, auth } = await fixture(); auth();
     const request = () => new Request(`https://app.test/api/custom-agents/${employee.id}/runtime/recover`, { method: "POST", headers: { "X-Shiba-Workspace": workspaceId }, body: "{}" });
+    const v1Request = () => new Request(`https://app.test/api/v1/org-agents/${employee.id}/runtime/recover`, { method: "POST", headers: { "X-Shiba-Workspace": workspaceId }, body: "{}" });
     for (const [level, status] of [["none", 404], ["view", 403], ["chat", 403], ["manage", undefined]] as const) {
       await set("everyone", "*", level);
       expect((await enforceEmployeeRouteAccess(request(), env))?.status).toBe(status);
+      expect((await enforceEmployeeRouteAccess(v1Request(), env))?.status).toBe(status);
     }
   });
 
