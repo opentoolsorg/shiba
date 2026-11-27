@@ -20,7 +20,7 @@ every subsystem.
 | Memory | `Memory` Durable Objects store facts and owner memory. Vectorize stores embeddings. Memory routes and MCP tools exist. | Memory is split across agent-named facts, owner memory, conversation state, knowledge modules, and files. There is no single employee-private/thread/shared model with uniform tenant checks. |
 | Workspace knowledge | D1, R2, files, notes, knowledge ingestion, projects, and semantic search already exist. | These capabilities are workspace features, not yet a repository-independent employee workspace with private files, generated artifacts, and shared knowledge under one permission model. |
 | Tools and integrations | The lazy tool catalog, MCP registry, connected app actions, browser tools, media tools, and employee tool policy exist. `employee-run-tools.ts` resolves authority server-side. `EmployeeRuntime` now supplies this registry to direct multi-step model turns using the server-resolved employee actor, and streams inspectable tool activity. Approval-required actions still execute through the existing exact-payload approval boundary. | Tooling remains distributed across legacy orchestrator, runtime, browser, terminal, external APIs, and employee delegation. Owner-reviewed external MCP actions are available to the runtime through execution-bound authority, but browser/terminal execution and durable Work orchestration are not fully unified yet. |
-| Scheduling and automation | `Automations`, queues, workflows, alarms, Slack/email ingress, routines, and run recovery exist. `EmployeeRuntime` now has a first guarded routine-scheduling slice using Agents SDK persistent interval schedules. | Runtime routines are actor-conversation scoped, inference-only, deduplicated, capped per employee, minimum-interval bounded, manager-controlled in workspaces, cancelled with their owning conversation or archived employee, and fail closed for team inference until the funded-turn contract exists. D1-backed routine inspection, event triggers, delegation-depth limits, spend budgets, notification policy, and frontend controls remain. |
+| Scheduling and automation | `Automations`, queues, workflows, alarms, Slack/email ingress, routines, and run recovery exist. `EmployeeRuntime` now has a first guarded routine-scheduling slice using Agents SDK persistent interval schedules. | Runtime routines are actor-conversation scoped, inference-only, deduplicated, capped per employee, minimum-interval bounded, manager-controlled in workspaces, cancelled with their owning conversation or archived employee, and fail closed for team inference until the funded-turn contract exists. D1-backed routine inspection, event triggers, delegation-depth limits, spend budgets, and notification policy remain. The employee details panel now exposes conversation-scoped routine inspection, creation, and cancellation controls. |
 | Frontend | Custom employee profiles, roster/workspace surfaces, approvals, work views, files, memories, skills, and integrations exist in the dashboard. | Creation no longer forces a harness, but operation still exposes coding/repository concepts to non-technical users. There is no single employee-centric runtime surface for chat, work, memory, files, tools, schedules, and history. |
 | Deployment state | Durable Objects coordinate live state. D1 owns shared records. R2 owns bytes. Vectorize owns embeddings. Queues and Workflows carry asynchronous control. | This ownership model is sound. The migration must not mirror all of D1 into the employee object. It needs a stricter split between durable domain state and live execution coordination. |
 
@@ -215,7 +215,10 @@ without tool actor authority, deduplicate equivalent schedules, cap active
 routines per employee, enforce a five-minute minimum interval, cancel with
 conversation clearing or employee archival, and refuse team-runtime creation
 until funded team inference exists. Workspace creation requires manage
-authority, while deletion remains scoped to the owning actor conversation.
+authority, while deletion remains scoped to the owning actor conversation. The
+employee details panel exposes conversation-scoped routine inspection, creation,
+and cancellation controls; workspace managers remain the only workspace actors
+allowed to create schedules.
 
 Still required before the phase is complete:
 
@@ -225,7 +228,6 @@ Still required before the phase is complete:
   require stronger orchestration.
 - Add event-triggered routines, delegation-depth limits, spend budgets, and
   notification policy.
-- Add frontend schedule controls.
 - Test duplicate event delivery, recursive delegation, interrupted execution,
   and schedule recovery.
 
