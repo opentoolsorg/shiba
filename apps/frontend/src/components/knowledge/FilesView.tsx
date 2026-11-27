@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
-import { FolderPlus, Search, Upload } from "lucide-react";
+import { FileArchive, FileText, FolderPlus, LayoutGrid, List, Plus, Search, Upload } from "lucide-react";
 import type { KnowledgeFile, KnowledgeScope, KnowledgeSearchHit } from "@shiba/shared";
 import { MarkedSnippet } from "../palette/ResultRow";
 import { uploadFile } from "../../files-upload-client";
 import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 import type { AppNavView } from "../AppNavRail";
 import { LoadErrorState } from "../LoadErrorState";
-import { MainCard } from "../ui/ContextPanel";
 import { FileAppPreview } from "./FileAppPreview";
 
 export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavigate?: (view: AppNavView) => void; appPreviewOwner?: string; workspaceId?: string | null } = {}): JSX.Element {
@@ -24,6 +23,9 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
   const folderRequest = useRef(0);
   const [uploads, setUploads] = useState<Array<{ id: number; name: string; done: number; total: number; state: string; error?: string }>>([]);
   const [busy, setBusy] = useState(false);
+  const [layout, setLayout] = useState<"list" | "cards">("list");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const workspaceHeaders = useMemo(() => teamWorkspaceHeaders(workspaceId ?? undefined), [workspaceId]);
 
@@ -123,108 +125,157 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
     }
   }
 
+  const iconFor = (file: KnowledgeFile, size = 15) => (file.mime ?? "") === "application/pdf"
+    ? <FileArchive size={size} className="shrink-0 text-red-500" />
+    : (file.mime ?? "").startsWith("text/") || (file.mime ?? "").includes("markdown")
+      ? <FileText size={size} className="shrink-0 text-[var(--muted-light)]" />
+      : <FileArchive size={size} className="shrink-0 text-[var(--muted-light)]" />;
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
-      <MainCard>
-        <header className="mb-3">
-          <h1 className="text-lg font-medium">Files</h1>
-          <p className="text-sm text-[var(--muted-foreground-2)]">Upload documents and browse folders. Ingestion runs after each upload completes.</p>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--bg)] text-[var(--fg)]">
+      <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 px-6 py-3">
+        <div className="flex min-w-0 items-baseline gap-3">
+          <h1 className="truncate text-sm font-normal tracking-[-0.01em]">All</h1>
+          <span className="text-xs leading-5 text-[var(--muted-light)]">{files.length} {files.length === 1 ? "item" : "items"}</span>
           {onNavigate ? (
-            <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">
-              Uploaded files are separate from memory sources.{" "}
-              <button type="button" className="font-medium text-[var(--fg)] underline underline-offset-2" onClick={() => onNavigate("memory")}>Review memory sources</button>
-            </p>
+            <button type="button" className="hidden text-xs text-[var(--muted-foreground-2)] underline underline-offset-2 hover:text-[var(--fg)] sm:inline" onClick={() => onNavigate("memory")}>Review memory sources</button>
           ) : null}
-        </header>
-        <div className="flex flex-wrap items-center gap-2 pb-3">
-          <label className="text-xs text-[var(--muted-foreground-2)]">
-            Scope
-            <select className="ml-2 border border-[var(--border-1)] bg-[var(--card)] px-2 py-1 text-sm" value={scope} disabled={busy} onChange={(e) => { setScope(e.target.value as KnowledgeScope); setFolderId(""); setFolders([]); }}>
+        </div>
+
+        <div className="flex max-w-full shrink-0 items-center gap-2 overflow-x-auto scrollbar-none max-sm:order-2 max-sm:w-full sm:ml-auto sm:w-auto sm:overflow-visible [&::-webkit-scrollbar]:hidden">
+          <label className="flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-1)] bg-[var(--card)] px-2 text-xs text-[var(--muted-foreground-2)]">
+            <span>Scope</span>
+            <select aria-label="Scope" className="h-full bg-transparent text-xs text-[var(--fg)] outline-none" value={scope} disabled={busy} onChange={(e) => { setScope(e.target.value as KnowledgeScope); setFolderId(""); setFolders([]); }}>
               <option value="personal">Personal</option>
               <option value="workspace">Workspace</option>
             </select>
           </label>
-          <label className="text-xs text-[var(--muted-foreground-2)]">
-            Folder
-            <select className="ml-2 border border-[var(--border-1)] bg-[var(--card)] px-2 py-1 text-sm" value={folderId} disabled={busy} onChange={(e) => setFolderId(e.target.value)}>
+          <label className="flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-1)] bg-[var(--card)] px-2 text-xs text-[var(--muted-foreground-2)]">
+            <span>Folder</span>
+            <select aria-label="Folder" className="h-full max-w-28 bg-transparent text-xs text-[var(--fg)] outline-none" value={folderId} disabled={busy} onChange={(e) => setFolderId(e.target.value)}>
               <option value="">All files</option>
               {folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
             </select>
           </label>
+          <button type="button" title="Search files" aria-label="Search files" aria-expanded={searchOpen} onClick={() => setSearchOpen((open) => !open)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-1)] bg-[var(--card)] text-[var(--muted-foreground-2)] transition-colors hover:bg-[var(--card-hover)] hover:text-[var(--fg)]">
+            <Search size={14} />
+          </button>
+          <button type="button" title="Create folder" aria-label="Create folder" aria-expanded={createOpen} onClick={() => setCreateOpen((open) => !open)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-1)] bg-[var(--card)] text-[var(--muted-foreground-2)] transition-colors hover:bg-[var(--card-hover)] hover:text-[var(--fg)]">
+            <Plus size={14} />
+          </button>
+          <div className="flex h-8 items-center rounded-md border border-[var(--border-1)] bg-[var(--panel)] p-0.5">
+            <button type="button" title="List" aria-label="List layout" aria-pressed={layout === "list"} onClick={() => setLayout("list")} className={`inline-flex h-7 items-center rounded px-2 transition-colors ${layout === "list" ? "bg-[var(--card)] text-[var(--fg)] shadow-xs" : "text-[var(--muted-light)] hover:text-[var(--fg)]"}`}><List size={14} /></button>
+            <button type="button" title="Cards" aria-label="Cards layout" aria-pressed={layout === "cards"} onClick={() => setLayout("cards")} className={`inline-flex h-7 items-center rounded px-2 transition-colors ${layout === "cards" ? "bg-[var(--card)] text-[var(--fg)] shadow-xs" : "text-[var(--muted-light)] hover:text-[var(--fg)]"}`}><LayoutGrid size={14} /></button>
+          </div>
           <input ref={inputRef} type="file" multiple hidden aria-label="Upload files" disabled={busy} onChange={(e) => {
             if (e.currentTarget.files) void uploadFiles(e.currentTarget.files);
             e.currentTarget.value = "";
           }} />
-          <button type="button" className="inline-flex items-center gap-1 rounded border border-[var(--border-1)] px-2 py-1 text-sm" disabled={busy} onClick={() => inputRef.current?.click()}>
-            <Upload size={14} /> Upload
+          <button type="button" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-1)] bg-[var(--card)] text-[var(--muted-foreground-2)] transition-colors hover:bg-[var(--card-hover)] hover:text-[var(--fg)] disabled:opacity-50" aria-label="Upload" title="Upload" disabled={busy} onClick={() => inputRef.current?.click()}>
+            <Upload size={14} />
           </button>
         </div>
-        <div className="flex flex-wrap gap-2 pb-3">
-          <input className="min-w-[12rem] flex-1 border border-[var(--border-1)] bg-[var(--card)] px-2 py-1 text-sm" value={folderName} onChange={(e) => setFolderName(e.target.value)} placeholder="New folder name" />
-          <button type="button" className="inline-flex items-center gap-1 rounded border border-[var(--border-1)] px-2 py-1 text-sm" disabled={busy} onClick={() => void createFolder()}>
-            <FolderPlus size={14} /> Folder
-          </button>
-        </div>
-        <form role="search" aria-label="Search knowledge" className="flex flex-wrap gap-2 pb-4" onSubmit={(e) => {
-          e.preventDefault();
-          void runSearch().catch((err: unknown) => setError(err instanceof Error ? err.message : "Search failed."));
-        }}>
-          <input type="search" aria-label="Search files and notes" className="min-w-[12rem] flex-1 border border-[var(--border-1)] bg-[var(--card)] px-2 py-1 text-sm" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search inside files and notes" />
-          <button type="submit" className="inline-flex items-center gap-1 rounded border border-[var(--border-1)] px-3 py-1 text-sm disabled:opacity-50" disabled={searching || !query.trim()}>
-            <Search size={14} aria-hidden="true" /> {searching ? "Searching…" : "Search"}
-          </button>
-        </form>
-        {searchHits ? (
-          <section aria-label="Knowledge search results" aria-live="polite" className="mb-4 border border-[var(--border-1)] bg-[var(--card)]">
-            <header className="flex items-center justify-between border-b border-[var(--border-1)] px-3 py-2 text-xs text-[var(--muted-foreground-2)]">
-              <span>Matches for <span className="font-medium text-[var(--fg)]">{query.trim()}</span></span>
-              <span className="tabular-nums">{searchHits.length} {searchHits.length === 1 ? "passage" : "passages"}</span>
-            </header>
-            {searchHits.length ? (
-              <ol className="divide-y divide-[var(--border-1)] text-sm">
-                {searchHits.map((hit) => (
-                  <li key={hit.chunkId} className="px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <span className="min-w-0 flex-1 truncate font-medium">{hit.sourceName || (hit.sourceKind === "note" ? "Untitled note" : "Untitled file")}</span>
-                      <span className="shrink-0 rounded bg-[var(--panel)] px-2 py-0.5 text-xs text-[var(--muted-foreground-2)]">{hit.sourceKind === "note" ? "Note" : "File"}{hit.scope ? ` · ${hit.scope === "workspace" ? "Workspace" : "Personal"}` : ""}</span>
+      </header>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <div className="mx-auto w-full max-w-3xl">
+          {createOpen || searchOpen ? <section aria-label="File actions" className="mb-3 flex flex-wrap items-center gap-2">
+            {createOpen ? <input className="h-8 min-w-40 flex-1 rounded-md border border-[var(--border-1)] bg-[var(--card)] px-2.5 text-xs outline-none placeholder:text-[var(--muted-light)] focus:border-[var(--border-3)] sm:max-w-56" value={folderName} onChange={(e) => setFolderName(e.target.value)} placeholder="New folder name" /> : null}
+            {createOpen ? <button type="button" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-1)] bg-[var(--card)] px-2.5 text-xs transition-colors hover:bg-[var(--card-hover)] disabled:opacity-50" disabled={busy} onClick={() => void createFolder()}>
+              <FolderPlus size={13} /> Folder
+            </button> : null}
+            {searchOpen ? <form role="search" aria-label="Search knowledge" className="flex min-w-56 flex-1 items-center gap-2 sm:justify-end" onSubmit={(e) => {
+              e.preventDefault();
+              void runSearch().catch((err: unknown) => setError(err instanceof Error ? err.message : "Search failed."));
+            }}>
+              <input type="search" aria-label="Search files and notes" className="h-8 min-w-0 flex-1 rounded-md border border-[var(--border-1)] bg-[var(--card)] px-2.5 text-xs outline-none placeholder:text-[var(--muted-light)] focus:border-[var(--border-3)] sm:max-w-64" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search files…" />
+              <button type="submit" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-1)] bg-[var(--card)] px-2.5 text-xs transition-colors hover:bg-[var(--card-hover)] disabled:opacity-50" disabled={searching || !query.trim()}>
+                <Search size={13} aria-hidden="true" /> {searching ? "Searching…" : "Search"}
+              </button>
+            </form> : null}
+          </section> : null}
+
+          {searchHits ? (
+            <section aria-label="Knowledge search results" aria-live="polite" className="mb-4 overflow-hidden rounded-xl border border-[var(--border-1)] bg-[var(--card)] shadow-xs">
+              <header className="flex items-center justify-between border-b border-[var(--border-1)] px-3 py-2 text-xs text-[var(--muted-foreground-2)]">
+                <span>Matches for <span className="font-medium text-[var(--fg)]">{query.trim()}</span></span>
+                <span className="tabular-nums">{searchHits.length} {searchHits.length === 1 ? "passage" : "passages"}</span>
+              </header>
+              {searchHits.length ? (
+                <ol className="divide-y divide-[var(--border-1)] text-sm">
+                  {searchHits.map((hit) => (
+                    <li key={hit.chunkId} className="px-3 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate text-xs font-medium">{hit.sourceName || (hit.sourceKind === "note" ? "Untitled note" : "Untitled file")}</span>
+                        <span className="shrink-0 rounded-full bg-[var(--surface-subtle)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground-2)] opacity-0 transition-opacity group-hover:opacity-100">{hit.sourceKind === "note" ? "Note" : "File"}{hit.scope ? ` · ${hit.scope === "workspace" ? "Workspace" : "Personal"}` : ""}</span>
+                      </div>
+                      <p className="mt-1 line-clamp-3 text-xs leading-5 text-[var(--muted-foreground-1)]"><MarkedSnippet text={hit.text.slice(0, 600)} query={query} /></p>
+                    </li>
+                  ))}
+                </ol>
+              ) : <p className="px-3 py-3 text-xs text-[var(--muted-foreground-2)]">No passages match. Files appear here once their ingestion state is done.</p>}
+            </section>
+          ) : null}
+
+          {error ? <LoadErrorState message={error} onRetry={() => void load().catch((err: unknown) => setError(err instanceof Error ? err.message : "Files failed to load."))} /> : null}
+
+          <section aria-label="File list" onDragOver={(e) => e.preventDefault()} onDrop={(e) => {
+            e.preventDefault();
+            void uploadFiles(e.dataTransfer.files);
+          }}>
+            <p className="sr-only">Drop files here to upload{folderId ? " into the selected folder" : ""}.</p>
+            {uploads.length ? <ul aria-live="polite" className="pb-3 text-xs text-[var(--muted-foreground-2)]">
+              {uploads.map((upload) => <li key={upload.id}>
+                {upload.name}: {upload.state} · {upload.done} / {upload.total} parts
+                {upload.error ? <span role="alert"> — {upload.error}</span> : null}
+              </li>)}
+            </ul> : null}
+            {layout === "list" ? (
+              <ul className="space-y-0.5 text-sm">
+                {files.map((file) => {
+                  const canPreview = appPreviewOwner && scope === "personal" && file.scope === "personal" &&
+                    file.createdBy?.trim().toLowerCase() === appPreviewOwner &&
+                    file.workspaceId === "self-hosted" && file.archivedAt === null && file.mime === "application/json" &&
+                    /^file_[a-f0-9]{24}$/.test(file.id) && file.name.endsWith(".app-preview.json");
+                  return <li key={file.id} className={canPreview ? "rounded-[8px] border border-transparent px-3 py-2.5 transition-colors hover:border-[var(--border-1)] hover:bg-[var(--panel)]" : "group flex items-center gap-3 rounded-[8px] border border-transparent px-3 py-2.5 transition-colors hover:border-[var(--border-1)] hover:bg-[var(--panel)]"}>
+                    {iconFor(file)}
+                    <span className="min-w-0 flex-1 truncate font-normal leading-relaxed">{file.name}</span>
+                    <span className="hidden shrink-0 text-xs text-[var(--muted-light)] opacity-0 transition-opacity group-hover:opacity-100 lg:inline">{file.mime ?? "file"}</span>
+                    <span className="hidden shrink-0 text-xs text-[var(--muted-light)] opacity-0 transition-opacity group-hover:opacity-100 sm:inline">{new Date(file.updatedAt).toLocaleDateString()}</span>
+                    <span className="shrink-0 text-xs tabular-nums text-[var(--muted-light)] opacity-0 transition-opacity group-hover:opacity-100">{file.size.toLocaleString()} bytes</span>
+                    <span className="shrink-0 rounded-full bg-[var(--surface-subtle)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground-2)] opacity-0 transition-opacity group-hover:opacity-100">{file.ingestion.state}</span>
+                    {canPreview && <div className="basis-full sm:basis-auto"><FileAppPreview key={appPreviewOwner} fileId={file.id} fileName={file.name} /></div>}
+                  </li>;
+                })}
+              </ul>
+            ) : (
+              <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {files.map((file) => {
+                  const canPreview = appPreviewOwner && scope === "personal" && file.scope === "personal" &&
+                    file.createdBy?.trim().toLowerCase() === appPreviewOwner &&
+                    file.workspaceId === "self-hosted" && file.archivedAt === null && file.mime === "application/json" &&
+                    /^file_[a-f0-9]{24}$/.test(file.id) && file.name.endsWith(".app-preview.json");
+                  return <li key={file.id} className="overflow-hidden rounded-xl border border-[var(--border-1)] bg-[var(--card)] shadow-xs transition-shadow hover:shadow-md">
+                    <div className="flex h-28 items-center justify-center bg-[var(--panel)]">{iconFor(file, 36)}</div>
+                    <div className="space-y-1.5 p-3">
+                      <span className="block truncate text-xs font-medium">{file.name}</span>
+                      <div className="flex items-center justify-between gap-2 text-[11px] text-[var(--muted-light)]">
+                        <span className="tabular-nums">{file.size.toLocaleString()} bytes</span>
+                        <span>{new Date(file.updatedAt).toLocaleDateString()}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="rounded-full bg-[var(--surface-subtle)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground-2)]">{file.ingestion.state}</span>
+                        {canPreview && <FileAppPreview key={appPreviewOwner} fileId={file.id} fileName={file.name} />}
+                      </div>
                     </div>
-                    <p className="mt-1 line-clamp-3 text-[var(--muted-foreground-1)]"><MarkedSnippet text={hit.text.slice(0, 600)} query={query} /></p>
-                  </li>
-                ))}
-              </ol>
-            ) : <p className="px-3 py-3 text-sm text-[var(--muted-foreground-2)]">No passages match. Files appear here once their ingestion state is done.</p>}
+                  </li>;
+                })}
+              </ul>
+            )}
+            {!files.length ? <div className="flex min-h-36 flex-col items-center justify-center gap-2 text-xs text-[var(--muted-light)]"><FileText size={22} /><span>No files yet</span></div> : null}
           </section>
-        ) : null}
-        {error ? <LoadErrorState message={error} onRetry={() => void load().catch((err: unknown) => setError(err instanceof Error ? err.message : "Files failed to load."))} /> : null}
-        <section aria-label="File list" onDragOver={(e) => e.preventDefault()} onDrop={(e) => {
-          e.preventDefault();
-          void uploadFiles(e.dataTransfer.files);
-        }}>
-          <p className="pb-2 text-xs text-[var(--muted-foreground-2)]">Drop files here to upload{folderId ? " into the selected folder" : ""}.</p>
-          {uploads.length ? <ul aria-live="polite" className="pb-3 text-sm">
-            {uploads.map((upload) => <li key={upload.id}>
-              {upload.name}: {upload.state} · {upload.done} / {upload.total} parts
-              {upload.error ? <span role="alert"> — {upload.error}</span> : null}
-            </li>)}
-          </ul> : null}
-          <ul className="divide-y divide-[var(--border-1)] text-sm">
-            {files.map((file) => {
-              const canPreview = appPreviewOwner && scope === "personal" && file.scope === "personal" &&
-                file.createdBy?.trim().toLowerCase() === appPreviewOwner &&
-                file.workspaceId === "self-hosted" && file.archivedAt === null && file.mime === "application/json" &&
-                /^file_[a-f0-9]{24}$/.test(file.id) && file.name.endsWith(".app-preview.json");
-              return <li key={file.id} className={canPreview ? "flex flex-wrap items-center gap-x-3 gap-y-2 py-2" : "flex items-center justify-between gap-3 py-2"}>
-                <span className={canPreview ? "min-w-0 flex-1 font-medium [overflow-wrap:anywhere]" : "truncate font-medium"}>{file.name}</span>
-                <span className="hidden shrink-0 text-xs text-[var(--muted-foreground-2)] sm:inline">{file.mime}</span>
-                <span className="shrink-0 text-xs text-[var(--muted-foreground-2)]">{new Date(file.updatedAt).toLocaleDateString()}</span>
-                <span className="shrink-0 text-xs text-[var(--muted-foreground-2)]">{file.size.toLocaleString()} bytes</span>
-                <span className="shrink-0 rounded bg-[var(--panel)] px-2 py-0.5 text-xs text-[var(--muted-foreground-2)]">{file.ingestion.state}</span>
-                {canPreview && <div className="basis-full sm:basis-auto"><FileAppPreview key={appPreviewOwner} fileId={file.id} fileName={file.name} /></div>}
-              </li>;
-            })}
-          </ul>
-        </section>
-      </MainCard>
+        </div>
+      </div>
     </div>
   );
 }

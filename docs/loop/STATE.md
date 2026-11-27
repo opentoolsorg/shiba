@@ -67,3 +67,22 @@ Method: five pairs from `shiba-ai-employee-reference-plan.md`; verdicts logged t
 - Fill B reviews bind to the artifact's run revision. A revision produced by a
   NEW run gets a new index/version — the reviewer must re-decide; the old
   decision stays on the old revision (correct: "approve that revision").
+
+## Overlay UI parity loop (active)
+
+Goal: Shiba web UI matches Overlay's workspace surfaces as closely as existing Shiba product contracts allow: icons, layout, padding, margins, hierarchy, neatness, and visual cleanliness verified in the Devin computer at desktop width. Evidence required: side-by-side reference/current screenshots plus fresh typecheck and focused tests.
+
+Done:
+- Review blockers fixed and pushed in 7f694f82 and c365b6ed.
+- Files iteration 1 overhauled the dense legacy surface into a full-height Overlay-style screen; independent browser check found header/title/toolbar/row-density mismatches.
+- Files iteration 2 matched Overlay objective metrics for header height/padding/border, title typography, first-row gap, row padding/radius, and filename typography. Evidence: `/home/ubuntu/shiba-ui-parity-artifacts/comparison-list-overlay-vs-shiba-iter2.png`; typecheck passed and 15/15 Files tests passed.
+
+Next queue:
+1. Make Files toolbar match Overlay ordering/composition without breaking Shiba scope/workspace contracts.
+2. Move search expansion inline in the header and create-folder into compact control/menu pattern.
+3. Improve type-specific icons and card layout/preview treatment.
+4. Repeat loop for notes, projects, and navigation/sidebar.
+
+Triage additions:
+- Full Overlay parity beyond visual shell may require product scope decisions; no deployment or merge is authorized.
+- Hover validation is limited in the Devin browser because it reports `hover:false` and `pointer:fine:false`.
