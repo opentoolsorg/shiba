@@ -5,6 +5,7 @@ import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 import { FIELD_CLASS, QUIET_BUTTON } from "./BotPanel";
 
 type ChatMessage = Pick<EmployeeRuntimeMessage, "id" | "role" | "content">;
+const runtimeDrafts = new Map<string, string>();
 
 function runtimeMessage(id: string, role: "user" | "assistant", content: string): ChatMessage {
   return { id, role, content };
@@ -44,16 +45,19 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant =
   const [executions, setExecutions] = useState<EmployeeRuntimeExecution[]>([]);
   const [canRecover, setCanRecover] = useState(false);
   const [recovering, setRecovering] = useState(false);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const draft = drafts[conversationId] ?? "";
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const draftKey = `${workspaceId ?? "personal"}:${agentId}:${conversationId}`;
+  const [draft, setDraftState] = useState(() => runtimeDrafts.get(draftKey) ?? "");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const loadRequest = useRef(0);
 
   const setDraft = useCallback((value: string) => {
-    setDrafts((current) => ({ ...current, [conversationId]: value }));
-  }, [conversationId]);
+    if (value) runtimeDrafts.set(draftKey, value);
+    else runtimeDrafts.delete(draftKey);
+    setDraftState(value);
+  }, [draftKey]);
 
   const runtimePath = useCallback((suffix: string) => `/api/custom-agents/${encodeURIComponent(agentId)}/runtime${suffix}`, [agentId]);
   const load = useCallback(async () => {
@@ -76,6 +80,10 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant =
       if (request === loadRequest.current) setLoading(false);
     }
   }, [conversationId, runtimePath, workspaceId]);
+
+  useEffect(() => {
+    setDraftState(runtimeDrafts.get(draftKey) ?? "");
+  }, [draftKey]);
 
   useEffect(() => {
     setMessages([]);
@@ -156,6 +164,27 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant =
     }
   };
 
+  const clear = async () => {
+    setError(null);
+    try {
+      const response = await fetch(runtimePath("/clear"), {
+        method: "POST", credentials: "same-origin",
+        headers: { "content-type": "application/json", ...teamWorkspaceHeaders(workspaceId) },
+        body: JSON.stringify({ conversationId }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(payload.error ?? `Clear failed (${response.status}).`);
+      }
+      setConfirmingClear(false);
+      setMessages([]);
+      setExecutions([]);
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Clear failed.");
+    }
+  };
+
   const cancel = async () => {
     if (!activeExecution) return;
     setError(null);
@@ -220,6 +249,14 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant =
         {activeExecution ? (
           <button type="button" className={`${QUIET_BUTTON} border border-[var(--border-1)] text-xs`} onClick={() => void cancel()}>Stop generating</button>
         ) : null}
+        {confirmingClear ? (
+          <>
+            <button type="button" disabled={busy || activeExecution !== null} onClick={() => void clear()} className="min-h-11 rounded-md border border-[var(--destructive)] px-3 text-[11px] text-[var(--destructive)] disabled:opacity-50">Confirm clear</button>
+            <button type="button" onClick={() => setConfirmingClear(false)} className={`${QUIET_BUTTON} border border-[var(--border-1)] text-xs`}>Keep conversation</button>
+          </>
+        ) : (
+          <button type="button" disabled={busy || activeExecution !== null || messages.length === 0} onClick={() => setConfirmingClear(true)} className={`${QUIET_BUTTON} border border-[var(--border-1)] text-xs disabled:opacity-50`}>Clear runtime conversation</button>
+        )}
       </div>
     </div>
   );

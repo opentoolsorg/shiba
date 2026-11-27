@@ -64,7 +64,7 @@ describe("BotRuntimeChat", () => {
     expect(screen.getByText(/Lightweight Chat mode uses/).parentElement?.className).toContain("flex-col");
   });
 
-  it("keeps drafts separate when the selected thread changes", async () => {
+  it("keeps drafts separate when the selected thread changes or the surface unmounts", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const conversationId = new URL(String(input), "https://x").searchParams.get("conversationId") ?? "thread-1";
       return json({ conversationId, messages: [], memories: [], executions: [] });
@@ -79,6 +79,9 @@ describe("BotRuntimeChat", () => {
     expect(box().value).toBe("first thread draft");
     rerender(<BotRuntimeChat agentId="agent-1" conversationId="thread-2" />);
     expect(box().value).toBe("second thread draft");
+    cleanup();
+    render(<BotRuntimeChat agentId="agent-1" conversationId="thread-2" />);
+    expect((screen.getByLabelText(/Runtime message/) as HTMLTextAreaElement).value).toBe("second thread draft");
   });
 
   it("keeps an oversized draft in the composer instead of posting it", async () => {
@@ -97,6 +100,23 @@ describe("BotRuntimeChat", () => {
     expect(await screen.findByText(/12,000 characters or fewer/)).toBeTruthy();
     expect(box.value).toBe(oversized);
     expect(calls.some((path) => path.includes("/runtime/chat/stream"))).toBe(false);
+  });
+
+  it("clears the selected runtime conversation after confirmation", async () => {
+    const clearBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.includes("/runtime/state")) return json({ conversationId: "thread-1", messages: [user, assistant], memories: [], executions: [] });
+      if (path.includes("/runtime/clear")) {
+        clearBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return json({ ok: true });
+      }
+      throw new Error(`unexpected fetch ${path}`);
+    }));
+    render(<BotRuntimeChat agentId="agent-1" conversationId="thread-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Clear runtime conversation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm clear" }));
+    await waitFor(() => expect(clearBodies).toEqual([{ conversationId: "thread-1" }]));
   });
 
   it("recovers interrupted work against the selected thread", async () => {
