@@ -140,6 +140,11 @@ export function DashboardView({
   const workspaceReviewTasks = openSharedTasks.filter(teamWorkNeedsViewer);
   const approvalCount = workspaceScope ? workspaceReviewTasks.length : pendingApprovals.length + storedApprovals.length;
   const reviewView: AppNavView = workspaceScope ? "work" : "approvals";
+  const workingEmployees = employeeRows.filter((row) => row.working > 0).length;
+  const workspaceActiveTasks = openSharedTasks.filter((task) => ["queued", "running", "in-progress", "needs-approval"].includes(task.status)).length;
+  const workspaceCompletedTasks = sharedTasks.filter((task) => task.status === "done" || task.status === "completed").length;
+  const workspaceTerminalTasks = sharedTasks.filter((task) => ["done", "completed", "blocked", "cancelled"].includes(task.status)).length;
+  const workspaceCompletionRate = workspaceTerminalTasks > 0 ? Math.round((workspaceCompletedTasks / workspaceTerminalTasks) * 100) : null;
   const title = workspaceScope ? workspaceName?.trim() || "Workspace" : "Dashboard";
   const nextStep =
     approvalCount > 0
@@ -258,8 +263,38 @@ export function DashboardView({
           ) : null}
 
           <section aria-label="Run summary" className="shiba-overview-stats">
-            {(
-              [
+            {(workspaceScope
+              ? ([
+                {
+                  label: "Shared tasks",
+                  value: openSharedTasks.length,
+                  detail: `${workspaceActiveTasks} active in this workspace`,
+                  icon: Activity,
+                  view: "work",
+                },
+                {
+                  label: "AI employees",
+                  value: employees.length,
+                  detail: `${workingEmployees} working on shared tasks`,
+                  icon: Terminal,
+                  view: "custom-agents",
+                },
+                {
+                  label: "Pending approvals",
+                  value: approvalCount,
+                  detail: approvalCount ? "Ready for your review" : "You’re all caught up",
+                  icon: ShieldCheck,
+                  view: reviewView,
+                },
+                {
+                  label: "Completion rate",
+                  value: workspaceCompletionRate === null ? "—" : `${workspaceCompletionRate}%`,
+                  detail: workspaceTerminalTasks ? `${workspaceCompletedTasks}/${workspaceTerminalTasks} finished` : "No finished shared tasks yet",
+                  icon: CircleCheck,
+                  view: "work",
+                },
+              ] as const)
+              : [
                 {
                   label: "Total runs",
                   value: runs.length,
@@ -530,7 +565,7 @@ export function DashboardView({
                   <div>
                     <h2 id="dashboard-agents-title">AI employees</h2>
                     <p>
-                      {employees.length ? `${employeeRows.filter((row) => row.working > 0).length}/${employees.length} working · your employee roster` : workspaceScope ? "Build your workspace roster" : `${liveAgents}/${agents.length} MCP principals live`}
+                      {employees.length ? `${workingEmployees}/${employees.length} working · your employee roster` : workspaceScope ? "Build your workspace roster" : `${liveAgents}/${agents.length} MCP principals live`}
                     </p>
                   </div>
                 </header>

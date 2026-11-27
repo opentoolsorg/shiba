@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DashboardView } from "./DashboardView";
 import type { RetainedRun } from "../types";
@@ -152,6 +152,13 @@ describe("DashboardView", () => {
     expect(screen.getByText("1/2 working · your employee roster")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Ava Engineer 1 working/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Mira Researcher 0 open/ })).toBeTruthy();
+    const summary = screen.getByRole("region", { name: "Run summary" });
+    expect(within(summary).queryByText("Total runs")).toBeNull();
+    expect(within(summary).queryByText("Active sandboxes")).toBeNull();
+    expect(within(summary).queryByText("Success rate")).toBeNull();
+    expect(within(summary).getByRole("button", { name: /Shared tasks.*1 active in this workspace/ })).toBeTruthy();
+    expect(within(summary).getByRole("button", { name: /AI employees.*1 working on shared tasks/ })).toBeTruthy();
+    expect(within(summary).getByRole("button", { name: /Completion rate.*No finished shared tasks yet/ })).toBeTruthy();
   });
 
   it("keeps workspace actions in workspace scope and opens the selected shared task", () => {
