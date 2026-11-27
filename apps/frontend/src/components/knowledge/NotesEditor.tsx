@@ -339,9 +339,16 @@ export function NotesEditor({ workspaceId = null, workspaceRole, actorId, onNavi
 
   const newNoteRef = useRef(newNote);
   newNoteRef.current = newNote;
+  const queuedNoteScope = useRef<"personal" | "workspace" | null>(null);
   useEffect(() => {
-    if (consumeNewNoteIntent()) void newNoteRef.current();
+    queuedNoteScope.current = consumeNewNoteIntent();
+    if (queuedNoteScope.current && queuedNoteScope.current !== scope) setScope(queuedNoteScope.current);
   }, []);
+  useEffect(() => {
+    if (!queuedNoteScope.current || queuedNoteScope.current !== scope) return;
+    queuedNoteScope.current = null;
+    void newNoteRef.current();
+  }, [scope]);
 
   async function recoverConflict(action: "copy" | "reload") {
     const id = activeIdRef.current;
@@ -430,7 +437,7 @@ export function NotesEditor({ workspaceId = null, workspaceRole, actorId, onNavi
           </p>}
         </section>
       </div>
-      {activeId && chatOpen ? <div className="border-t border-[var(--border-1)] p-3 lg:border-l lg:border-t-0">
+      {activeId ? <div hidden={!chatOpen} className={chatOpen ? "border-t border-[var(--border-1)] p-3 lg:border-l lg:border-t-0" : "hidden"}>
         <NoteChatPanel key={`${workspaceId}:${scope}:${activeId}`} noteId={activeId} notes={notes} scope={scope} workspaceId={workspaceId} disabled={bodyLoading || !editor || Boolean(activeId && notes.find((note) => note.id === activeId && !canWriteNote(note)))} getDraftBody={() => (editor ? editorMarkdown(editor).slice(0, 24000) : "")} onAdd={(text) => {
           if (!editor || !bodyReady.current) return;
           // Parsed, not inserted as plain text: the serializer escapes literal Markdown characters.

@@ -72,7 +72,7 @@ async function typeTrigger(text: string) {
 
 describe("NotesEditor", () => {
   it("creates a note queued by Files navigation", async () => {
-    window.sessionStorage.setItem(NEW_NOTE_INTENT_KEY, "1");
+    window.sessionStorage.setItem(NEW_NOTE_INTENT_KEY, "personal");
     fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === "POST" ? Response.json({ note: { ...note, id: "queued-note", title: "Untitled" } }) : _url.endsWith("/body") ? new Response("") : Response.json({ notes: [] }));
     render(<NotesEditor />);
     await screen.findByRole("textbox", { name: "Note title" });
@@ -151,6 +151,26 @@ describe("NotesEditor", () => {
     expect(onNavigate).not.toHaveBeenCalled();
     expect(patches).toHaveLength(1);
     expect(current.editor?.getText()).toBe("Conflicted draft");
+  });
+
+  it("uses the workspace scope queued by Files navigation", async () => {
+    window.sessionStorage.setItem(NEW_NOTE_INTENT_KEY, "workspace");
+    render(<NotesEditor />);
+    await screen.findByRole("textbox", { name: "Note title" });
+    const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
+    expect(post?.[0]).toBe("/api/notes?scope=workspace");
+  });
+
+  it("keeps an unsent chat draft when the panel is hidden and reopened", async () => {
+    await openNote();
+    const toggle = screen.getByRole("button", { name: "Toggle note chat" });
+    fireEvent.click(toggle);
+    const composer = await screen.findByPlaceholderText("Ask about this note");
+    await waitFor(() => expect(composer).toHaveProperty("disabled", false));
+    fireEvent.change(composer, { target: { value: "draft question" } });
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+    expect(screen.getByPlaceholderText("Ask about this note")).toHaveProperty("value", "draft question");
   });
 
   it("renders the notes list, empty editor prompt, and loading skeleton", async () => {

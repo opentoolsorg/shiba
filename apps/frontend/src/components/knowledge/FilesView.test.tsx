@@ -140,7 +140,13 @@ describe("FilesView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create folder" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /New Note/ }));
     expect(onNavigate).toHaveBeenCalledWith("notes");
-    expect(window.sessionStorage.getItem("shiba:notes:create-after-navigation")).toBe("1");
+    expect(window.sessionStorage.getItem("shiba:notes:create-after-navigation")).toBe("personal");
+
+    window.sessionStorage.clear();
+    fireEvent.change(screen.getByLabelText("Scope"), { target: { value: "workspace" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create folder" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /New Note/ }));
+    expect(window.sessionStorage.getItem("shiba:notes:create-after-navigation")).toBe("workspace");
   });
 
 

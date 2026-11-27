@@ -9,6 +9,14 @@ import { LoadErrorState } from "../LoadErrorState";
 import { FileAppPreview } from "./FileAppPreview";
 import { queueNewNoteIntent } from "./new-note-intent";
 
+type FolderRow = { id: string; name: string; parent_id?: string | null };
+
+function folderPathLabel(folder: FolderRow, folders: FolderRow[], depth = 0): string {
+  if (!folder.parent_id || depth > 12) return folder.name;
+  const parent = folders.find((item) => item.id === folder.parent_id);
+  return parent ? `${folderPathLabel(parent, folders, depth + 1)}/${folder.name}` : folder.name;
+}
+
 const REVEAL_ON_HOVER = "transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100";
 
 export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavigate?: (view: AppNavView) => void; appPreviewOwner?: string; workspaceId?: string | null } = {}): JSX.Element {
@@ -18,7 +26,7 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
   const [searchHits, setSearchHits] = useState<KnowledgeSearchHit[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [folderName, setFolderName] = useState("");
-  const [folders, setFolders] = useState<Array<{ id: string; name: string }>>([]);
+  const [folders, setFolders] = useState<FolderRow[]>([]);
   const [folderId, setFolderId] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const folderUploadRef = useRef<HTMLInputElement>(null);
@@ -54,7 +62,7 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
   const loadFolders = useCallback(async () => {
     const request = ++folderRequest.current;
     const response = await fetch(`/api/files/folders?scope=${scope}`, { credentials: "same-origin", cache: "no-store", headers: workspaceHeaders });
-    const body = await response.json() as { folders?: Array<{ id: string; name: string }>; error?: string };
+    const body = await response.json() as { folders?: FolderRow[]; error?: string };
     if (!response.ok || !Array.isArray(body.folders)) throw new Error(body.error ?? "Folders unavailable.");
     if (request === folderRequest.current) setFolders(body.folders);
   }, [scope, workspaceHeaders]);
@@ -214,7 +222,7 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
             <span className="sr-only">Folder</span>
             <select aria-label="Folder" className="max-w-24 bg-transparent text-xs text-[var(--muted-foreground-2)] outline-none transition-colors hover:text-[var(--fg)]" value={folderId} disabled={busy} onChange={(e) => setFolderId(e.target.value)}>
               <option value="">All files</option>
-              {folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
+              {folders.map((folder) => <option key={folder.id} value={folder.id}>{folderPathLabel(folder, folders)}</option>)}
             </select>
           </label>
           {onNavigate ? (
@@ -250,7 +258,7 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
                 <button type="button" role="menuitem" className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-[var(--muted-foreground-2)] transition-colors hover:bg-[var(--card-hover)] hover:text-[var(--fg)]" onClick={() => {
                   setCreateOpen(false);
                   setFolderFormOpen(false);
-                  if (onNavigate) queueNewNoteIntent();
+                  if (onNavigate) queueNewNoteIntent(scope);
                   onNavigate?.("notes");
                 }}>
                   <BookOpen size={13} /> New Note
