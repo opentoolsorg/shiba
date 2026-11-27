@@ -1650,6 +1650,31 @@ export async function cancelCollaborationHandoff(
   return Number(result.meta?.changes ?? 0) > 0;
 }
 
+/** Closes exactly the rejected handoff; a child decision must not cancel its parent or siblings. */
+export async function cancelRejectedCollaborationHandoff(
+  env: Pick<Env, "AGENT_AUDIT">,
+  scope: CollaborationScope,
+  handoffId: string,
+  cancelledAt: number,
+): Promise<boolean> {
+  await ensureCollaborationSchema(env);
+  await ensureCollaborationScopeSchema(env, scope);
+  const result = await env.AGENT_AUDIT.prepare(
+    `WITH RECURSIVE subtree(handoff_id) AS (
+       SELECT handoff_id FROM collaboration_handoffs
+       WHERE tenant_id=? AND workspace_id=? AND handoff_id=? AND sender_user_id=?
+       UNION
+       SELECT child.handoff_id FROM collaboration_handoffs child
+       JOIN subtree ON child.tenant_id=? AND child.workspace_id=? AND child.parent_handoff_id=subtree.handoff_id
+     )
+     UPDATE collaboration_handoffs SET status='cancelled',cancelled_at=?
+     WHERE tenant_id=? AND workspace_id=? AND handoff_id IN (SELECT handoff_id FROM subtree) AND status='active'`,
+  )
+    .bind(scope.tenantId, scope.workspaceId, handoffId, scope.userId, scope.tenantId, scope.workspaceId, cancelledAt, scope.tenantId, scope.workspaceId)
+    .run();
+  return Number(result.meta?.changes ?? 0) > 0;
+}
+
 /** Rejects an unlinked request without cancelling its still-active ancestors. */
 export async function cancelCreatedCollaborationHandoff(
   env: Pick<Env, "AGENT_AUDIT">,

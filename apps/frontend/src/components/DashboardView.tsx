@@ -46,6 +46,7 @@ export interface DashboardViewProps {
   workspaceName?: string;
   currentActorId?: string;
   sharedTasks?: readonly TeamWorkItem[];
+  sharedTasksLoading?: boolean;
   onOpenEmployee?: (employeeId: string) => void;
   onOpenSharedTask?: (task: TeamWorkItem) => void;
   scope?: Scope;
@@ -85,6 +86,7 @@ export function DashboardView({
   workspaceName,
   currentActorId,
   sharedTasks = [],
+  sharedTasksLoading = false,
   onOpenEmployee,
   onOpenSharedTask,
   scope = "personal",
@@ -333,7 +335,9 @@ export function DashboardView({
                   Open work <ArrowRight className="size-3.5" aria-hidden="true" />
                 </button>
               </header>
-              {visibleSharedTasks.length === 0 ? (
+              {sharedTasksLoading ? (
+                <p className="px-5 py-4 text-sm text-[var(--muted-foreground-2)]">Loading shared work…</p>
+              ) : visibleSharedTasks.length === 0 ? (
                 <div className="flex items-center gap-3 p-5 text-sm">
                   <span className="shiba-overview-clear-icon"><Check className="size-4" aria-hidden="true" /></span>
                   <span>No shared work is waiting.<span className="mt-1 block text-xs text-[var(--muted-foreground-2)]">Assign work to an employee and it will appear here.</span></span>

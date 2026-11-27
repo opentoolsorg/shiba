@@ -7,7 +7,7 @@ describe("theme, docs, marketing, and mascot specifications", () => {
   const marketingPath = join(root, "apps", "web", "src", "layouts", "MarketingPage.astro");
   const themeProviderPath = join(root, "apps", "frontend", "src", "components", "ThemeProvider.tsx");
   const homePath = join(root, "apps", "web", "src", "pages", "index.astro");
-  const mascotJsPath = join(root, "apps", "web", "public", "assets", "mascot", "pet-mascot.js");
+  const landingCssPath = join(root, "apps", "web", "src", "styles", "landing.css");
   const docsThemePath = join(root, "apps", "web", "src", "styles", "theme.css");
 
   it("shares consistent theme preference key across frontend app and web/astro", () => {
@@ -33,9 +33,9 @@ describe("theme, docs, marketing, and mascot specifications", () => {
     expect(docsTheme).toMatch(/:root\[data-theme=["']dark["']\]/);
   });
 
-  it("respects prefers-reduced-motion in mascot animations", () => {
-    const mascotContent = readFileSync(mascotJsPath, "utf-8");
-    expect(mascotContent).toContain("prefers-reduced-motion");
+  it("respects prefers-reduced-motion in landing animations", () => {
+    const landingCss = readFileSync(landingCssPath, "utf-8");
+    expect(landingCss).toContain("prefers-reduced-motion");
   });
 
   it("names the product's two structural claims — approval gate and the Cloudflare substrate", () => {

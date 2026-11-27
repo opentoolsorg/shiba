@@ -682,7 +682,7 @@ describe("account-scoped employee directory", () => {
     fireEvent.click(await screen.findByRole("button", { name: "View profile Finance" }));
     fireEvent.click(await screen.findByRole("button", { name: "Edit avatar" }));
     const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Coat 3" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Shell 3" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Save avatar" }));
 
     const alert = await within(await screen.findByRole("dialog")).findByRole("alert");
@@ -693,21 +693,115 @@ describe("account-scoped employee directory", () => {
     expect(patches).toBe(2);
     expect(avatar).toMatchObject({ kind: "variant" });
   });
+
+  it("shows the employee's active queue oldest-first and cancels board tasks", async () => {
+    const agent: CustomAgentWire = { id: "eng-1", slug: "builder", version: 1, config: { name: "Builder", instructions: "Build.", harness: "opencode" } };
+    const reviewer: CustomAgentWire = { id: "eng-2", slug: "reviewer", version: 1, config: { name: "Reviewer", instructions: "Review.", harness: "opencode" } };
+    stubWorkspaceDirectory([agent, reviewer]);
+    const boardId = `task_${"a".repeat(24)}`;
+    const handoff = {
+      id: "handoff-1", workspaceId: designWorkspace, roomId: "room-1", roomTitle: "Launch room", title: "Approval handoff",
+      assigneeKind: "agent" as const, assigneeActorId: "agent:eng-1", status: "unknown" as const, updatedAt: 300,
+    };
+    const newer = {
+      id: boardId, workspaceId: designWorkspace, roomId: "", roomTitle: "", title: "Second board task",
+      assigneeKind: "agent" as const, assigneeActorId: "agent:eng-1", status: "todo" as const, updatedAt: 200,
+    };
+    const older = {
+      ...newer, id: `task_${"b".repeat(24)}`, title: "First board task", updatedAt: 100,
+    };
+    const review = { ...newer, id: `task_${"d".repeat(24)}`, title: "Review board task", status: "in-review" as const, updatedAt: 400 };
+    const done = { ...newer, id: `task_${"c".repeat(24)}`, title: "Finished board task", status: "done" as const, updatedAt: 50 };
+    const onCreateSharedTask = vi.fn(async () => null);
+    const onUpdateSharedTask = vi.fn();
+    const onOpenSharedTask = vi.fn();
+    render(<CustomAgentsView workspaceId={designWorkspace} sharedTasks={[newer, handoff, older, review, done]} onCreateSharedTask={onCreateSharedTask} onUpdateSharedTask={onUpdateSharedTask} onOpenSharedTask={onOpenSharedTask} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "View profile Builder" }));
+    const queue = await screen.findByRole("region", { name: "Builder task queue" });
+    expect(within(queue).getByText("4 active")).toBeTruthy();
+    expect(within(queue).queryByText("Finished board task")).toBeNull();
+    expect(within(queue).getByText("Review board task")).toBeTruthy();
+    expect(queue.textContent!.indexOf("First board task")).toBeLessThan(queue.textContent!.indexOf("Second board task"));
+    fireEvent.click(within(queue).getAllByRole("button", { name: "Cancel" })[0]!);
+    expect(onUpdateSharedTask).toHaveBeenCalledWith(older.id, { status: "cancelled" });
+    fireEvent.change(within(queue).getByLabelText("Reassign First board task"), { target: { value: "eng-2" } });
+    expect(onUpdateSharedTask).toHaveBeenCalledWith(older.id, { ownerId: "agent:eng-2" });
+    fireEvent.click(within(queue).getByRole("button", { name: "Approval handoff" }));
+    expect(onOpenSharedTask).toHaveBeenCalledWith(handoff);
+    fireEvent.change(within(queue).getByLabelText("Queue work for Builder"), { target: { value: "Draft launch notes" } });
+    fireEvent.click(within(queue).getByRole("button", { name: "Queue" }));
+    await waitFor(() => expect(onCreateSharedTask).toHaveBeenCalledWith("Draft launch notes", { ownerId: "agent:eng-1", status: "todo" }));
+  });
+
+  it("offers newly restored employees as reassignment targets in archived queues", async () => {
+    const restoredAgent: CustomAgentWire = { id: "old-1", slug: "archived", version: 1, archivedAt: 10, config: { name: "Archived Helper", instructions: "Help.", harness: "opencode" } };
+    const otherArchived: CustomAgentWire = { id: "old-2", slug: "other-archived", version: 1, archivedAt: 10, config: { name: "Other Archived", instructions: "Help.", harness: "opencode" } };
+    const activeAgent: CustomAgentWire = { id: "eng-2", slug: "reviewer", version: 1, config: { name: "Reviewer", instructions: "Review.", harness: "opencode" } };
+    stubWorkspaceDirectory([restoredAgent, otherArchived, activeAgent]);
+    const task = {
+      id: `task_${"f".repeat(24)}`, workspaceId: designWorkspace, roomId: "", roomTitle: "", title: "Other archived queue task",
+      assigneeKind: "agent" as const, assigneeActorId: "agent:old-2", status: "todo" as const, updatedAt: 100,
+    };
+    render(<CustomAgentsView workspaceId={designWorkspace} sharedTasks={[task]} onUpdateSharedTask={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Archived bots" }));
+    const restore = await screen.findByRole("button", { name: "Restore bot Archived Helper" });
+    await waitFor(() => expect(restore).toHaveProperty("disabled", false));
+    fireEvent.click(restore);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "View profile Archived Helper" })).toBeNull());
+    fireEvent.click(await screen.findByRole("button", { name: "View profile Other Archived" }));
+    const queue = await screen.findByRole("region", { name: "Other Archived task queue" });
+    const select = await within(queue).findByLabelText("Reassign Other archived queue task");
+    await waitFor(() => expect(within(select as HTMLSelectElement).getByRole("option", { name: "Archived Helper" })).toBeTruthy());
+  });
+
+  it("reassigns archived employee queue items to active employees", async () => {
+    const archivedAgent: CustomAgentWire = { id: "old-1", slug: "archived", version: 1, archivedAt: 10, config: { name: "Archived Helper", instructions: "Help.", harness: "opencode" } };
+    const activeAgent: CustomAgentWire = { id: "eng-2", slug: "reviewer", version: 1, config: { name: "Reviewer", instructions: "Review.", harness: "opencode" } };
+    stubWorkspaceDirectory([archivedAgent, activeAgent]);
+    const task = {
+      id: `task_${"e".repeat(24)}`, workspaceId: designWorkspace, roomId: "", roomTitle: "", title: "Archived queue task",
+      assigneeKind: "agent" as const, assigneeActorId: "agent:old-1", status: "todo" as const, updatedAt: 100,
+    };
+    const onUpdateSharedTask = vi.fn();
+    render(<CustomAgentsView workspaceId={designWorkspace} sharedTasks={[task]} onUpdateSharedTask={onUpdateSharedTask} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Archived bots" }));
+    fireEvent.click(await screen.findByRole("button", { name: "View profile Archived Helper" }));
+    const queue = await screen.findByRole("region", { name: "Archived Helper task queue" });
+    const select = await within(queue).findByLabelText("Reassign Archived queue task");
+    await waitFor(() => expect(within(select as HTMLSelectElement).getByRole("option", { name: "Reviewer" })).toBeTruthy());
+    fireEvent.change(select, { target: { value: "eng-2" } });
+    expect(onUpdateSharedTask).toHaveBeenCalledWith(task.id, { ownerId: "agent:eng-2" });
+  });
 });
 
 const designWorkspace = `ws_${"c".repeat(24)}`;
 
 /** A workspace directory: every endpoint the profile panels read answers, and writes are reported to the caller. */
 function stubWorkspaceDirectory(agents: CustomAgentWire[]) {
+  const directory = agents.map((agent) => ({ ...agent }));
   const writes: Array<{ url: string; init: RequestInit }> = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    const lifecycle = /^\/api\/custom-agents\/([^/]+)\/(archive|restore)$/.exec(url);
+    if (init?.method === "POST" && lifecycle) {
+      writes.push({ url, init });
+      const index = directory.findIndex((agent) => agent.id === lifecycle[1]);
+      if (index < 0) return Response.json({ error: "missing" }, { status: 404 });
+      const updated = { ...directory[index]!, archivedAt: lifecycle[2] === "archive" ? Date.now() : undefined };
+      directory[index] = updated;
+      return Response.json({ agent: updated });
+    }
     if (init?.method && init.method !== "GET") { writes.push({ url, init }); return Response.json({ error: "unexpected write" }, { status: 500 }); }
     if (url.endsWith("/access")) return Response.json({ level: "manage", grants: [] });
     if (url.endsWith("/groups")) return Response.json({ groups: [] });
     if (url.endsWith("/primary-bot")) return Response.json({ actorId: null });
     if (url.startsWith("/api/workspaces/")) return Response.json({ workspace: { members: [] } });
-    return Response.json({ agents });
+    if (url.startsWith("/api/custom-agents")) {
+      const archived = url.includes("archived=true");
+      return Response.json({ agents: directory.filter((agent) => archived ? agent.archivedAt : !agent.archivedAt) });
+    }
+    return Response.json({ agents: directory });
   }));
   return writes;
 }

@@ -306,7 +306,7 @@ async function readObserved(env: Env, row: Row) {
   if (
     !handoff ||
     !executor ||
-    handoff.status !== "active" ||
+    (handoff.status !== "active" && handoff.status !== "cancelled") ||
     handoff.roomId !== p.roomId ||
     handoff.senderUserId !== member.userId ||
     handoff.approvalId !== v.approval_id ||
@@ -348,6 +348,7 @@ async function readObserved(env: Env, row: Row) {
     JSON.stringify(approval.personalExecution) !== JSON.stringify(p.personalExecution)
   )
     return null;
+  if (approval.status === "rejected" ? handoff.status !== "cancelled" : handoff.status !== "active") return null;
   const authorized = await (await import("./slack-coworker-execution.js")).isSlackCoworkerV2Current(
     env,
     row.handoff_id,
@@ -356,6 +357,7 @@ async function readObserved(env: Env, row: Row) {
     approval.task,
     v.approval_id,
     approval.personalExecution,
+    approval.status === "rejected",
   );
   if (!authorized) return null;
   const links = await env.AGENT_AUDIT.prepare(`SELECT ${linksSql} AS value`)
@@ -413,7 +415,7 @@ function finalGuard(row: Row, observed: NonNullable<Awaited<ReturnType<typeof re
  AND ${linksSql}=? AND EXISTS(SELECT 1 FROM collaboration_rooms WHERE tenant_id='self-hosted' AND workspace_id=? AND room_id=? AND title=?)
  AND EXISTS(SELECT 1 FROM collaboration_memberships WHERE tenant_id='self-hosted' AND workspace_id=? AND room_id=? AND actor_id=? AND user_id=? AND actor_kind='human' AND status='active' AND EXISTS(SELECT 1 FROM json_each(capabilities_json) WHERE value='handoff.create'))
  AND EXISTS(SELECT 1 FROM collaboration_memberships WHERE tenant_id='self-hosted' AND workspace_id=? AND room_id=? AND actor_id=? AND user_id=? AND actor_kind='agent' AND status='active' AND profile_version=?)
- AND EXISTS(SELECT 1 FROM collaboration_handoffs h WHERE h.tenant_id='self-hosted' AND h.workspace_id=? AND h.handoff_id=? AND h.room_id=? AND h.status='active' AND h.sender_user_id=? AND h.sender_actor_id=? AND h.recipient_actor_id=? AND h.recipient_user_id=? AND h.profile_version=? AND h.approval_id=? AND h.run_id=? AND h.executor_agent_name=? AND h.parent_handoff_id IS NULL AND h.root_handoff_id=h.handoff_id)
+ AND EXISTS(SELECT 1 FROM collaboration_handoffs h WHERE h.tenant_id='self-hosted' AND h.workspace_id=? AND h.handoff_id=? AND h.room_id=? AND h.status='${observed.status === "rejected" ? "cancelled" : "active"}' AND h.sender_user_id=? AND h.sender_actor_id=? AND h.recipient_actor_id=? AND h.recipient_user_id=? AND h.profile_version=? AND h.approval_id=? AND h.run_id=? AND h.executor_agent_name=? AND h.parent_handoff_id IS NULL AND h.root_handoff_id=h.handoff_id)
  AND EXISTS(SELECT 1 FROM org_custom_agents a JOIN org_custom_agent_versions av ON av.org_id=a.org_id AND av.agent_id=a.id WHERE a.org_id=? AND a.id=? AND a.version=? AND a.deleted_at IS NULL AND a.archived_at IS NULL AND av.version=? AND av.config_json=?)
  AND EXISTS(SELECT 1 FROM personal_execution_grants pg WHERE pg.grant_id=? AND pg.owner_account_id=? AND pg.workspace_id=? AND pg.status='active' AND pg.version=? AND pg.snapshot_json=? AND pg.scope_json=? AND pg.expires_at>${nowSql})`,
     values: [

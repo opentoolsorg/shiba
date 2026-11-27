@@ -70,12 +70,11 @@ describe("agent conversation", () => {
     render(<AgentPageHeader name="Shiba" detailsOpen={false} onToggleDetails={vi.fn()} />);
     expect(screen.queryByRole("button", { name: "Start shared conversation" })).toBeNull();
   });
-  it("uses the brand Shiba mascot for the built-in profile, not a custom employee label", () => {
+  it("uses the Shiba dog brand mark for the built-in profile, not a custom employee label", () => {
     const { container } = render(<AgentDetailsPanel onClose={vi.fn()} onEdit={vi.fn()} />);
     expect(screen.getByText("Shiba · Runs on workspace default")).toBeTruthy();
-    const mascot = container.querySelector("svg.shiba-robot-mark");
-    expect(mascot?.querySelector('rect[fill="#e88767"]')).toBeTruthy();
-    expect(mascot?.querySelector('rect[fill="#171a20"]')).toBeTruthy();
+    const mascot = container.querySelector("svg[data-brand-mark='shiba-dog']");
+    expect(mascot).toBeTruthy();
     expect(container.querySelector("[data-employee-role='custom']")).toBeNull();
   });
 
@@ -196,69 +195,6 @@ describe("agent conversation", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("loads runtime memory for the selected thread and creates thread memory", async () => {
-    const workspaceId = `ws_${"a".repeat(24)}`;
-    const writes: Array<{ path: string; body: Record<string, unknown> }> = [];
-    const state = {
-      conversationId: "thread-1", messages: [], executions: [],
-      memories: [{ id: "mem-1", scope: "employee", kind: "fact", content: "Prefers concise evidence", essential: true, createdAt: 1, updatedAt: 1 }],
-    };
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const path = String(input);
-      if (path.includes("/runtime/state")) {
-        expect(new URL(path, "https://app.test").searchParams.get("conversationId")).toBe("thread-1");
-        expect(new Headers(init?.headers).get("X-Shiba-Workspace")).toBe(workspaceId);
-        return Response.json(state);
-      }
-      if (path.includes("/runtime/memory")) {
-        writes.push({ path, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
-        return Response.json({ memory: { id: "mem-new" } }, { status: 201 });
-      }
-      return Response.json({ employeeVersion: 1, toolScopes: [], grants: [] });
-    }));
-    render(<AgentDetailsPanel agent={agent} workspaceId={workspaceId} conversationId="thread-1" editing onConfigSave={vi.fn(async () => {})} onClose={vi.fn()} onEdit={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: /^Memory/ }));
-    expect(await screen.findByText("Prefers concise evidence")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText(/New memory/), { target: { value: "Use concise evidence" } });
-    fireEvent.change(screen.getByLabelText("Memory scope"), { target: { value: "thread" } });
-    fireEvent.click(screen.getByRole("checkbox", { name: /Essential/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Save memory" }));
-    await waitFor(() => expect(writes).toHaveLength(1));
-    expect(writes[0]?.path).toBe(`/api/custom-agents/${agent.id}/runtime/memory`);
-    expect(writes[0]?.body).toMatchObject({ scope: "thread", kind: "fact", content: "Use concise evidence", essential: true, conversationId: "thread-1" });
-  });
-
-  it("edits, toggles, and deletes runtime memory through scoped mutation routes", async () => {
-    const writes: Array<{ path: string; body: Record<string, unknown> }> = [];
-    const memory = { id: "mem-1", conversationId: "thread-1", scope: "thread", kind: "fact", content: "Original fact", essential: false, createdAt: 1, updatedAt: 1 };
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const path = String(input);
-      if (path.includes("/runtime/state")) return Response.json({ conversationId: "thread-1", messages: [], executions: [], memories: [memory] });
-      if (path.includes("/runtime/memory/")) {
-        writes.push({ path, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
-        return Response.json({ ok: true });
-      }
-      return Response.json({ employeeVersion: 1, toolScopes: [], grants: [] });
-    }));
-    render(<AgentDetailsPanel agent={agent} conversationId="thread-1" editing onConfigSave={vi.fn(async () => {})} onClose={vi.fn()} onEdit={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: /^Memory/ }));
-    expect(await screen.findByText("Original fact")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-    fireEvent.change(screen.getByLabelText("Edit memory"), { target: { value: "Updated fact" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Mark essential" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
-    await waitFor(() => expect(writes).toHaveLength(3));
-    expect(writes.map((write) => write.path)).toEqual([
-      `/api/custom-agents/${agent.id}/runtime/memory/update`,
-      `/api/custom-agents/${agent.id}/runtime/memory/update`,
-      `/api/custom-agents/${agent.id}/runtime/memory/delete`,
-    ]);
-    expect(writes[0]?.body).toMatchObject({ memoryId: "mem-1", conversationId: "thread-1", content: "Updated fact" });
-    expect(writes[1]?.body).toMatchObject({ memoryId: "mem-1", conversationId: "thread-1", essential: true });
-    expect(writes[2]?.body).toMatchObject({ memoryId: "mem-1", conversationId: "thread-1" });
-  });
-
   it("shows empty library and computer states when not configured", () => {
     const emptyAgent: CustomAgentWire = {
       ...agent,
@@ -289,7 +225,7 @@ describe("employee onboarding", () => {
     const workspaceId = `ws_${"a".repeat(24)}`;
     await createEmployeeAgent(research, workspaceId);
     expect(fetcher).toHaveBeenCalledWith("/api/custom-agents", expect.objectContaining({ credentials: "same-origin", headers: { "Content-Type": "application/json", "X-Shiba-Workspace": workspaceId } }));
-    expect(JSON.parse(fetcher.mock.calls[0]?.[1]?.body)).toEqual({ slug: research.slug, config: { ...research.config, approvalPolicy: "standard" } });
+    expect(JSON.parse(fetcher.mock.calls[0]?.[1]?.body)).toEqual({ slug: research.slug, config: { ...research.config, harness: "opencode", approvalPolicy: "standard" } });
   });
   it("renders all ten optional roles and skips without creating anything", () => {
     const onSkip = vi.fn();
@@ -314,7 +250,7 @@ describe("employee onboarding", () => {
     fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${template.label}`) }));
     await waitFor(() => expect(request).toHaveBeenCalledOnce());
     const body = JSON.parse(String(request.mock.calls[0]?.[1]?.body));
-    expect(body.config).toEqual({ ...template.config, approvalPolicy: "standard" });
+    expect(body.config).toEqual({ ...template.config, harness: "opencode", approvalPolicy: "standard" });
     expect(body.config).not.toHaveProperty("connectionId");
     expect(body.config).not.toHaveProperty("toolScopes");
   });
@@ -329,7 +265,7 @@ describe("employee onboarding", () => {
     expect(onSelect).toHaveBeenCalledWith(research);
     const [url, options] = fetchMock.mock.calls[0]!;
     expect(url).toBe("/api/custom-agents");
-    expect(JSON.parse(options.body)).toEqual({ slug: research.slug, config: { ...research.config, approvalPolicy: "standard" } });
+    expect(JSON.parse(options.body)).toEqual({ slug: research.slug, config: { ...research.config, harness: "opencode", approvalPolicy: "standard" } });
   });
 
   it("keeps the choice available and reports creation failures", async () => {

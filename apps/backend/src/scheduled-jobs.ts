@@ -6,6 +6,7 @@ import { pruneCapabilityInvocations } from "./capability-invocations.js";
 import type { Env } from "./env.js";
 import { reportError } from "./observability.js";
 import { redactSecrets } from "./security.js";
+import { tickFounderReads } from "./founder/reads/index.js";
 
 const jobRunners = {
   "learning.sweep": async (env: Env) => {
@@ -14,9 +15,9 @@ const jobRunners = {
     const { d1LearningPort } = await import("./ports/learning/d1-adapter.js");
     await learning.sweepIdleLearningThreads(env, d1LearningPort(env.AGENT_AUDIT));
   },
-  "founder.stripe": async (env: Env) => (await import("./founder-stripe-runtime.js")).tickFounderStripeReads(env),
-  "founder.meta": async (env: Env) => (await import("./founder-meta-runtime.js")).tickFounderMetaReads(env),
-  "founder.hubspot": async (env: Env) => (await import("./founder-hubspot-runtime.js")).tickFounderHubSpotReads(env),
+  "founder.stripe": async (env: Env) => tickFounderReads(env, "stripe"),
+  "founder.meta": async (env: Env) => tickFounderReads(env, "meta"),
+  "founder.hubspot": async (env: Env) => tickFounderReads(env, "hubspot"),
   "founder.reconcile": async (env: Env) => (await import("./founder-reconciliation-schedule-runtime.js")).tickFounderReconciliationSchedules(env),
   "founder.reads": async (env: Env) => (await import("./founder-auto-read-runtime.js")).tickFounderAutomaticReads(env),
   "founder.slack": async (env: Env) => (await import("./founder-automatic-slack-tick.js")).tickFounderAutomaticSlack(env),

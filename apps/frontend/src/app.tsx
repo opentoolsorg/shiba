@@ -378,9 +378,9 @@ const DEFAULT_VIEW: MainView = "tasks";
 function settingsSectionFromSearch(search: string): string {
   return normalizeSettingsSection(new URLSearchParams(search).get("section") || "overview");
 }
-/** Views that work inside a team workspace; every other view is personal-only. */
 /** Views that render their own MainCard, so the shell must not add a second one. */
 const SELF_CARDED_VIEWS: readonly string[] = ["dashboard", "activity", "analytics", "diff", "approvals", "automations", "providers", "spaces", "integrations"];
+/** Views that work inside a team workspace; every other view is personal-only. */
 const TEAM_WORKSPACE_VIEWS: readonly string[] = ["dashboard", "team", "work", "threads", "collaboration", "custom-agents", "skills", "providers", "integrations", "settings"];
 
 // Room/run links retain precedence over a view selector, including legacy /app links.
@@ -1041,7 +1041,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }, [sharedRoomScope]);
   const [sharedHandoffId, setSharedHandoffId] = useState<string | undefined>();
   const [sharedEmployeeId, setSharedEmployeeId] = useState<string | undefined>();
-  const sharedWork = useWorkTasks(signedIn ? orchestratorName : null, teamWorkspaceId, signedIn && (mainView === "work" || mainView === "dashboard"));
+  const sharedWork = useWorkTasks(signedIn ? orchestratorName : null, teamWorkspaceId, signedIn && (mainView === "work" || mainView === "dashboard" || mainView === "custom-agents"));
   useEffect(() => { setSharedHandoffId(undefined); setSharedEmployeeId(undefined); }, [teamWorkspaceId, orchestratorName]);
   const projectContexts = useProjectContexts(privateDataEnabled ? orchestratorName : null);
   useEffect(() => setProjectContextId(""), [signedIn, orchestratorName]);
@@ -4011,6 +4011,10 @@ function employeeConversationRoomTitle(name: string): string {
               pendingApprovals={pendingApprovals}
               storedApprovals={visibleStoredApprovals}
               agents={agentPrincipals}
+              workspaceId={teamWorkspaceId || undefined}
+              currentActorId={orchestratorName ? `human:${orchestratorName.trim().toLowerCase()}` : undefined}
+              sharedTasksLoading={Boolean(teamWorkspaceId && sharedWork.loading)}
+              scope={teamWorkspaceId ? "workspace" : "personal"}
               launchBlocked={launchBlocked}
               connectionLabel={connectionState}
               connectionTone={
@@ -4025,12 +4029,10 @@ function employeeConversationRoomTitle(name: string): string {
               onNewTask={handleNewTask}
               onInspectRun={openRunInAnalytics}
               employees={workEmployees}
-              workspaceId={teamWorkspaceId || undefined}
               workspaceName={teamWorkspace?.name}
-              currentActorId={orchestratorName ? `human:${orchestratorName.trim().toLowerCase()}` : undefined}
               sharedTasks={sharedWork.tasks}
               onOpenEmployee={(id) => { setInitialEmployeeId(id); openView("custom-agents"); }}
-              onOpenSharedTask={(item) => { if (!item.roomId) { setMainView("work"); return; } roomRoute.clear(); setSharedRoomId(item.roomId); setSharedHandoffId(item.id); setMainView("threads"); }}
+              onOpenSharedTask={(item) => { if (!item.roomId) { applyWorkSelection({ view: workViewMode, task: item.id, tab: "steps" }, "push"); setMainView("work"); return; } roomRoute.clear(); setSharedRoomId(item.roomId); setSharedHandoffId(item.id); setMainView("threads"); }}
             />
           ) : mainView === "threads" && teamWorkspaceId ? (
             <CollaborationView key={`${orchestratorName}:${teamWorkspaceId}`} workspaceId={teamWorkspaceId} initialRoomId={roomRoute.roomId ?? sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} incomingMention={incomingRoomMention} onMentionConsumed={(id) => setRoomMention((current) => current?.id === id ? undefined : current)} incomingTaskDraft={currentSlackTask ?? undefined} onTaskDraftConsumed={(id) => setIncomingSlackTask((current) => current?.id === id ? null : current)} onRoomChange={(id) => { setSharedRoomId(id); roomRoute.onRoomChange(id); }} onOpenNotificationPreferences={teamWorkspaceId ? undefined : () => { setSettingsSection("notifications"); openView("settings"); }}
@@ -4862,6 +4864,14 @@ function employeeConversationRoomTitle(name: string): string {
               threads={visibleWebSessions}
               threadsLoading={!sessionsLoaded}
               threadsUnavailable={sessionsLoaded && !sessionApiAvailable}
+              sharedTasks={teamWorkspaceId ? sharedWork.tasks : []}
+              sharedTasksLoading={Boolean(teamWorkspaceId && sharedWork.loading)}
+              onCreateSharedTask={teamWorkspaceId ? (title, patch) => sharedWork.create(title, patch) : undefined}
+              onUpdateSharedTask={teamWorkspaceId ? (id, patch) => { void sharedWork.update(id, patch); } : undefined}
+              onOpenSharedTask={teamWorkspaceId ? (task) => {
+                applyWorkSelection({ view: workViewMode, task: task.id, tab: "steps" }, "push");
+                setMainView("work");
+              } : undefined}
               onOpenToolPolicy={openEmployeeToolPolicy}
               onOpenThread={(id) => { void handleSelectSession(id); }}
             />

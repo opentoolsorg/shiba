@@ -242,7 +242,7 @@ describe("Organization", () => {
     const chief = screen.getByTestId("organization-chief-card");
     expect(within(chief).getByRole("heading", { name: "Shiba" })).toBeTruthy();
     expect(within(chief).getByText("Workspace chief of staff")).toBeTruthy();
-    expect(within(chief).getByRole("img", { name: "Shiba" }).getAttribute("data-shape")).toBe("pointed");
+    expect(within(chief).getByRole("img", { name: "Shiba" }).getAttribute("data-shape")).toBe("squircle");
     const members = screen.getByRole("list", { name: "Member chiefs of staff" });
     expect(within(members).getByText("Personal chief of staff")).toBeTruthy();
     expect(within(members).getAllByRole("img")[0]?.classList.contains("shiba-agent-mascot")).toBe(true);

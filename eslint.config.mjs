@@ -47,6 +47,38 @@ export default tseslint.config(
       ],
     },
   },
+  // The founder reads module is a single public import boundary.
+  {
+    files: ["apps/backend/src/**/*.{ts,tsx}"],
+    ignores: ["apps/backend/src/founder/reads/**/*"],
+    languageOptions: { parser: tseslint.parser },
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            // Repeated here: a later no-restricted-imports entry replaces the cross-app one above.
+            {
+              group: ["../../../*", "../../../../*", "../../../../../*"],
+              message: "No cross-app imports in src/ — shared types live in @shiba/shared.",
+            },
+            {
+              regex: "^(?!.*(?:^|/)reads/index(?:\\.js)?$).*(?:^|/)reads/.*$",
+              message: "Import founder read-grant APIs from founder/reads/index.js, not engine internals.",
+            },
+          ],
+        },
+      ],
+      // no-restricted-imports only sees static imports; this repo lazy-loads routes with import().
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "ImportExpression[source.value=/(^|\\/)reads\\/(?!index(\\.js)?$)/]",
+          message: "Import founder read-grant APIs from founder/reads/index.js, not engine internals.",
+        },
+      ],
+    },
+  },
   // packages/* are the leaf layer: they must never reach into apps/.
   {
     files: ["packages/*/src/**/*.{ts,tsx}", "packages/*/test/**/*.{ts,tsx}"],
