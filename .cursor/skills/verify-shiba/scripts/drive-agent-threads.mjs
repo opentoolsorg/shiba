@@ -50,16 +50,14 @@ try {
   await page.getByLabel("Instructions", { exact: true }).fill("Review locally and require approval before any execution.");
   await page.getByLabel("Default repository", { exact: true }).fill("https://github.com/opentoolsorg/shiba");
   const createdResponse = page.waitForResponse((response) => response.url().endsWith("/api/custom-agents") && response.request().method() === "POST");
+  const sessionResponse = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
   await page.getByRole("button", { name: "Create bot", exact: true }).click();
   const created = await createdResponse;
   assert.equal(created.status(), 201);
   const { agent } = await created.json();
   fixtureAgentId = agent.id;
-  await page.getByRole("button", { name: `Launch bot ${name}`, exact: true }).waitFor();
   passed("Create a custom bot through its form and persist it in the local Worker");
 
-  const sessionResponse = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
-  await page.getByRole("button", { name: `Launch bot ${name}`, exact: true }).click();
   const sessionCreated = await sessionResponse;
   assert.equal(sessionCreated.status(), 201);
   const { session } = await sessionCreated.json();
