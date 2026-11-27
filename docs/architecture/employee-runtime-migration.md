@@ -98,7 +98,9 @@ Implemented in this branch:
 - Add cancellation plus checkpointed interrupted-execution recovery. Manager-initiated, optionally thread-scoped recovery replays the exact pinned user message when no assistant response was persisted, completes already-persisted executions without duplicating them, and fails closed for unfunded team inference.
 - Add SSE streaming for runtime chat and a details-panel runtime chat surface
   that streams answers, stops generation, and lets authorized managers recover
-  interrupted work for the selected thread without creating a sandbox.
+  interrupted work for the selected thread without creating a sandbox. Runtime
+  state explicitly marks interrupted or abandoned running executions as
+  recoverable so restarts do not hide the recovery action.
 
 This slice proves the boundary only. It does not complete resumable streaming,
 tools, scheduling, workspace files, provider switching, funded team inference,
@@ -123,7 +125,10 @@ Remaining:
 ### Phase 2. Move chat onto the employee runtime
 
 - Move the main employee conversation surface from the legacy orchestrator to
-  the runtime; the details-panel SSE slice is only the first streaming surface.
+  the runtime. Implemented first lane: thread-backed personal conversations
+  for harness-free employees render the runtime SSE surface in the main chat
+  panel; Work mode, teams, and legacy profiles remain on the compatibility
+  orchestrator until their migration lanes are verified.
 - Make streams resumable after disconnects through the Agents SDK chat patterns
   or an equivalent checkpointed transport.
 - Share employee identity, memory, and conversation context across Chat and

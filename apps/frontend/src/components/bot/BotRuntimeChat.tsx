@@ -31,10 +31,11 @@ async function readSse(response: Response, onEvent: (event: EmployeeRuntimeStrea
 }
 
 /** Lightweight provider-independent employee conversation. No sandbox, repository, or coding harness is created here. */
-export function BotRuntimeChat({ agentId, workspaceId, conversationId }: {
+export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant = "panel" }: {
   agentId: string;
   workspaceId?: string;
   conversationId: string;
+  variant?: "panel" | "main";
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pendingUser, setPendingUser] = useState<ChatMessage | null>(null);
@@ -173,6 +174,7 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId }: {
     }
   };
 
+  const main = variant === "main";
   const visible = [
     ...messages,
     ...(pendingUser ? [pendingUser] : []),
@@ -180,7 +182,7 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId }: {
   ];
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className={`flex flex-col gap-3 ${main ? "min-h-0 flex-1" : ""}`}>
       <p className="text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
         Lightweight Chat mode uses this employee's identity, instructions, and runtime memory directly. It does not create a repository, sandbox, or coding harness.
       </p>
@@ -195,7 +197,7 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId }: {
         </div>
       ) : null}
       {error ? <p role="alert" className="text-[11px] text-[var(--destructive)]">{error}</p> : null}
-      <div aria-live="polite" className="max-h-72 overflow-y-auto rounded-md border border-[var(--border-1)] bg-[var(--card)] p-3">
+      <div aria-live="polite" className={`overflow-y-auto rounded-md border border-[var(--border-1)] bg-[var(--card)] p-3 ${main ? "min-h-0 flex-1" : "max-h-72"}`}>
         {loading && visible.length === 0 ? <p role="status" className="text-[11px] text-[var(--muted-foreground-2)]">Loading runtime chat…</p> : null}
         {!loading && visible.length === 0 ? <p className="text-[11px] text-[var(--muted-foreground-2)]">No runtime messages yet. Ask a question that does not require execution.</p> : null}
         <ol className="flex flex-col gap-3">
@@ -209,7 +211,7 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId }: {
       </div>
       <label className="text-[11px] text-[var(--muted-foreground-2)]">
         Runtime message
-        <textarea value={draft} rows={3} onChange={(event) => setDraft(event.target.value)} placeholder="Ask without starting sandbox work…" className={`${FIELD_CLASS} mt-1 min-h-20 resize-y py-2`} />
+        <textarea value={draft} rows={main ? 4 : 3} onChange={(event) => setDraft(event.target.value)} placeholder="Ask without starting sandbox work…" className={`${FIELD_CLASS} mt-1 min-h-20 resize-y py-2`} />
       </label>
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" disabled={busy || activeExecution !== null || !draft.trim()} onClick={() => void send()} className="min-h-11 rounded-md border border-[var(--border-1)] bg-[var(--inverse)] px-3 text-[11px] text-[var(--inverse-text)] disabled:opacity-50">

@@ -39,6 +39,7 @@ import { CustomAgentsView, useCustomAgentOptions, type CustomAgentWire } from ".
 import { EmployeeToolPolicyView } from "./components/EmployeeToolPolicyView";
 import { AgentDetailsPanel, BotThreadlessState, EmployeeOnboarding, ONBOARDING_DISMISSED_KEY, createEmployeeAgent, employeeExamples } from "./components/AgentExperience";
 import type { BotRunsScope } from "./components/bot/BotPanel";
+import { BotRuntimeChat } from "./components/bot/BotRuntimeChat";
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
 import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
 import { saveBotConfig, saveBotDeliverables, type BotConfigEdit } from "./bot-library";
@@ -3262,6 +3263,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   } : null), [activeEmployee, codingModelSuggestions, saveBotConfigEdit]);
   const employeeName = activeEmployee?.config.name ?? "Shiba";
   const chatAgent = { id: activeEmployee?.id ?? "shiba", name: employeeName, mascotPreset: activeEmployee?.config.mascotPreset, look: activeEmployee?.config.look, avatar: activeEmployee?.config.avatar, role: activeEmployee ? employeeRole(activeEmployee.slug, activeEmployee.config.roleTemplateId) : undefined };
+  const runtimeMainEmployee = !teamWorkspaceId && botPage === "chat" && conversationMode === "chat" && activeEmployee && !activeEmployee.config.harness && sessionCustomAgentId === activeEmployee.id && selectedSessionId !== DEFAULT_THREAD_ID ? activeEmployee : null;
   const mentionableAgents = customAgentRecords.map((record) => ({ id: record.id, name: record.config.name, mascotPreset: record.config.mascotPreset, look: record.config.look, avatar: record.config.avatar, role: employeeRole(record.slug, record.config.roleTemplateId) }));
   const showEmployeeOnboarding = !teamWorkspaceId && !restrictedTeamMember && !employeeOnboardingDismissed && !threadsLoading && !customAgentsLoading && !customAgentsError && sessionApiAvailable && customAgentRecords.length === 0 && webSessions.every((session) => session.id === "default") && sessions.every((session) => session.id === "default") && !threadHasWork;
 
@@ -4351,9 +4353,17 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   </div>
                 </details>
 
+                {runtimeMainEmployee ? (
+                  <div className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-4 sm:px-5 xl:px-8">
+                    <ConversationModeSwitch value={conversationMode} onChange={setConversationMode} disabled={false} />
+                    <BotRuntimeChat key={`${runtimeMainEmployee.id}:${selectedSessionId}`} agentId={runtimeMainEmployee.id} workspaceId={teamWorkspaceId || undefined} conversationId={selectedSessionId} variant="main" />
+                  </div>
+                ) : null}
+
                 {/* TIMELINE (scrollable) — hidden on the empty-state hero */}
                 <div
                   className={`min-h-0 px-3 sm:px-5 xl:px-8 py-5 ${conversationMode === "chat" ? "flex-auto xl:flex-1 xl:overflow-y-auto xl:overscroll-contain" : "flex-1 overflow-y-auto overscroll-contain"} ${threadHasWork ? "" : "hidden"}`}
+                  style={runtimeMainEmployee ? { display: "none" } : undefined}
                 >
                   {conversationMode === "chat" ? <RemoteAgentStream stream={realtimeRemoteStream} /> : null}
                   {privateDataEnabled && chatAgentName && conversationMode !== "chat" ? <UiBlockQuestions key={chatAgentName} runId={chatAgentName} sessionId={selectedSessionId} /> : null}
@@ -4400,7 +4410,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   ) : null}
                 </div>
 
-                {privateDataEnabled && !threadLinkPending && conversationMode === "chat" ? (
+                {privateDataEnabled && !runtimeMainEmployee && !threadLinkPending && conversationMode === "chat" ? (
                   <BrowserPanel key={orchestratorName} sessionId={selectedSessionId} />
                 ) : null}
 
@@ -4411,6 +4421,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                       ? `flex flex-col min-h-0 ${conversationMode === "chat" ? "flex-auto xl:flex-1" : "flex-1"}`
                       : "border-t border-[var(--border-1)] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-8 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0"
                   }
+                  style={runtimeMainEmployee ? { display: "none" } : undefined}
                 >
                   {conversationMode === "chat" ? (
                     <ConversationRoomPresence

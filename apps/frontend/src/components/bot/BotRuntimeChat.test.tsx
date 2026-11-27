@@ -61,6 +61,7 @@ describe("BotRuntimeChat", () => {
     expect(JSON.parse(String(stream?.init?.body))).toEqual({ conversationId: "thread-1", message: "hello?", mode: "chat" });
     expect(new Headers(stream?.init?.headers).get("X-Shiba-Workspace")).toBe(workspaceId);
     expect(screen.queryByText(/sandbox setup/i)).toBeNull();
+    expect(screen.getByText(/Lightweight Chat mode uses/).parentElement?.className).toContain("flex-col");
   });
 
   it("keeps drafts separate when the selected thread changes", async () => {
