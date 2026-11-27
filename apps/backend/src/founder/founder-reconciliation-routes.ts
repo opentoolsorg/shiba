@@ -6,8 +6,7 @@ import { resolveWorkspaceNativeMember } from "../workspace-native-authority.js";
 import { rejectCrossOriginMutation, rejectNonJsonMutation } from "../dashboard-mutation.js";
 import { membershipSql, WorkspaceIntegrationError } from "../workspace-integrations-store.js";
 import { reconciliationSession, reconciliationSessionGuard, reconciliationSessionExpiry } from "./founder-reconciliation-session.js";
-import { stripeAvailable, type StripeEnv } from "./founder-stripe-store.js";
-import { hubspotAvailable } from "./founder-hubspot-store.js";
+import { assertReadsAvailable, type FounderReadsEnv } from "./reads/index.js";
 import { FOUNDER_HUBSPOT_EXECUTOR_DIGEST } from "./founder-hubspot-generated.js";
 import { createFounderReconciliation,listFounderReconciliations,composeFounderReconciliation,readFounderReconciliation,revokeFounderReconciliation } from "./founder-reconciliation-store.js";
 import { founderRollingComparisonDecisionSchema, rollingFounderComparison } from "./founder-reconciliation-rolling.js";
@@ -16,7 +15,7 @@ const headers={"cache-control":"no-store","referrer-policy":"no-referrer","x-con
 const json=(v:unknown,status=200)=>Response.json(v,{status,headers});
 const revoke=z.strictObject({digest:z.string().regex(/^[a-f0-9]{64}$/)});
 /** Native manager privately composes reviewed, already-captured evidence. No provider or model calls. */
-export async function handleFounderReconciliations(request:Request,env:StripeEnv):Promise<Response|null>{const url=new URL(request.url),match=pattern.exec(url.pathname);if(!match)return null;if(!request.headers.has("X-Shiba-Workspace")||url.search)return json({error:"reconciliation_workspace_required"},400);if(request.method!=="GET"){const denied=rejectCrossOriginMutation(request)??rejectNonJsonMutation(request);if(denied)return denied;}
+export async function handleFounderReconciliations(request:Request,env:FounderReadsEnv):Promise<Response|null>{const url=new URL(request.url),match=pattern.exec(url.pathname);if(!match)return null;if(!request.headers.has("X-Shiba-Workspace")||url.search)return json({error:"reconciliation_workspace_required"},400);if(request.method!=="GET"){const denied=rejectCrossOriginMutation(request)??rejectNonJsonMutation(request);if(denied)return denied;}
  const auth=await resolveOrgForApiRequest(request,env);if(auth instanceof Response)return auth;if(auth.principal||!auth.workspace||auth.workspace.role==="member")return json({error:"reconciliation_native_manager_required"},403);const member=await resolveWorkspaceNativeMember(request,env,auth.workspace);if(!member)return json({error:"reconciliation_native_manager_required"},403);const scoped=(v:Record<string,unknown>,status=200)=>json({...v,workspaceId:member.workspaceId,actorId:member.userId},status);const session=await reconciliationSession(request,env,member);if(!session)return scoped({error:"reconciliation_native_session_required"},403);
  try{const id=match[1],action=match[2],actor=membershipSql(member,true),sessionGuard=reconciliationSessionGuard(session,member);let proofSql=`SELECT s.expiresAt AS session_expires FROM "session" s WHERE s.id=? AND s.userId=? AND ${actor.sql} AND ${sessionGuard.sql}`,proofValues:unknown[]=[session.id,member.accountId,...actor.values,...sessionGuard.values],leaseExpiresAt=session.expiresAt,payload:Record<string,unknown>={},status=200,download:string|null=null,requiresSources=false,expectedRuntime:{versionId:string;manifestDigest:string}|null=null;
   if(request.method==="GET"){
@@ -33,7 +32,7 @@ export async function handleFounderReconciliations(request:Request,env:StripeEnv
   // Final proof combines the exact requesting session and source/receipt snapshots in one query.
   const current=await env.AGENT_AUDIT.prepare(proofSql).bind(...proofValues).first<{session_expires:string|number}>();const currentExpiry=current?reconciliationSessionExpiry(current.session_expires):NaN;
   if(!current||!Number.isFinite(currentExpiry)||Date.now()>=Math.min(leaseExpiresAt,currentExpiry))return scoped({error:"reconciliation_authority_changed"},403);
-  if(requiresSources){stripeAvailable(env);hubspotAvailable(env);if(!expectedRuntime||expectedRuntime.versionId!=="native-hubspot.v1"||expectedRuntime.manifestDigest!==FOUNDER_HUBSPOT_EXECUTOR_DIGEST)return scoped({error:"reconciliation_unavailable"},503);}
+  if(requiresSources){assertReadsAvailable(env,"stripe");assertReadsAvailable(env,"hubspot");if(!expectedRuntime||expectedRuntime.versionId!=="native-hubspot.v1"||expectedRuntime.manifestDigest!==FOUNDER_HUBSPOT_EXECUTOR_DIGEST)return scoped({error:"reconciliation_unavailable"},503);}
   if(download!==null)return new Response(download,{headers:{...headers,"content-type":"application/json; charset=utf-8","content-disposition":`attachment; filename="${id}.json"`}});
   return scoped(payload,status);
  }catch(error){if(error instanceof z.ZodError)return scoped({error:"reconciliation_request_invalid"},400);if(error instanceof WorkspaceIntegrationError)return scoped({error:error.code},error.status);return scoped({error:"reconciliation_unavailable"},503);}}
