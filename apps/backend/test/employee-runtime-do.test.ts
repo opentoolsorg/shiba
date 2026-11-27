@@ -121,13 +121,43 @@ describe("EmployeeRuntime Durable Object", () => {
     }));
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/event-stream");
-    const events = (await response.text()).trim().split("\n\n").map((event) => JSON.parse(event.slice(6)) as { type: string; text?: string; answer?: string });
+    const events = (await response.text()).trim().split("\n\n").map((event) => JSON.parse(event.split("\n").find((line) => line.startsWith("data: "))!.slice(6)) as { type: string; text?: string; answer?: string });
     expect(events[0]?.type).toBe("execution");
     expect(events.filter((event) => event.type === "delta").map((event) => event.text).join("")).toContain("Synthetic employee runtime response");
     expect(events.at(-1)).toMatchObject({ type: "done" });
     const state = await runtime.onRequest(new Request("https://do/internal/employee-runtime/state?conversationId=default"));
     const persisted = await state.json() as { messages: Array<{ role: string; content: string }> };
     expect(persisted.messages.at(-1)).toMatchObject({ role: "assistant" });
+  });
+
+  it("resumes a stream from durable events after the client disconnects", async () => {
+    const { runtime, db } = fixture();
+    const first = await runtime.onRequest(new Request("https://do/internal/employee-runtime/chat/stream", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ profile, conversationId: "default", message: "disconnect while streaming", mode: "chat" }),
+    }));
+    expect(first.status).toBe(200);
+    const reader = first.body!.getReader();
+    await reader.read();
+    await reader.cancel();
+    const executionId = String((db.prepare("SELECT id FROM employee_runtime_executions WHERE conversation_id='default' ORDER BY created_at DESC LIMIT 1").get() as { id: string }).id);
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const status = (db.prepare("SELECT status FROM employee_runtime_executions WHERE id=?").get(executionId) as { status: string } | undefined)?.status;
+      if (status === "completed") break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect((db.prepare("SELECT status FROM employee_runtime_executions WHERE id=?").get(executionId) as { status: string }).status).toBe("completed");
+    expect((db.prepare("SELECT COUNT(*) AS n FROM employee_runtime_stream_events WHERE execution_id=?").get(executionId) as { n: number }).n).toBeGreaterThan(0);
+
+    const resumed = await runtime.onRequest(new Request("https://do/internal/employee-runtime/chat/stream/resume", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ conversationId: "default", executionId, afterSeq: 0 }),
+    }));
+    expect(resumed.status).toBe(200);
+    const replay = await resumed.text();
+    expect(replay).toContain("id: ");
+    expect(replay).toContain('"type":"execution"');
+    expect(replay).toContain('"type":"done"');
   });
 
   it("stores and retrieves employee-private memory through internal routes", async () => {

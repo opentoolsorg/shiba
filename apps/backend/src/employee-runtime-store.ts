@@ -72,6 +72,16 @@ export const EMPLOYEE_RUNTIME_SCHEMA = [
   )`,
   `CREATE INDEX IF NOT EXISTS employee_runtime_executions_conversation
     ON employee_runtime_executions(conversation_id,created_at,id)`,
+  `CREATE TABLE IF NOT EXISTS employee_runtime_stream_events(
+    execution_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    event_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY(execution_id,seq)
+  )`,
+  `CREATE INDEX IF NOT EXISTS employee_runtime_stream_events_conversation
+    ON employee_runtime_stream_events(conversation_id,seq)`,
 ] as const;
 
 function id(prefix: string): string {
@@ -199,6 +209,7 @@ export class EmployeeRuntimeStore {
     this.exec(`DELETE FROM employee_runtime_messages WHERE conversation_id=?`, clean);
     this.exec(`DELETE FROM employee_runtime_summaries WHERE conversation_id=?`, clean);
     this.exec(`DELETE FROM employee_runtime_executions WHERE conversation_id=?`, clean);
+    this.exec(`DELETE FROM employee_runtime_stream_events WHERE conversation_id=?`, clean);
     this.exec(`DELETE FROM employee_runtime_profiles WHERE conversation_id=?`, clean);
     const automatic = this.exec(`SELECT id FROM employee_runtime_memories WHERE conversation_id=? AND origin='automatic'`, clean);
     for (const row of automatic) {
@@ -387,6 +398,31 @@ export class EmployeeRuntimeStore {
         SELECT id FROM employee_runtime_executions ORDER BY created_at DESC, rowid DESC,id DESC LIMIT ?
       )`, MAX_EXECUTIONS,
     );
+    this.exec(`DELETE FROM employee_runtime_stream_events WHERE execution_id NOT IN (SELECT id FROM employee_runtime_executions)`);
+  }
+
+  appendStreamEvent(executionId: string, conversationId: string, event: unknown, now = Date.now()): number {
+    const cleanExecutionId = cleanId(executionId, "executionId");
+    const seq = Number(this.exec(`SELECT COALESCE(MAX(seq),0)+1 AS seq FROM employee_runtime_stream_events WHERE execution_id=?`, cleanExecutionId)[0]?.seq ?? 1);
+    const encoded = JSON.stringify(event);
+    if (!encoded || encoded.length > 16000) throw new InputError("Stream event is too large to persist.");
+    this.exec(
+      `INSERT INTO employee_runtime_stream_events(execution_id,conversation_id,seq,event_json,created_at) VALUES(?,?,?,?,?)`,
+      cleanExecutionId, cleanId(conversationId, "conversationId"), seq, encoded, now,
+    );
+    return seq;
+  }
+
+  listStreamEvents(executionId: string, afterSeq = 0, limit = 500): Array<{ seq: number; event: unknown }> {
+    const rows = this.exec(
+      `SELECT seq,event_json FROM employee_runtime_stream_events WHERE execution_id=? AND seq>? ORDER BY seq ASC LIMIT ?`,
+      cleanId(executionId, "executionId"), Math.max(0, Math.floor(afterSeq)), Math.max(1, Math.min(500, Math.floor(limit))),
+    );
+    const events: Array<{ seq: number; event: unknown }> = [];
+    for (const row of rows) {
+      try { events.push({ seq: Number(row.seq), event: JSON.parse(String(row.event_json)) }); } catch { /* Ignore malformed rows rather than blocking replay. */ }
+    }
+    return events;
   }
 }
 

@@ -49,6 +49,23 @@ single-writer streams, inline connection recovery, then governed
 file/terminal/data tools. These slices precede any attempt to make shared
 team-runtime inference automatic.
 
+## Coding-agent network benchmark, November 28, 2026
+
+`reason-machines/reason-network` and Overlay's agent-host packages reinforce
+the same boundary from the execution side:
+
+| Pattern | Shiba migration consequence |
+|---|---|
+| Reason Network keeps a team directory of live coding sessions with person, machine, agent kind, repo, branch, busy/idle state, and current activity. | Employee presence must be runtime/workspace metadata, not a repository run. Collaboration should address employees and live conversations rather than broadcast to anonymous coding sessions. |
+| Reason Network binds stable session names to conversation identity, preserves offline names and queued mail, uses idempotency keys, and reports queued/accepted/handed-off/replied receipts. | Shiba delegation needs durable conversation identity, exactly-once handoff semantics, idempotency keys, and inspectable delivery receipts before agents can safely coordinate other agents. |
+| Reason Network separates human approval popups from ordinary agent messages. | Approval must remain a first-class execution-boundary object; it cannot become prompt text or a chat message another agent can imitate. |
+| Overlay Agent Host is outbound-only, signs host requests, persists command outcomes, stream cursors, and unacknowledged events in SQLite, and scopes local file/terminal/browser tools to approved roots. | Shiba local execution providers should use outbound enrollment, signed control-plane requests, SQLite-backed restart-safe cursors, and explicit workspace/root grants. Credentials remain outside the execution environment. |
+| Overlay pins coding adapters such as Claude Code and Codex as removable host adapters rather than employee identity. | This confirms the Shiba direction: OpenCode/Claude/Codex are optional execution providers behind the runtime contract. |
+
+These references do not replace Shiba's Cloudflare trust boundary. They add
+two concrete requirements to the remaining migration: resumable/cursor-based
+execution transport and receipted, idempotent employee-to-employee delegation.
+
 ## Target ownership
 
 Use one ownership rule for the target architecture:
@@ -157,7 +174,11 @@ Remaining:
   teams, and default threads remain on the compatibility orchestrator until
   their migration lanes are verified.
 - Make streams resumable after disconnects through the Agents SDK chat patterns
-  or an equivalent checkpointed transport.
+  or an equivalent checkpointed transport. Implemented first slice: streamed
+  events now carry durable sequence IDs in EmployeeRuntime SQLite, network
+  disconnects do not abort inference, and clients can replay/resume through
+  `/runtime/chat/stream/resume`. Full reload-time automatic reattachment and
+  shared-thread writer arbitration remain.
 - Share employee identity, memory, and conversation context across Chat and
   Work modes.
 - Add cancellation of live streams, checkpoint replay after eviction, retry

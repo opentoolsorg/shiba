@@ -20,6 +20,7 @@ import {
   employeeRuntimeProfileSchema,
   employeeRuntimeRoutineDeleteSchema,
   employeeRuntimeRoutineWriteSchema,
+  employeeRuntimeStreamResumeSchema,
   EMPLOYEE_RUNTIME_ROUTINE_MAX_PER_EMPLOYEE,
   verifyStandinEnabled,
   type EmployeeRuntimeChatResponse,
@@ -44,6 +45,7 @@ const internalConversationIdSchema = z.string().trim().min(1).max(600).optional(
 const internalRuntimeChatRequestSchema = employeeRuntimeChatRequestSchema.safeExtend({
   toolActorId: z.string().trim().min(1).max(200).optional(),
 });
+const internalRuntimeStreamResumeSchema = employeeRuntimeStreamResumeSchema;
 const internalMemoryWriteSchema = employeeRuntimeMemoryWriteSchema.safeExtend({ conversationId: internalConversationIdSchema });
 const internalMemoryUpdateSchema = employeeRuntimeMemoryUpdateSchema.safeExtend({ conversationId: internalConversationIdSchema });
 const internalMemoryDeleteSchema = employeeRuntimeMemoryDeleteSchema.safeExtend({ conversationId: internalConversationIdSchema });
@@ -141,6 +143,7 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
     try {
       if (url.pathname === `${PREFIX}/chat` && request.method === "POST") return await this.chat(request);
       if (url.pathname === `${PREFIX}/chat/stream` && request.method === "POST") return await this.streamChat(request);
+      if (url.pathname === `${PREFIX}/chat/stream/resume` && request.method === "POST") return await this.streamResume(request);
       if (url.pathname === `${PREFIX}/state` && request.method === "GET") return this.stateResponse(url);
       if (url.pathname === `${PREFIX}/execution-context` && request.method === "GET") return this.executionContext(url);
       if (url.pathname === `${PREFIX}/clear` && request.method === "POST") return await this.clearConversation(request);
@@ -366,7 +369,10 @@ ${input.prompt}`, mode: "chat" };
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       start: (output) => {
-        const send = (event: EmployeeRuntimeStreamEvent) => output.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        const send = (event: EmployeeRuntimeStreamEvent) => {
+          const seq = this.store.appendStreamEvent(execution.id, body.conversationId, event);
+          try { output.enqueue(encoder.encode(`id: ${seq}\ndata: ${JSON.stringify(event)}\n\n`)); } catch { /* Disconnected clients can resume from the durable event log. */ }
+        };
         void (async () => {
           send({ type: "execution", execution });
           let answer = "";
@@ -430,7 +436,54 @@ ${input.prompt}`, mode: "chat" };
           }
         })().catch(() => output.close());
       },
-      cancel: () => abort.abort(),
+      cancel: () => {
+        // Network cancellation is not execution cancellation. The explicit
+        // runtime cancel endpoint owns the abort signal; detaching here lets a
+        // disconnected client resume the same durable single-writer stream.
+      },
+    });
+    return new Response(stream, { headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store" } });
+  }
+
+  private async streamResume(request: Request): Promise<Response> {
+    const raw = await bodyObject(request);
+    const input = internalRuntimeStreamResumeSchema.parse(raw);
+    const execution = this.store.getExecution(input.executionId);
+    if (!execution || execution.conversationId !== input.conversationId) return json({ error: "Execution not found." }, { status: 404 });
+    const encoder = new TextEncoder();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      start: (output) => {
+        let cursor = input.afterSeq;
+        const close = () => {
+          cancelled = true;
+          if (timer) clearTimeout(timer);
+          try { output.close(); } catch { /* Already closed. */ }
+        };
+        const pump = () => {
+          if (cancelled) return;
+          try {
+            const events = this.store.listStreamEvents(input.executionId, cursor, 100);
+            let terminal = false;
+            for (const stored of events) {
+              cursor = Math.max(cursor, stored.seq);
+              terminal = terminal || Boolean(stored.event && typeof stored.event === "object" && ["done", "error"].includes(String((stored.event as { type?: unknown }).type)));
+              try { output.enqueue(encoder.encode(`id: ${stored.seq}\ndata: ${JSON.stringify(stored.event)}\n\n`)); } catch { close(); return; }
+            }
+            const current = this.store.getExecution(input.executionId);
+            if (terminal || !current || current.status !== "running" && events.length === 0) { close(); return; }
+            timer = setTimeout(pump, 100);
+          } catch {
+            close();
+          }
+        };
+        pump();
+      },
+      cancel: () => {
+        cancelled = true;
+        if (timer) clearTimeout(timer);
+      },
     });
     return new Response(stream, { headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store" } });
   }

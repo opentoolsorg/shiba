@@ -26,6 +26,13 @@ export const employeeRuntimeChatRequestSchema = z.object({
 });
 export type EmployeeRuntimeChatRequest = z.infer<typeof employeeRuntimeChatRequestSchema>;
 
+export const employeeRuntimeStreamResumeSchema = z.object({
+  conversationId: z.string().trim().min(1).max(128).default("default"),
+  executionId: z.string().trim().min(1).max(128),
+  afterSeq: z.number().int().nonnegative().default(0),
+}).strict();
+export type EmployeeRuntimeStreamResumeRequest = z.infer<typeof employeeRuntimeStreamResumeSchema>;
+
 export const employeeRuntimeConversationRequestSchema = z.object({
   conversationId: z.string().trim().min(1).max(128).default("default"),
 });
