@@ -284,7 +284,7 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant =
           ) : <span className="text-[var(--muted-foreground-2)]">A manager can recover it.</span>}
         </div>
       ) : null}
-      <div className="rounded-md border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-[11px] text-[var(--fg)]" role="group" aria-label="Runtime context monitor">
+      <section className="rounded-md border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-[11px] text-[var(--fg)]" aria-label="Runtime context monitor">
         <div className="flex items-center justify-between gap-3">
           <span className="font-medium">Context</span>
           <span className="font-mono text-[10px] text-[var(--muted-foreground-2)]">{liveContextMessages}/{EMPLOYEE_RUNTIME_SUMMARY_TRIGGER_MESSAGES} unsummarized</span>
@@ -293,7 +293,7 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant =
           <div className="h-full rounded-full bg-[var(--primary)]" style={{ width: `${contextPercent}%` }} />
         </div>
         <p className="mt-2 text-[var(--muted-foreground-2)]">{conversationSummary ? `${conversationSummary.messageCount} earlier messages compacted into working memory.` : "Older messages compact automatically as the thread grows."}</p>
-      </div>
+      </section>
       {conversationSummary ? (
         <details className="rounded-md border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-[11px] text-[var(--fg)]">
           <summary className="cursor-pointer select-none font-medium">Working context summary · {conversationSummary.messageCount} messages</summary>
