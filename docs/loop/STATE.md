@@ -76,12 +76,11 @@ Done:
 - Review blockers fixed and pushed in 7f694f82 and c365b6ed.
 - Files iteration 1 overhauled the dense legacy surface into a full-height Overlay-style screen; independent browser check found header/title/toolbar/row-density mismatches.
 - Files iteration 2 matched Overlay objective metrics for header height/padding/border, title typography, first-row gap, row padding/radius, and filename typography. Evidence: `/home/ubuntu/shiba-ui-parity-artifacts/comparison-list-overlay-vs-shiba-iter2.png`; typecheck passed and 15/15 Files tests passed.
+- Files iterations 3-6: search/create/upload now use compact Overlay-style controls; PDF asset renders; cards use wide masonry columns and type-framed icons; row height/pitch measured exactly `44.75px/46.75px`, matching Overlay. Evidence: `/home/ubuntu/shiba-ui-parity-artifacts/comparison-list-overlay-vs-shiba-iter6.png`; typecheck passed and 16/16 Files tests passed.
 
 Next queue:
-1. Make Files toolbar match Overlay ordering/composition without breaking Shiba scope/workspace contracts.
-2. Move search expansion inline in the header and create-folder into compact control/menu pattern.
-3. Improve type-specific icons and card layout/preview treatment.
-4. Repeat loop for notes, projects, and navigation/sidebar.
+1. Decide and implement the backend/product scope for Overlay-style select mode, row actions, move, and delete; current Shiba Files contracts do not expose those mutations.
+2. Repeat the visual loop for notes, projects, and navigation/sidebar.
 
 Triage additions:
 - Full Overlay parity beyond visual shell may require product scope decisions; no deployment or merge is authorized.

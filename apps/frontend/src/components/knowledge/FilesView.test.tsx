@@ -38,6 +38,7 @@ describe("FilesView", () => {
     expect(input.multiple).toBe(true);
     const click = vi.spyOn(input, "click");
     fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Upload File/ }));
     expect(click).toHaveBeenCalledOnce();
     fireEvent.change(input, { target: { files: [new File(["A real document.\n"], "notes.md", { type: "text/markdown" })] } });
     await screen.findByText("notes.md", { selector: "span" });
@@ -104,7 +105,7 @@ describe("FilesView", () => {
     fireEvent.submit(screen.getByRole("search", { name: "Search knowledge" }));
     await waitFor(() => expect(api.mock.calls.some(([url]) => String(url).includes("/api/knowledge/search"))).toBe(true));
     await screen.findByText("notes.md");
-    fireEvent.click(screen.getByRole("button", { name: "Search files" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close search files" }));
     await waitFor(() => expect(screen.queryByText("notes.md")).toBeNull());
     expect(screen.queryByRole("search", { name: "Search knowledge" })).toBeNull();
   });
