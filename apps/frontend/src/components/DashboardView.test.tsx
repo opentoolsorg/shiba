@@ -41,7 +41,7 @@ describe("DashboardView", () => {
     expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toBeTruthy();
     expect(screen.getAllByText("Workspace").length).toBeGreaterThan(0);
     expect(screen.getByText("Insights")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Workspace" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Dashboard" })).toBeTruthy();
     expect(screen.getByText("Connected")).toBeTruthy();
 
     // New task button
@@ -144,13 +144,12 @@ describe("DashboardView", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "Acme operations" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "AI employees" })).toBeTruthy();
-    expect(screen.getByText("1/2 assigned to active runs")).toBeTruthy();
+    expect(screen.getByText("1/2 working · your employee roster")).toBeTruthy();
     expect(screen.getByText("Ava")).toBeTruthy();
-    expect(screen.getByText("working")).toBeTruthy();
-    expect(screen.getByText("ready")).toBeTruthy();
-    expect(screen.getByText("2 in roster")).toBeTruthy();
+    expect(screen.getByText("1 working")).toBeTruthy();
+    expect(screen.getByText("Mira")).toBeTruthy();
+    expect(screen.getByText("0 open")).toBeTruthy();
   });
 
   it("keeps workspace actions in workspace scope and opens the selected shared task", () => {
@@ -188,10 +187,9 @@ describe("DashboardView", () => {
       />,
     );
 
-    expect(screen.queryByText("Recent activity")).toBeNull();
-    expect(screen.queryByText("MCP principals")).toBeNull();
-    expect(screen.getByText("Manage people")).toBeTruthy();
-    expect(screen.getByText("working")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Shared work queue" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "AI employees" })).toBeTruthy();
+    expect(screen.getByText("1 working")).toBeTruthy();
     fireEvent.click(screen.getByText("Prepare checkout fix").closest("button")!);
     expect(onOpenSharedTask).toHaveBeenCalledWith(expect.objectContaining({ id: "task-1" }));
   });

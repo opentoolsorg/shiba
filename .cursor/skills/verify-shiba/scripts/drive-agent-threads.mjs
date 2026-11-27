@@ -52,13 +52,12 @@ try {
   const createdResponse = page.waitForResponse((response) => response.url().endsWith("/api/custom-agents") && response.request().method() === "POST");
   const sessionResponse = page.waitForResponse((response) => response.url().endsWith("/api/sessions") && response.request().method() === "POST");
   await page.getByRole("button", { name: "Create bot", exact: true }).click();
-  const created = await createdResponse;
+  const [created, sessionCreated] = await Promise.all([createdResponse, sessionResponse]);
   assert.equal(created.status(), 201);
   const { agent } = await created.json();
   fixtureAgentId = agent.id;
   passed("Create a custom bot through its form and persist it in the local Worker");
 
-  const sessionCreated = await sessionResponse;
   assert.equal(sessionCreated.status(), 201);
   const { session } = await sessionCreated.json();
   fixtureSessionId = session.id;

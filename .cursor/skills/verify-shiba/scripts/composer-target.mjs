@@ -49,5 +49,5 @@ export async function openEmployeeThread(page, employeeName, threadName) {
   await expand.or(collapse).waitFor({ state: "visible" });
   if (await expand.isVisible()) await expand.click();
   await panel.getByRole("group", { name: `${employeeName} threads`, exact: true })
-    .getByRole("button").filter({ has: page.getByText(threadName, { exact: true }) }).click();
+    .getByRole("button").filter({ has: page.getByText(threadName, { exact: true }) }).first().click();
 }
