@@ -4,11 +4,34 @@ import type { DesktopViewName } from "@shiba/shared";
 export const HOSTED_ORIGIN = "https://app.tryshiba.dev";
 
 export const DESKTOP_VIEWS: readonly DesktopViewName[] = [
+  "work",
+  "dashboard",
   "tasks",
+  "threads",
+  "activity",
+  "analytics",
   "diff",
   "approvals",
+  "swarm",
+  "collaboration",
+  "team",
+  "agents",
+  "inbox",
+  "memory",
+  "files",
+  "notes",
+  "projects",
+  "outputs",
+  "automations",
   "providers",
+  "integrations",
+  "skills",
+  "spaces",
+  "custom-agents",
+  "employee-tools",
+  "chief-of-staff",
   "remote",
+  "settings",
 ];
 
 /**
@@ -42,8 +65,7 @@ export function resolveConfiguredOrigin(input: {
 
 /** Dashboard path for a view. `?run=` is intentionally omitted: the SPA treats it as the thread, not the diff tab. */
 export function dashboardPath(view: DesktopViewName): string {
-  if (view === "tasks") return "/app/";
-  return `/app/?tab=${view}`;
+  return `/${view}/`;
 }
 
 export function isDesktopView(value: string): value is DesktopViewName {

@@ -99,5 +99,14 @@ export const knowledgeProjectSchema = z.object({
   workspaceId: z.string(),
   name: z.string(),
   createdAt: z.number().int(),
+  fileCount: z.number().int().nonnegative().optional(),
+  noteCount: z.number().int().nonnegative().optional(),
 });
 export type KnowledgeProject = z.infer<typeof knowledgeProjectSchema>;
+
+export const knowledgeProjectDetailSchema = z.object({
+  project: knowledgeProjectSchema,
+  files: z.array(knowledgeFileSchema),
+  notes: z.array(knowledgeNoteSchema),
+});
+export type KnowledgeProjectDetail = z.infer<typeof knowledgeProjectDetailSchema>;

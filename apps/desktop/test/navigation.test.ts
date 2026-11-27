@@ -39,7 +39,11 @@ describe("decideNavigation", () => {
     ["credentials on configured origin", "https://user:secret@shiba.example.com/app/", "deny"],
     ["credentials on external origin", "https://user:secret@example.org/", "deny"],
     ["credentials on auth host", "https://user:secret@accounts.google.com/", "deny"],
-    ["cloudflareaccess team host", "https://acme.cloudflareaccess.com/cdn-cgi/access/login", "allow"],
+    [
+      "cloudflareaccess team host",
+      "https://acme.cloudflareaccess.com/cdn-cgi/access/login",
+      "allow",
+    ],
     ["cloudflareaccess lookalike", "https://cloudflareaccess.com.evil.com/", "external"],
     ["cloudflareaccess suffix trick", "https://evilcloudflareaccess.com/", "external"],
     ["cloudflareaccess over http", "http://acme.cloudflareaccess.com/", "deny"],
@@ -72,7 +76,9 @@ describe("decideNavigation", () => {
 
   it("honours custom authHosts instead of the defaults", () => {
     expect(decideNavigation("https://idp.corp.com/sso", ORIGIN, ["idp.corp.com"])).toBe("allow");
-    expect(decideNavigation("https://accounts.google.com/", ORIGIN, ["idp.corp.com"])).toBe("external");
+    expect(decideNavigation("https://accounts.google.com/", ORIGIN, ["idp.corp.com"])).toBe(
+      "external",
+    );
   });
 
   it("treats an unset origin as matching nothing", () => {
@@ -102,14 +108,12 @@ describe("isSetupSender", () => {
   it("accepts the bundled setup page, with query/hash", () => {
     expect(isSetupSender(`${setup}?error=x#y`, setup)).toBe(true);
   });
-  it.each([
-    "file:///tmp/evil.html",
-    `${ORIGIN}/dist/setup.html`,
-    "",
-    undefined,
-  ])("rejects %s", (frame) => {
-    expect(isSetupSender(frame, setup)).toBe(false);
-  });
+  it.each(["file:///tmp/evil.html", `${ORIGIN}/dist/setup.html`, "", undefined])(
+    "rejects %s",
+    (frame) => {
+      expect(isSetupSender(frame, setup)).toBe(false);
+    },
+  );
 });
 
 describe("externalHandoffUrl", () => {
@@ -137,7 +141,9 @@ describe("isSubframeNavigationAllowed", () => {
     expect(isSubframeNavigationAllowed(`${ORIGIN}/artifact?id=1`, ORIGIN)).toBe(true);
     expect(isSubframeNavigationAllowed("https://evil.example/", ORIGIN)).toBe(false);
     expect(isSubframeNavigationAllowed("file:///etc/passwd", ORIGIN)).toBe(false);
-    expect(isSubframeNavigationAllowed("https://user:pw@" + "shiba.example.com/", ORIGIN)).toBe(false);
+    expect(isSubframeNavigationAllowed("https://user:pw@" + "shiba.example.com/", ORIGIN)).toBe(
+      false,
+    );
     expect(isSubframeNavigationAllowed(`${ORIGIN}/`, "")).toBe(false);
   });
 });
@@ -147,8 +153,13 @@ describe("isSafeAppPath", () => {
     ["/app/", true],
     ["/app/?tab=activity", true],
     ["/app/?tab=approvals", true],
-    ["/app/?tab=settings", false],
+    ["/app/?tab=settings", true],
+    ["/memory/", true],
+    ["/projects/", true],
+    ["/outputs/", true],
+    ["/unknown/", false],
     ["/app/?tab=activity&run=1", false],
+    ["/memory/?x=1", false],
     ["/app/../etc/passwd", false],
     ["https://evil.example/app/", false],
     ["//evil.example/app/", false],

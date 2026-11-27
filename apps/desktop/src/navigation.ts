@@ -14,7 +14,36 @@ export const DEFAULT_AUTH_HOSTS = [
 const LOOPBACK = new Set(["localhost", "127.0.0.1"]);
 const MAX_URL_CHARS = 2048;
 /** Dashboard tabs a native surface may load — the same set the tray and deep links use. */
-const APP_TABS = new Set(["tasks", "diff", "approvals", "providers", "remote", "activity"]);
+const APP_TABS = new Set([
+  "work",
+  "dashboard",
+  "tasks",
+  "threads",
+  "activity",
+  "analytics",
+  "diff",
+  "approvals",
+  "swarm",
+  "collaboration",
+  "team",
+  "agents",
+  "inbox",
+  "memory",
+  "files",
+  "notes",
+  "projects",
+  "outputs",
+  "automations",
+  "providers",
+  "integrations",
+  "skills",
+  "spaces",
+  "custom-agents",
+  "employee-tools",
+  "chief-of-staff",
+  "remote",
+  "settings",
+]);
 
 function tryParse(input: string): URL | null {
   try {
@@ -97,27 +126,29 @@ export function authHostUrl(
  * Subframes stay on the app's own origin. The dashboard embeds same-origin,
  * sandboxed previews; nothing else may navigate a frame inside the shell.
  */
-export function isSubframeNavigationAllowed(
-  target: string,
-  configuredOrigin: string,
-): boolean {
+export function isSubframeNavigationAllowed(target: string, configuredOrigin: string): boolean {
   if (!configuredOrigin) return false;
   const url = tryParse(target);
   if (!url || url.username || url.password) return false;
   return url.origin === configuredOrigin;
 }
 
-/** An app-internal path the shell may load: `/app/` or `/app/?tab=<known tab>`. */
+/** An app-internal path the shell may load: `/app/`, `/app/?tab=<known tab>`, or a canonical dashboard view path. */
 export function isSafeAppPath(value: string): boolean {
   if (value.length === 0 || value.length > 256) return false;
   if (hasControlChars(value) || /\s|\\/.test(value)) return false;
   if (value === "/app/") return true;
-  if (!value.startsWith("/app/?tab=")) return false;
-  return APP_TABS.has(value.slice("/app/?tab=".length));
+  if (value.startsWith("/app/?tab=")) return APP_TABS.has(value.slice("/app/?tab=".length));
+  const canonical = /^\/([a-z][a-z0-9-]*)\/$/.exec(value);
+  const view = canonical?.[1];
+  return view !== undefined && APP_TABS.has(view);
 }
 
 /** IPC gate (D4): only frames on the configured origin may call privileged handlers. */
-export function isTrustedSender(senderFrameUrl: string | undefined, configuredOrigin: string): boolean {
+export function isTrustedSender(
+  senderFrameUrl: string | undefined,
+  configuredOrigin: string,
+): boolean {
   if (!senderFrameUrl || !configuredOrigin) return false;
   return tryParse(senderFrameUrl)?.origin === configuredOrigin;
 }
@@ -126,5 +157,11 @@ export function isTrustedSender(senderFrameUrl: string | undefined, configuredOr
 export function isSetupSender(senderFrameUrl: string | undefined, setupFileUrl: string): boolean {
   const url = senderFrameUrl ? tryParse(senderFrameUrl) : null;
   const setup = tryParse(setupFileUrl);
-  return !!url && !!setup && url.protocol === "file:" && setup.protocol === "file:" && url.pathname === setup.pathname;
+  return (
+    !!url &&
+    !!setup &&
+    url.protocol === "file:" &&
+    setup.protocol === "file:" &&
+    url.pathname === setup.pathname
+  );
 }

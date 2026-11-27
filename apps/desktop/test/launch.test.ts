@@ -10,17 +10,28 @@ describe("resolveConfiguredOrigin", () => {
     { envUrl: "http://127.0.0.1:8788", forceSetup: true },
     { envUrl: "http://127.0.0.1:8788", forceSetup: false },
   ])("honors an interactive setup selection over launch hints %j", (hint) => {
-    expect(resolveConfiguredOrigin({
-      packaged: false, ...hint, savedUrl: undefined,
-      sessionUrl: "http://localhost:9012/app/", parse,
-    })).toBe("http://localhost:9012");
+    expect(
+      resolveConfiguredOrigin({
+        packaged: false,
+        ...hint,
+        savedUrl: undefined,
+        sessionUrl: "http://localhost:9012/app/",
+        parse,
+      }),
+    ).toBe("http://localhost:9012");
   });
 
   it("keeps packaged URL restrictions on interactive selections", () => {
-    expect(resolveConfiguredOrigin({
-      packaged: true, envUrl: undefined, forceSetup: false,
-      savedUrl: "https://existing.example", sessionUrl: "http://localhost:9012", parse,
-    })).toBe("");
+    expect(
+      resolveConfiguredOrigin({
+        packaged: true,
+        envUrl: undefined,
+        forceSetup: false,
+        savedUrl: "https://existing.example",
+        sessionUrl: "http://localhost:9012",
+        parse,
+      }),
+    ).toBe("");
   });
 
   it("asks which deployment to use on a packaged first launch", () => {
@@ -95,9 +106,13 @@ describe("resolveConfiguredOrigin", () => {
 
 describe("dashboardPath", () => {
   it("maps shell views onto dashboard tabs", () => {
-    expect(dashboardPath("tasks")).toBe("/app/");
-    expect(dashboardPath("diff")).toBe("/app/?tab=diff");
-    expect(dashboardPath("approvals")).toBe("/app/?tab=approvals");
-    expect(dashboardPath("remote")).toBe("/app/?tab=remote");
+    expect(dashboardPath("tasks")).toBe("/tasks/");
+    expect(dashboardPath("diff")).toBe("/diff/");
+    expect(dashboardPath("approvals")).toBe("/approvals/");
+    expect(dashboardPath("memory")).toBe("/memory/");
+    expect(dashboardPath("projects")).toBe("/projects/");
+    expect(dashboardPath("outputs")).toBe("/outputs/");
+    expect(dashboardPath("settings")).toBe("/settings/");
+    expect(dashboardPath("remote")).toBe("/remote/");
   });
 });
