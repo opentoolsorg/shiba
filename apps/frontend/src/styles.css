@@ -1411,6 +1411,14 @@ select:focus-visible,
   .shiba-overview-agent-list > li > button { will-change: transform; }
 }
 
+
+/* Providers use the same OpenBot-inspired quiet depth as the dashboard. */
+.shiba-providers-scroll {
+  background:
+    radial-gradient(circle at 24% 0%, color-mix(in srgb, var(--purple) 7%, transparent), transparent 30rem),
+    var(--card);
+}
+
 /* Five workspace areas share one contextual column with the existing surface controls. */
 .shiba-area-button { position: relative; display: flex; width: 64px; min-height: 58px; height: auto; flex-direction: column; justify-content: center; align-items: center; gap: 5px; margin-bottom: 4px; color: var(--muted-foreground-2); }
 .shiba-area-button[aria-current="page"], .shiba-area-heading[aria-current="page"], .shiba-area-link[aria-current="page"] { background: var(--secondary); color: var(--fg); }

@@ -43,9 +43,9 @@ function actionLabel(
 }
 
 const PRIMARY =
-  "inline-flex min-h-6 touch:min-h-11 items-center bg-[var(--primary)] text-[var(--primary-text)] font-mono text-[11px] font-semibold px-3 py-1.5 shadow-[var(--sh-card)] active:translate-y-px hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed";
+  "inline-flex min-h-9 touch:min-h-11 items-center rounded-full bg-[var(--primary)] px-4 py-2 font-mono text-[11px] font-semibold text-[var(--primary-text)] shadow-[var(--sh-card)] transition hover:brightness-110 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40";
 const SECONDARY =
-  "inline-flex min-h-6 touch:min-h-11 items-center border border-[var(--border-1)] bg-[var(--card)] px-2.5 py-1.5 font-mono text-[11px] font-medium text-[var(--fg)] hover:bg-[var(--secondary)] active:translate-y-px disabled:opacity-50 disabled:cursor-not-allowed";
+  "inline-flex min-h-9 touch:min-h-11 items-center rounded-full border border-[var(--border-1)] bg-[var(--card)] px-3.5 py-2 font-mono text-[11px] font-medium text-[var(--fg)] transition hover:bg-[var(--secondary)] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50";
 
 function ProviderSkeleton(): JSX.Element {
   return (
@@ -557,9 +557,9 @@ function ProviderCard({
     <article
       data-testid={`provider-card-${card.id}`}
       aria-busy={busy}
-      className="flex min-w-0 flex-col border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-card)]"
+      className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-card)] transition duration-150 hover:border-[var(--border-2)] hover:shadow-[var(--sh-overlay)]"
     >
-      <header className="flex items-center justify-between gap-3 border-b border-[var(--border-1)] bg-[var(--panel)] px-3 py-2">
+      <header className="flex items-center justify-between gap-3 border-b border-[var(--border-1)] bg-[var(--panel)] px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
           <span className="font-mono text-[10px] tabular-nums text-[var(--muted-foreground-3)]">
             {ordinal}
@@ -576,7 +576,7 @@ function ProviderCard({
         </span>
       </header>
 
-      <div className="flex flex-1 flex-col px-3 py-3">
+      <div className="flex flex-1 flex-col px-4 py-4">
         <p className="text-xs leading-relaxed text-[var(--muted-foreground-2)]">{card.blurb}</p>
         <dl data-testid={`provider-route-${card.id}`} className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 break-words text-[11px] text-[var(--muted-foreground-2)]">
           <dt>Task harness</dt><dd>{route.harness}</dd>
@@ -609,7 +609,7 @@ function ProviderCard({
         />
       </div>
 
-      <footer className="mt-auto flex min-w-0 flex-wrap gap-px border-t border-[var(--border-1)] bg-[var(--border-1)] font-mono text-[10px] text-[var(--muted-foreground-2)]">
+      <footer className="mt-auto flex min-w-0 flex-wrap gap-px rounded-b-2xl border-t border-[var(--border-1)] bg-[var(--border-1)] font-mono text-[10px] text-[var(--muted-foreground-2)]">
         <Fact label="Registry protocol" value={card.protocol.toUpperCase()} />
         <Fact label="Registry adapter" value={card.harness} />
         <Fact label="Adapter default model" value={card.defaultModel} />
@@ -687,7 +687,7 @@ function AdapterBody({
         <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
           Loading providers…
         </p>
-        <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+        <div className="grid min-w-0 gap-4 sm:grid-cols-2">
           {["a", "b", "c", "d", "e"].map((key) => (
             <ProviderSkeleton key={key} />
           ))}
@@ -700,7 +700,7 @@ function AdapterBody({
     return <EmptyState title="No adapters" detail="The registry returned no sandbox adapters." />;
   }
   return (
-    <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+    <div className="grid min-w-0 gap-4 sm:grid-cols-2">
       {providers.map((card, index) => (
         <ProviderCard
           key={card.id}
@@ -774,7 +774,7 @@ export function ProvidersBoard({
   return (
     <Container
       data-testid="providers-page"
-      className="bg-white dark:bg-zinc-900"
+      className="bg-[var(--card)]"
     >
       {!embedded ? <header className="flex h-12 min-h-[48px] shrink-0 items-center justify-between border-b border-[#e4e4e7] px-4 select-none dark:border-zinc-800">
         <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 min-w-0">
@@ -813,8 +813,8 @@ export function ProvidersBoard({
         </div>
       </header> : null}
 
-      <div className={embedded ? "" : "flex-1 overflow-y-auto p-4 lg:p-8"}>
-        <div className="mx-auto flex max-w-6xl flex-col gap-8">
+      <div className={embedded ? "" : "shiba-providers-scroll flex-1 overflow-y-auto p-4 lg:p-8"}>
+        <div className="mx-auto flex max-w-6xl flex-col gap-8 pb-10">
           {error ? <LoadErrorState message={error} onRetry={onRetry} /> : null}
           {actionError ? (
             <div data-testid="providers-action-error">
