@@ -290,6 +290,46 @@ describe("employee tool local workflow", () => {
     expect(integrations.executeTool).toHaveBeenCalledExactlyOnceWith({ ...input.args, userId: '["better-auth","owner-a"]', approvedConnectionId: 'connection:["better-auth","owner-a"]', beforeDispatch: expect.any(Function), approvedUntil: expect.any(Number) });
   });
 
+  it("grants knowledge_search through the exact workspace sentinel and preserves per-actor retrieval", async () => {
+    authState.dashboard = true;
+    const bindings = env();
+    const employee = await createCustomAgent(bindings, "self-hosted", "researcher", {
+      name: "Researcher", instructions: "Search knowledge", harness: "opencode",
+    });
+    expect((await handleEmployeeTools(policyRequest(employee.id, {
+      "mcp:shiba:knowledge_search": ["workspace"],
+    }), bindings))?.status).toBe(200);
+    await bindings.AGENT_AUDIT.prepare(
+      `INSERT INTO files (id,workspace_id,scope,name,mime,size,r2_key,sha256,created_by,version,created_at,updated_at,ingestion_state)
+       VALUES ('file-1','self-hosted','personal','brief.md','text/markdown',10,'r2-1','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','agent-a',1,1,1,'done')`,
+    ).run();
+    await bindings.AGENT_AUDIT.prepare(
+      `INSERT INTO knowledge_chunks (id,workspace_id,scope,source_kind,source_id,ordinal,text,sha256,version,created_at)
+       VALUES ('chunk-1','self-hosted','personal','file','file-1',0,'needle passage for employee knowledge','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',1,1)`,
+    ).run();
+    await bindings.AGENT_AUDIT.prepare(
+      `INSERT INTO knowledge_fts (chunk_id,workspace_id,scope,source_kind,source_id,text)
+       VALUES ('chunk-1','self-hosted','personal','file','file-1','needle passage for employee knowledge')`,
+    ).run();
+    tokenState.scopes = [...tokenState.scopes, "knowledge:read"];
+    authState.dashboard = false;
+
+    const malformed = await handleEmployeeTools(callRequest(employee.id, "knowledge_search", { query: "needle", unexpected: true }), bindings);
+    expect(malformed?.status).toBe(400);
+    const result = await handleEmployeeTools(callRequest(employee.id, "knowledge_search", { query: "needle" }), bindings);
+    expect(result?.status).toBe(200);
+    const body = await result?.json() as { ok?: boolean; result?: { content?: Array<{ text?: string }> } };
+    expect(body.ok).toBe(true);
+    expect(body.result?.content?.[0]?.text).toContain("needle passage for employee knowledge");
+    expect(body.result?.content?.[0]?.text).toContain("brief.md");
+
+    authState.dashboard = true;
+    expect((await handleEmployeeTools(policyRequest(employee.id, {}, 2), bindings))?.status).toBe(200);
+    authState.dashboard = false;
+    const denied = await handleEmployeeTools(callRequest(employee.id, "knowledge_search", { query: "needle" }), bindings);
+    expect(denied?.status).toBe(403);
+  });
+
   it("routes employee endpoints through the org-authenticated API lane", () => {
     expect(isOrgApiPath("/api/employee-tools/agent-a/policy")).toBe(true);
     expect(isOrgApiPath("/api/employee-tools/approvals/apv-1")).toBe(true);
