@@ -69,6 +69,23 @@ describe("EmployeeRuntime Durable Object", () => {
     expect(persisted.executions[0]?.status).toBe("completed");
   });
 
+  it("streams standin chat and persists the completed assistant message", async () => {
+    const { runtime } = fixture();
+    const response = await runtime.onRequest(new Request("https://do/internal/employee-runtime/chat/stream", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ profile, conversationId: "default", message: "stream hello", mode: "chat" }),
+    }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    const events = (await response.text()).trim().split("\n\n").map((event) => JSON.parse(event.slice(6)) as { type: string; text?: string; answer?: string });
+    expect(events[0]?.type).toBe("execution");
+    expect(events.filter((event) => event.type === "delta").map((event) => event.text).join("")).toContain("Synthetic employee runtime response");
+    expect(events.at(-1)).toMatchObject({ type: "done" });
+    const state = await runtime.onRequest(new Request("https://do/internal/employee-runtime/state?conversationId=default"));
+    const persisted = await state.json() as { messages: Array<{ role: string; content: string }> };
+    expect(persisted.messages.at(-1)).toMatchObject({ role: "assistant" });
+  });
+
   it("stores and retrieves employee-private memory through internal routes", async () => {
     const { runtime } = fixture();
     const write = await runtime.onRequest(new Request("https://do/internal/employee-runtime/memory", {

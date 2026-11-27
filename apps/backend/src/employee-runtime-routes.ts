@@ -71,6 +71,35 @@ async function forwardConversation(response: Response): Promise<Response> {
   }
 }
 
+function forwardStreamConversations(response: Response): Response {
+  if (!response.body) return response;
+  const decoder = new TextDecoder(), encoder = new TextEncoder();
+  let pending = "";
+  const transform = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      pending += decoder.decode(chunk, { stream: true });
+      const events = pending.split("\n\n");
+      pending = events.pop() ?? "";
+      for (const event of events) {
+        if (!event.startsWith("data: ")) { controller.enqueue(encoder.encode(`${event}\n\n`)); continue; }
+        try {
+          const decoded = decodeConversations(JSON.parse(event.slice(6)));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(decoded)}\n\n`));
+        } catch {
+          controller.enqueue(encoder.encode(`${event}\n\n`));
+        }
+      }
+    },
+    flush(controller) {
+      if (pending) controller.enqueue(encoder.encode(pending));
+    },
+  });
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "no-store");
+  headers.delete("content-length");
+  return new Response(response.body.pipeThrough(transform), { status: response.status, statusText: response.statusText, headers });
+}
+
 async function sha256Hex32(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 32);
@@ -131,9 +160,14 @@ export async function handleEmployeeRuntimeRequest(
   if (action === "state") {
     if (request.method !== "GET") return json({ ok: false, error: "method_not_allowed" }, { status: 405 });
     const url = new URL(internal);
-    const conversationId = new URL(request.url).searchParams.get("conversationId") ?? "default";
+    const incoming = new URL(request.url);
+    const conversationId = incoming.searchParams.get("conversationId") ?? "default";
     const storageId = await scopedConversationId(actorIdentity, conversationId);
     url.searchParams.set("conversationId", storageId);
+    for (const key of ["memoryLimit", "memoryOffset"]) {
+      const value = incoming.searchParams.get(key);
+      if (value) url.searchParams.set(key, value);
+    }
     return forwardConversation(await stub.fetch(url));
   }
 
@@ -154,7 +188,7 @@ export async function handleEmployeeRuntimeRequest(
   const body = await parseJson(request);
   if (body instanceof Response) return body;
 
-  if (action === "chat") {
+  if (action === "chat" || action === "chat-stream") {
     // Team inference must go through the exact funded team-model turn lane until
     // EmployeeRuntime implements the same grant/budget contract. Verification
     // standin remains available because it performs no deployment inference.
@@ -164,10 +198,11 @@ export async function handleEmployeeRuntimeRequest(
     const parsed = employeeRuntimeChatRequestSchema.safeParse(body);
     if (!parsed.success) return json({ ok: false, error: "invalid_body" }, { status: 400 });
     const storageId = await scopedConversationId(actorIdentity, parsed.data.conversationId);
-    return forwardConversation(await stub.fetch(internal, {
+    const streamed = await stub.fetch(internal, {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ ...parsed.data, conversationId: storageId, profile }),
-    }));
+    });
+    return action === "chat-stream" ? forwardStreamConversations(streamed) : forwardConversation(streamed);
   }
 
   if (action === "memory") {

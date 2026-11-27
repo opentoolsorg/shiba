@@ -12,8 +12,8 @@ type Route = { path: RegExp; required: (method: string) => EmployeeAccessLevel; 
 const settings = (method: string): EmployeeAccessLevel => ["GET", "HEAD"].includes(method) ? "view" : "manage";
 export const employeeRouteAuth: readonly Route[] = [
   { path: /^\/api\/custom-agents\/([^/]+)\/runtime\/recover\/?$/, required: () => "manage", source: "path" },
-  { path: /^\/api\/custom-agents\/([^/]+)\/runtime\/(chat|state|memory|memory\/search|memory\/update|memory\/delete|cancel)\/?$/, required: (method) => method === "GET" ? "view" : "chat", source: "path" },
-  { path: /^\/api\/v1\/org-agents\/([^/]+)\/runtime\/(chat|state|memory|memory\/search|memory\/update|memory\/delete|cancel)\/?$/, required: (method) => method === "GET" ? "view" : "chat", source: "path" },
+  { path: /^\/api\/custom-agents\/([^/]+)\/runtime\/(chat\/stream|chat|state|memory|memory\/search|memory\/update|memory\/delete|cancel)\/?$/, required: (method) => method === "GET" ? "view" : "chat", source: "path" },
+  { path: /^\/api\/v1\/org-agents\/([^/]+)\/runtime\/(chat\/stream|chat|state|memory|memory\/search|memory\/update|memory\/delete|cancel)\/?$/, required: (method) => method === "GET" ? "view" : "chat", source: "path" },
   { path: /^\/api\/custom-agents\/([^/]+)(?:\/.*)?$/, required: settings, source: "path" },
   { path: /^\/api\/employee-tools\/(?!approvals(?:\/|$))([^/]+)\/(policy|call)\/?$/, required: settings, source: "path" },
   { path: /^\/api\/governance\/employees\/([^/]+)\/access\/?$/, required: settings, source: "path" },

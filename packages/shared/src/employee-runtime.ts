@@ -94,3 +94,9 @@ export interface EmployeeRuntimeChatResponse {
   message: EmployeeRuntimeMessage;
   answer: string;
 }
+
+export type EmployeeRuntimeStreamEvent =
+  | { type: "execution"; execution: EmployeeRuntimeExecution }
+  | { type: "delta"; text: string }
+  | { type: "done"; execution: EmployeeRuntimeExecution; message: EmployeeRuntimeMessage; answer: string }
+  | { type: "error"; error: string; execution?: EmployeeRuntimeExecution };
