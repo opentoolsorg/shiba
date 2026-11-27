@@ -697,7 +697,8 @@ describe("account-scoped employee directory", () => {
 
   it("shows the employee's active queue oldest-first and cancels board tasks", async () => {
     const agent: CustomAgentWire = { id: "eng-1", slug: "builder", version: 1, config: { name: "Builder", instructions: "Build.", harness: "opencode" } };
-    stubWorkspaceDirectory([agent]);
+    const reviewer: CustomAgentWire = { id: "eng-2", slug: "reviewer", version: 1, config: { name: "Reviewer", instructions: "Review.", harness: "opencode" } };
+    stubWorkspaceDirectory([agent, reviewer]);
     const boardId = `task_${"a".repeat(24)}`;
     const handoff = {
       id: "handoff-1", workspaceId: designWorkspace, roomId: "room-1", roomTitle: "Launch room", title: "Approval handoff",
@@ -725,6 +726,8 @@ describe("account-scoped employee directory", () => {
     expect(queue.textContent!.indexOf("First board task")).toBeLessThan(queue.textContent!.indexOf("Second board task"));
     fireEvent.click(within(queue).getAllByRole("button", { name: "Cancel" })[0]!);
     expect(onUpdateSharedTask).toHaveBeenCalledWith(older.id, { status: "cancelled" });
+    fireEvent.change(within(queue).getByLabelText("Reassign First board task"), { target: { value: "eng-2" } });
+    expect(onUpdateSharedTask).toHaveBeenCalledWith(older.id, { ownerId: "agent:eng-2" });
     fireEvent.click(within(queue).getByRole("button", { name: "Approval handoff" }));
     expect(onOpenSharedTask).toHaveBeenCalledWith(handoff);
     fireEvent.change(within(queue).getByLabelText("Queue work for Builder"), { target: { value: "Draft launch notes" } });

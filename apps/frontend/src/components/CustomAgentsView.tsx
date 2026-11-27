@@ -851,9 +851,15 @@ function ScopedCustomAgentsView({
                               <span className="capitalize text-[var(--muted-foreground-2)]">{task.status.replaceAll("-", " ")}</span>
                               <span className="text-[var(--muted-foreground-3)]">{task.roomTitle || "Board"}</span>
                               {onUpdateSharedTask && canCancelBoardTask(task) ? (
-                                <button type="button" onClick={() => void onUpdateSharedTask(task.id, { status: "cancelled" })} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--destructive)]/40 px-2 text-[11px] text-[var(--destructive)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">
-                                  Cancel
-                                </button>
+                                <>
+                                  <label className="sr-only" htmlFor={`reassign-${task.id}`}>Reassign {task.title}</label>
+                                  <select id={`reassign-${task.id}`} value={selectedAgent.id} disabled={!agents || agents.length < 2} onChange={(event) => void onUpdateSharedTask(task.id, { ownerId: `agent:${event.target.value}` })} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)] px-2 text-[11px] text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] disabled:opacity-50">
+                                    {(agents ?? []).filter((agent) => !agent.archivedAt).map((agent) => <option key={agent.id} value={agent.id}>{agent.config.name}</option>)}
+                                  </select>
+                                  <button type="button" onClick={() => void onUpdateSharedTask(task.id, { status: "cancelled" })} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--destructive)]/40 px-2 text-[11px] text-[var(--destructive)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">
+                                    Cancel
+                                  </button>
+                                </>
                               ) : null}
                             </li>
                           ))}
