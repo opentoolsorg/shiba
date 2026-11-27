@@ -4,8 +4,7 @@ import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { createTeamWorkspace, getTeamWorkspaceMembership } from "../src/team-workspaces-store.js";
 import { createFounderReconciliation, composeFounderReconciliation } from "../src/founder-reconciliation-store.js";
 import { handleFounderReconciliations } from "../src/founder-reconciliation-routes.js";
-import { FOUNDER_HUBSPOT_EXECUTOR_DIGEST } from "../src/founder-hubspot-generated.js";
-import type { StripeEnv } from "../src/founder-stripe-store.js";
+import { executorDigest,type FounderReadsEnv as StripeEnv } from "../src/founder/reads/index.js";
 import type { WorkspaceNativeMember } from "../src/workspace-native-authority.js";
 
 const state = vi.hoisted(() => ({ proof: null as unknown, member: null as WorkspaceNativeMember | null, session: null as { id: string; expiresAt: number } | null }));
@@ -32,7 +31,7 @@ async function fixture() {
   const input = { hubspot: { grantId: `fhc_${"a".repeat(32)}`, grantVersion: 1, occurrenceId: `fhr_${"b".repeat(32)}`, sourceOrdinal: 0 }, stripe: { grantId: `fsc_${"a".repeat(32)}`, receiptId: `fsr_${"b".repeat(32)}` }, mapping: { invoiceIdProperty: "invoice_id", paidAmountProperty: "paid", currencyProperty: "currency", amountUnit: "major-decimal", basisAttestation: "crm-property-represents-stripe-invoice-amount-paid" }, expiresAt };
   state.proof = {
     sources: {
-      hubspot: { kind: "native-hubspot", accountId: "123", currency: "USD", timezoneName: "UTC", ...input.hubspot, dealIds: ["1"], reportHash: hash, resultDigest: hash, connectionId: "connection", connectionVersion: 1, capturedAt: Date.now(), runtimeVersionId: "native-hubspot.v1", manifestDigest: FOUNDER_HUBSPOT_EXECUTOR_DIGEST, executorHash: hash, expiresAt: expiresAt + 1000 },
+      hubspot: { kind: "native-hubspot", accountId: "123", currency: "USD", timezoneName: "UTC", ...input.hubspot, dealIds: ["1"], reportHash: hash, resultDigest: hash, connectionId: "connection", connectionVersion: 1, capturedAt: Date.now(), runtimeVersionId: "native-hubspot.v1", manifestDigest: executorDigest("hubspot"), executorHash: hash, expiresAt: expiresAt + 1000 },
       stripe: { ...input.stripe, resultDigest: hash, grantRevision: 1, accountId: "acct_Fixture", mode: "test", executorDigest: hash, capturedAt: Date.now(), createdGte: asOf - 28 * 86400, createdLt: asOf, hasMore: false, expiresAt: expiresAt + 1000 },
     },
     deals: [{ dealId: "1", properties: { invoice_id: "in_A", paid: "10.00", currency: "USD" } }],
