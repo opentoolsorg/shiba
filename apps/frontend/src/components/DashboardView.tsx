@@ -135,7 +135,6 @@ export function DashboardView({
     return { employee, assigned, needsViewer, working, status: working ? "working" as const : needsViewer ? "needs-approval" as const : "idle" as const };
   }), [employees, openSharedTasks, runs]);
   const workingEmployeeCount = employeeRows.filter((row) => row.working > 0).length;
-  const dashboardTitle = scope === "workspace" ? workspaceName ?? "Workspace" : "Dashboard";
   const visibleSharedTasks = openSharedTasks.slice(0, 6);
   const nextStep =
     approvalCount > 0
@@ -212,7 +211,7 @@ export function DashboardView({
           <section className="shiba-dashboard-heading" aria-labelledby="dashboard-title">
             <div className="min-w-0">
               <p className="shiba-overview-eyebrow">{scope === "workspace" ? "Employee workspace" : "Workspace overview"}</p>
-              <h1 id="dashboard-title">{dashboardTitle}</h1>
+              <h1 id="dashboard-title">Dashboard</h1>
               <p className="shiba-overview-description">
                 Your work, decisions, and agents. One place to see what happens next.
               </p>
@@ -519,7 +518,7 @@ export function DashboardView({
                   <div>
                     <h2 id="dashboard-agents-title">AI employees</h2>
                     <p>
-                      {employees.length ? `${workingEmployeeCount}/${employees.length} assigned to active runs` : `${liveAgents}/${agents.length} MCP principals live`}
+                      {employees.length ? `${workingEmployeeCount}/${employees.length} working · your employee roster` : `${liveAgents}/${agents.length} MCP principals live`}
                     </p>
                   </div>
                 </header>
@@ -539,7 +538,7 @@ export function DashboardView({
                             <span className="block truncate text-[11px] text-[var(--muted-foreground-2)]">{employee.role}</span>
                           </span>
                           <span className="text-right text-[11px] text-[var(--muted-foreground-2)]">
-                            {working ? "working" : needsViewer ? "needs review" : "ready"}
+                            {working ? `${working} working` : needsViewer ? `${needsViewer} review` : `${assigned.length} open`}
                           </span>
                         </button>
                       </li>
