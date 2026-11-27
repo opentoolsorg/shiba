@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { ESLint } from "eslint";
 
@@ -22,12 +22,11 @@ test("packages must not reach into apps or into another package's source", async
   assert.deepEqual(await restricted("packages/auth/test/example.test.ts", 'import { x } from "../src/index.js";\n'), []);
 });
 
-test("lint:imports covers the source of every workspace", () => {
+test("lint:imports discovers workspace sources without shell glob expansion", () => {
   const script = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).scripts["lint:imports"];
-  for (const group of ["apps", "packages"]) {
-    for (const name of readdirSync(new URL(`../${group}/`, import.meta.url))) {
-      if (!existsSync(new URL(`../${group}/${name}/src`, import.meta.url))) continue;
-      assert.match(script, new RegExp(`(^|\\s)${group}/\\*/src(\\s|$)`), `${group}/${name}/src is not linted`);
-    }
-  }
+  assert.match(script, /node scripts\/lint-imports\.mjs/);
+  const runner = readFileSync(new URL("../scripts/lint-imports.mjs", import.meta.url), "utf8");
+  assert.match(runner, /readdirSync\("apps"/);
+  assert.match(runner, /readdirSync\("packages"/);
+  assert.match(runner, /packages\/\$\{entry\.name\}\/test/);
 });
