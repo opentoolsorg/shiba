@@ -21,10 +21,10 @@ describe("bot avatar editor", () => {
     expect(gallery.querySelector(`button[title="${AGENT_AVATAR_VARIANTS[2]!.label}"]`)?.getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("saves the variant and coat the person picked", async () => {
+  it("saves the variant and shell the person picked", async () => {
     const onSave = save();
     render(<BotAvatarEditor name="Scout" onSave={onSave} onCancel={cancel} />);
-    fireEvent.click(screen.getByRole("button", { name: "Coat 5" }));
+    fireEvent.click(screen.getByRole("button", { name: "Shell 5" }));
     fireEvent.click(screen.getByRole("tab", { name: "Icons" }));
     const icon = screen.getByRole("tabpanel", { name: "Icons" }).querySelector("button")!;
     fireEvent.click(icon);

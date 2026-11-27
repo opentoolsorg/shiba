@@ -76,7 +76,7 @@ it("applies the entire migration history to fresh local D1 and covers queried ta
           if (ts.isCallExpression(node) && node.expression.getText(ast).endsWith(".prepare")) {
             const argument = node.arguments[0];
             const sql = argument?.getText(ast) ?? "";
-            const ctes = new Set([...sql.matchAll(/(?:WITH|,)\s+(\w+)\s+AS\s*\(/gi)].map(match => match[1]));
+            const ctes = new Set([...sql.matchAll(/(?:WITH(?:\s+RECURSIVE)?|,)\s+(\w+)(?:\s*\([^)]*\))?\s+AS\s*\(/gi)].map(match => match[1]));
             for (const match of sql.matchAll(/\b(?:FROM|JOIN|INTO|UPDATE)\s+["`]?([a-z_][a-z_0-9]*)/g)) {
               const table = match[1] ?? "";
               if (!tables.has(table) && !ctes.has(table) && !["sqlite_master", "sqlite_schema", "json_each", "json_tree"].includes(table)) missing.add(`${table} (${file.slice(root.length + 1)})`);

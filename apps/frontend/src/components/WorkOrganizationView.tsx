@@ -45,6 +45,8 @@ export interface WorkOrganizationViewProps {
   /** Client-side navigation to the approvals queue; the link is hidden where that queue is unavailable (team scope). */
   onOpenApprovals?: () => void;
   onOpenChief?: () => void;
+  /** Personal-only: opens the Chief of Staff page. */
+  onOpenChiefPage?: () => void;
   onHireEmployee?: () => void;
   onOpenOutputs?: () => void;
   user?: OrganizationUser;
@@ -94,6 +96,7 @@ export function WorkOrganizationView({
   onOpen,
   onOpenApprovals,
   onOpenChief,
+  onOpenChiefPage,
   onHireEmployee,
   onOpenOutputs,
   user,
@@ -141,6 +144,7 @@ export function WorkOrganizationView({
             <p className={`truncate text-xs ${MUTED}`}>{workspaceLabel}</p>
             <p className={`truncate text-xs ${MUTED}`}>Workspace chief of staff</p>
             {onOpenChief ? <button type="button" onClick={onOpenChief} className="mt-1 inline-flex min-h-11 items-center text-xs text-[var(--primary)] underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">Open conversation</button> : null}
+            {onOpenChiefPage ? <button type="button" onClick={onOpenChiefPage} className="ml-3 mt-1 inline-flex min-h-11 items-center text-xs text-[var(--primary)] underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">Chief of Staff page</button> : null}
           </div>
         </div>
 

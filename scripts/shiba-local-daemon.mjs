@@ -1072,9 +1072,15 @@ async function readConfig() {
 
 async function writeConfig(config) {
   await fs.mkdir(runRoot, { recursive: true, mode: 0o700 });
-  await fs.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
-  // mode only applies on create; re-pairing over an old file must tighten it too.
-  await fs.chmod(configPath, 0o600);
+  const temporary = `${configPath}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(temporary, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+    // mode only applies on create; re-pairing over an old file must tighten it too.
+    await fs.chmod(temporary, 0o600);
+    await fs.rename(temporary, configPath);
+  } finally {
+    await fs.rm(temporary, { force: true }).catch(() => {});
+  }
 }
 
 async function localMachineId() {

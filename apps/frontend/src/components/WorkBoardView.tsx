@@ -229,7 +229,7 @@ export function WorkBoardView({
       aria-label="Work board"
       className={`flex min-h-0 w-full flex-1 flex-col ${className}`.trim()}
     >
-      <div className="flex min-h-0 flex-1 snap-x gap-3 overflow-x-auto p-4">
+      <div className="flex min-h-0 min-w-0 max-w-full flex-1 snap-x snap-mandatory gap-3 overflow-x-auto p-4">
         {columns.map((col) => {
           const colTasks = normalized.filter((t) => (execution ? deriveKanbanColumn(t.status) : boardColumn(t.status)) === col.id);
           const isOver = overColumn === col.id;
@@ -238,7 +238,7 @@ export function WorkBoardView({
               key={col.id}
               aria-label={col.label}
               data-testid={`board-column-${col.id}`}
-              className={`flex w-[min(17rem,calc(100vw-3rem))] shrink-0 snap-start flex-col rounded-xl p-2 motion-safe:transition-colors ${isOver ? "bg-zinc-100 dark:bg-zinc-800/60" : "bg-zinc-50/80 dark:bg-zinc-900/40"}`}
+              className={`flex w-[min(17rem,85vw)] shrink-0 snap-start flex-col rounded-xl p-2 motion-safe:transition-colors ${isOver ? "bg-zinc-100 dark:bg-zinc-800/60" : "bg-zinc-50/80 dark:bg-zinc-900/40"}`}
               {...(execution ? {} : dropProps(col.id as WorkListGroup))}
             >
               <h3 className="flex items-center gap-2 px-1.5 pb-2 pt-1 text-xs font-semibold text-zinc-900 select-none dark:text-zinc-100">

@@ -1,13 +1,47 @@
-import { getHubSpotGrant,hubspotAvailable,validHubSpotContract,type HubSpotGrantRow } from "./founder-hubspot-store.js";
-import { getStripeGrant,stripeAvailable,validStripeContract,type StripeEnv,type StripeGrantRow } from "./founder-stripe-store.js";
-import { membershipSql,WorkspaceIntegrationError } from "../workspace-integrations-store.js";
+import { pinGrant, grantFence, type GrantPin } from "./reads/index.js";
+import { membershipSql, WorkspaceIntegrationError } from "../workspace-integrations-store.js";
 import type { WorkspaceNativeMember } from "../workspace-native-authority.js";
-import { FOUNDER_SQL_NOW } from "./founder-connector-context.js";
-export interface GrantSnapshot {id:string;workspace_id:string;owner_id:string;owner_account_id:string;owner_json:string;account_id:string;revision:number;expires_at:number;fingerprint:string;selection_json:string;contract_digest:string;executor_digest:string;max_calls:number;currency?:string|null;timezone_name?:string|null;mode?:string}
-const fail=():never=>{throw new WorkspaceIntegrationError("reconciliation_schedule_source_changed",409);};
-function snapshot(row:HubSpotGrantRow|StripeGrantRow,kind:"hubspot"|"stripe"):GrantSnapshot {const base={id:row.id,workspace_id:row.workspace_id,owner_id:row.owner_id,owner_account_id:row.owner_account_id,owner_json:row.owner_json,account_id:row.account_id,revision:row.revision,expires_at:row.expires_at,fingerprint:row.fingerprint,selection_json:row.selection_json,contract_digest:row.contract_digest,executor_digest:row.executor_digest,max_calls:row.max_calls};return kind==="hubspot"?{...base,currency:(row as HubSpotGrantRow).currency,timezone_name:(row as HubSpotGrantRow).timezone_name}:{...base,mode:(row as StripeGrantRow).mode};}
+import type { FounderReadsEnv } from "./reads/index.js";
+
+export interface GrantSnapshot { id:string;workspace_id:string;owner_id:string;owner_account_id:string;owner_json:string;account_id:string;revision:number;expires_at:number;fingerprint:string;selection_json:string;contract_digest:string;executor_digest:string;max_calls:number;currency?:string|null;timezone_name?:string|null;mode?:string }
+const fail = (): never => { throw new WorkspaceIntegrationError("reconciliation_schedule_source_changed", 409); };
+
+function snapshot(pin: GrantPin<"hubspot">): GrantSnapshot;
+function snapshot(pin: GrantPin<"stripe">): GrantSnapshot;
+function snapshot(pin: GrantPin<"hubspot" | "stripe">): GrantSnapshot {
+  const base = { id:pin.grantId,workspace_id:pin.workspaceId,owner_id:pin.ownerId,owner_account_id:pin.ownerAccountId,owner_json:pin.ownerJson,account_id:pin.accountId,revision:pin.revision,expires_at:pin.expiresAt,fingerprint:pin.fingerprint,selection_json:pin.selectionJson,contract_digest:pin.contractDigest,executor_digest:pin.executorDigest,max_calls:pin.maxCalls };
+  if(pin.provider==="hubspot"&&!("mode" in pin.facts))return{...base,currency:pin.facts.currency,timezone_name:pin.facts.timezoneName};
+  if(pin.provider==="stripe"&&"mode" in pin.facts)return{...base,mode:pin.facts.mode};
+  return fail();
+}
+
 function sameOwner(row:string,member:WorkspaceNativeMember){const value=JSON.parse(row) as WorkspaceNativeMember;return value.workspaceId===member.workspaceId&&value.accountId===member.accountId&&value.userId===member.userId&&value.role===member.role&&value.version===member.version;}
-export async function currentScheduleGrants(env:StripeEnv,member:WorkspaceNativeMember,hubId:string,stripeId:string,capacity:boolean){stripeAvailable(env);hubspotAvailable(env);const hub=await getHubSpotGrant(env,member,hubId),stripe=await getStripeGrant(env,member,stripeId);if(!hub||!stripe||!await validHubSpotContract(hub)||!await validStripeContract(stripe)||!sameOwner(hub.owner_json,member)||!sameOwner(stripe.owner_json,member)||!hub.currency||!hub.timezone_name||JSON.parse(stripe.selection_json).kind!=="invoices")return fail();const permitted=(row:HubSpotGrantRow|StripeGrantRow)=>capacity?row.state==="enabled"&&row.used_calls<row.max_calls:["enabled","exhausted"].includes(row.state);if(!permitted(hub)||!permitted(stripe)||Date.now()>=Math.min(hub.expires_at,stripe.expires_at))return fail();return{hub:snapshot(hub,"hubspot"),stripe:snapshot(stripe,"stripe")};}
-/** Constant SQL and two opaque, server-created JSON snapshots; no dynamic SQL or caller predicates. */
-export function frozenGrantsGuard(member:WorkspaceNativeMember,hubJson:string,stripeJson:string,capacity:boolean){const owner=membershipSql(member,true);const predicate=(table:string,extra:string)=>`EXISTS(SELECT 1 FROM (SELECT ? AS doc) frozen JOIN ${table} g ON g.id=json_extract(frozen.doc,'$.id') WHERE g.workspace_id=json_extract(frozen.doc,'$.workspace_id') AND g.owner_id=json_extract(frozen.doc,'$.owner_id') AND g.owner_account_id=json_extract(frozen.doc,'$.owner_account_id') AND g.owner_json=json_extract(frozen.doc,'$.owner_json') AND g.account_id=json_extract(frozen.doc,'$.account_id') AND g.revision=json_extract(frozen.doc,'$.revision') AND g.expires_at=json_extract(frozen.doc,'$.expires_at') AND g.expires_at>${FOUNDER_SQL_NOW} AND g.fingerprint=json_extract(frozen.doc,'$.fingerprint') AND g.selection_json=json_extract(frozen.doc,'$.selection_json') AND g.contract_digest=json_extract(frozen.doc,'$.contract_digest') AND g.executor_digest=json_extract(frozen.doc,'$.executor_digest') AND g.max_calls=json_extract(frozen.doc,'$.max_calls') AND ${capacity?"g.state='enabled' AND g.used_calls<g.max_calls":"g.state IN ('enabled','exhausted')"} AND ${extra})`;
- return{sql:`${owner.sql} AND ${predicate("founder_hubspot_read_grants","g.currency IS json_extract(frozen.doc,'$.currency') AND g.timezone_name IS json_extract(frozen.doc,'$.timezone_name')")} AND ${predicate("founder_stripe_read_grants","g.mode=json_extract(frozen.doc,'$.mode')")}`,values:[...owner.values,hubJson,stripeJson]};}
+
+export async function currentScheduleGrants(env:FounderReadsEnv,member:WorkspaceNativeMember,hubId:string,stripeId:string,capacity:boolean){
+  const need = capacity ? "capacity" : "serving";
+  const [hubPin,stripePin] = await Promise.all([
+    pinGrant(env,member,{provider:"hubspot",grantId:hubId,need}),
+    pinGrant(env,member,{provider:"stripe",grantId:stripeId,need}),
+  ]);
+  if(!hubPin||!stripePin||!hubPin.facts.currency||!hubPin.facts.timezoneName||JSON.parse(stripePin.selectionJson).kind!=="invoices"||!sameOwner(hubPin.ownerJson,member)||!sameOwner(stripePin.ownerJson,member))return fail();
+  return {hub:snapshot(hubPin),stripe:snapshot(stripePin)};
+}
+
+function snapshotPin(provider:"hubspot"|"stripe",value:string,member:WorkspaceNativeMember):GrantPin<"hubspot"|"stripe"> {
+  const row=JSON.parse(value) as GrantSnapshot;
+  if(!sameOwner(row.owner_json,member)||!row.fingerprint) return fail();
+  const common={v:1 as const,provider,grantId:row.id,revision:row.revision,workspaceId:row.workspace_id,ownerId:row.owner_id,ownerAccountId:row.owner_account_id,ownerJson:row.owner_json,accountId:row.account_id,fingerprint:row.fingerprint,contractDigest:row.contract_digest,executorDigest:row.executor_digest,selectionJson:row.selection_json,expiresAt:row.expires_at,maxCalls:row.max_calls};
+  if(provider==="hubspot") {
+    if(row.currency===undefined||row.timezone_name===undefined)return fail();
+    return {...common,provider,facts:{currency:row.currency,timezoneName:row.timezone_name}} as GrantPin<"hubspot">;
+  }
+  if(row.mode!=="live"&&row.mode!=="test")return fail();
+  return {...common,provider,facts:{mode:row.mode}} as GrantPin<"stripe">;
+}
+
+/** Opaque JSON snapshots retain the durable migration-0076 shape; SQL uses the engine's closed table fences. */
+export function frozenGrantsGuard(member:WorkspaceNativeMember,hubJson:string,stripeJson:string,capacity:boolean){
+  const hub=snapshotPin("hubspot",hubJson,member),stripe=snapshotPin("stripe",stripeJson,member),need=capacity?"capacity":"serving";
+  const ownerFence=membershipSql(member,true),hubFence=grantFence(hub,need),stripeFence=grantFence(stripe,need);
+  return {sql:`${ownerFence.sql} AND ${hubFence.sql} AND ${stripeFence.sql}`,values:[...ownerFence.values,...hubFence.values,...stripeFence.values]};
+}

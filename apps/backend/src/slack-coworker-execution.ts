@@ -107,7 +107,7 @@ function sessionGuard(member: WorkspaceNativeMember, session: SlackCoworkerSessi
 function parsed(row: Row) {
   return JSON.parse(row.preview_json) as SlackCoworkerPreview;
 }
-async function current(env: Env, row: Row, withSession?: SlackCoworkerSession): Promise<boolean> {
+async function current(env: Env, row: Row, withSession?: SlackCoworkerSession, rejectedHandoff = false): Promise<boolean> {
   try {
     if (env.SLACK_INSTALLATIONS_ENABLED?.trim() !== "true") return false;
     const m = JSON.parse(row.member_json) as WorkspaceNativeMember,
@@ -143,7 +143,7 @@ async function current(env: Env, row: Row, withSession?: SlackCoworkerSession): 
     AND EXISTS(SELECT 1 FROM org_custom_agents a JOIN org_custom_agent_versions v ON v.org_id=a.org_id AND v.agent_id=a.id WHERE a.org_id=? AND a.id=? AND a.deleted_at IS NULL AND a.archived_at IS NULL AND a.version=? AND v.version=? AND v.config_json=?)
     AND EXISTS(SELECT 1 FROM personal_execution_grants pg WHERE pg.grant_id=? AND pg.owner_account_id=? AND pg.workspace_id=? AND pg.status='active' AND pg.version=? AND pg.snapshot_json=? AND pg.scope_json=? AND pg.expires_at>${nowSql})
     AND EXISTS(SELECT 1 FROM slack_coworker_execution_v2 v WHERE v.id=? AND v.state=? AND v.preview_json=? AND v.digest=? AND v.member_json=? AND v.scope_json=? AND v.audience_json=? AND v.profile_json=? AND v.approval_id IS ? AND v.frozen_task_hash IS ?)
-    AND (? IN ('preview','dispatching') OR EXISTS(SELECT 1 FROM collaboration_handoffs h WHERE h.tenant_id='self-hosted' AND h.workspace_id=? AND h.handoff_id=? AND h.room_id=? AND h.status='active' AND h.sender_user_id=? AND h.sender_actor_id=? AND h.recipient_actor_id=? AND h.recipient_user_id=? AND h.profile_version=? AND h.parent_handoff_id IS NULL AND h.root_handoff_id=? AND h.approval_id IS ?))`)
+    AND (? IN ('preview','dispatching') OR EXISTS(SELECT 1 FROM collaboration_handoffs h WHERE h.tenant_id='self-hosted' AND h.workspace_id=? AND h.handoff_id=? AND h.room_id=? AND h.status='${rejectedHandoff ? "cancelled" : "active"}' AND h.sender_user_id=? AND h.sender_actor_id=? AND h.recipient_actor_id=? AND h.recipient_user_id=? AND h.profile_version=? AND h.parent_handoff_id IS NULL AND h.root_handoff_id=? AND h.approval_id IS ?))`)
         .bind(
           row.draft_id,
           p.task,
@@ -549,6 +549,7 @@ export async function isSlackCoworkerV2Current(
   task?: string,
   approvalId?: string,
   personalExecution?: unknown,
+  rejectedHandoff = false,
 ): Promise<boolean> {
   try {
     const row = await env.AGENT_AUDIT.prepare(
@@ -558,7 +559,7 @@ export async function isSlackCoworkerV2Current(
       .first<Row>();
     if (!row) return false;
     const p = parsed(row);
-    if (p.actorId !== scope.userId || p.roomId !== roomId || !(await current(env, row)))
+    if (p.actorId !== scope.userId || p.roomId !== roomId || !(await current(env, row, undefined, rejectedHandoff)))
       return false;
     const h = await env.AGENT_AUDIT.prepare(
       "SELECT * FROM collaboration_handoffs WHERE tenant_id='self-hosted' AND workspace_id=? AND handoff_id=?",
@@ -567,7 +568,7 @@ export async function isSlackCoworkerV2Current(
       .first<Record<string, unknown>>();
     if (
       !h ||
-      h.status !== "active" ||
+      h.status !== (rejectedHandoff ? "cancelled" : "active") ||
       h.room_id !== roomId ||
       h.sender_user_id !== scope.userId ||
       h.sender_actor_id !== humanActorId(scope.userId) ||
@@ -605,7 +606,7 @@ export async function isSlackCoworkerV2Current(
       )
         return false;
     }
-    return await current(env, row);
+    return await current(env, row, undefined, rejectedHandoff);
   } catch {
     return false;
   }

@@ -23,6 +23,7 @@ export interface TeamWorkItem {
     | "cancelled"
     | "unknown";
   updatedAt: number;
+  createdAt?: number;
   runId?: string;
   approvalRequired?: boolean;
   /** Current-viewer permission projected by the server; this UI never decides approvals. */

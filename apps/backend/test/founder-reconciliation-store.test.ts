@@ -2,7 +2,7 @@ import { afterEach,describe,expect,it,vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 import { createTeamWorkspace,getTeamWorkspaceMembership } from "../src/team-workspaces-store.js";
-import type { StripeEnv } from "../src/founder-stripe-store.js";
+import type { FounderReadsEnv as StripeEnv } from "../src/founder/reads/index.js";
 import { createFounderReconciliation,composeFounderReconciliation,readFounderReconciliation,revokeFounderReconciliation } from "../src/founder-reconciliation-store.js";
 const fixtureProof=vi.hoisted(()=>({value:null as unknown}));
 vi.mock("../src/founder/founder-reconciliation-sources.js",()=>({loadReconciliationSources:async()=>fixtureProof.value}));

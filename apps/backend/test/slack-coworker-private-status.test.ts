@@ -316,6 +316,24 @@ describe("private Slack status outbox", () => {
     await tickSlackCoworkerPrivateStatus(f.env, { fetch: http });
     expect(calls.filter((c) => c.url.endsWith("chat.postEphemeral"))).toHaveLength(1);
   });
+  it("posts the private rejection notice after the exact handoff closes", async () => {
+    const f = await readyStatus();
+    state.approval = { ...state.approval, status: "rejected", decidedBy: OWNER, decidedAt: 4 };
+    f.sqlite
+      .prepare("UPDATE collaboration_handoffs SET status='cancelled',cancelled_at=? WHERE handoff_id=?")
+      .run(4, f.claim.handoffId);
+    const bodies: string[] = [];
+    const http: typeof fetch = async (input, init) => {
+      if (String(input).endsWith("auth.test")) return auth();
+      bodies.push(String(init?.body ?? ""));
+      return Response.json({ ok: true, message_ts: "1.2" });
+    };
+    await tickSlackCoworkerPrivateStatus(f.env, { fetch: http });
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toContain("was rejected");
+    expect(bodies[0]).not.toContain("awaiting your review");
+  });
+
   it.each(["source", "installation"])(
     "blocks revoked %s during auth.test before posting",
     async (kind) => {
