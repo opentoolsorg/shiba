@@ -629,10 +629,9 @@ export default Alchemy.Stack(
       settings: { batchSize: 10, maxRetries: 3 },
     });
     // The sibling is deployed separately from unmodified upstream source.
-    const openConnectorWorker = process.env.OPEN_CONNECTOR_WORKER ?? "shiba-openconnector";
-    if (!isPreview && openConnectorWorker) {
+    if (!isPreview && process.env.OPEN_CONNECTOR_WORKER) {
       yield* worker.bind`OPEN_CONNECTOR`({
-        bindings: [{ type: "service", name: "OPEN_CONNECTOR", service: openConnectorWorker }],
+        bindings: [{ type: "service", name: "OPEN_CONNECTOR", service: process.env.OPEN_CONNECTOR_WORKER }],
       });
     }
     // Optional reviewed read-gateway service; this binding creates no sibling or credential.
