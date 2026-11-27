@@ -32,6 +32,20 @@ export const employeeRuntimeMemoryWriteSchema = z.object({
 });
 export type EmployeeRuntimeMemoryWrite = z.infer<typeof employeeRuntimeMemoryWriteSchema>;
 
+export const employeeRuntimeMemoryUpdateSchema = z.object({
+  memoryId: z.string().trim().min(1).max(128),
+  conversationId: z.string().trim().min(1).max(128).optional(),
+  content: z.string().trim().min(1).max(8000).optional(),
+  essential: z.boolean().optional(),
+}).refine((value) => value.content !== undefined || value.essential !== undefined, { message: "content or essential is required" });
+export type EmployeeRuntimeMemoryUpdateRequest = z.infer<typeof employeeRuntimeMemoryUpdateSchema>;
+
+export const employeeRuntimeMemoryDeleteSchema = z.object({
+  memoryId: z.string().trim().min(1).max(128),
+  conversationId: z.string().trim().min(1).max(128).optional(),
+});
+export type EmployeeRuntimeMemoryDeleteRequest = z.infer<typeof employeeRuntimeMemoryDeleteSchema>;
+
 export const employeeRuntimeCancelSchema = z.object({
   executionId: z.string().trim().min(1).max(128),
   conversationId: z.string().trim().min(1).max(128).default("default"),

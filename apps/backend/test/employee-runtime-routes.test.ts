@@ -163,4 +163,18 @@ describe("employee runtime routes", () => {
     expect(response?.status).toBe(200);
     expect(calls).toHaveLength(1);
   });
+  it("scopes thread memory mutations before forwarding them", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const env = runtimeEnv(calls);
+    const agent = await createCustomAgent(env, "self-hosted", "memory-scout", { name: "Scout", instructions: "Answer carefully." });
+    const response = await handleCustomAgents(post(`/${agent.id}/runtime/memory/update`, {
+      memoryId: "mem_1", conversationId: "private-thread", content: "Updated fact",
+    }), env);
+    expect(response?.status).toBe(200);
+    expect(calls[0]?.url).toBe("https://internal/internal/employee-runtime/memory/update");
+    const forwarded = JSON.parse(String(calls[0]?.init?.body)) as { conversationId: string };
+    expect(forwarded.conversationId).toMatch(/^u_[a-f0-9]{32}_[A-Za-z0-9_-]+$/);
+    expect(forwarded.conversationId).not.toBe("private-thread");
+  });
+
 });

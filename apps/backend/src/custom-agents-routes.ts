@@ -53,7 +53,7 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
     }
   }
 
-  const runtimeRoute = url.pathname.match(/^\/api\/custom-agents\/([^/]+)\/runtime\/(chat|state|memory|memory\/search|cancel|recover)\/?$/);
+  const runtimeRoute = url.pathname.match(/^\/api\/custom-agents\/([^/]+)\/runtime\/(chat|state|memory|memory\/search|memory\/update|memory\/delete|cancel|recover)\/?$/);
   if (runtimeRoute) {
     let runtimeAgentId: string;
     try {
@@ -62,7 +62,7 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
       return Response.json({ ok: false, error: "invalid_agent_id" }, { status: 400 });
     }
     if (/[/\\]/.test(runtimeAgentId)) return Response.json({ ok: false, error: "invalid_agent_id" }, { status: 400 });
-    const action = runtimeRoute[2] === "memory/search" ? "memory-search" : runtimeRoute[2]!;
+    const action = runtimeRoute[2] === "memory/search" ? "memory-search" : runtimeRoute[2] === "memory/update" ? "memory-update" : runtimeRoute[2] === "memory/delete" ? "memory-delete" : runtimeRoute[2]!;
     return handleEmployeeRuntimeRequest(request, env, auth, runtimeAgentId, action);
   }
 

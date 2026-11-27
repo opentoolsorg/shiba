@@ -2,6 +2,8 @@ import {
   employeeRuntimeCancelSchema,
   verifyStandinEnabled,
   employeeRuntimeChatRequestSchema,
+  employeeRuntimeMemoryDeleteSchema,
+  employeeRuntimeMemoryUpdateSchema,
   employeeRuntimeMemoryWriteSchema,
 } from "@shiba/shared";
 import type { Env } from "./env.js";
@@ -9,6 +11,7 @@ import { getCustomAgentById } from "./custom-agents-store.js";
 import { employeeRuntimeStub } from "./employee-runtime-do.js";
 import type { ResolvedOrgAuth } from "./org-request-auth.js";
 import { resolveUserId } from "./request-auth.js";
+import { resolveEmployeeAccess } from "./governance/employee-access.js";
 
 function json(body: unknown, init?: ResponseInit): Response {
   return Response.json(body, {
@@ -86,6 +89,12 @@ async function scopedConversationId(actorIdentity: string, conversationId: strin
   return `u_${actorHash}_${base64UrlEncode(conversationId)}`;
 }
 
+async function canManageEmployee(env: Env, auth: ResolvedOrgAuth, employeeId: string): Promise<boolean> {
+  if (!auth.workspace) return true;
+  const userId = auth.principal?.principal ?? auth.workspace.userId;
+  return await resolveEmployeeAccess(env, auth.workspace.workspaceId, employeeId, userId) === "manage";
+}
+
 /**
  * Authenticated Worker adapter for the employee runtime DO. The profile is
  * loaded from the owning D1 store here; callers cannot invent identity,
@@ -106,7 +115,8 @@ export async function handleEmployeeRuntimeRequest(
   if (!agent) return json({ ok: false, error: "not_found" }, { status: 404 });
   if (agent.archivedAt && !["state", "memory-search"].includes(action)) return json({ ok: false, error: "employee_archived" }, { status: 409 });
   const stub = employeeRuntimeStub(env, orgId, agent.id);
-  const internal = `https://internal/internal/employee-runtime${action === "state" ? "/state" : action === "memory" ? "/memory" : action === "memory-search" ? "/memory/search" : action === "cancel" ? "/cancel" : action === "recover" ? "/recover" : "/chat"}`;
+  const internal = `https://internal/internal/employee-runtime${action === "state" ? "/state" : action === "memory" ? "/memory" : action === "memory-update" ? "/memory/update" : action === "memory-delete" ? "/memory/delete" : action === "memory-search" ? "/memory/search" : action === "cancel" ? "/cancel" : action === "recover" ? "/recover" : "/chat"}`;
+  const manager = await canManageEmployee(env, auth, agent.id);
   const runtimeModel = agent.config.model;
   const profile = {
     orgId,
@@ -163,12 +173,25 @@ export async function handleEmployeeRuntimeRequest(
   if (action === "memory") {
     const parsed = employeeRuntimeMemoryWriteSchema.safeParse(body);
     if (!parsed.success) return json({ ok: false, error: "invalid_body" }, { status: 400 });
+    if (parsed.data.scope === "employee" && !manager) return json({ ok: false, error: "employee_memory_manage_required" }, { status: 403 });
     const storageId = parsed.data.conversationId ? await scopedConversationId(actorIdentity, parsed.data.conversationId) : null;
-    const memoryBody = storageId && parsed.data.conversationId ? { ...parsed.data, conversationId: storageId } : parsed.data;
+    const memoryBody = { ...(storageId && parsed.data.conversationId ? { ...parsed.data, conversationId: storageId } : parsed.data), manager };
     const response = await stub.fetch(internal, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(memoryBody),
     });
     return storageId ? forwardConversation(response) : forward(response);
+  }
+
+  if (action === "memory-update" || action === "memory-delete") {
+    const schema = action === "memory-update" ? employeeRuntimeMemoryUpdateSchema : employeeRuntimeMemoryDeleteSchema;
+    const parsed = schema.safeParse(body);
+    if (!parsed.success) return json({ ok: false, error: "invalid_body" }, { status: 400 });
+    const forwarded = parsed.data.conversationId
+      ? { ...parsed.data, conversationId: await scopedConversationId(actorIdentity, parsed.data.conversationId) }
+      : parsed.data;
+    return forwardConversation(await stub.fetch(internal, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...forwarded, manager }),
+    }));
   }
 
   if (action === "cancel") {

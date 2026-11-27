@@ -12,6 +12,8 @@ import { createWorkersAI } from "workers-ai-provider";
 import {
   employeeRuntimeCancelSchema,
   employeeRuntimeChatRequestSchema,
+  employeeRuntimeMemoryDeleteSchema,
+  employeeRuntimeMemoryUpdateSchema,
   employeeRuntimeMemoryWriteSchema,
   employeeRuntimeProfileSchema,
   verifyStandinEnabled,
@@ -85,6 +87,8 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
       if (url.pathname === `${PREFIX}/chat` && request.method === "POST") return await this.chat(request);
       if (url.pathname === `${PREFIX}/state` && request.method === "GET") return this.stateResponse(url);
       if (url.pathname === `${PREFIX}/memory` && request.method === "POST") return await this.writeMemory(request);
+      if (url.pathname === `${PREFIX}/memory/update` && request.method === "POST") return await this.updateMemory(request);
+      if (url.pathname === `${PREFIX}/memory/delete` && request.method === "POST") return await this.deleteMemory(request);
       if (url.pathname === `${PREFIX}/memory/search` && request.method === "GET") return this.searchMemory(url);
       if (url.pathname === `${PREFIX}/cancel` && request.method === "POST") return await this.cancel(request);
       if (url.pathname === `${PREFIX}/recover` && request.method === "POST") return this.recover();
@@ -185,8 +189,39 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
   }
 
   private async writeMemory(request: Request): Promise<Response> {
-    const parsed = employeeRuntimeMemoryWriteSchema.parse(await bodyObject(request));
+    const raw = await bodyObject(request);
+    const parsed = employeeRuntimeMemoryWriteSchema.parse(raw);
+    if (parsed.scope === "employee" && raw.manager !== true) return json({ error: "Employee memory requires manage authority." }, { status: 403 });
     return json({ memory: this.store.createMemory(parsed) }, { status: 201 });
+  }
+
+  private memoryAllowed(memoryConversationId: string | undefined, requestedConversationId: string | undefined): boolean {
+    // Employee-scope memories are shared by the employee. Thread memories are
+    // mutable only through their exact actor-scoped conversation key.
+    return memoryConversationId === undefined || memoryConversationId === requestedConversationId;
+  }
+
+  private async updateMemory(request: Request): Promise<Response> {
+    const raw = await bodyObject(request);
+    const parsed = employeeRuntimeMemoryUpdateSchema.parse(raw);
+    const current = this.store.getMemory(parsed.memoryId);
+    if (!current || !this.memoryAllowed(current.conversationId, parsed.conversationId)) return json({ error: "Memory not found." }, { status: 404 });
+    if (current.scope === "employee" && raw.manager !== true) return json({ error: "Employee memory requires manage authority." }, { status: 403 });
+    const memory = this.store.updateMemory(parsed.memoryId, {
+      ...(parsed.content !== undefined ? { content: parsed.content } : {}),
+      ...(parsed.essential !== undefined ? { essential: parsed.essential } : {}),
+    });
+    return json({ memory });
+  }
+
+  private async deleteMemory(request: Request): Promise<Response> {
+    const raw = await bodyObject(request);
+    const parsed = employeeRuntimeMemoryDeleteSchema.parse(raw);
+    const current = this.store.getMemory(parsed.memoryId);
+    if (!current || !this.memoryAllowed(current.conversationId, parsed.conversationId)) return json({ error: "Memory not found." }, { status: 404 });
+    if (current.scope === "employee" && raw.manager !== true) return json({ error: "Employee memory requires manage authority." }, { status: 403 });
+    this.store.deleteMemory(parsed.memoryId);
+    return json({ deleted: true, memoryId: parsed.memoryId });
   }
 
   private searchMemory(url: URL): Response {

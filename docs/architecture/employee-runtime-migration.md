@@ -54,7 +54,10 @@ Implemented in this branch:
   cancellation.
 - Store conversation messages, pinned profile envelopes, execution checkpoints,
   and employee-private working memory in the object's SQLite storage.
-- Add FTS5 memory search with employee/thread separation.
+- Add FTS5 memory search with employee/thread separation. Memory create,
+  update, and delete are server-mediated: employee-scope mutation requires
+  manage authority, while thread memory mutation is bound to the caller's
+  actor-scoped conversation.
 - Add an authenticated `/api/custom-agents/:id/runtime/*` adapter. The Worker
   loads the employee profile from D1 and forwards a server-owned frozen
   envelope. The caller cannot invent identity, instructions, version, harness,

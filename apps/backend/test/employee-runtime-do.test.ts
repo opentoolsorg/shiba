@@ -74,7 +74,7 @@ describe("EmployeeRuntime Durable Object", () => {
     const write = await runtime.onRequest(new Request("https://do/internal/employee-runtime/memory", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ scope: "employee", kind: "preference", content: "Prefer concise status updates", essential: true }),
+      body: JSON.stringify({ scope: "employee", kind: "preference", content: "Prefer concise status updates", essential: true, manager: true }),
     }));
     expect(write.status).toBe(201);
     const search = await runtime.onRequest(new Request("https://do/internal/employee-runtime/memory/search?q=concise"));
@@ -110,4 +110,44 @@ describe("EmployeeRuntime Durable Object", () => {
     expect(input).toMatchObject({ conversationId: "default", mode: "chat", employeeVersion: 2, messageLength: 5, messagePreview: "hello" });
     expect(input).not.toHaveProperty("message");
   });
+  it("updates and deletes employee memory through internal routes", async () => {
+    const { runtime } = fixture();
+    const write = await runtime.onRequest(new Request("https://do/internal/employee-runtime/memory", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scope: "employee", kind: "preference", content: "Prefer concise updates", essential: false, manager: true }),
+    }));
+    const { memory } = await write.json() as { memory: { id: string } };
+    const update = await runtime.onRequest(new Request("https://do/internal/employee-runtime/memory/update", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ memoryId: memory.id, content: "Prefer detailed evidence", essential: true, manager: true }),
+    }));
+    expect(update.status).toBe(200);
+    expect(await update.json()).toMatchObject({ memory: { content: "Prefer detailed evidence", essential: true } });
+    const remove = await runtime.onRequest(new Request("https://do/internal/employee-runtime/memory/delete", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ memoryId: memory.id, manager: true }),
+    }));
+    expect(remove.status).toBe(200);
+    const search = await runtime.onRequest(new Request("https://do/internal/employee-runtime/memory/search?q=detailed"));
+    expect(await search.json()).toEqual({ memories: [] });
+  });
+
+  it("does not update or delete thread memory from another conversation", async () => {
+    const { runtime } = fixture();
+    const write = await runtime.onRequest(new Request("https://do/internal/employee-runtime/memory", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scope: "thread", kind: "fact", conversationId: "u_actor_one", content: "Private thread fact" }),
+    }));
+    const { memory } = await write.json() as { memory: { id: string } };
+    for (const action of ["update", "delete"]) {
+      const body: Record<string, unknown> = { memoryId: memory.id, conversationId: "u_actor_two" };
+      if (action === "update") body.content = "tampered";
+      const response = await runtime.onRequest(new Request(`https://do/internal/employee-runtime/memory/${action}`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+      }));
+      expect(response.status).toBe(404);
+    }
+    const search = await runtime.onRequest(new Request("https://do/internal/employee-runtime/memory/search?q=Private&conversationId=u_actor_one"));
+    expect(await search.json()).toMatchObject({ memories: [{ content: "Private thread fact" }] });
+  });
+
 });
