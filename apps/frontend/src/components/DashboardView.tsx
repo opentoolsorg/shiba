@@ -160,6 +160,14 @@ export function DashboardView({
             icon: Activity,
           };
   const NextIcon = nextStep.icon;
+  const teamSafeView = (view: AppNavView): AppNavView => {
+    if (!workspaceId) return view;
+    if (view === "analytics") return "work";
+    if (view === "approvals") return "threads";
+    if (view === "memory") return "skills";
+    if (view === "agents") return "custom-agents";
+    return view;
+  };
 
   return (
     <MainCard className={`shiba-dashboard ${className}`}>
@@ -280,7 +288,7 @@ export function DashboardView({
                 type="button"
                 key={metric.label}
                 className="shiba-overview-stat"
-                onClick={() => onNavigate(metric.view)}
+                onClick={() => onNavigate(teamSafeView(metric.view))}
               >
                 <span className="flex items-center justify-between gap-2">
                   <span>{metric.label}</span>
@@ -306,7 +314,7 @@ export function DashboardView({
             </div>
             <button
               type="button"
-              onClick={() => onNavigate(nextStep.view)}
+              onClick={() => onNavigate(teamSafeView(nextStep.view))}
               className="shiba-overview-secondary"
             >
               {nextStep.action}
@@ -576,7 +584,7 @@ export function DashboardView({
                 <button
                   type="button"
                   key={shortcut.id}
-                  onClick={() => onNavigate(shortcut.id)}
+                  onClick={() => onNavigate(teamSafeView(shortcut.id))}
                   className="shiba-overview-shortcut"
                 >
                   <shortcut.icon

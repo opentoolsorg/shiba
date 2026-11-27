@@ -3853,7 +3853,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   onCommentTask={(id, text) => { void sharedWork.comment(id, text); }}
                   agents={teamWorkspaceId ? mentionableAgents.map((agent) => ({ ...agent, id: `agent:${agent.id}` })) : mentionableAgents}
                   onOpenTeam={() => openView("team")}
-                  onOpenSharedTask={(item) => { roomRoute.clear(); setSharedRoomId(item.roomId); setSharedHandoffId(item.id); setMainView("threads"); }}
+                  onOpenSharedTask={(item) => { if (!item.roomId) { setMainView("work"); return; } roomRoute.clear(); setSharedRoomId(item.roomId); setSharedHandoffId(item.id); setMainView("threads"); }}
                   runs={retainedRuns}
                   sessions={sessions}
                   storedApprovals={visibleStoredApprovals}
@@ -4005,7 +4005,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               currentActorId={orchestratorName ? `human:${orchestratorName.trim().toLowerCase()}` : undefined}
               sharedTasks={sharedWork.tasks}
               onOpenEmployee={(id) => { setInitialEmployeeId(id); openView("custom-agents"); }}
-              onOpenSharedTask={(item) => { roomRoute.clear(); setSharedRoomId(item.roomId); setSharedHandoffId(item.id); setMainView("threads"); }}
+              onOpenSharedTask={(item) => { if (!item.roomId) { setMainView("work"); return; } roomRoute.clear(); setSharedRoomId(item.roomId); setSharedHandoffId(item.id); setMainView("threads"); }}
             />
           ) : mainView === "threads" && teamWorkspaceId ? (
             <CollaborationView key={`${orchestratorName}:${teamWorkspaceId}`} workspaceId={teamWorkspaceId} initialRoomId={roomRoute.roomId ?? sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} incomingMention={incomingRoomMention} onMentionConsumed={(id) => setRoomMention((current) => current?.id === id ? undefined : current)} incomingTaskDraft={currentSlackTask ?? undefined} onTaskDraftConsumed={(id) => setIncomingSlackTask((current) => current?.id === id ? null : current)} onRoomChange={(id) => { setSharedRoomId(id); roomRoute.onRoomChange(id); }} onOpenNotificationPreferences={teamWorkspaceId ? undefined : () => { setSettingsSection("notifications"); openView("settings"); }}
