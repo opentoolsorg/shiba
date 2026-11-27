@@ -33,13 +33,21 @@ function forward(response: Response): Response {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
+/** Internal storage keys must never become client conversation ids. */
+async function forwardConversation(response: Response, storageId: string, clientId: string): Promise<Response> {
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "no-store");
+  const body = (await response.text()).split(storageId).join(clientId);
+  return new Response(body, { status: response.status, statusText: response.statusText, headers });
+}
+
 async function sha256Hex32(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 32);
 }
 
 async function runtimeActorIdentity(request: Request, env: Env, auth: ResolvedOrgAuth): Promise<string> {
-  if (auth.principal) return `api:${auth.principal.principal}`;
+  if (auth.principal) return `api:${auth.principal.apiKey?.keyId ?? auth.principal.principal}`;
   if (auth.workspace) return `user:${auth.workspace.userId}`;
   const userId = await resolveUserId(request, env);
   return userId ? `user:${userId}` : "local:dashboard-owner";
@@ -88,8 +96,9 @@ export async function handleEmployeeRuntimeRequest(
     if (request.method !== "GET") return json({ ok: false, error: "method_not_allowed" }, { status: 405 });
     const url = new URL(internal);
     const conversationId = new URL(request.url).searchParams.get("conversationId") ?? "default";
-    url.searchParams.set("conversationId", await scopedConversationId(actorIdentity, conversationId));
-    return forward(await stub.fetch(url));
+    const storageId = await scopedConversationId(actorIdentity, conversationId);
+    url.searchParams.set("conversationId", storageId);
+    return forwardConversation(await stub.fetch(url), storageId, conversationId);
   }
 
   if (action === "memory-search") {
@@ -99,8 +108,10 @@ export async function handleEmployeeRuntimeRequest(
     const query = incoming.searchParams.get("q");
     if (query) url.searchParams.set("q", query);
     const conversationId = incoming.searchParams.get("conversationId");
-    if (conversationId) url.searchParams.set("conversationId", await scopedConversationId(actorIdentity, conversationId));
-    return forward(await stub.fetch(url));
+    const storageId = conversationId ? await scopedConversationId(actorIdentity, conversationId) : null;
+    if (conversationId && storageId) url.searchParams.set("conversationId", storageId);
+    const response = await stub.fetch(url);
+    return storageId && conversationId ? forwardConversation(response, storageId, conversationId) : forward(response);
   }
 
   if (request.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, { status: 405 });
@@ -116,26 +127,31 @@ export async function handleEmployeeRuntimeRequest(
     }
     const parsed = employeeRuntimeChatRequestSchema.safeParse(body);
     if (!parsed.success) return json({ ok: false, error: "invalid_body" }, { status: 400 });
-    return forward(await stub.fetch(internal, {
+    const storageId = await scopedConversationId(actorIdentity, parsed.data.conversationId);
+    return forwardConversation(await stub.fetch(internal, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...parsed.data, conversationId: await scopedConversationId(actorIdentity, parsed.data.conversationId), profile }),
-    }));
+      body: JSON.stringify({ ...parsed.data, conversationId: storageId, profile }),
+    }), storageId, parsed.data.conversationId);
   }
 
   if (action === "memory") {
     const parsed = employeeRuntimeMemoryWriteSchema.safeParse(body);
     if (!parsed.success) return json({ ok: false, error: "invalid_body" }, { status: 400 });
-    return forward(await stub.fetch(internal, {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(parsed.data.conversationId ? { ...parsed.data, conversationId: await scopedConversationId(actorIdentity, parsed.data.conversationId) } : parsed.data),
-    }));
+    const storageId = parsed.data.conversationId ? await scopedConversationId(actorIdentity, parsed.data.conversationId) : null;
+    const memoryBody = storageId && parsed.data.conversationId ? { ...parsed.data, conversationId: storageId } : parsed.data;
+    const response = await stub.fetch(internal, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(memoryBody),
+    });
+    return storageId && parsed.data.conversationId ? forwardConversation(response, storageId, parsed.data.conversationId) : forward(response);
   }
 
   if (action === "cancel") {
     const parsed = employeeRuntimeCancelSchema.safeParse(body);
     if (!parsed.success) return json({ ok: false, error: "invalid_body" }, { status: 400 });
-    return forward(await stub.fetch(internal, {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...parsed.data, conversationId: await scopedConversationId(actorIdentity, parsed.data.conversationId) }),
-    }));
+    const storageId = await scopedConversationId(actorIdentity, parsed.data.conversationId);
+    return forwardConversation(await stub.fetch(internal, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...parsed.data, conversationId: storageId }),
+    }), storageId, parsed.data.conversationId);
   }
 
   if (action === "recover") {

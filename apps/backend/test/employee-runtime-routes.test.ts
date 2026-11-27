@@ -19,7 +19,9 @@ function runtimeEnv(calls: Array<{ url: string; init?: RequestInit }>): Env {
     get: () => ({
       fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
         calls.push({ url: String(input), init });
-        return Response.json({ ok: true }, { headers: { "x-runtime-stub": "1" } });
+        const body = init?.body ? JSON.parse(String(init.body)) as { conversationId?: string } : {};
+        const conversationId = body.conversationId ?? new URL(String(input)).searchParams.get("conversationId") ?? undefined;
+        return Response.json({ ok: true, ...(conversationId ? { conversationId } : {}) }, { headers: { "x-runtime-stub": "1" } });
       },
     }),
   };
@@ -122,5 +124,34 @@ describe("employee runtime routes", () => {
     expect(response.status).toBe(403);
     expect(await response.json()).toMatchObject({ error: "employee_runtime_funding_required" });
     expect(calls).toEqual([]);
+  });
+  it("returns client conversation ids while storing actor-scoped ids internally", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const env = runtimeEnv(calls);
+    const agent = await createCustomAgent(env, "self-hosted", "stateful-scout", { name: "Scout", instructions: "Answer carefully." });
+    const response = await handleEmployeeRuntimeRequest(
+      new Request(`https://x/api/custom-agents/${agent.id}/runtime/state?conversationId=client-thread`),
+      env,
+      { orgId: "self-hosted", principal: null },
+      agent.id,
+      "state",
+    );
+    expect(await response.json()).toMatchObject({ conversationId: "client-thread" });
+    expect(new URL(calls[0]!.url).searchParams.get("conversationId")).toMatch(/^u_[a-f0-9]{32}_[a-f0-9]{32}$/);
+  });
+
+  it("separates conversations for distinctly issued API keys with the same principal", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const env = runtimeEnv(calls);
+    const agent = await createCustomAgent(env, "self-hosted", "keyed-scout", { name: "Scout", instructions: "Answer carefully." });
+    for (const keyId of ["key-one", "key-two"]) {
+      await handleEmployeeRuntimeRequest(post(`/${agent.id}/runtime/chat`, { conversationId: "default", message: "hello" }), env, {
+        orgId: "self-hosted",
+        principal: { principal: "owner@example.test", orgId: "self-hosted", scopes: ["api:write"], apiKey: { principal: "owner@example.test", scopes: ["api:write"], created: 1, revoked: false, keyId } },
+      }, agent.id, "chat");
+    }
+    const first = JSON.parse(String(calls[0]?.init?.body)) as { conversationId: string };
+    const second = JSON.parse(String(calls[1]?.init?.body)) as { conversationId: string };
+    expect(first.conversationId).not.toBe(second.conversationId);
   });
 });
