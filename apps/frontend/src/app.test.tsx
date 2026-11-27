@@ -1214,7 +1214,7 @@ describe("app Work and Threads routing", () => {
     expect(window.location.search).toContain("section=");
   });
 
-  it("preselects the new hire in Tool policy and clears the selection for later visits", async () => {
+  it("opens the new hire conversation and keeps later Tool policy visits on the default employee", async () => {
     window.history.replaceState(null, "", "/custom-agents/");
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     const builder = { id: "cag-builder", slug: "builder", version: 1, config: { name: "Builder", instructions: "Build.", harness: "opencode" } };
@@ -1224,6 +1224,7 @@ describe("app Work and Threads routing", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
       const path = String(url);
       if (/^\/api\/employee-tools\/[^/]+\/policy$/.test(path)) return Response.json({ grants: [], toolScopes: [] });
+      if (path === "/api/sessions" && options?.method === "POST") return Response.json({ session: { id: "scout-thread", name: scout.config.name, agentName: "scout-agent", updatedAt: 1, metadata: { customAgentId: scout.id } } });
       if (path !== "/api/custom-agents") return originalFetch(url, options);
       if (options?.method === "POST") {
         hired = true;
@@ -1239,8 +1240,8 @@ describe("app Work and Threads routing", () => {
     fireEvent.change(name, { target: { value: scout.config.name } });
     fireEvent.change(screen.getByLabelText("Instructions"), { target: { value: scout.config.instructions } });
     fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Set up tool access" }));
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Employee" })).toHaveProperty("value", scout.id));
+    await waitFor(() => expect(hired).toBe(true));
+    expect(await screen.findByRole("button", { name: "Rename thread" })).toBeTruthy();
 
     await act(async () => {
       window.history.pushState(null, "", "/settings/?section=overview");
