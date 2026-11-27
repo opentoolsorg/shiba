@@ -107,6 +107,18 @@ describe("local immutable repository capture", () => {
     expect(result.files[0]).toEqual({ path: "report.csv", content, encoding: "utf8" });
   });
 
+  it("reads Git LFS objects from configured repository storage", async () => {
+    const content = "metric,value\nconversion,7\n";
+    const oid = createHash("sha256").update(content).digest("hex");
+    await git(["config", "lfs.storage", "lfs-store"]);
+    const objectPath = path.join(root, "lfs-store", "objects", oid.slice(0, 2), oid.slice(2, 4));
+    await mkdir(objectPath, { recursive: true });
+    await writeFile(path.join(objectPath, oid), content);
+    await writeFile(path.join(root, "metrics.csv"), `version https://git-lfs.github.com/spec/v1\noid sha256:${oid}\nsize ${content.length}\n`);
+    const result = await collectLocalRepositorySnapshot({ cloneDir: root, baseRevision, expectedDeliverables: ["metrics.csv"], git });
+    expect(result.files[0]).toEqual({ path: "metrics.csv", content, encoding: "utf8" });
+  });
+
   it("captures normalized text bytes from the frozen tree", async () => {
     await git(["config", "core.autocrlf", "true"]);
     await writeFile(path.join(root, "brief.txt"), "approved version\r\nwith CRLF\r\n");

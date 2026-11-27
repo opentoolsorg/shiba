@@ -52,12 +52,16 @@ async function readLfsObject(git, cloneDir, pointer, maxBytes) {
   const commonText = (await git(["rev-parse", "--git-common-dir"], 1024)).toString("utf8").trim();
   if (!commonText || commonText.includes("\n") || commonText.includes("\0")) throw new Error("Git did not return one common object directory.");
   const gitDir = path.resolve(cloneDir, commonText);
-  const objectPath = path.join(gitDir, "lfs", "objects", pointer.oid.slice(0, 2), pointer.oid.slice(2, 4), pointer.oid);
-  const realGitDir = await fs.realpath(gitDir);
+  let configuredStorage = "";
+  try { configuredStorage = (await git(["config", "--get", "lfs.storage"], 1024)).toString("utf8").trim(); } catch { configuredStorage = ""; }
+  if (configuredStorage.includes("\n") || configuredStorage.includes("\0")) throw new Error("Git LFS storage configuration is invalid.");
+  const storageDir = configuredStorage ? path.resolve(cloneDir, configuredStorage) : path.join(gitDir, "lfs");
+  const objectPath = path.join(storageDir, "objects", pointer.oid.slice(0, 2), pointer.oid.slice(2, 4), pointer.oid);
+  const realStorageDir = await fs.realpath(storageDir);
   const realObjectPath = await fs.realpath(objectPath);
-  const relative = path.relative(realGitDir, realObjectPath);
+  const relative = path.relative(realStorageDir, realObjectPath);
   if (relative === "" || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-    throw new Error("Git LFS object escapes the repository object store.");
+    throw new Error("Git LFS object escapes its configured object store.");
   }
   const handle = await fs.open(realObjectPath, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
