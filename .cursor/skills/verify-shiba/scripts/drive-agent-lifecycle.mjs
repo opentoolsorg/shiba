@@ -70,7 +70,7 @@ async function editProfile(version) {
   await directory();
   await card().getByRole("button", { name: "Edit bot", exact: true }).click();
   await page.getByLabel(/^Instructions/).fill(instructions(version));
-  await page.getByLabel("Model", { exact: true }).fill(version === 3 ? "openai/gpt-6-sol" : model);
+  await page.getByLabel("Coding model", { exact: true }).fill(version === 3 ? "openai/gpt-6-sol" : model);
   const savedResponse = page.waitForResponse((response) => response.url().endsWith(`/api/custom-agents/${agentId}`) && response.request().method() === "PATCH");
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   const saved = await savedResponse;
@@ -103,7 +103,7 @@ try {
   await page.getByLabel("Name", { exact: true }).fill(name);
   await page.getByLabel(/^Instructions/).fill(instructions(1));
   await page.getByLabel("Harness", { exact: true }).fill("opencode");
-  await page.getByLabel("Model", { exact: true }).fill(model);
+  await page.getByLabel("Coding model", { exact: true }).fill(model);
   await page.getByRole("combobox", { name: /^Model connection/ }).selectOption("");
   await page.getByLabel("Default repository", { exact: true }).fill("https://github.com/cloudflare/ai-chat");
   const createResponse = page.waitForResponse((response) => response.url().endsWith("/api/custom-agents") && response.request().method() === "POST");
@@ -124,7 +124,7 @@ try {
   assert.deepEqual(persisted.agent.config, edited.config);
   await page.reload();
   await card().getByRole("button", { name: "Edit bot", exact: true }).click();
-  assert.equal(await page.getByLabel("Model", { exact: true }).inputValue(), model);
+  assert.equal(await page.getByLabel("Coding model", { exact: true }).inputValue(), model);
   assert.equal(await page.getByLabel(/^Instructions/).inputValue(), instructions(2));
   passed("Edit to version 2 and verify profile controls survive refresh");
 

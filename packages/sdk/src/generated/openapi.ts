@@ -761,7 +761,9 @@ export type components = {
                 acc: "none" | "pen" | "wrench" | "coffee" | "loupe" | "megaphone" | "clipboard" | "compass" | "headset" | "chart";
             };
             instructions: string;
-            harness: string;
+            /** @description Optional provider-independent conversational model. Coding execution uses codingModel instead. */
+            model?: string;
+            harness?: string;
             codingModel?: string;
             connectionId?: string;
             /** @enum {string} */

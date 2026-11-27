@@ -73,7 +73,7 @@ hidden agent network. It remains review-only until its activation gates in
 | **Run execution control** | `apps/backend/src/agents/opencode-agent.ts`, sandbox/run modules | Structured execution envelope, progress/events, result envelopes. Conceptual Run Execution Agent; current implementation `OpenCodeAgent`. |
 | **Authority and policy** | approvals, workspace/employee access, tool policy, funding/receipt modules | Decide whether a run/action is executable, what exact resources it may use, and whether a result may be published. |
 | **Execution lanes** | sandbox harnesses, artifact workspace, integrations, local daemon, browser/computer sessions | Perform approved work. Lanes share lineage and evidence contracts but have lane-specific runtimes. |
-| **Coordination state** | Durable Object bindings in `apps/backend/wrangler.jsonc` | Serialized live state for conversations, runs, mailboxes, realtime sessions, dispatch, provider auth, and computer/browser sessions. |
+| **Coordination state** | Durable Object bindings in `apps/backend/wrangler.jsonc` | Serialized live state for conversations, employee runtimes, runs, mailboxes, realtime sessions, dispatch, provider auth, and computer/browser sessions. |
 | **Shared domain state** | D1 migrations and query modules | Durable workspace/domain records and relational queries. |
 | **Artifacts and recall** | R2, KV, Vectorize, memory modules | Private object bytes, token lookup, embeddings/recall, governed memory. |
 | **Async control** | Queues and Workflows | Retryable jobs and long-running orchestration. They are infrastructure lanes, not places to hide authority decisions. |

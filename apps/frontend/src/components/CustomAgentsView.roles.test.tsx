@@ -53,7 +53,7 @@ describe("role drafts in the Bots directory", () => {
     fireEvent.keyDown(screen.getByLabelText(/^Instructions/), { key: "Enter", ctrlKey: true });
     await screen.findByText("Bot created.");
     expect(server.writes).toEqual([{ method: "POST", url: "/api/custom-agents", body: {
-      slug: "my-research-helper", config: { name: "My Research Helper", instructions: "Review the supplied sources and write a brief.", harness: "opencode" },
+      slug: "my-research-helper", config: { name: "My Research Helper", instructions: "Review the supplied sources and write a brief." },
     } }]);
   });
 
@@ -66,7 +66,7 @@ describe("role drafts in the Bots directory", () => {
     expect(summary.closest("details")?.open).toBe(true);
     change("Name", "Research helper");
     change(/^Instructions/, "Keep these instructions");
-    change("Harness", "codex"); change("Model", "openai/gpt-6-sol");
+    change("Harness", "codex"); change("Coding model", "openai/gpt-6-sol");
     change(/^Model connection/, "conn-openai"); change(/^Sandbox/, "docker-local");
     change("Default repository", "https://github.com/example/research");
     view.unmount();
@@ -76,7 +76,7 @@ describe("role drafts in the Bots directory", () => {
     fireEvent.click(restoredSummary);
     expect(restoredSummary.closest("details")?.open).toBe(true);
     expect(value("Harness")).toBe("codex");
-    expect(value("Model")).toBe("openai/gpt-6-sol");
+    expect(value("Coding model")).toBe("openai/gpt-6-sol");
     expect(value(/^Model connection/)).toBe("conn-openai");
     expect(value(/^Sandbox/)).toBe("docker-local");
     expect(value("Default repository")).toBe("https://github.com/example/research");
@@ -174,7 +174,7 @@ describe("role drafts in the Bots directory", () => {
       body: {
         slug: template.slug,
         config: {
-          name: editedName, emoji: template.config.emoji, roleTemplateId: template.id, instructions: template.config.instructions, harness: "opencode",
+          name: editedName, emoji: template.config.emoji, roleTemplateId: template.id, instructions: template.config.instructions,
           department: departmentForRoleTemplate(template.id),
           ...(template.config.expectedDeliverables?.length ? { expectedDeliverables: template.config.expectedDeliverables } : {}),
         },
@@ -250,7 +250,7 @@ describe("role drafts in the Bots directory", () => {
     render(<CustomAgentsView connections={connections} />);
     await screen.findByText("No bots");
     change("Name", "Prior draft"); change(/^Instructions/, "Prior instructions");
-    change("Harness", "codex"); change("Model", "openai/gpt-6-sol");
+    change("Harness", "codex"); change("Coding model", "openai/gpt-6-sol");
     change(/^Model connection/, "conn-openai"); change(/^Sandbox/, "docker-local");
     change("Default repository", "https://github.com/example/original");
     fireEvent.click(screen.getByRole("button", { name: "Marketing" }));
@@ -259,7 +259,7 @@ describe("role drafts in the Bots directory", () => {
     fireEvent.click(screen.getByRole("button", { name: "Replace draft" }));
     expect(value("Name")).toBe("Marketing bot");
     expect(value("Harness")).toBe("codex");
-    expect(value("Model")).toBe("openai/gpt-6-sol");
+    expect(value("Coding model")).toBe("openai/gpt-6-sol");
     expect(value(/^Model connection/)).toBe("conn-openai");
     expect(value(/^Sandbox/)).toBe("docker-local");
     expect(value("Default repository")).toBe("https://github.com/example/latest");

@@ -80,6 +80,8 @@ export interface EmployeeRunToolContext {
   /** Ask/Auto/Off per native action; Off actions are already removed from allowed. */
   levels?: Record<string, EmployeeToolLevel>;
   externalActions?: Awaited<ReturnType<typeof employeeExternalMcpCatalog>>["actions"];
+  /** In-memory proof supplied only by the owning EmployeeRuntime; never persisted into approval bindings. */
+  runtimeExecutionPrevalidated?: boolean;
 }
 
 export function employeeCanRetainDraft(context: EmployeeRunToolContext): boolean {
@@ -107,6 +109,7 @@ export async function resolveEmployeeRunToolContext(
   orgId = "self-hosted",
   expectedActorId?: string,
   appExecutionContextId?: string,
+  runtimeExecutionPrevalidated = false,
 ): Promise<EmployeeRunToolContext | null> {
   if (!env.AGENT_AUDIT || !employeeId) return null;
   const employee = await getCustomAgentById(env, orgId, employeeId);
@@ -161,10 +164,11 @@ export async function resolveEmployeeRunToolContext(
   const levels: Record<string, EmployeeToolLevel> = Object.fromEntries(ACTION_NAMES.map((name) => [capabilityId(name),
     effectiveEmployeeToolLevel(name, EMPLOYEE_TOOL_ACTIONS[name].risk, storedLevels.find((item) => item.capabilityId === capabilityId(name))?.level)]));
   const allowed = selection.allowedCapabilityIds.filter((id) => (resources[id]?.length ?? 0) > 0 && levels[id] !== "off");
-  const context: EmployeeRunToolContext = { employeeId, employeeVersion: employee.version, actorId: membership.actorId, role: membership.role, principal, allowed, resources, levels };
+  const context: EmployeeRunToolContext = { employeeId, employeeVersion: employee.version, actorId: membership.actorId, role: membership.role, principal, allowed, resources, levels,
+    ...(runtimeExecutionPrevalidated ? { runtimeExecutionPrevalidated } : {}) };
   if (appExecutionContextId) {
     const external = await employeeExternalMcpCatalog(env, { orgId, employeeId, employeeVersion: employee.version,
-      actorId: membership.actorId, executionContextId: appExecutionContextId });
+      actorId: membership.actorId, executionContextId: appExecutionContextId }, runtimeExecutionPrevalidated);
     context.externalActions = external.actions;
     for (const action of external.actions) { context.allowed.push(action.capabilityId); context.resources[action.capabilityId] = action.resources; }
   }
@@ -211,7 +215,7 @@ export function createEmployeeRunTools(
     const trustedBinding = await binding(context, executionContextId);
     if (isEmployeeExternalMcpScope(capabilityId(toolName))) {
       if (readRequestId !== undefined) throw new Error("readRequestId is only supported by built-in reads.");
-      const result = await callEmployeeExternalMcp(env, trustedBinding, toolName, args, options.toolCallId, options.abortSignal);
+      const result = await callEmployeeExternalMcp(env, trustedBinding, toolName, args, options.toolCallId, options.abortSignal, context.runtimeExecutionPrevalidated === true);
       if (draftStore && !result.isError && result._meta?.[EMPLOYEE_MCP_READ_META]) {
         const receipt = await recordEmployeeExternalRead(env, draftStore, trustedBinding, options.toolCallId, result, options.abortSignal);
         return { ok: true, result, sourceReadId: receipt.id };

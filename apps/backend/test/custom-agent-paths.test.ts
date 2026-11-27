@@ -6,6 +6,7 @@ import type { V1Context } from "../src/v1/context.js";
 
 const mocks = vi.hoisted(() => ({
   authorized: true,
+  authCalls: 0,
   list: vi.fn(),
   get: vi.fn(),
   create: vi.fn(),
@@ -14,7 +15,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/org-request-auth.js", () => ({
-  resolveOrgForApiRequest: async () => mocks.authorized
+  resolveOrgForApiRequest: async () => (mocks.authCalls += 1, mocks.authorized)
     ? { orgId: "org-a", principal: null }
     : Response.json({ error: "unauthorized" }, { status: 401 }),
 }));
@@ -42,6 +43,7 @@ function untouched() {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.authorized = true;
+  mocks.authCalls = 0;
   mocks.list.mockResolvedValue([agent]);
   mocks.get.mockResolvedValue(agent);
   mocks.remove.mockResolvedValue(undefined);
@@ -109,6 +111,28 @@ describe("custom-agent route boundaries", () => {
       forward: vi.fn(),
     };
     expect((await handleOrgAgents(context))?.status).toBe(status);
+    untouched();
+  });
+
+  it("does not reauthenticate an API-key principal already verified by the v1 dispatcher", async () => {
+    const request = new Request("https://worker.test/api/v1/org-agents");
+    const context: V1Context = {
+      request, url: new URL(request.url), env,
+      principal: { principal: "owner", orgId: "org-a", scopes: ["api:read"], apiKey: { principal: "owner", scopes: ["api:read"], created: 1, revoked: false, orgId: "org-a", kind: "api_key", keyId: "key_1" } },
+      forward: vi.fn(),
+    };
+    expect((await handleOrgAgents(context))?.status).toBe(200);
+    expect(mocks.authCalls).toBe(0);
+  });
+
+  it("rejects a workspace selector on an already-authenticated org-agent API-key request", async () => {
+    const request = new Request("https://worker.test/api/v1/org-agents", { method: "POST", headers: { "content-type": "application/json", "X-Shiba-Workspace": `ws_${"a".repeat(24)}` }, body: "{}" });
+    const context: V1Context = {
+      request, url: new URL(request.url), env,
+      principal: { principal: "owner", orgId: "org-a", scopes: ["api:write"], apiKey: { principal: "owner", scopes: ["api:write"], created: 1, revoked: false, orgId: "org-a", kind: "api_key", keyId: "key_1" } },
+      forward: vi.fn(),
+    };
+    expect((await handleOrgAgents(context))?.status).toBe(403);
     untouched();
   });
 

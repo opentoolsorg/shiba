@@ -35,7 +35,8 @@ function fixture(options: { binding?: boolean; org?: string; deleted?: boolean; 
                 org_id: options.org ?? "self-hosted",
                 slug: "scout",
                 version: 1,
-                config_json: JSON.stringify({ name: "Scout", instructions: "Read the repository.", harness: options.harness ?? "opencode" }),
+                config_json: JSON.stringify({ name: "Scout", instructions: "Read the repository.",
+            ...(options.harness === "none" ? {} : { harness: options.harness ?? "opencode" }) }),
                 created_at: 1,
                 updated_at: 1,
                 deleted_at: null,
@@ -99,6 +100,12 @@ describe("server-validated bot/thread associations", () => {
     const f = fixture();
     expect((await handleWebSessions(f.request("POST", { customAgentId: "scout" }), f.env))?.status).toBe(404);
     expect(f.forwarded).not.toHaveBeenCalled();
+  });
+
+  it("accepts an employee without an explicit coding harness", async () => {
+    const f = fixture({ harness: "none" });
+    expect((await handleWebSessions(f.request("POST", { customAgentId: AGENT_ID }), f.env))?.status).toBe(201);
+    expect(f.forwarded).toHaveBeenCalledOnce();
   });
 
   it.each(["does-not-exist", "cursor", "codex-subscription"])("refuses unavailable harness %s", async (harness) => {

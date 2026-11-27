@@ -266,8 +266,7 @@
         "type": "object",
         "required": [
           "name",
-          "instructions",
-          "harness"
+          "instructions"
         ],
         "properties": {
           "name": {
@@ -300,6 +299,12 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 32000
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Optional provider-independent conversational model. Coding execution uses codingModel instead."
           },
           "harness": {
             "type": "string",

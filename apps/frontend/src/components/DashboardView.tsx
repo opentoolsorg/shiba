@@ -13,7 +13,6 @@ import {
   Plus,
   ShieldCheck,
   Terminal,
-  Users,
 } from "lucide-react";
 import {
   ERROR_FAMILY_STATUSES,
@@ -22,12 +21,13 @@ import {
   statusChipClass,
   statusLabel,
 } from "../ui-helpers";
-import type { TeamWorkItem } from "../team-work-items";
 import type { AgentPrincipal, RetainedRun, StoredApproval } from "../types";
 import type { PendingApproval } from "../ui-helpers";
 import type { AppNavView } from "./AppNavRail";
-import type { OrganizationEmployee } from "./WorkOrganizationView";
 import { MainCard, EmptyState, type Scope } from "./ui/ContextPanel";
+import { AgentAvatar } from "./AgentAvatar";
+import type { OrganizationEmployee } from "./WorkOrganizationView";
+import { teamWorkNeedsViewer, type TeamWorkItem } from "../team-work-items";
 
 export interface DashboardViewProps {
   runs: RetainedRun[];
@@ -41,11 +41,14 @@ export interface DashboardViewProps {
   onNavigate: (view: AppNavView) => void;
   onNewTask: () => void;
   onInspectRun: (runId: string) => void;
-  employees?: OrganizationEmployee[];
+  employees?: readonly OrganizationEmployee[];
+  workspaceId?: string;
   workspaceName?: string;
-  sharedTasks?: TeamWorkItem[];
+  currentActorId?: string;
+  sharedTasks?: readonly TeamWorkItem[];
   sharedTasksLoading?: boolean;
-  onOpenSharedTask?: (taskId: string) => void;
+  onOpenEmployee?: (employeeId: string) => void;
+  onOpenSharedTask?: (task: TeamWorkItem) => void;
   scope?: Scope;
   sidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
@@ -79,9 +82,12 @@ export function DashboardView({
   onNewTask,
   onInspectRun,
   employees = [],
+  workspaceId,
   workspaceName,
+  currentActorId,
   sharedTasks = [],
   sharedTasksLoading = false,
+  onOpenEmployee,
   onOpenSharedTask,
   scope = "personal",
   sidebarCollapsed = false,
@@ -116,97 +122,25 @@ export function DashboardView({
     [runs],
   );
   const liveAgents = agents.filter((agent) => agent.live).length;
-  const activeEmployeeIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const run of stats.active) {
-      if (run.customAgentId) ids.add(run.customAgentId);
-    }
-    for (const task of sharedTasks) {
-      if (!["running", "in-progress"].includes(task.status)) continue;
-      const actorId = task.assigneeActorId ?? task.ownerId;
-      if (task.assigneeKind === "agent" && actorId) ids.add(actorId.startsWith("agent:") ? actorId.slice("agent:".length) : actorId);
-    }
-    return ids;
-  }, [stats.active, sharedTasks]);
-  const workingEmployees = employees.filter((employee) => activeEmployeeIds.has(employee.id)).length;
-  const title = scope === "workspace" ? workspaceName?.trim() || "Workspace" : "Dashboard";
-  const workspaceActiveTasks = sharedTasks.filter((task) => ["queued", "running", "in-progress", "needs-approval"].includes(task.status)).length;
-  const workspaceReviewTasks = sharedTasks.filter((task) => task.status === "needs-approval" && task.approvalRequired === true);
-  const workspaceApprovalTasks = workspaceReviewTasks.length;
-  const workspaceCompletedTasks = sharedTasks.filter((task) => task.status === "done" || task.status === "completed").length;
-  const workspaceTerminalTasks = sharedTasks.filter((task) => ["done", "completed", "blocked", "cancelled"].includes(task.status)).length;
-  const workspaceSuccessRate = workspaceTerminalTasks > 0 ? Math.round((workspaceCompletedTasks / workspaceTerminalTasks) * 100) : null;
-  const effectiveApprovalCount = approvalCount + workspaceApprovalTasks;
-  const reviewView: AppNavView = scope === "workspace" ? "work" : "approvals";
-  const metricCards = scope === "workspace" ? ([
-    {
-      label: "Shared tasks",
-      value: sharedTasks.length,
-      detail: `${workspaceActiveTasks} active in this workspace`,
-      icon: Activity,
-      view: "work",
-    },
-    {
-      label: "AI employees",
-      value: employees.length,
-      detail: `${workingEmployees} assigned to active runs`,
-      icon: Terminal,
-      view: "custom-agents",
-    },
-    {
-      label: "Pending approvals",
-      value: effectiveApprovalCount,
-      detail: effectiveApprovalCount ? "Ready for your review" : "You’re all caught up",
-      icon: ShieldCheck,
-      view: "work",
-    },
-    {
-      label: "Completion rate",
-      value: workspaceSuccessRate === null ? "—" : `${workspaceSuccessRate}%`,
-      detail: workspaceTerminalTasks ? `${workspaceCompletedTasks}/${workspaceTerminalTasks} finished` : "No finished shared tasks yet",
-      icon: CircleCheck,
-      view: "work",
-    },
-  ] as const) : ([
-    {
-      label: "Total runs",
-      value: runs.length,
-      detail: `${stats.prRequested} requested a PR`,
-      icon: Activity,
-      view: "analytics",
-    },
-    {
-      label: "Active sandboxes",
-      value: stats.active.length,
-      detail: stats.active.length ? "Running or pending now" : "Nothing in flight",
-      icon: Terminal,
-      view: "tasks",
-    },
-    {
-      label: "Pending approvals",
-      value: approvalCount,
-      detail: approvalCount ? "Ready for your review" : "You’re all caught up",
-      icon: ShieldCheck,
-      view: "approvals",
-    },
-    {
-      label: "Success rate",
-      value: stats.successRate === null ? "—" : `${stats.successRate}%`,
-      detail:
-        stats.medianMs === null
-          ? "No completed runs yet"
-          : `${formatDuration(stats.medianMs)} median cycle`,
-      icon: CircleCheck,
-      view: "analytics",
-    },
-  ] as const);
+  const openSharedTasks = useMemo(
+    () => sharedTasks.filter((task) => !task.archived && !["done", "completed", "cancelled"].includes(task.status)),
+    [sharedTasks],
+  );
+  const employeeRows = useMemo(() => employees.map((employee) => {
+    const actorId = `agent:${employee.id}`;
+    const assigned = openSharedTasks.filter((task) => task.assigneeActorId === actorId || task.assigneeName === employee.name);
+    const needsViewer = assigned.filter(teamWorkNeedsViewer).length;
+    const working = assigned.filter((task) => ["in-progress", "running", "queued"].includes(task.status)).length;
+    return { employee, assigned, needsViewer, working, status: working ? "working" as const : needsViewer ? "needs-approval" as const : "idle" as const };
+  }), [employees, openSharedTasks]);
+  const visibleSharedTasks = openSharedTasks.slice(0, 6);
   const nextStep =
-    effectiveApprovalCount > 0
+    approvalCount > 0
       ? {
           label: "Your review comes first",
-          detail: `${effectiveApprovalCount} request${effectiveApprovalCount === 1 ? " is" : "s are"} waiting for your decision. Review the details before any approved action runs.`,
+          detail: `${approvalCount} request${approvalCount === 1 ? " is" : "s are"} waiting for your decision. Review the details before any approved action runs.`,
           action: "Review approvals",
-          view: reviewView,
+          view: "approvals" as const,
           icon: ShieldCheck,
         }
       : launchBlocked
@@ -228,6 +162,14 @@ export function DashboardView({
             icon: Activity,
           };
   const NextIcon = nextStep.icon;
+  const teamSafeView = (view: AppNavView): AppNavView => {
+    if (!workspaceId) return view;
+    if (view === "analytics") return "work";
+    if (view === "approvals") return "threads";
+    if (view === "memory") return "skills";
+    if (view === "agents") return "custom-agents";
+    return view;
+  };
 
   return (
     <MainCard className={`shiba-dashboard ${className}`}>
@@ -267,9 +209,9 @@ export function DashboardView({
           <section className="shiba-dashboard-heading" aria-labelledby="dashboard-title">
             <div className="min-w-0">
               <p className="shiba-overview-eyebrow">Workspace overview</p>
-              <h1 id="dashboard-title">{title}</h1>
+              <h1 id="dashboard-title">Dashboard</h1>
               <p className="shiba-overview-description">
-                Your AI employees, their work, and the decisions waiting on you. One place to see what happens next.
+                Your work, decisions, and agents. One place to see what happens next.
               </p>
             </div>
             <button
@@ -309,12 +251,46 @@ export function DashboardView({
           ) : null}
 
           <section aria-label="Run summary" className="shiba-overview-stats">
-            {metricCards.map((metric) => (
+            {(
+              [
+                {
+                  label: "Total runs",
+                  value: runs.length,
+                  detail: `${stats.prRequested} requested a PR`,
+                  icon: Activity,
+                  view: "analytics",
+                },
+                {
+                  label: "Active sandboxes",
+                  value: stats.active.length,
+                  detail: stats.active.length ? "Running or pending now" : "Nothing in flight",
+                  icon: Terminal,
+                  view: "tasks",
+                },
+                {
+                  label: "Pending approvals",
+                  value: approvalCount,
+                  detail: approvalCount ? "Ready for your review" : "You’re all caught up",
+                  icon: ShieldCheck,
+                  view: "approvals",
+                },
+                {
+                  label: "Success rate",
+                  value: stats.successRate === null ? "—" : `${stats.successRate}%`,
+                  detail:
+                    stats.medianMs === null
+                      ? "No completed runs yet"
+                      : `${formatDuration(stats.medianMs)} median cycle`,
+                  icon: CircleCheck,
+                  view: "analytics",
+                },
+              ] as const
+            ).map((metric) => (
               <button
                 type="button"
                 key={metric.label}
                 className="shiba-overview-stat"
-                onClick={() => onNavigate(metric.view)}
+                onClick={() => onNavigate(teamSafeView(metric.view))}
               >
                 <span className="flex items-center justify-between gap-2">
                   <span>{metric.label}</span>
@@ -340,7 +316,7 @@ export function DashboardView({
             </div>
             <button
               type="button"
-              onClick={() => onNavigate(nextStep.view)}
+              onClick={() => onNavigate(teamSafeView(nextStep.view))}
               className="shiba-overview-secondary"
             >
               {nextStep.action}
@@ -348,12 +324,12 @@ export function DashboardView({
             </button>
           </section>
 
-          {scope === "workspace" ? (
-            <section className="shiba-overview-panel mb-4" aria-labelledby="dashboard-shared-work-title">
+          {workspaceId ? (
+            <section className="shiba-overview-panel" aria-labelledby="dashboard-work-title">
               <header className="shiba-overview-section-header">
                 <div>
-                  <h2 id="dashboard-shared-work-title">Shared work queue</h2>
-                  <p>Tasks owned by people and AI employees in this workspace</p>
+                  <h2 id="dashboard-work-title">Shared work queue</h2>
+                  <p>{workspaceName ? `${workspaceName} · ` : ""}{openSharedTasks.length} open item{openSharedTasks.length === 1 ? "" : "s"} across the employee workspace</p>
                 </div>
                 <button type="button" onClick={() => onNavigate("work")} className="shiba-overview-link">
                   Open work <ArrowRight className="size-3.5" aria-hidden="true" />
@@ -361,31 +337,25 @@ export function DashboardView({
               </header>
               {sharedTasksLoading ? (
                 <p className="px-5 py-4 text-sm text-[var(--muted-foreground-2)]">Loading shared work…</p>
-              ) : sharedTasks.length === 0 ? (
-                <div className="px-5 py-4 text-sm text-[var(--muted-foreground-2)]">
-                  <p>No shared tasks yet. Create one in Work and assign it to a person or employee.</p>
-                  <button type="button" onClick={() => onNavigate("work")} className="shiba-overview-link mt-3">
-                    Create shared work <ArrowRight className="size-3.5" aria-hidden="true" />
-                  </button>
+              ) : visibleSharedTasks.length === 0 ? (
+                <div className="flex items-center gap-3 p-5 text-sm">
+                  <span className="shiba-overview-clear-icon"><Check className="size-4" aria-hidden="true" /></span>
+                  <span>No shared work is waiting.<span className="mt-1 block text-xs text-[var(--muted-foreground-2)]">Assign work to an employee and it will appear here.</span></span>
                 </div>
               ) : (
                 <ul className="shiba-overview-run-list">
-                  {sharedTasks.slice(0, 4).map((task) => (
+                  {visibleSharedTasks.map((task) => (
                     <li key={task.id}>
-                      <button type="button" onClick={() => onOpenSharedTask ? onOpenSharedTask(task.id) : onNavigate("work")} className="shiba-overview-run">
-                        <span className="shiba-overview-run-icon">
-                          <Activity className="size-4" aria-hidden="true" />
-                        </span>
+                      <button type="button" onClick={() => onOpenSharedTask ? onOpenSharedTask(task) : onNavigate("work")} className="shiba-overview-run">
+                        <span className="shiba-overview-run-icon"><Activity className="size-4" aria-hidden="true" /></span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate font-medium" title={task.title}>{task.title}</span>
                           <span className="mt-1 block truncate text-xs text-[var(--muted-foreground-2)]">
-                            {task.assigneeName || (task.assigneeKind === "agent" ? "AI employee" : "Unassigned")} · {task.roomTitle}
+                            {task.assigneeName ?? (task.assigneeKind === "agent" ? "Employee" : "Member")} · {task.roomTitle || "Workspace"}
                           </span>
                         </span>
                         <span className="shiba-overview-run-meta">
-                          <span className="rounded border border-[var(--border-1)] px-2 py-0.5 text-[10px] font-medium">
-                            {task.status.replaceAll("-", " ")}
-                          </span>
+                          <span className={`rounded border px-2 py-0.5 text-[10px] font-medium ${statusChipClass(task.status)}`}>{statusLabel(task.status)}</span>
                           <span className="text-[11px] text-[var(--muted-foreground-2)]">{formatTimeAgo(task.updatedAt)}</span>
                         </span>
                       </button>
@@ -394,14 +364,13 @@ export function DashboardView({
                 </ul>
               )}
               <footer className="shiba-overview-panel-footer">
-                <span>{sharedTasks.length} shared task{sharedTasks.length === 1 ? "" : "s"}</span>
-                <span>{sharedTasks.filter((task) => task.status === "needs-approval").length} need approval</span>
+                <span>{visibleSharedTasks.length} shown</span>
+                <span>{openSharedTasks.filter(teamWorkNeedsViewer).length} need review</span>
               </footer>
             </section>
           ) : null}
 
           <div className="shiba-overview-columns">
-            {scope === "personal" ? (
             <section className="shiba-overview-panel" aria-labelledby="dashboard-recent-title">
               <header className="shiba-overview-section-header">
                 <div>
@@ -479,7 +448,6 @@ export function DashboardView({
                 </span>
               </footer>
             </section>
-            ) : null}
 
             <div className="flex min-w-0 flex-col gap-4">
               <section className="shiba-overview-panel" aria-labelledby="dashboard-approvals-title">
@@ -493,7 +461,7 @@ export function DashboardView({
                     aria-hidden="true"
                   />
                 </header>
-                {effectiveApprovalCount === 0 ? (
+                {approvalCount === 0 ? (
                   <div className="flex items-center gap-3 p-5 text-sm">
                     <span className="shiba-overview-clear-icon">
                       <Check className="size-4" aria-hidden="true" />
@@ -508,17 +476,7 @@ export function DashboardView({
                 ) : (
                   <>
                     <ul className="shiba-overview-approval-list">
-                      {scope === "workspace"
-                        ? workspaceReviewTasks.slice(0, 3).map((task) => (
-                            <li key={task.id}>
-                              <span className="block truncate font-medium">{task.title}</span>
-                              <span className="mt-1 block truncate text-xs text-[var(--muted-foreground-2)]">
-                                {task.assigneeName || (task.assigneeKind === "agent" ? "AI employee" : "Workspace member")} · {task.roomTitle}
-                              </span>
-                            </li>
-                          ))
-                        : null}
-                      {scope === "workspace" ? null : pendingApprovals.slice(0, 3).map((approval) => (
+                      {pendingApprovals.slice(0, 3).map((approval) => (
                         <li key={approval.approvalId}>
                           <span className="block truncate font-medium">{approval.tool}</span>
                           <span className="mt-1 block text-xs text-[var(--muted-foreground-2)]">
@@ -526,7 +484,7 @@ export function DashboardView({
                           </span>
                         </li>
                       ))}
-                      {scope === "workspace" ? null : storedApprovals
+                      {storedApprovals
                         .slice(0, Math.max(0, 3 - pendingApprovals.length))
                         .map((approval) => (
                           <li key={approval.approvalId}>
@@ -538,10 +496,10 @@ export function DashboardView({
                         ))}
                     </ul>
                     <div className="shiba-overview-panel-footer">
-                      <span>{effectiveApprovalCount} pending</span>
+                      <span>{approvalCount} pending</span>
                       <button
                         type="button"
-                        onClick={() => onNavigate(reviewView)}
+                        onClick={() => onNavigate("approvals")}
                         className="shiba-overview-link"
                       >
                         Review all <ArrowRight className="size-3.5" aria-hidden="true" />
@@ -550,87 +508,34 @@ export function DashboardView({
                   </>
                 )}
               </section>
-              <section className="shiba-overview-panel" aria-labelledby="dashboard-employees-title">
+              <section className="shiba-overview-panel" aria-labelledby="dashboard-agents-title">
                 <header className="shiba-overview-section-header">
                   <div>
-                    <h2 id="dashboard-employees-title">AI employees</h2>
+                    <h2 id="dashboard-agents-title">AI employees</h2>
                     <p>
-                      {employees.length === 0
-                        ? "Build your workspace roster"
-                        : `${workingEmployees}/${employees.length} assigned to active runs`}
+                      {employees.length ? `${employeeRows.filter((row) => row.working > 0).length}/${employees.length} working · your employee roster` : `${liveAgents}/${agents.length} MCP principals live`}
                     </p>
                   </div>
                 </header>
                 {employees.length === 0 ? (
-                  <div className="px-5 py-4 text-sm text-[var(--muted-foreground-2)]">
-                    <p>No employees hired yet. Create a persistent role, then delegate approved work to it.</p>
-                    <button
-                      type="button"
-                      onClick={() => onNavigate("custom-agents")}
-                      className="shiba-overview-link mt-3"
-                    >
-                      Hire your first employee <ArrowRight className="size-3.5" aria-hidden="true" />
-                    </button>
+                  <div className="flex items-center gap-3 p-5 text-sm">
+                    <span className="shiba-overview-clear-icon"><Plus className="size-4" aria-hidden="true" /></span>
+                    <span>No employees yet.<span className="mt-1 block text-xs text-[var(--muted-foreground-2)]">Create one from a role, then assign work from the queue.</span></span>
                   </div>
                 ) : (
                   <ul className="shiba-overview-agent-list">
-                    {employees.slice(0, 4).map((employee) => {
-                      const active = activeEmployeeIds.has(employee.id);
-                      return (
-                        <li key={employee.id}>
-                          <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-[var(--border-1)] text-sm" aria-hidden="true">
-                            {employee.emoji || employee.name.slice(0, 1).toUpperCase()}
-                          </span>
+                    {employeeRows.slice(0, 5).map(({ employee, assigned, needsViewer, working, status }) => (
+                      <li key={employee.id}>
+                        <button type="button" onClick={() => onOpenEmployee ? onOpenEmployee(employee.id) : onNavigate("custom-agents")} className="flex min-h-11 w-full min-w-0 items-center gap-2 text-left">
+                          <AgentAvatar id={employee.id} name={employee.name} size={30} status={status} mascotPreset={employee.config?.mascotPreset} look={employee.config?.look} avatar={employee.config ? null : undefined} />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate font-medium">{employee.name}</span>
-                            <span className="block truncate text-xs text-[var(--muted-foreground-2)]">{employee.role}</span>
+                            <span className="block truncate text-[11px] text-[var(--muted-foreground-2)]">{employee.role}</span>
                           </span>
-                          <span className={`rounded border px-2 py-0.5 text-[10px] font-medium ${active ? "border-[var(--success)] text-[var(--success-fg)]" : "border-[var(--border-1)] text-[var(--muted-foreground-2)]"}`}>
-                            {active ? "working" : "ready"}
+                          <span className="text-right text-[11px] text-[var(--muted-foreground-2)]">
+                            {working ? `${working} working` : needsViewer ? `${needsViewer} review` : `${assigned.length} open`}
                           </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-                <div className="shiba-overview-panel-footer">
-                  <span>{employees.length} in roster</span>
-                  <button
-                    type="button"
-                    onClick={() => onNavigate("custom-agents")}
-                    className="shiba-overview-link"
-                  >
-                    Manage roster <ArrowRight className="size-3.5" aria-hidden="true" />
-                  </button>
-                </div>
-              </section>
-
-              {scope === "personal" ? (
-              <section className="shiba-overview-panel" aria-labelledby="dashboard-agents-title">
-                <header className="shiba-overview-section-header">
-                  <div>
-                    <h2 id="dashboard-agents-title">MCP principals</h2>
-                    <p>
-                      {liveAgents}/{agents.length} live · registered gateway identities
-                    </p>
-                  </div>
-                </header>
-                {agents.length === 0 ? (
-                  <p className="px-5 py-4 text-sm text-[var(--muted-foreground-2)]">
-                    No MCP principals registered yet.
-                  </p>
-                ) : (
-                  <ul className="shiba-overview-agent-list">
-                    {agents.slice(0, 4).map((agent) => (
-                      <li key={agent.principal}>
-                        <span
-                          className={`size-1.5 shrink-0 rounded-full ${agent.live ? "bg-[var(--success)]" : "bg-[var(--muted-foreground-3)]"}`}
-                          aria-hidden="true"
-                        />
-                        <span className="min-w-0 flex-1 truncate">{agent.principal}</span>
-                        <span className="text-xs text-[var(--muted-foreground-2)]">
-                          {agent.scopes.length} scope{agent.scopes.length === 1 ? "" : "s"}
-                        </span>
+                        </button>
                       </li>
                     ))}
                   </ul>
@@ -638,14 +543,13 @@ export function DashboardView({
                 <div className="shiba-overview-panel-footer">
                   <button
                     type="button"
-                    onClick={() => onNavigate("agents")}
+                    onClick={() => onNavigate("custom-agents")}
                     className="shiba-overview-link"
                   >
-                    Manage MCP <ArrowRight className="size-3.5" aria-hidden="true" />
+                    {employees.length ? "Open roster" : "Create employee"} <ArrowRight className="size-3.5" aria-hidden="true" />
                   </button>
                 </div>
               </section>
-              ) : null}
             </div>
           </div>
 
@@ -668,10 +572,10 @@ export function DashboardView({
                     icon: Blocks,
                   },
                   {
-                    id: scope === "workspace" ? "team" : "memory",
-                    title: scope === "workspace" ? "Manage people" : "Add useful context",
-                    detail: scope === "workspace" ? "Members, invitations, and workspace roles" : "Manage memory and source documents",
-                    icon: scope === "workspace" ? Users : BookOpen,
+                    id: "memory",
+                    title: "Add useful context",
+                    detail: "Manage memory and source documents",
+                    icon: BookOpen,
                   },
                   {
                     id: "custom-agents",
@@ -684,7 +588,7 @@ export function DashboardView({
                 <button
                   type="button"
                   key={shortcut.id}
-                  onClick={() => onNavigate(shortcut.id)}
+                  onClick={() => onNavigate(teamSafeView(shortcut.id))}
                   className="shiba-overview-shortcut"
                 >
                   <shortcut.icon

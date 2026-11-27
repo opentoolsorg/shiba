@@ -141,7 +141,10 @@ export interface CustomAgentConfig {
    * link cannot widen who may read it.
    */
   libraryFileIds?: readonly string[];
-  harness: string;
+  /** Provider-independent conversational/runtime model; falls back to deployment default when unset. */
+  model?: string;
+  /** Optional coding execution provider. Employees may omit this until approved coding/sandbox work needs one. */
+  harness?: string;
   codingModel?: string;
   connectionId?: string;
   sandboxProvider?: CustomAgentSandboxProvider;

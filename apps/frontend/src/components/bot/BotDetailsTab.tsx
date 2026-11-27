@@ -1,7 +1,10 @@
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Check, ExternalLink } from "lucide-react";
 import { BotNotice, Disclosure, FIELD_CLASS, QUIET_BUTTON } from "./BotPanel";
 import { BOT_TOOL_STATE_LABEL, type BotToolRow } from "../../bot-tools";
+import type { EmployeeRuntimeMemory, EmployeeRuntimeRoutine, EmployeeRuntimeState } from "@shiba/shared";
+import { teamWorkspaceHeaders } from "../../team-workspaces-client";
+import { BotRuntimeChat } from "./BotRuntimeChat";
 
 export interface BotModelOption {
   id: string;
@@ -29,6 +32,9 @@ export interface BotDetailsTabProps {
   toolsError: string | null;
   onManageTools?: () => void;
   advanced: readonly { label: string; value: string }[];
+  agentId?: string;
+  workspaceId?: string;
+  conversationId?: string;
   /** Bumped by the hero so "edit description" opens the one instructions field. */
   openInstructionsSignal: number;
 }
@@ -81,8 +87,357 @@ export function BotToolsList({ rows, onManageTools }: { rows: readonly BotToolRo
   );
 }
 
+function memoryScope(memory: EmployeeRuntimeMemory): string {
+  return memory.scope === "employee" ? "Employee" : "Thread";
+}
+
+function BotMemoryPanel({ agentId, workspaceId, conversationId, canEdit }: {
+  agentId: string;
+  workspaceId?: string;
+  conversationId: string;
+  canEdit: boolean;
+}) {
+  const [memories, setMemories] = useState<EmployeeRuntimeMemory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [olderLoading, setOlderLoading] = useState(false);
+  const [hasOlder, setHasOlder] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [scope, setScope] = useState<"employee" | "thread">("thread");
+  const [essential, setEssential] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const loadRequest = useRef(0);
+
+  const runtimePath = useCallback((suffix = "") => `/api/custom-agents/${encodeURIComponent(agentId)}/runtime${suffix}`, [agentId]);
+  const load = useCallback(async () => {
+    const request = ++loadRequest.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${runtimePath("/state")}?conversationId=${encodeURIComponent(conversationId)}&memoryLimit=100`, {
+        credentials: "same-origin", cache: "no-store", headers: teamWorkspaceHeaders(workspaceId),
+      });
+      const body = await response.json().catch(() => ({})) as Partial<EmployeeRuntimeState> & { error?: string };
+      if (!response.ok || !Array.isArray(body.memories)) throw new Error(body.error ?? `Memory could not be loaded (${response.status}).`);
+      if (request === loadRequest.current) {
+        setMemories(body.memories);
+        setHasOlder(body.memories.length === 100);
+      }
+    } catch (cause) {
+      if (request === loadRequest.current) setError(cause instanceof Error ? cause.message : "Memory could not be loaded.");
+    } finally {
+      if (request === loadRequest.current) setLoading(false);
+    }
+  }, [conversationId, runtimePath, workspaceId]);
+
+  useEffect(() => {
+    setMemories([]);
+    setEditingId(null);
+    setNotice(null);
+    setHasOlder(false);
+    void load();
+  }, [load]);
+
+  const loadOlder = async () => {
+    const request = loadRequest.current;
+    const offset = memories.length;
+    setOlderLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${runtimePath("/state")}?conversationId=${encodeURIComponent(conversationId)}&memoryLimit=100&memoryOffset=${offset}`, {
+        credentials: "same-origin", cache: "no-store", headers: teamWorkspaceHeaders(workspaceId),
+      });
+      const body = await response.json().catch(() => ({})) as Partial<EmployeeRuntimeState> & { error?: string };
+      if (!response.ok || !Array.isArray(body.memories)) throw new Error(body.error ?? `Memory could not be loaded (${response.status}).`);
+      if (request !== loadRequest.current) return;
+      setMemories((current) => {
+        const seen = new Set(current.map((memory) => memory.id));
+        return [...current, ...body.memories!.filter((memory) => !seen.has(memory.id))];
+      });
+      setHasOlder(body.memories.length === 100);
+    } catch (cause) {
+      if (request === loadRequest.current) setError(cause instanceof Error ? cause.message : "Memory could not be loaded.");
+    } finally {
+      if (request === loadRequest.current) setOlderLoading(false);
+    }
+  };
+
+  const mutate = async (suffix: string, body: Record<string, unknown>, ok: string) => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch(runtimePath(suffix), {
+        method: "POST", credentials: "same-origin",
+        headers: { "content-type": "application/json", ...teamWorkspaceHeaders(workspaceId) },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? `Memory could not be saved (${response.status}).`);
+      await load();
+      setNotice(ok);
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Memory could not be saved.");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const createMemory = async () => {
+    const content = draft.trim();
+    if (!content) return;
+    const saved = await mutate("/memory", {
+      scope, kind: "fact", content, essential,
+      ...(scope === "thread" ? { conversationId } : {}),
+    }, "Memory saved.");
+    if (saved) {
+      setDraft("");
+      setEssential(false);
+    }
+  };
+
+  const updateMemory = async (memory: EmployeeRuntimeMemory, patch: { content?: string; essential?: boolean }, ok: string) => {
+    return mutate("/memory/update", {
+      memoryId: memory.id,
+      ...(memory.conversationId ? { conversationId: memory.conversationId } : {}),
+      ...patch,
+    }, ok);
+  };
+
+  const deleteMemory = async (memory: EmployeeRuntimeMemory) => {
+    await mutate("/memory/delete", {
+      memoryId: memory.id,
+      ...(memory.conversationId ? { conversationId: memory.conversationId } : {}),
+    }, "Memory deleted.");
+  };
+
+  if (loading && memories.length === 0) return <p role="status" className="text-[11px] text-[var(--muted-foreground-2)]">Loading this bot's memory…</p>;
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
+        Essential memories are included in employee runtime context. Thread memories stay in this conversation; employee memories are shared by the employee.
+      </p>
+      {error ? <p role="alert" className="text-[11px] text-[var(--destructive)]">{error}</p> : null}
+      {notice ? <p role="status" className="text-[11px] text-[var(--muted-foreground-2)]">{notice}</p> : null}
+      {memories.length === 0 ? (
+        <p className="border border-dashed border-[var(--border-1)] px-3 py-4 text-[11px] text-[var(--muted-foreground-2)]">No runtime memories yet.</p>
+      ) : (
+        <ul aria-label="Employee runtime memories" className="divide-y divide-[var(--border-1)] rounded-md border border-[var(--border-1)] bg-[var(--card)]">
+          {memories.map((memory) => (
+            <li key={memory.id} className="flex flex-col gap-2 px-3 py-2">
+              <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono uppercase tracking-wide text-[var(--muted-foreground-2)]">
+                <span>{memoryScope(memory)}</span><span>{memory.kind}</span>{memory.essential ? <span className="text-[var(--primary)]">Essential</span> : null}
+              </div>
+              {editingId === memory.id ? (
+                <div className="flex flex-col gap-2">
+                  <textarea aria-label="Edit memory" rows={3} value={editDraft} onChange={(event) => setEditDraft(event.target.value)} className={`${FIELD_CLASS} min-h-20 resize-y py-2`} />
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" disabled={busy || !editDraft.trim()} className={`${QUIET_BUTTON} border border-[var(--border-1)] text-xs`} onClick={() => void updateMemory(memory, { content: editDraft.trim() }, "Memory updated.").then((saved) => { if (saved) setEditingId(null); })}>Save changes</button>
+                    <button type="button" disabled={busy} className={`${QUIET_BUTTON} text-xs`} onClick={() => setEditingId(null)}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-[var(--fg)]">{memory.content}</p>
+              )}
+              {canEdit && editingId !== memory.id ? (
+                <div className="flex flex-wrap gap-1">
+                  <button type="button" disabled={busy} className={`${QUIET_BUTTON} px-2 text-[11px]`} onClick={() => { setEditingId(memory.id); setEditDraft(memory.content); }}>Edit</button>
+                  <button type="button" disabled={busy} className={`${QUIET_BUTTON} px-2 text-[11px]`} aria-pressed={memory.essential} onClick={() => void updateMemory(memory, { essential: !memory.essential }, memory.essential ? "Memory is no longer essential." : "Memory marked essential.")}>{memory.essential ? "Unset essential" : "Mark essential"}</button>
+                  <button type="button" disabled={busy} className={`${QUIET_BUTTON} px-2 text-[11px] text-[var(--destructive)]`} onClick={() => void deleteMemory(memory)}>Delete</button>
+                </div>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+      {hasOlder ? (
+        <button type="button" disabled={olderLoading || busy} className={`${QUIET_BUTTON} px-3 text-xs`} onClick={() => void loadOlder()}>
+          {olderLoading ? "Loading older memories…" : "Load older memories"}
+        </button>
+      ) : null}
+      {canEdit ? (
+        <div className="flex flex-col gap-2 rounded-md border border-[var(--border-1)] bg-[var(--card)] p-3">
+          <label className="text-[11px] text-[var(--muted-foreground-2)]">
+            New memory
+            <textarea value={draft} rows={3} onChange={(event) => setDraft(event.target.value)} placeholder="A fact, preference, or reusable lesson this employee should remember." className={`${FIELD_CLASS} mt-1 min-h-20 resize-y py-2`} />
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-[11px] text-[var(--muted-foreground-2)]">
+              Scope
+              <select aria-label="Memory scope" value={scope} onChange={(event) => setScope(event.target.value === "thread" ? "thread" : "employee")} className={`${FIELD_CLASS} ml-2 inline-block w-auto`}>
+                <option value="employee">Employee</option>
+                <option value="thread">This thread</option>
+              </select>
+            </label>
+            <label className="inline-flex min-h-11 items-center gap-2 text-[11px] text-[var(--muted-foreground-2)]">
+              <input type="checkbox" checked={essential} onChange={(event) => setEssential(event.target.checked)} />Essential
+            </label>
+            <button type="button" disabled={busy || !draft.trim()} onClick={() => void createMemory()} className="min-h-11 rounded-md border border-[var(--border-1)] bg-[var(--inverse)] px-3 text-[11px] text-[var(--inverse-text)] disabled:opacity-50">Save memory</button>
+          </div>
+        </div>
+      ) : (
+        <p className="text-[11px] text-[var(--muted-foreground-2)]">You can inspect this memory, but only an editor can change it.</p>
+      )}
+    </div>
+  );
+}
+
+function intervalLabel(seconds: number): string {
+  if (seconds % 86400 === 0) return `${seconds / 86400} day${seconds === 86400 ? "" : "s"}`;
+  if (seconds % 3600 === 0) return `${seconds / 3600} hour${seconds === 3600 ? "" : "s"}`;
+  return `${Math.round(seconds / 60)} minutes`;
+}
+
+function BotRoutinesPanel({ agentId, workspaceId, conversationId, canEdit }: {
+  agentId: string;
+  workspaceId?: string;
+  conversationId: string;
+  canEdit: boolean;
+}) {
+  const [routines, setRoutines] = useState<EmployeeRuntimeRoutine[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [name, setName] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [minutes, setMinutes] = useState("60");
+  const loadRequest = useRef(0);
+
+  const runtimePath = useCallback((suffix = "") => `/api/custom-agents/${encodeURIComponent(agentId)}/runtime${suffix}`, [agentId]);
+  const load = useCallback(async () => {
+    const request = ++loadRequest.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${runtimePath("/routines")}?conversationId=${encodeURIComponent(conversationId)}`, {
+        credentials: "same-origin", cache: "no-store", headers: teamWorkspaceHeaders(workspaceId),
+      });
+      const body = await response.json().catch(() => ({})) as { routines?: EmployeeRuntimeRoutine[]; error?: string };
+      if (!response.ok || !Array.isArray(body.routines)) throw new Error(body.error ?? `Routines could not be loaded (${response.status}).`);
+      if (request === loadRequest.current) setRoutines(body.routines);
+    } catch (cause) {
+      if (request === loadRequest.current) setError(cause instanceof Error ? cause.message : "Routines could not be loaded.");
+    } finally {
+      if (request === loadRequest.current) setLoading(false);
+    }
+  }, [conversationId, runtimePath, workspaceId]);
+
+  useEffect(() => {
+    setRoutines([]);
+    setNotice(null);
+    setName("");
+    setPrompt("");
+    void load();
+  }, [load]);
+
+  const mutate = async (suffix: string, body: Record<string, unknown>, ok: string) => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch(runtimePath(suffix), {
+        method: "POST", credentials: "same-origin",
+        headers: { "content-type": "application/json", ...teamWorkspaceHeaders(workspaceId) },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? `Routine could not be saved (${response.status}).`);
+      await load();
+      setNotice(ok);
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Routine could not be saved.");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const createRoutine = async () => {
+    const intervalSeconds = Number(minutes) * 60;
+    const saved = await mutate("/routines", {
+      conversationId, name: name.trim(), prompt: prompt.trim(), intervalSeconds,
+    }, "Routine scheduled.");
+    if (saved) {
+      setName("");
+      setPrompt("");
+    }
+  };
+
+  const deleteRoutine = async (routine: EmployeeRuntimeRoutine) => {
+    await mutate("/routines/delete", { conversationId, routineId: routine.id }, "Routine cancelled.");
+  };
+
+  if (loading && routines.length === 0) return <p role="status" className="text-[11px] text-[var(--muted-foreground-2)]">Loading this bot's routines…</p>;
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
+        Routines send recurring prompts to this employee's runtime conversation. They are inference-only: they do not create a sandbox, repository, or coding run.
+      </p>
+      {error ? <p role="alert" className="text-[11px] text-[var(--destructive)]">{error}</p> : null}
+      {notice ? <p role="status" className="text-[11px] text-[var(--muted-foreground-2)]">{notice}</p> : null}
+      {routines.length === 0 ? (
+        <p className="border border-dashed border-[var(--border-1)] px-3 py-4 text-[11px] text-[var(--muted-foreground-2)]">No routines scheduled.</p>
+      ) : (
+        <ul aria-label="Employee routines" className="divide-y divide-[var(--border-1)] rounded-md border border-[var(--border-1)] bg-[var(--card)]">
+          {routines.map((routine) => (
+            <li key={routine.id} className="flex flex-col gap-2 px-3 py-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="min-w-0 flex-1 truncate text-xs font-medium text-[var(--fg)]">{routine.name}</p>
+                <span className="font-mono text-[10px] uppercase tracking-wide text-[var(--muted-foreground-2)]">every {intervalLabel(routine.intervalSeconds)}</span>
+              </div>
+              <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-[var(--fg)]">{routine.prompt}</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[10px] font-mono text-[var(--muted-foreground-2)]">Next run {new Date(routine.nextRunAt).toLocaleString()}</p>
+                {canEdit ? (
+                  <button type="button" disabled={busy} className={`${QUIET_BUTTON} px-2 text-[11px] text-[var(--destructive)]`} onClick={() => void deleteRoutine(routine)}>Cancel routine</button>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {canEdit ? (
+        <div className="flex flex-col gap-2 rounded-md border border-[var(--border-1)] bg-[var(--card)] p-3">
+          <label className="text-[11px] text-[var(--muted-foreground-2)]">
+            Routine name
+            <input value={name} maxLength={100} onChange={(event) => setName(event.target.value)} placeholder="Weekly account review" className={`${FIELD_CLASS} mt-1`} />
+          </label>
+          <label className="text-[11px] text-[var(--muted-foreground-2)]">
+            Prompt
+            <textarea value={prompt} rows={3} maxLength={4000} onChange={(event) => setPrompt(event.target.value)} placeholder="What should this employee do on each run?" className={`${FIELD_CLASS} mt-1 min-h-20 resize-y py-2`} />
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-[11px] text-[var(--muted-foreground-2)]">
+              Every
+              <select aria-label="Routine interval" value={minutes} onChange={(event) => setMinutes(event.target.value)} className={`${FIELD_CLASS} ml-2 inline-block w-auto`}>
+                <option value="5">5 minutes</option>
+                <option value="15">15 minutes</option>
+                <option value="30">30 minutes</option>
+                <option value="60">1 hour</option>
+                <option value="360">6 hours</option>
+                <option value="1440">1 day</option>
+                <option value="10080">7 days</option>
+              </select>
+            </label>
+            <button type="button" disabled={busy || !name.trim() || !prompt.trim()} onClick={() => void createRoutine()} className="min-h-11 rounded-md border border-[var(--border-1)] bg-[var(--inverse)] px-3 text-[11px] text-[var(--inverse-text)] disabled:opacity-50">Schedule routine</button>
+          </div>
+        </div>
+      ) : (
+        <p className="text-[11px] text-[var(--muted-foreground-2)]">You can inspect routines, but only a manager can change them.</p>
+      )}
+    </div>
+  );
+}
+
 export function BotDetailsTab(props: BotDetailsTabProps) {
-  const { editing, modelEdit, instructions, instructionsSaved, onInstructionsChange, onInstructionsSave, notice, saveBusy, toolsRows, toolsLoading, toolsError, onManageTools, advanced, openInstructionsSignal } = props;
+  const { editing, modelEdit, instructions, instructionsSaved, onInstructionsChange, onInstructionsSave, notice, saveBusy, toolsRows, toolsLoading, toolsError, onManageTools, advanced, agentId, workspaceId, conversationId, openInstructionsSignal } = props;
   const generated = useId();
   const [openRow, setOpenRow] = useState<string | null>(null);
   useEffect(() => {
@@ -183,6 +538,38 @@ export function BotDetailsTab(props: BotDetailsTabProps) {
           <BotToolsList rows={toolsRows} onManageTools={onManageTools} />
         )}
       </Disclosure>
+
+      {agentId && conversationId ? (
+        <>
+          <Disclosure
+            id={`${generated}-runtime-chat`}
+            label="Runtime chat"
+            summary="No sandbox"
+            open={openRow === "runtime-chat"}
+            onOpenChange={toggle("runtime-chat")}
+          >
+            {openRow === "runtime-chat" ? <BotRuntimeChat agentId={agentId} workspaceId={workspaceId} conversationId={conversationId} /> : null}
+          </Disclosure>
+          <Disclosure
+            id={`${generated}-memory`}
+            label="Memory"
+            summary="Runtime"
+            open={openRow === "memory"}
+            onOpenChange={toggle("memory")}
+          >
+            {openRow === "memory" ? <BotMemoryPanel agentId={agentId} workspaceId={workspaceId} conversationId={conversationId} canEdit={editing} /> : null}
+          </Disclosure>
+          <Disclosure
+            id={`${generated}-routines`}
+            label="Routines"
+            summary="Recurring"
+            open={openRow === "routines"}
+            onOpenChange={toggle("routines")}
+          >
+            {openRow === "routines" ? <BotRoutinesPanel agentId={agentId} workspaceId={workspaceId} conversationId={conversationId} canEdit={editing} /> : null}
+          </Disclosure>
+        </>
+      ) : null}
 
       <Disclosure
         id={`${generated}-advanced`}

@@ -61,6 +61,26 @@ describe("employee access", () => {
     expect(sqlite.prepare("SELECT COUNT(*) AS n FROM audit_log").get()).toMatchObject({ n: 5 });
     await expect(set("everyone", "*", "inherit")).rejects.toThrow("Everyone requires an explicit level");
   });
+  it("requires manage authority for employee runtime recovery", async () => {
+    const { env, employee, workspaceId, set, auth } = await fixture(); auth();
+    const request = () => new Request(`https://app.test/api/custom-agents/${employee.id}/runtime/recover`, { method: "POST", headers: { "X-Shiba-Workspace": workspaceId }, body: "{}" });
+    const v1Request = () => new Request(`https://app.test/api/v1/org-agents/${employee.id}/runtime/recover`, { method: "POST", headers: { "X-Shiba-Workspace": workspaceId }, body: "{}" });
+    for (const [level, status] of [["none", 404], ["view", 403], ["chat", 403], ["manage", undefined]] as const) {
+      await set("everyone", "*", level);
+      expect((await enforceEmployeeRouteAccess(request(), env))?.status).toBe(status);
+      expect((await enforceEmployeeRouteAccess(v1Request(), env))?.status).toBe(status);
+    }
+  });
+
+  it("applies runtime memory authority to public v1 org-agent aliases", async () => {
+    const { env, employee, workspaceId, set, auth } = await fixture(); auth();
+    const request = () => new Request(`https://app.test/api/v1/org-agents/${employee.id}/runtime/memory/update`, { method: "POST", headers: { "X-Shiba-Workspace": workspaceId }, body: "{}" });
+    for (const [level, status] of [["none", 404], ["view", 403], ["chat", undefined]] as const) {
+      await set("everyone", "*", level);
+      expect((await enforceEmployeeRouteAccess(request(), env))?.status).toBe(status);
+    }
+  });
+
   it("leaves empty or unparseable new session bodies to the session handler", async () => {
     const { env, auth } = await fixture(); auth();
     for (const body of [undefined, "", "{"]) expect(await enforceEmployeeRouteAccess(new Request("https://app.test/api/sessions", { method: "POST", body }), env)).toBeNull();
@@ -99,6 +119,19 @@ describe("employee access", () => {
     fetch.mockResolvedValue(Response.json({ error: "Not found" }, { status: 404 }));
     expect((await enforceEmployeeRouteAccess(resume(), env))?.status).toBe(404);
   });
+  it("does not reauthenticate API keys during additional runtime access checks", async () => {
+    const { env, employee, workspaceId, set } = await fixture();
+    await set("everyone", "*", "chat");
+    const record = { principal: member, orgId: `team:${workspaceId}`, kind: "api_key" as const, scopes: ["api:write" as const], created: 1, revoked: false };
+    vi.mocked(verifyToken).mockResolvedValue(record);
+    vi.mocked(resolveOrgForApiRequest).mockClear();
+    const request = new Request(`https://app.test/api/v1/org-agents/${employee.id}/runtime/memory/update`, { method: "POST", headers: { authorization: "Bearer human-key" }, body: "{}" });
+    expect(await enforceEmployeeRouteAccess(request, env)).toBeNull();
+    expect(resolveOrgForApiRequest).not.toHaveBeenCalled();
+    const withWorkspaceSelector = new Request(request.url, { method: "POST", headers: { authorization: "Bearer human-key", "X-Shiba-Workspace": workspaceId }, body: "{}" });
+    expect((await enforceEmployeeRouteAccess(withWorkspaceSelector, env))?.status).toBe(403);
+  });
+
   it("does not let human API keys or arbitrary authorization headers bypass access", async () => {
     const { env, employee, workspaceId, set, auth } = await fixture(); auth();
     await set("everyone", "*", "none");

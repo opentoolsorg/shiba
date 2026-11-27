@@ -1,6 +1,6 @@
 import type { Env } from "./env.js";
 import { rejectCrossOriginMutation, rejectNonJsonMutation } from "./dashboard-mutation.js";
-import { resolveOrgForApiRequest } from "./org-request-auth.js";
+import { resolveOrgForApiRequest, type ResolvedOrgAuth } from "./org-request-auth.js";
 import { requireV1Read, requireV1Write, v1Forbidden } from "./v1-auth.js";
 import {
   createCustomAgent,
@@ -15,6 +15,8 @@ import { resolveHarness } from "./harness/index.js";
 import { resolveUserId } from "./request-auth.js";
 import { recordEmployeeBundleProfileOwner } from "./employee-bundles-store.js";
 import { visibleEmployees } from "./governance/employee-access.js";
+import { handleEmployeeRuntimeRequest } from "./employee-runtime-routes.js";
+import { employeeRuntimeStub } from "./employee-runtime-do.js";
 
 function publicAgent(record: Awaited<ReturnType<typeof listCustomAgents>>[number]) {
   return {
@@ -31,15 +33,14 @@ function publicAgent(record: Awaited<ReturnType<typeof listCustomAgents>>[number
 
 
 
-export async function handleCustomAgents(request: Request, env: Env): Promise<Response | null> {
+export async function handleCustomAgents(request: Request, env: Env, authenticatedAuth?: ResolvedOrgAuth): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/custom-agents")) return null;
-  const auth = await resolveOrgForApiRequest(request, env, { allowMemberWrite: Boolean(url.pathname.match(/^\/api\/custom-agents\/[^/]+/)) });
+  const auth = authenticatedAuth ?? await resolveOrgForApiRequest(request, env, { allowMemberWrite: Boolean(url.pathname.match(/^\/api\/custom-agents\/[^/]+/)) });
   if (auth instanceof Response) return auth;
-  // Only explicit lifecycle suffixes are supported. An unknown suffix must
-  // never turn DELETE /:id/unknown into deletion of the real agent.
-  const route = url.pathname.match(/^\/api\/custom-agents(?:\/([^/]+)(?:\/(archive|restore))?)?\/?$/);
-  if (!route) return Response.json({ ok: false, error: "not_found" }, { status: 404 });
+  if (auth.principal?.apiKey && request.headers.has("X-Shiba-Workspace")) {
+    return Response.json({ error: "Workspace selectors cannot override an API credential." }, { status: 403 });
+  }
   if (!env.AGENT_AUDIT) {
     return Response.json({ ok: false, error: "AGENT_AUDIT D1 binding is not configured." }, { status: 503 });
   }
@@ -56,6 +57,23 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
     }
   }
 
+  const runtimeRoute = url.pathname.match(/^\/api\/custom-agents\/([^/]+)\/runtime\/(chat\/stream\/resume|chat\/stream|chat|state|memory|memory\/search|memory\/update|memory\/delete|routines|routines\/delete|cancel|clear|recover)\/?$/);
+  if (runtimeRoute) {
+    let runtimeAgentId: string;
+    try {
+      runtimeAgentId = decodeURIComponent(runtimeRoute[1]!);
+    } catch {
+      return Response.json({ ok: false, error: "invalid_agent_id" }, { status: 400 });
+    }
+    if (/[/\\]/.test(runtimeAgentId)) return Response.json({ ok: false, error: "invalid_agent_id" }, { status: 400 });
+    const action = runtimeRoute[2] === "chat/stream/resume" ? "chat-stream-resume" : runtimeRoute[2] === "chat/stream" ? "chat-stream" : runtimeRoute[2] === "memory/search" ? "memory-search" : runtimeRoute[2] === "memory/update" ? "memory-update" : runtimeRoute[2] === "memory/delete" ? "memory-delete" : runtimeRoute[2] === "routines/delete" ? "routine-delete" : runtimeRoute[2]!;
+    return handleEmployeeRuntimeRequest(request, env, auth, runtimeAgentId, action);
+  }
+
+  // Only explicit lifecycle suffixes are supported. An unknown suffix must
+  // never turn DELETE /:id/unknown into deletion of the real agent.
+  const route = url.pathname.match(/^\/api\/custom-agents(?:\/([^/]+)(?:\/(archive|restore))?)?\/?$/);
+  if (!route) return Response.json({ ok: false, error: "not_found" }, { status: 404 });
   let agentId: string | null = null;
   if (route[1]) {
     try {
@@ -72,7 +90,18 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
     if (request.method !== "POST") return Response.json({ ok: false, error: "method_not_allowed" }, { status: 405 });
     if (!agentId) return Response.json({ ok: false, error: "invalid_agent_id" }, { status: 400 });
     try {
+      const existing = await getCustomAgentById(env, auth.orgId, agentId, { includeArchived: true });
+      if (!existing) return Response.json({ ok: false, error: "not_found" }, { status: 404 });
+      if (route[2] === "restore" && existing.archivedAt !== undefined && env.EmployeeRuntime) {
+        const cancelled = await employeeRuntimeStub(env, auth.orgId, agentId).fetch("https://internal/internal/employee-runtime/routines/clear", { method: "POST" });
+        if (!cancelled.ok) return Response.json({ ok: false, error: "employee_routine_cancellation_failed" }, { status: 502 });
+      }
       const agent = await setCustomAgentArchived(env, auth.orgId, agentId, route[2] === "archive");
+      if (route[2] === "archive" && env.EmployeeRuntime) {
+        // Archived employees self-cancel any schedule that somehow survives; a
+        // later restore must clear schedules before reactivating the employee.
+        await employeeRuntimeStub(env, auth.orgId, agentId).fetch("https://internal/internal/employee-runtime/routines/clear", { method: "POST" }).catch(() => undefined);
+      }
       return Response.json({ ok: true, agent: publicAgent(agent) }, { headers: { "cache-control": "no-store" } });
     } catch (error) {
       if (error instanceof Error && error.message === "Agent not found.") {
@@ -111,7 +140,7 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
       return Response.json({ ok: false, error: "unsupported_tool_scopes", detail: "Custom tool scopes are not enforced yet. Use the deployment tool policy." }, { status: 400 });
     }
     try {
-      resolveHarness(parsed.config.harness, env);
+      if (parsed.config.harness) resolveHarness(parsed.config.harness, env);
     } catch (error) {
       return Response.json(
         { ok: false, error: error instanceof Error ? error.message : "Unknown harness." },
@@ -155,7 +184,7 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
       return Response.json({ ok: false, error: "unsupported_tool_scopes", detail: "Custom tool scopes are not enforced yet. Clear legacy scopes explicitly before saving; existing stored configuration was not changed." }, { status: 400 });
     }
     try {
-      resolveHarness(parsed.config.harness, env);
+      if (parsed.config.harness) resolveHarness(parsed.config.harness, env);
     } catch (error) {
       return Response.json(
         { ok: false, error: error instanceof Error ? error.message : "Unknown harness." },

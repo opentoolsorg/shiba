@@ -134,7 +134,7 @@ await page.getByLabel('Slug',{exact:true}).fill('local-ui-fixture-'+stamp);
 await page.getByLabel('Name',{exact:true}).fill(config.name);
 await page.getByLabel(/^Instructions/).fill(config.instructions);
 await page.getByLabel('Harness',{exact:true}).fill(config.harness);
-await page.getByLabel('Model',{exact:true}).fill(config.codingModel);
+await page.getByLabel('Coding model',{exact:true}).fill(config.codingModel);
 await page.getByRole('combobox',{name:/^Model connection/}).selectOption('');
 await page.getByLabel('Default repository',{exact:true}).fill(repoUrl);
 const [created]=await Promise.all([page.waitForResponse(response=>new URL(response.url()).pathname==='/api/custom-agents'&&response.request().method()==='POST'),page.getByRole('button',{name:'Create bot',exact:true}).click()]);assert.equal(created.status(),201,await created.text());const profile=(await created.json()).agent;
