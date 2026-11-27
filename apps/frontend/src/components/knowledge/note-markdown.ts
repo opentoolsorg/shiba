@@ -109,15 +109,13 @@ function inlineNodes(
       case "text":
         result.push(textNode(node.value ?? "", marks));
         break;
-      case "inlineCode": {
-        const effectiveMarks = marks.length ? marks : [...marks, { type: "code" }];
+      case "inlineCode":
         result.push({
           type: "text",
           text: node.value ?? "",
-          marks: normalizeMarks(effectiveMarks),
+          marks: normalizeMarks([...marks, { type: "code" }]),
         });
         break;
-      }
       case "break":
         result.push({ type: "hardBreak" });
         break;
@@ -419,8 +417,7 @@ function inlineSegments(nodes: JSONContent[] = []): InlineSegment[] {
         .filter((type) => marks.some((mark) => mark.type === type)),
       ...(href ? [encodeLinkKey(href, title)] : []),
     ];
-    const hasNonCodeMarks = markTypes.length > 0;
-    const code = marks.some((mark) => mark.type === "code") && !hasNonCodeMarks;
+    const code = marks.some((mark) => mark.type === "code");
     const value = node.text ?? "";
     const previous = segments.at(-1);
     if (
@@ -430,7 +427,7 @@ function inlineSegments(nodes: JSONContent[] = []): InlineSegment[] {
       previous.marks.join("\0") === markTypes.join("\0")
     )
       previous.value += value;
-    else segments.push({ value, marks: code ? [] : markTypes, code });
+    else segments.push({ value, marks: markTypes, code });
   }
   return segments;
 }

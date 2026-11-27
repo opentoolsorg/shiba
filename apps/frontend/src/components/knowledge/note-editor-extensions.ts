@@ -1,3 +1,4 @@
+import Code from "@tiptap/extension-code";
 import Highlight from "@tiptap/extension-highlight";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -11,6 +12,8 @@ import TextAlign from "@tiptap/extension-text-align";
 import Underline from "@tiptap/extension-underline";
 import StarterKit from "@tiptap/starter-kit";
 
+const InlineCode = Code.extend({ excludes: "" });
+
 const LinkWithTitle = Link.extend({
   addAttributes() {
     return {
@@ -22,7 +25,8 @@ const LinkWithTitle = Link.extend({
 
 export function noteEditorExtensions() {
   return [
-    StarterKit,
+    StarterKit.configure({ code: false }),
+    InlineCode,
     Placeholder.configure({ placeholder: "Write something, or press '/' for commands…" }),
     TextAlign.configure({ types: ["heading", "paragraph"] }),
     TaskList,

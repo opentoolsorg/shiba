@@ -312,7 +312,7 @@ describe("note Markdown", () => {
     expect(linked?.marks?.find((mark) => mark.type === "link")?.attrs?.href).toBe(
       "https://example.com/docs",
     );
-    expect(linked?.marks?.some((mark) => mark.type === "code")).toBe(false);
+    expect(linked?.marks?.some((mark) => mark.type === "code")).toBe(true);
     expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
 
     const schema = getSchema(noteEditorExtensions());
@@ -336,5 +336,15 @@ describe("note Markdown", () => {
     const parsed = ProseMirrorNode.fromJSON(schema, doc);
     const link = parsed.firstChild?.firstChild?.marks.find((mark) => mark.type.name === "link");
     expect(link?.attrs.title).toBe("Guide title");
+  });
+  it("preserves bold and italic inline code through the live schema", () => {
+    for (const source of ["**`code`**\n", "*`code`*\n"]) {
+      const doc = parseNoteMarkdown(source);
+      const marked = doc.content?.[0]?.content?.[0];
+      expect(marked?.marks?.some((mark) => mark.type === "code")).toBe(true);
+      const schema = getSchema(noteEditorExtensions());
+      expect(() => ProseMirrorNode.fromJSON(schema, doc)).not.toThrow();
+      expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
+    }
   });
 });
