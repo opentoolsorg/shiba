@@ -67,6 +67,42 @@ describe("BotRuntimeChat", () => {
     expect(screen.getByText(/Lightweight Chat mode uses/).parentElement?.className).toContain("flex-col");
   });
 
+  it("automatically resumes a live runtime stream after reload", async () => {
+    let stateReads = 0;
+    const resumeBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.includes("/runtime/state")) {
+        stateReads += 1;
+        return json(stateReads === 1
+          ? { conversationId: "thread-1", messages: [user], memories: [], executions: [execution] }
+          : { conversationId: "thread-1", messages: [user, assistant], memories: [], executions: [{ ...execution, status: "completed" }] });
+      }
+      if (path.includes("/runtime/chat/stream/resume")) {
+        resumeBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        const events = [
+          { type: "execution", execution },
+          { type: "delta", text: "Hello" },
+          { type: "delta", text: " there" },
+          { type: "done", execution: { ...execution, status: "completed" }, message: assistant, answer: assistant.content },
+        ];
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            events.forEach((event, index) => controller.enqueue(encoder.encode(`id: ${index + 1}\ndata: ${JSON.stringify(event)}\n\n`)));
+            controller.close();
+          },
+        });
+        return new Response(body, { headers: { "content-type": "text/event-stream" } });
+      }
+      throw new Error(`unexpected fetch ${path}`);
+    }));
+    render(<BotRuntimeChat agentId="agent-1" conversationId="thread-1" />);
+
+    expect(await screen.findByText("Hello there")).toBeTruthy();
+    await waitFor(() => expect(resumeBodies).toEqual([{ conversationId: "thread-1", executionId: "run_1", afterSeq: 0 }]));
+    await waitFor(() => expect(stateReads).toBeGreaterThan(1));
+  });
+
   it("keeps drafts separate when the selected thread changes or the surface unmounts", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const conversationId = new URL(String(input), "https://x").searchParams.get("conversationId") ?? "thread-1";

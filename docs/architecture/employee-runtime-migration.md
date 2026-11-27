@@ -66,6 +66,18 @@ These references do not replace Shiba's Cloudflare trust boundary. They add
 two concrete requirements to the remaining migration: resumable/cursor-based
 execution transport and receipted, idempotent employee-to-employee delegation.
 
+Reason's private-preview API adds a useful access rule for the workspace-files
+and Work execution phases: preview metadata is listed only inside the exact
+owned execution context for the calling identity, the list endpoint never mints
+viewer credentials or restarts execution, and read/use permissions are separate
+(`jobs:read` plus `devices:use`). Shiba should follow that split rather than
+treating a preview URL as a bearer capability: D1 should store execution-scoped
+preview metadata, the viewer route should check the current actor/workspace on
+every access, and any shareable preview should be a separate explicit grant with
+expiry and revocation. This is also consistent with OpenBot/Overlay's machine
+execution model: the execution host is outbound-only, while control-plane
+authorization decides who may inspect its live outputs.
+
 ## Target ownership
 
 Use one ownership rule for the target architecture:
@@ -177,8 +189,9 @@ Remaining:
   or an equivalent checkpointed transport. Implemented first slice: streamed
   events now carry durable sequence IDs in EmployeeRuntime SQLite, network
   disconnects do not abort inference, and clients can replay/resume through
-  `/runtime/chat/stream/resume`. Full reload-time automatic reattachment and
-  shared-thread writer arbitration remain.
+  `/runtime/chat/stream/resume`, and the runtime chat surface automatically
+  reattaches to a live nonrecoverable execution after reload. Shared-thread
+  writer arbitration remains.
 - Share employee identity, memory, and conversation context across Chat and
   Work modes.
 - Add cancellation of live streams, checkpoint replay after eviction, retry
