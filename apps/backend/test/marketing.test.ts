@@ -61,16 +61,16 @@ describe("marketing landing page", () => {
 
   test("renders the custom landing page, not the Starlight splash", () => {
     const markup = html();
-    expect(markup).toContain("Shiba — AI Employees for the Work Behind Your Company");
+    expect(markup).toContain("Shiba — Build an AI Workforce You Actually Own");
     expect(markup).toContain('href="/docs/self-hosting/"');
     expect(markup).toContain('id="home-title"');
     const heading = markup.match(/<h1\b[^>]*id="home-title"[^>]*>([\s\S]*?)<\/h1>/)?.[1]
       ?.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-    expect(heading).toBe("Hire AI employees you own. Approve every move.");
+    expect(heading).toBe("Build an AI workforce you actually own.");
     expect(markup).toContain('id="dashboard"');
     expect(markup).toContain('id="employees"');
-    expect(markup).toContain("/landing/app-agents-light.png");
-    expect(markup).toContain("/landing/app-agents-dark.png");
+    expect(markup).toContain("Shiba app · customizable robot employee avatars · Agents workspace");
+    expect(markup).toContain("Your next great teammate.");
     expect(markup).not.toContain("manga-panel");
     expect(markup).toContain('prefers-color-scheme: dark');
     expect(markup).toContain("theme-toggle-btn");

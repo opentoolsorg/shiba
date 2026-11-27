@@ -45,7 +45,7 @@
     "test": "node apps/backend/scripts/check-migrations.mjs && turbo run test --concurrency=2",
     "test:personal-daemon": "node --test scripts/personal-cli-auth.test.mjs scripts/personal-daemon.test.mjs",
     "test:acceptance": "node apps/backend/test/acceptance/run.mjs",
-    "test:built": "cd apps/backend && pnpm test test/marketing-pages.test.ts test/marketing-seo.test.ts",
+    "test:built": "cd apps/backend && SHIBA_TEST_BUILT_MARKETING=1 pnpm test test/marketing-pages.test.ts test/marketing-seo.test.ts",
     "test:ephemeral": "node scripts/ephemeral-stack.mjs --alchemy",
     "test:live": "pnpm -C apps/backend test:live",
     "typecheck": "turbo run typecheck && tsc -b && pnpm sdk:check-types",
