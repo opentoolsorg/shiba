@@ -28,7 +28,7 @@ export async function handleNotes(request: Request, env: Env): Promise<Response 
   const { userId, authorized } = await resolveRequestIdentity(request, env);
   if (!authorized) return json({ error: "Authentication required." }, 401);
   if (!userId) return json({ error: "Authentication required." }, 401);
-  const org = await resolveOrgForApiRequest(request, env);
+  const org = await resolveOrgForApiRequest(request, env, { allowMemberWrite: true });
   if (org instanceof Response) return org;
   const workspaceId = org.workspace?.workspaceId ?? org.orgId.replace(/^team:/, "");
   const scope: KnowledgeScope = url.searchParams.get("scope") === "workspace" ? "workspace" : "personal";

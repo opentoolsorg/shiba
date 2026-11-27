@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useRef, useState, type JSX } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
 import { FolderPlus, Search, Upload } from "lucide-react";
 import type { KnowledgeFile, KnowledgeScope, KnowledgeSearchHit } from "@shiba/shared";
 import { MarkedSnippet } from "../palette/ResultRow";
 import { uploadFile } from "../../files-upload-client";
+import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 import type { AppNavView } from "../AppNavRail";
 import { LoadErrorState } from "../LoadErrorState";
 import { MainCard } from "../ui/ContextPanel";
 import { FileAppPreview } from "./FileAppPreview";
 
-export function FilesView({ onNavigate, appPreviewOwner }: { onNavigate?: (view: AppNavView) => void; appPreviewOwner?: string } = {}): JSX.Element {
+export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavigate?: (view: AppNavView) => void; appPreviewOwner?: string; workspaceId?: string | null } = {}): JSX.Element {
   const [scope, setScope] = useState<KnowledgeScope>("personal");
   const [files, setFiles] = useState<KnowledgeFile[]>([]);
   const [query, setQuery] = useState("");
@@ -24,15 +25,16 @@ export function FilesView({ onNavigate, appPreviewOwner }: { onNavigate?: (view:
   const [uploads, setUploads] = useState<Array<{ id: number; name: string; done: number; total: number; state: string; error?: string }>>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const workspaceHeaders = useMemo(() => teamWorkspaceHeaders(workspaceId ?? undefined), [workspaceId]);
 
   const load = useCallback(async () => {
     const request = ++fileRequest.current;
     setError(null);
-    const response = await fetch(`/api/files?scope=${scope}${folderId ? `&folderId=${encodeURIComponent(folderId)}` : ""}`, { credentials: "same-origin", cache: "no-store" });
+    const response = await fetch(`/api/files?scope=${scope}${folderId ? `&folderId=${encodeURIComponent(folderId)}` : ""}`, { credentials: "same-origin", cache: "no-store", headers: workspaceHeaders });
     const body = await response.json() as { files?: KnowledgeFile[]; error?: string };
     if (!response.ok || !Array.isArray(body.files)) throw new Error(body.error ?? `Files unavailable (${response.status}).`);
     if (request === fileRequest.current) setFiles(body.files);
-  }, [scope, folderId]);
+  }, [scope, folderId, workspaceHeaders]);
 
   useEffect(() => {
     void load().catch((err: unknown) => setError(err instanceof Error ? err.message : "Files failed to load."));
@@ -41,11 +43,11 @@ export function FilesView({ onNavigate, appPreviewOwner }: { onNavigate?: (view:
 
   const loadFolders = useCallback(async () => {
     const request = ++folderRequest.current;
-    const response = await fetch(`/api/files/folders?scope=${scope}`, { credentials: "same-origin", cache: "no-store" });
+    const response = await fetch(`/api/files/folders?scope=${scope}`, { credentials: "same-origin", cache: "no-store", headers: workspaceHeaders });
     const body = await response.json() as { folders?: Array<{ id: string; name: string }>; error?: string };
     if (!response.ok || !Array.isArray(body.folders)) throw new Error(body.error ?? "Folders unavailable.");
     if (request === folderRequest.current) setFolders(body.folders);
-  }, [scope]);
+  }, [scope, workspaceHeaders]);
 
   useEffect(() => {
     void loadFolders().catch((err: unknown) => setError(err instanceof Error ? err.message : "Folders failed to load."));
@@ -64,7 +66,7 @@ export function FilesView({ onNavigate, appPreviewOwner }: { onNavigate?: (view:
     try {
       const response = await fetch(`/api/files/folders?scope=${scope}`, {
         method: "POST", credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...workspaceHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({ name: folderName, scope, parentId: folderId || null }),
       });
       const body = await response.json() as { error?: string };
@@ -82,7 +84,7 @@ export function FilesView({ onNavigate, appPreviewOwner }: { onNavigate?: (view:
     if (!query.trim()) return;
     setSearching(true);
     try {
-      const response = await fetch(`/api/knowledge/search?q=${encodeURIComponent(query.trim())}`, { credentials: "same-origin", cache: "no-store" });
+      const response = await fetch(`/api/knowledge/search?q=${encodeURIComponent(query.trim())}`, { credentials: "same-origin", cache: "no-store", headers: workspaceHeaders });
       const body = await response.json() as { hits?: KnowledgeSearchHit[]; error?: string };
       if (!response.ok) throw new Error(body.error ?? "Search failed.");
       setSearchHits(body.hits ?? []);
@@ -105,7 +107,7 @@ export function FilesView({ onNavigate, appPreviewOwner }: { onNavigate?: (view:
         update(index, { state: "Uploading" });
         try {
           await uploadFile(file, {
-            scope, folderId: folderId || null,
+            scope, folderId: folderId || null, headers: workspaceHeaders,
             onProgress: (done, total) => update(index, { done, total }),
           });
           update(index, { state: "Uploaded" });
