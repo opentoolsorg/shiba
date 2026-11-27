@@ -373,6 +373,7 @@ describe("EmployeeRuntime Durable Object", () => {
     db.prepare(`INSERT INTO employee_runtime_messages(id,conversation_id,role,content,origin,created_at) VALUES('msg_interactive','default','user','finish the interactive answer','interactive',1)`).run();
     db.prepare(`INSERT INTO employee_runtime_messages(id,conversation_id,role,content,origin,created_at) VALUES('msg_routine_user','default','user','routine prompt','routine',2)`).run();
     db.prepare(`INSERT INTO employee_runtime_messages(id,conversation_id,role,content,origin,created_at) VALUES('msg_routine_assistant','default','assistant','routine answer','routine',3)`).run();
+    db.prepare(`INSERT INTO employee_runtime_summaries(conversation_id,summary,through_message_id,message_count,created_at,updated_at) VALUES('default','summary through the interrupted prompt','msg_interactive',1,1,1)`).run();
     const inputJson = JSON.stringify({ conversationId: "default", mode: "chat", employeeVersion: 2, userMessageId: "msg_interactive", messageLength: 28 });
     db.prepare(`INSERT INTO employee_runtime_executions(id,conversation_id,mode,status,checkpoint,input_json,created_at,updated_at)
       VALUES('run_prefix','default','chat','running','inference',?,1,1)`).run(inputJson);

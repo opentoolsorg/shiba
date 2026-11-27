@@ -541,7 +541,11 @@ ${input.prompt}`, mode: "chat" };
     // prompt. A summary is safe only when its exact boundary is still present
     // in the replayed prefix.
     const summary = replayMessages && summarizedThrough < 0 ? null : storedSummary;
-    const history: ModelMessage[] = (summarizedThrough >= 0 ? allMessages.slice(summarizedThrough + 1) : allMessages)
+    const unsummarized = summarizedThrough >= 0 ? allMessages.slice(summarizedThrough + 1) : allMessages;
+    // The current prompt is already persisted before inference. If a summary
+    // boundary lands exactly on it, the summary may carry prior context but the
+    // model still must receive that prompt as the active user turn.
+    const history: ModelMessage[] = (unsummarized.length > 0 ? unsummarized : allMessages.slice(-1))
       .slice(-MAX_CONTEXT_MESSAGES)
       .map((message) => ({ role: message.role, content: message.content }));
     return {
