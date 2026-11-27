@@ -87,4 +87,12 @@ describe("note Markdown", () => {
     expect(doc.content?.map((node) => node.type)).toEqual(["bulletList", "taskList"]);
     expect(doc.content?.[1]?.content?.[0]?.type).toBe("taskItem");
   });
+
+  it("keeps nested checklists in position before follow-up text", () => {
+    const doc = parseNoteMarkdown("- [ ] Parent\n  - [ ] Child\n      Follow-up text\n");
+    const itemContent = doc.content?.[0]?.content?.[0]?.content;
+    expect(itemContent?.map((node) => node.type)).toEqual(["paragraph", "taskList", "paragraph"]);
+    expect(itemContent?.[2]?.content?.[0]?.text).toBe("Follow-up text");
+    expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
+  });
 });

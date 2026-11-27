@@ -82,7 +82,12 @@ function parseTaskList(lines: string[], start: number, indent: number): { node: 
     if (!item || (item[1] ?? "").length !== indent) break;
     const width = item[0].length - (item[3] ?? "").length;
     const body = [(item[3] ?? "")];
-    const childBlocks: JSONContent[] = [];
+    const itemContent: JSONContent[] = [];
+    const flushBody = () => {
+      if (!body.length) return;
+      itemContent.push(...(parseNoteMarkdown(body.join("\n")).content ?? []));
+      body.length = 0;
+    };
     i++;
     while (i < lines.length) {
       const line = lines[i] ?? "";
@@ -99,19 +104,22 @@ function parseTaskList(lines: string[], start: number, indent: number): { node: 
       if (lineIndent <= indent) break;
       const nestedTask = taskLine.exec(line);
       if (nestedTask) {
+        flushBody();
         const nested = parseTaskList(lines, i, lineIndent);
-        childBlocks.push(nested.node);
+        itemContent.push(nested.node);
         i = nested.next;
         continue;
       }
+      if (lineIndent < width) break;
       const strip = line.startsWith(" ".repeat(width)) ? width : lineIndent;
       body.push(line.slice(strip));
       i++;
     }
+    flushBody();
     items.push({
       type: "taskItem",
       attrs: { checked: (item[2] ?? " ").toLowerCase() === "x" },
-      content: [...(parseNoteMarkdown(body.join("\n")).content ?? []), ...childBlocks],
+      content: itemContent,
     });
   }
   return { node: { type: "taskList", content: items }, next: i };
