@@ -296,4 +296,45 @@ describe("note Markdown", () => {
     });
     expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
   });
+  it("keeps fenced checkbox samples as literal code inside tasks", () => {
+    const doc = parseNoteMarkdown("- [ ] Parent\n\n  ```\n  - [ ] sample\n  ```\n");
+    const itemContent = doc.content?.[0]?.content?.[0]?.content;
+    expect(itemContent?.map((node) => node.type)).toEqual(["paragraph", "codeBlock"]);
+    expect(itemContent?.[1]?.content?.[0]?.text).toBe("- [ ] sample");
+    expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
+  });
+
+  it("preserves link destinations on inline code labels", () => {
+    const doc = parseNoteMarkdown("[`guide`](https://example.com/docs)\n");
+    const linked = doc.content?.[0]?.content?.[0];
+    expect(linked?.text).toBe("guide");
+    expect(linked?.marks?.some((mark) => mark.type === "link")).toBe(true);
+    expect(linked?.marks?.find((mark) => mark.type === "link")?.attrs?.href).toBe(
+      "https://example.com/docs",
+    );
+    expect(linked?.marks?.some((mark) => mark.type === "code")).toBe(false);
+    expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
+
+    const schema = getSchema(noteEditorExtensions());
+    expect(() => ProseMirrorNode.fromJSON(schema, doc)).not.toThrow();
+  });
+
+  it("uses the first duplicate link reference definition", () => {
+    const doc = parseNoteMarkdown(
+      "Read [guide][docs]\n\n[docs]: https://example.com/first\n[docs]: https://example.com/second\n",
+    );
+    const linked = doc.content?.[0]?.content?.find((node) =>
+      node.marks?.some((mark) => mark.type === "link"),
+    );
+    const link = linked?.marks?.find((mark) => mark.type === "link");
+    expect(link?.attrs?.href).toBe("https://example.com/first");
+  });
+
+  it("keeps link titles in the live editor schema", () => {
+    const doc = parseNoteMarkdown('[guide](https://example.com "Guide title")\n');
+    const schema = getSchema(noteEditorExtensions());
+    const parsed = ProseMirrorNode.fromJSON(schema, doc);
+    const link = parsed.firstChild?.firstChild?.marks.find((mark) => mark.type.name === "link");
+    expect(link?.attrs.title).toBe("Guide title");
+  });
 });

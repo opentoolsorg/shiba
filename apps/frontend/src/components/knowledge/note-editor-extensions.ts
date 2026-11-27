@@ -11,6 +11,15 @@ import TextAlign from "@tiptap/extension-text-align";
 import Underline from "@tiptap/extension-underline";
 import StarterKit from "@tiptap/starter-kit";
 
+const LinkWithTitle = Link.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      title: { default: null },
+    };
+  },
+});
+
 export function noteEditorExtensions() {
   return [
     StarterKit,
@@ -20,7 +29,7 @@ export function noteEditorExtensions() {
     TaskItem.configure({ nested: true }),
     Highlight.configure({ multicolor: true }),
     Underline,
-    Link.configure({ openOnClick: false }),
+    LinkWithTitle.configure({ openOnClick: false }),
     Table.configure({ resizable: false }),
     TableRow,
     TableHeader,

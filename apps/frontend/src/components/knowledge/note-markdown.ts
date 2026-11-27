@@ -19,6 +19,7 @@ type MdastNode = {
   alt?: string | null;
   identifier?: string;
   align?: (string | null)[];
+  position?: { start?: { offset?: number } };
 };
 
 type Mark = NonNullable<JSONContent["marks"]>[number];
@@ -64,7 +65,8 @@ function collectReferences(root: MdastNode): ReferenceMap {
   const references = new Map<string, ReferenceTarget>();
   for (const node of root.children ?? []) {
     if (node.type === "definition" && node.url)
-      references.set(referenceKey(node.identifier), { url: node.url, title: node.title });
+      if (!references.has(referenceKey(node.identifier)))
+        references.set(referenceKey(node.identifier), { url: node.url, title: node.title });
   }
   return references;
 }
@@ -107,13 +109,15 @@ function inlineNodes(
       case "text":
         result.push(textNode(node.value ?? "", marks));
         break;
-      case "inlineCode":
+      case "inlineCode": {
+        const effectiveMarks = marks.length ? marks : [...marks, { type: "code" }];
         result.push({
           type: "text",
           text: node.value ?? "",
-          marks: normalizeMarks([...marks, { type: "code" }]),
+          marks: normalizeMarks(effectiveMarks),
         });
         break;
+      }
       case "break":
         result.push({ type: "hardBreak" });
         break;
@@ -249,7 +253,11 @@ function applyListItemAlignmentMarker(result: JSONContent[], node: MdastNode): b
   return true;
 }
 
-function blockNodes(nodes: MdastNode[] = [], references: ReferenceMap = new Map()): JSONContent[] {
+function blockNodes(
+  nodes: MdastNode[] = [],
+  references: ReferenceMap = new Map(),
+  source = "",
+): JSONContent[] {
   const result: JSONContent[] = [];
   for (const node of nodes) {
     if (applyListItemAlignmentMarker(result, node)) continue;
@@ -275,10 +283,10 @@ function blockNodes(nodes: MdastNode[] = [], references: ReferenceMap = new Map(
         });
         break;
       case "blockquote":
-        result.push({ type: "blockquote", content: blockNodes(node.children, references) });
+        result.push({ type: "blockquote", content: blockNodes(node.children, references, source) });
         break;
       case "list":
-        result.push(...listNodes(node, references));
+        result.push(...listNodes(node, references, source));
         break;
       case "table":
         result.push(tableNode(node, references));
@@ -300,19 +308,28 @@ function blockNodes(nodes: MdastNode[] = [], references: ReferenceMap = new Map(
   return result;
 }
 
-function legacyTaskChildren(item: MdastNode, task: boolean): MdastNode[] {
+function legacyTaskChildren(item: MdastNode, task: boolean, source: string): MdastNode[] {
   return (item.children ?? []).flatMap((node) => {
     if (!task || node.type !== "code" || !/^\s*[-+*] +\[[ xX]\] +/.test(node.value ?? ""))
       return [node];
-    return parseMarkdown(node.value ?? "").children ?? [];
+    const offset = node.position?.start?.offset;
+    const fenced = typeof offset === "number" && /^(?:`{3,}|~{3,})/.test(source.slice(offset));
+    return fenced ? [node] : (parseMarkdown(node.value ?? "").children ?? []);
   });
 }
 
-function listItemContent(item: MdastNode, references: ReferenceMap, task: boolean): JSONContent[] {
-  return ensureEditorItemContent(blockNodes(legacyTaskChildren(item, task), references));
+function listItemContent(
+  item: MdastNode,
+  references: ReferenceMap,
+  task: boolean,
+  source: string,
+): JSONContent[] {
+  return ensureEditorItemContent(
+    blockNodes(legacyTaskChildren(item, task, source), references, source),
+  );
 }
 
-function listNodes(list: MdastNode, references: ReferenceMap): JSONContent[] {
+function listNodes(list: MdastNode, references: ReferenceMap, source: string): JSONContent[] {
   const groups: { task: boolean; items: MdastNode[]; startIndex: number }[] = [];
   (list.children ?? []).forEach((item, itemIndex) => {
     const task = typeof item.checked === "boolean";
@@ -327,7 +344,7 @@ function listNodes(list: MdastNode, references: ReferenceMap): JSONContent[] {
         content: group.items.map((item) => ({
           type: "taskItem",
           attrs: { checked: item.checked === true },
-          content: listItemContent(item, references, true),
+          content: listItemContent(item, references, true, source),
         })),
       };
     const ordered = list.ordered === true;
@@ -337,7 +354,7 @@ function listNodes(list: MdastNode, references: ReferenceMap): JSONContent[] {
       ...(ordered ? { attrs: { start } } : {}),
       content: group.items.map((item) => ({
         type: "listItem",
-        content: listItemContent(item, references, false),
+        content: listItemContent(item, references, false, source),
       })),
     };
   });
@@ -345,8 +362,9 @@ function listNodes(list: MdastNode, references: ReferenceMap): JSONContent[] {
 
 /** Parses GitHub-flavored note Markdown plus the small safe HTML subset used for underline, highlight, and alignment. */
 export function parseNoteMarkdown(markdown: string): JSONContent {
-  const root = parseMarkdown(markdown.replace(/\r\n?/g, "\n"));
-  const content = blockNodes(root.children, collectReferences(root));
+  const normalized = markdown.replace(/\r\n?/g, "\n");
+  const root = parseMarkdown(normalized);
+  const content = blockNodes(root.children, collectReferences(root), normalized);
   return { type: "doc", content: content.length ? content : [{ type: "paragraph" }] };
 }
 
@@ -401,7 +419,8 @@ function inlineSegments(nodes: JSONContent[] = []): InlineSegment[] {
         .filter((type) => marks.some((mark) => mark.type === type)),
       ...(href ? [encodeLinkKey(href, title)] : []),
     ];
-    const code = marks.some((mark) => mark.type === "code");
+    const hasNonCodeMarks = markTypes.length > 0;
+    const code = marks.some((mark) => mark.type === "code") && !hasNonCodeMarks;
     const value = node.text ?? "";
     const previous = segments.at(-1);
     if (
