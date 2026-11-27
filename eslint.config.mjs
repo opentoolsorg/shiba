@@ -82,6 +82,9 @@ export default tseslint.config(
   // packages/* are the leaf layer: they must never reach into apps/.
   {
     files: ["packages/*/src/**/*.{ts,tsx}", "packages/*/test/**/*.{ts,tsx}"],
+    // The SDK contract test drives the real v1 handler so the published client
+    // and the Worker cannot drift; it is the one sanctioned test-only exception.
+    ignores: ["packages/sdk/test/contract.test.ts"],
     languageOptions: { parser: tseslint.parser },
     rules: {
       "no-restricted-imports": [
@@ -91,6 +94,10 @@ export default tseslint.config(
             {
               group: ["../../apps/**", "../../../apps/**", "*/apps/*/**"],
               message: "Packages must not import apps/ — shared contracts live in @shiba/shared.",
+            },
+            {
+              regex: "^\\.\\./\\.\\./[^/]+/src(?:/|$)",
+              message: "Import a workspace package by its name (@shiba/...), not its source path.",
             },
           ],
         },

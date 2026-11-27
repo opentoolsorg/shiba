@@ -3,7 +3,8 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const dist = join(import.meta.dirname, "..", "..", "web", "dist");
-const built = existsSync(join(dist, "index.html"));
+// Only `pnpm test:built` sets this; the normal unit-test shard must not race the self-building landing test.
+const built = process.env.SHIBA_TEST_BUILT_MARKETING === "1" && existsSync(join(dist, "index.html"));
 
 function walkHtml(dir: string, prefix = ""): string[] {
 	const out: string[] = [];

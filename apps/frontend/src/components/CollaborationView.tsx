@@ -8,6 +8,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -681,7 +682,7 @@ function ScopedCollaborationView({
     });
   }, [presenceScope, realtime.viewers]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     clearRoomDrafts();
   }, [activeRoomId, clearRoomDrafts]);
 

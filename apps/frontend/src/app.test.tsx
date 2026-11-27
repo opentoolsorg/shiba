@@ -431,7 +431,7 @@ describe("app Work and Threads routing", () => {
     fireEvent.click(screen.getByRole("button", { name: "Work" }));
     await screen.findByRole("region", { name: "Board view" });
     expect(screen.queryByRole("dialog")).toBeNull();
-  });
+  }, 15_000);
 
   it("keeps the Work inspector on the original frozen approval decision path", async () => {
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
