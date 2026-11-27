@@ -200,6 +200,8 @@ export interface AgentDetailsPanelProps {
   onEdit: () => void;
   ownerName?: string;
   workspaceName?: string;
+  workspaceId?: string;
+  conversationId?: string;
   runtime?: BotRuntimeInfo;
   initialTab?: BotPanelTab;
   /** False for a shared room or a profile this viewer may not change. */
@@ -267,6 +269,8 @@ export function AgentDetailsPanel({
   ownerName,
   runtime,
   workspaceName,
+  workspaceId,
+  conversationId,
   initialTab = "details",
   editing = true,
   modelEdit = null,
@@ -416,6 +420,9 @@ export function AgentDetailsPanel({
             toolsError={agent ? toolPolicy.error : null}
             onManageTools={onManageTools}
             advanced={advanced}
+            agentId={agent?.id}
+            workspaceId={workspaceId}
+            conversationId={conversationId}
             openInstructionsSignal={openInstructionsSignal}
           />
         ) : activeTab === "library" ? (
