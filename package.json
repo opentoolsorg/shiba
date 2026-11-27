@@ -31,7 +31,7 @@
     "check": "biome check --formatter-enabled=false --assist-enabled=false .",
     "check:agent-context": "pnpm -C apps/backend exec vitest run test/agent-context-budget.test.ts",
     "check:ci": "pnpm check:agent-context && biome ci --formatter-enabled=false --assist-enabled=false . && pnpm check:knip && pnpm check:deps",
-    "check:deps": "sherif -i tailwindcss",
+    "check:deps": "sherif -i tailwindcss -i zod@4.6.6",
     "check:knip": "node scripts/check-knip-baseline.mjs",
     "check:deploy": "node scripts/check-alchemy-drift.mjs && node scripts/check-dogfood-drift.mjs && node scripts/check-dogfood-image-pin.mjs && node scripts/check-env-types.mjs && node --experimental-strip-types --test scripts/deploy-config.test.mjs scripts/check-dogfood-drift.test.mjs",
     "check:dev-vars": "node scripts/check-dev-vars-example.mjs",
