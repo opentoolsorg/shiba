@@ -111,9 +111,7 @@ import {
   PlugIcon,
   PlusSignIcon,
   Presentation01Icon,
-  QuoteDownIcon,
   RadioIcon,
-  Redo02Icon,
   RefreshCwIcon,
   RobotIcon,
   RotateCcwIcon,
@@ -139,7 +137,6 @@ import {
   TickDouble02Icon,
   ToggleLeftIcon,
   ToggleRightIcon,
-  Undo02Icon,
   Upload01Icon,
   UserAdd01Icon,
   UserCheck01Icon,
@@ -243,9 +240,7 @@ export const Pin = defineIcon("Pin", LicensePinIcon);
 export const Plug = defineIcon("Plug", PlugIcon);
 export const Plus = defineIcon("Plus", PlusSignIcon);
 export const Presentation = defineIcon("Presentation", Presentation01Icon);
-export const Quote = defineIcon("Quote", QuoteDownIcon);
 export const Radio = defineIcon("Radio", RadioIcon);
-export const Redo2 = defineIcon("Redo2", Redo02Icon);
 export const RefreshCw = defineIcon("RefreshCw", RefreshCwIcon);
 export const Search = defineIcon("Search", Search01Icon);
 export const Server = defineIcon("Server", ServerIcon);
@@ -261,7 +256,6 @@ export const Strikethrough = defineIcon("Strikethrough", TextStrikethroughIcon);
 export const Terminal = defineIcon("Terminal", ComputerTerminal01Icon);
 export const Type = defineIcon("Type", TextFontIcon);
 export const Underline = defineIcon("Underline", TextUnderlineIcon);
-export const Undo2 = defineIcon("Undo2", Undo02Icon);
 export const Upload = defineIcon("Upload", Upload01Icon);
 export const UserPlus = defineIcon("UserPlus", UserAdd01Icon);
 export const Users = defineIcon("Users", UserMultiple02Icon);
