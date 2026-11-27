@@ -26,6 +26,14 @@ export const EMPLOYEE_RUNTIME_SCHEMA = [
   )`,
   `CREATE INDEX IF NOT EXISTS employee_runtime_messages_conversation
     ON employee_runtime_messages(conversation_id,created_at,id)`,
+  `CREATE TABLE IF NOT EXISTS employee_runtime_summaries(
+    conversation_id TEXT PRIMARY KEY,
+    summary TEXT NOT NULL,
+    through_message_id TEXT NOT NULL,
+    message_count INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS employee_runtime_profiles(
     conversation_id TEXT PRIMARY KEY,
     profile_json TEXT NOT NULL,
@@ -83,6 +91,27 @@ function escapeFtsQuery(query: string): string {
   return terms.slice(0, 12).map((term) => `"${term.replaceAll('"', '""')}"`).join(" AND ");
 }
 
+
+export interface EmployeeRuntimeSummary {
+  conversationId: string;
+  summary: string;
+  throughMessageId: string;
+  messageCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+function rowToSummary(row: SqlRow): EmployeeRuntimeSummary {
+  return {
+    conversationId: String(row.conversation_id),
+    summary: String(row.summary),
+    throughMessageId: String(row.through_message_id),
+    messageCount: Number(row.message_count),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  };
+}
+
 export class EmployeeRuntimeStore {
   constructor(private readonly exec: SqlExec) {}
 
@@ -129,6 +158,22 @@ export class EmployeeRuntimeStore {
     return rows.reverse().map(rowToMessage);
   }
 
+  conversationSummary(conversationId: string): EmployeeRuntimeSummary | null {
+    const row = this.exec(`SELECT * FROM employee_runtime_summaries WHERE conversation_id=?`, cleanId(conversationId, "conversationId"))[0];
+    return row ? rowToSummary(row) : null;
+  }
+
+  upsertConversationSummary(conversationId: string, summary: string, throughMessageId: string, messageCount: number, now = Date.now()): void {
+    const clean = summary.trim();
+    if (!clean || clean.length > 8000) throw new InputError("Conversation summary must be 1-8000 characters.");
+    this.exec(
+      `INSERT INTO employee_runtime_summaries(conversation_id,summary,through_message_id,message_count,created_at,updated_at)
+       VALUES(?,?,?,?,?,?)
+       ON CONFLICT(conversation_id) DO UPDATE SET summary=excluded.summary,through_message_id=excluded.through_message_id,message_count=excluded.message_count,updated_at=excluded.updated_at`,
+      cleanId(conversationId, "conversationId"), clean, cleanId(throughMessageId, "throughMessageId"), Math.max(0, Math.floor(messageCount)), now, now,
+    );
+  }
+
   private pruneMessages(conversationId: string): void {
     this.exec(
       `DELETE FROM employee_runtime_messages WHERE conversation_id=? AND id NOT IN (
@@ -140,6 +185,7 @@ export class EmployeeRuntimeStore {
   clearConversation(conversationId: string): void {
     const clean = cleanId(conversationId, "conversationId");
     this.exec(`DELETE FROM employee_runtime_messages WHERE conversation_id=?`, clean);
+    this.exec(`DELETE FROM employee_runtime_summaries WHERE conversation_id=?`, clean);
     this.exec(`DELETE FROM employee_runtime_executions WHERE conversation_id=?`, clean);
     this.exec(`DELETE FROM employee_runtime_profiles WHERE conversation_id=?`, clean);
   }

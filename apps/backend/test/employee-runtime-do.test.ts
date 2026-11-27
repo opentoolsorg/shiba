@@ -166,6 +166,35 @@ describe("EmployeeRuntime Durable Object", () => {
     expect(db.prepare("SELECT status FROM employee_runtime_executions WHERE id='run_other'").get()).toEqual({ status: "running" });
   });
 
+  it("consolidates older conversation context into a bounded working summary", async () => {
+    const { runtime, db } = fixture();
+    for (let index = 0; index < 36; index += 1) {
+      db.prepare(`INSERT INTO employee_runtime_messages(id,conversation_id,role,content,created_at) VALUES(?,?,?,?,?)`)
+        .run(`old_${index}`, "default", index % 2 === 0 ? "user" : "assistant", `old fact ${index}`, index + 1);
+    }
+    const response = await runtime.onRequest(chat("trigger consolidation"));
+    expect(response.status).toBe(200);
+    const summary = db.prepare(`SELECT * FROM employee_runtime_summaries WHERE conversation_id='default'`).get() as { summary: string; message_count: number } | undefined;
+    expect(summary?.summary).toContain("Synthetic summary");
+    expect(summary?.message_count).toBe(26);
+    const prompt = (runtime as unknown as { inferencePrompt(body: { profile: typeof profile; conversationId: string; message: string; mode: "chat" }): { system: string; history: Array<{ content: string }> } })
+      .inferencePrompt({ profile, conversationId: "default", message: "next", mode: "chat" });
+    expect(prompt.system).toContain("Conversation summary so far");
+    expect(prompt.history.some((message) => message.content === "old fact 0")).toBe(false);
+    expect(prompt.history.some((message) => message.content === "trigger consolidation")).toBe(true);
+    expect((await runtime.onRequest(chat("one more turn"))).status).toBe(200);
+    expect(db.prepare(`SELECT message_count AS n FROM employee_runtime_summaries WHERE conversation_id='default'`).get()).toMatchObject({ n: 26 });
+  });
+
+  it("clears conversation summaries with the owning conversation", async () => {
+    const { runtime, db } = fixture();
+    db.prepare(`INSERT INTO employee_runtime_messages(id,conversation_id,role,content,created_at) VALUES('m','default','user','secret transcript',1)`).run();
+    db.prepare(`INSERT INTO employee_runtime_summaries(conversation_id,summary,through_message_id,message_count,created_at,updated_at) VALUES('default','derived secret','m',1,1,1)`).run();
+    const response = await runtime.onRequest(new Request("https://do/internal/employee-runtime/clear", { method: "POST", body: JSON.stringify({ conversationId: "default" }) }));
+    expect(response.status).toBe(200);
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM employee_runtime_summaries`).get()).toMatchObject({ n: 0 });
+  });
+
   it("marks abandoned running executions recoverable in state", async () => {
     const { runtime, db } = fixture();
     db.prepare(`INSERT INTO employee_runtime_executions(id,conversation_id,mode,status,checkpoint,input_json,created_at,updated_at)
