@@ -94,6 +94,16 @@ describe("EmployeeRuntimeStore", () => {
     expect(store.getMemory(automatic.id)).toBeNull();
   });
 
+  it("rejects new memories instead of silently dropping them when essential memories fill storage", () => {
+    const store = makeStore();
+    for (let index = 0; index < 1000; index += 1) {
+      store.createMemory({ scope: "employee", kind: "fact", content: `essential ${index}`, essential: true, now: index + 1 });
+    }
+    expect(() => store.createMemory({ scope: "employee", kind: "fact", content: "would vanish", essential: false })).toThrow(/full of essential memories/);
+    expect(store.listMemories({ limit: 500 })).toHaveLength(500);
+    expect(() => store.createMemory({ scope: "employee", kind: "fact", content: "another essential", essential: true })).toThrow(/full of essential memories/);
+  });
+
   it("treats user-edited automatic memories as manual provenance", () => {
     const store = makeStore();
     const automatic = store.createMemory({ scope: "thread", conversationId: "default", kind: "fact", content: "derived fact", essential: false, origin: "automatic" });

@@ -200,6 +200,8 @@ export class EmployeeRuntimeStore {
 
   createMemory(input: EmployeeRuntimeMemoryWrite & { now?: number; origin?: "manual" | "automatic" }): EmployeeRuntimeMemory {
     if (input.scope === "thread" && !input.conversationId) throw new InputError("Thread memories require conversationId.");
+    const essentialCount = Number(this.exec(`SELECT COUNT(*) AS n FROM employee_runtime_memories WHERE essential=1`)[0]?.n ?? 0);
+    if (essentialCount >= MAX_MEMORIES) throw new InputError("Memory storage is full of essential memories; remove or unmark one before adding more.");
     const now = input.now ?? Date.now();
     const memory: EmployeeRuntimeMemory = {
       id: id("mem"),
