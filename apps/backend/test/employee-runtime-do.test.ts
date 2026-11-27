@@ -148,6 +148,25 @@ describe("EmployeeRuntime Durable Object", () => {
     expect(await search.json()).toEqual({ memories: [] });
   });
 
+  it("clears runtime messages, executions, and pinned profile without deleting memories", async () => {
+    const { runtime } = fixture();
+    expect((await runtime.onRequest(chat("clear me"))).status).toBe(200);
+    const memory = await runtime.onRequest(new Request("https://do/internal/employee-runtime/memory", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scope: "thread", kind: "fact", conversationId: "default", content: "Remember this thread fact" }),
+    }));
+    expect(memory.status).toBe(201);
+    const clear = await runtime.onRequest(new Request("https://do/internal/employee-runtime/clear", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ conversationId: "default" }),
+    }));
+    expect(clear.status).toBe(200);
+    const state = await runtime.onRequest(new Request("https://do/internal/employee-runtime/state?conversationId=default"));
+    const body = await state.json() as { messages: unknown[]; executions: unknown[]; memories: Array<{ content: string }> };
+    expect(body.messages).toEqual([]);
+    expect(body.executions).toEqual([]);
+    expect(body.memories).toMatchObject([{ content: "Remember this thread fact" }]);
+  });
+
   it("pages runtime state memories beyond the first hundred", async () => {
     const { runtime } = fixture();
     for (let index = 0; index < 105; index += 1) {

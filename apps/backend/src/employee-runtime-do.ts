@@ -13,6 +13,7 @@ import { createWorkersAI } from "workers-ai-provider";
 import {
   employeeRuntimeCancelSchema,
   employeeRuntimeChatRequestSchema,
+  employeeRuntimeConversationRequestSchema,
   employeeRuntimeMemoryDeleteSchema,
   employeeRuntimeMemoryUpdateSchema,
   employeeRuntimeMemoryWriteSchema,
@@ -95,6 +96,7 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
       if (url.pathname === `${PREFIX}/chat` && request.method === "POST") return await this.chat(request);
       if (url.pathname === `${PREFIX}/chat/stream` && request.method === "POST") return await this.streamChat(request);
       if (url.pathname === `${PREFIX}/state` && request.method === "GET") return this.stateResponse(url);
+      if (url.pathname === `${PREFIX}/clear` && request.method === "POST") return await this.clearConversation(request);
       if (url.pathname === `${PREFIX}/memory` && request.method === "POST") return await this.writeMemory(request);
       if (url.pathname === `${PREFIX}/memory/update` && request.method === "POST") return await this.updateMemory(request);
       if (url.pathname === `${PREFIX}/memory/delete` && request.method === "POST") return await this.deleteMemory(request);
@@ -107,6 +109,15 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
       log.error("employee_runtime_request_failed", { error: redactSecrets(error instanceof Error ? error.message : String(error)) });
       return json({ error: "Employee runtime request failed." }, { status: 500 });
     }
+  }
+
+  private async clearConversation(request: Request): Promise<Response> {
+    const input = employeeRuntimeConversationRequestSchema.parse(await bodyObject(request));
+    for (const execution of this.store.listExecutions(input.conversationId, 500)) {
+      if (execution.status === "running") this.active.get(execution.id)?.abort();
+    }
+    this.store.clearConversation(input.conversationId);
+    return json({ ok: true });
   }
 
   private async chat(request: Request): Promise<Response> {

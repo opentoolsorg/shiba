@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { EMPLOYEE_RUNTIME_MESSAGE_MAX_LENGTH } from "@shiba/shared";
 import type { EmployeeRuntimeExecution, EmployeeRuntimeMessage, EmployeeRuntimeState, EmployeeRuntimeStreamEvent } from "@shiba/shared";
 import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 import { FIELD_CLASS, QUIET_BUTTON } from "./BotPanel";
@@ -39,11 +40,16 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId }: {
   const [pendingUser, setPendingUser] = useState<ChatMessage | null>(null);
   const [streamingText, setStreamingText] = useState("");
   const [activeExecution, setActiveExecution] = useState<EmployeeRuntimeExecution | null>(null);
-  const [draft, setDraft] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const draft = drafts[conversationId] ?? "";
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const loadRequest = useRef(0);
+
+  const setDraft = useCallback((value: string) => {
+    setDrafts((current) => ({ ...current, [conversationId]: value }));
+  }, [conversationId]);
 
   const runtimePath = useCallback((suffix: string) => `/api/custom-agents/${encodeURIComponent(agentId)}/runtime${suffix}`, [agentId]);
   const load = useCallback(async () => {
@@ -83,6 +89,10 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId }: {
   const send = async () => {
     const text = draft.trim();
     if (!text || busy || activeExecution) return;
+    if (text.length > EMPLOYEE_RUNTIME_MESSAGE_MAX_LENGTH) {
+      setError(`Runtime messages must be ${EMPLOYEE_RUNTIME_MESSAGE_MAX_LENGTH.toLocaleString()} characters or fewer. Shorten the draft and try again.`);
+      return;
+    }
     setBusy(true);
     setError(null);
     setDraft("");

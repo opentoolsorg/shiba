@@ -2,6 +2,7 @@ import {
   employeeRuntimeCancelSchema,
   verifyStandinEnabled,
   employeeRuntimeChatRequestSchema,
+  employeeRuntimeConversationRequestSchema,
   employeeRuntimeMemoryDeleteSchema,
   employeeRuntimeMemoryUpdateSchema,
   employeeRuntimeMemoryWriteSchema,
@@ -144,7 +145,7 @@ export async function handleEmployeeRuntimeRequest(
   if (!agent) return json({ ok: false, error: "not_found" }, { status: 404 });
   if (agent.archivedAt && !["state", "memory-search"].includes(action)) return json({ ok: false, error: "employee_archived" }, { status: 409 });
   const stub = employeeRuntimeStub(env, orgId, agent.id);
-  const internal = `https://internal/internal/employee-runtime${action === "state" ? "/state" : action === "memory" ? "/memory" : action === "memory-update" ? "/memory/update" : action === "memory-delete" ? "/memory/delete" : action === "memory-search" ? "/memory/search" : action === "cancel" ? "/cancel" : action === "recover" ? "/recover" : action === "chat-stream" ? "/chat/stream" : "/chat"}`;
+  const internal = `https://internal/internal/employee-runtime${action === "state" ? "/state" : action === "memory" ? "/memory" : action === "memory-update" ? "/memory/update" : action === "memory-delete" ? "/memory/delete" : action === "memory-search" ? "/memory/search" : action === "cancel" ? "/cancel" : action === "clear" ? "/clear" : action === "recover" ? "/recover" : action === "chat-stream" ? "/chat/stream" : "/chat"}`;
   const manager = await canManageEmployee(env, auth, agent.id);
   const runtimeModel = agent.config.model;
   const profile = {
@@ -203,6 +204,17 @@ export async function handleEmployeeRuntimeRequest(
       body: JSON.stringify({ ...parsed.data, conversationId: storageId, profile }),
     });
     return action === "chat-stream" ? forwardStreamConversations(streamed) : forwardConversation(streamed);
+  }
+
+  if (action === "clear") {
+    const parsed = employeeRuntimeConversationRequestSchema.safeParse(body);
+    if (!parsed.success) return json({ ok: false, error: "invalid_body" }, { status: 400 });
+    const storageId = await scopedConversationId(actorIdentity, parsed.data.conversationId);
+    const response = await stub.fetch(internal, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ conversationId: storageId }),
+    });
+    return forwardConversation(response);
   }
 
   if (action === "memory") {

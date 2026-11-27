@@ -133,6 +133,13 @@ export class EmployeeRuntimeStore {
     );
   }
 
+  clearConversation(conversationId: string): void {
+    const clean = cleanId(conversationId, "conversationId");
+    this.exec(`DELETE FROM employee_runtime_messages WHERE conversation_id=?`, clean);
+    this.exec(`DELETE FROM employee_runtime_executions WHERE conversation_id=?`, clean);
+    this.exec(`DELETE FROM employee_runtime_profiles WHERE conversation_id=?`, clean);
+  }
+
   createMemory(input: EmployeeRuntimeMemoryWrite & { now?: number }): EmployeeRuntimeMemory {
     if (input.scope === "thread" && !input.conversationId) throw new InputError("Thread memories require conversationId.");
     const now = input.now ?? Date.now();

@@ -56,7 +56,7 @@ export async function handleCustomAgents(request: Request, env: Env, authenticat
     }
   }
 
-  const runtimeRoute = url.pathname.match(/^\/api\/custom-agents\/([^/]+)\/runtime\/(chat\/stream|chat|state|memory|memory\/search|memory\/update|memory\/delete|cancel|recover)\/?$/);
+  const runtimeRoute = url.pathname.match(/^\/api\/custom-agents\/([^/]+)\/runtime\/(chat\/stream|chat|state|memory|memory\/search|memory\/update|memory\/delete|cancel|clear|recover)\/?$/);
   if (runtimeRoute) {
     let runtimeAgentId: string;
     try {

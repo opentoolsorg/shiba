@@ -63,6 +63,41 @@ describe("BotRuntimeChat", () => {
     expect(screen.queryByText(/sandbox setup/i)).toBeNull();
   });
 
+  it("keeps drafts separate when the selected thread changes", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const conversationId = new URL(String(input), "https://x").searchParams.get("conversationId") ?? "thread-1";
+      return json({ conversationId, messages: [], memories: [], executions: [] });
+    }));
+    const { rerender } = render(<BotRuntimeChat agentId="agent-1" conversationId="thread-1" />);
+    const box = () => screen.getByLabelText(/Runtime message/) as HTMLTextAreaElement;
+    fireEvent.change(box(), { target: { value: "first thread draft" } });
+    rerender(<BotRuntimeChat agentId="agent-1" conversationId="thread-2" />);
+    expect(box().value).toBe("");
+    fireEvent.change(box(), { target: { value: "second thread draft" } });
+    rerender(<BotRuntimeChat agentId="agent-1" conversationId="thread-1" />);
+    expect(box().value).toBe("first thread draft");
+    rerender(<BotRuntimeChat agentId="agent-1" conversationId="thread-2" />);
+    expect(box().value).toBe("second thread draft");
+  });
+
+  it("keeps an oversized draft in the composer instead of posting it", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      calls.push(path);
+      if (path.includes("/runtime/state")) return json({ conversationId: "thread-1", messages: [], memories: [], executions: [] });
+      throw new Error(`unexpected fetch ${path}`);
+    }));
+    render(<BotRuntimeChat agentId="agent-1" conversationId="thread-1" />);
+    const oversized = "x".repeat(12001);
+    const box = screen.getByLabelText(/Runtime message/) as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: oversized } });
+    fireEvent.click(screen.getByRole("button", { name: "Send runtime message" }));
+    expect(await screen.findByText(/12,000 characters or fewer/)).toBeTruthy();
+    expect(box.value).toBe(oversized);
+    expect(calls.some((path) => path.includes("/runtime/chat/stream"))).toBe(false);
+  });
+
   it("cancels the active streamed execution against the exact thread", async () => {
     const streamControl: { current: ReadableStreamDefaultController<Uint8Array> | null } = { current: null };
     const cancelBodies: Array<Record<string, unknown>> = [];

@@ -2,6 +2,8 @@ import { z } from "zod";
 
 /** Provider-independent employee runtime wire contracts. */
 
+export const EMPLOYEE_RUNTIME_MESSAGE_MAX_LENGTH = 12000;
+
 export const EMPLOYEE_RUNTIME_MODES = ["chat", "work"] as const;
 export type EmployeeRuntimeMode = (typeof EMPLOYEE_RUNTIME_MODES)[number];
 
@@ -18,10 +20,15 @@ export type EmployeeRuntimeProfile = z.infer<typeof employeeRuntimeProfileSchema
 
 export const employeeRuntimeChatRequestSchema = z.object({
   conversationId: z.string().trim().min(1).max(128).default("default"),
-  message: z.string().trim().min(1).max(12000),
+  message: z.string().trim().min(1).max(EMPLOYEE_RUNTIME_MESSAGE_MAX_LENGTH),
   mode: z.enum(EMPLOYEE_RUNTIME_MODES).default("chat"),
 });
 export type EmployeeRuntimeChatRequest = z.infer<typeof employeeRuntimeChatRequestSchema>;
+
+export const employeeRuntimeConversationRequestSchema = z.object({
+  conversationId: z.string().trim().min(1).max(128).default("default"),
+});
+export type EmployeeRuntimeConversationRequest = z.infer<typeof employeeRuntimeConversationRequestSchema>;
 
 export const employeeRuntimeMemoryWriteSchema = z.object({
   conversationId: z.string().trim().min(1).max(128).optional(),

@@ -68,7 +68,7 @@ import { OnboardingProgressClient, type FirstRunProgressUpdate } from "./onboard
 import { ConversationalOnboarding } from "./components/ConversationalOnboarding";
 import { OnboardingJourney, type JourneyEmployee, type JourneyRun } from "./components/OnboardingJourney";
 import { deriveJourney, shouldOpenJourney, type JourneyStepId } from "./onboarding-journey";
-import { teamWorkspaceRequest } from "./team-workspaces-client";
+import { teamWorkspaceHeaders, teamWorkspaceRequest } from "./team-workspaces-client";
 import { OnboardingNudgeBanner } from "./components/OnboardingNudgeBanner";
 import { OnboardingNudgePopup } from "./components/OnboardingNudgePopup";
 import { TeamOnboardingDraft } from "./components/TeamOnboardingDraft";
@@ -2478,6 +2478,15 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     try {
       await chat.clearHistory();
       historyCleared = true;
+      if (customAgentId) {
+        const runtimeResponse = await fetch(`/api/custom-agents/${encodeURIComponent(customAgentId)}/runtime/clear`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json", ...teamWorkspaceHeaders(teamWorkspaceId || undefined) },
+          body: JSON.stringify({ conversationId: selectedSessionId }),
+        });
+        if (!runtimeResponse.ok) throw new Error(`Runtime conversation clear failed: ${runtimeResponse.status}`);
+      }
       // Session-scoped delete only when the sessions API exists; never fall
       // back to an unscoped delete for a named session — that would wipe runs
       // belonging to other sessions.
@@ -2528,7 +2537,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       clearInFlight.current = false;
       setClearing(false);
     }
-  }, [chat, refreshRuns, selectedSessionId, sessionApiAvailable]);
+  }, [chat, customAgentId, refreshRuns, selectedSessionId, sessionApiAvailable, teamWorkspaceId]);
 
   const cancelRun = useCallback(
     async (runId: string) => {
@@ -4832,8 +4841,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   Clear Conversation & Runs?
                 </h3>
                 <p className="text-sm text-[var(--muted-foreground-2)] mb-5 leading-relaxed">
-                  This will erase all active conversation history and delete retained run registry
-                  records on the orchestrator. Active sandboxes will not be destroyed automatically.
+                  This will erase all active conversation history, including lightweight employee runtime
+                  messages, and delete retained run registry records on the orchestrator. Active
+                  sandboxes will not be destroyed automatically.
                 </p>
                 <div className="flex items-center justify-end gap-3">
                   <button
