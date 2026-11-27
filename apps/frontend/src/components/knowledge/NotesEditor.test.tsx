@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Editor } from "@tiptap/react";
@@ -155,7 +156,7 @@ describe("NotesEditor", () => {
 
   it("uses the workspace scope queued by Files navigation", async () => {
     window.sessionStorage.setItem(NEW_NOTE_INTENT_KEY, "workspace");
-    render(<NotesEditor />);
+    render(<StrictMode><NotesEditor /></StrictMode>);
     await screen.findByRole("textbox", { name: "Note title" });
     const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
     expect(post?.[0]).toBe("/api/notes?scope=workspace");

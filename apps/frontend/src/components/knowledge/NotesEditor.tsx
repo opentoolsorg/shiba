@@ -341,7 +341,8 @@ export function NotesEditor({ workspaceId = null, workspaceRole, actorId, onNavi
   newNoteRef.current = newNote;
   const queuedNoteScope = useRef<"personal" | "workspace" | null>(null);
   useEffect(() => {
-    queuedNoteScope.current = consumeNewNoteIntent();
+    const consumedScope = consumeNewNoteIntent();
+    if (consumedScope) queuedNoteScope.current = consumedScope;
     if (queuedNoteScope.current && queuedNoteScope.current !== scope) setScope(queuedNoteScope.current);
   }, []);
   useEffect(() => {
