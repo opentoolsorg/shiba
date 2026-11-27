@@ -3263,7 +3263,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   } : null), [activeEmployee, codingModelSuggestions, saveBotConfigEdit]);
   const employeeName = activeEmployee?.config.name ?? "Shiba";
   const chatAgent = { id: activeEmployee?.id ?? "shiba", name: employeeName, mascotPreset: activeEmployee?.config.mascotPreset, look: activeEmployee?.config.look, avatar: activeEmployee?.config.avatar, role: activeEmployee ? employeeRole(activeEmployee.slug, activeEmployee.config.roleTemplateId) : undefined };
-  const runtimeMainEmployee = !teamWorkspaceId && botPage === "chat" && conversationMode === "chat" && activeEmployee && !activeEmployee.config.harness && sessionCustomAgentId === activeEmployee.id && selectedSessionId !== DEFAULT_THREAD_ID ? activeEmployee : null;
+  const runtimeMainEmployee = !teamWorkspaceId && botPage === "chat" && conversationMode === "chat" && activeEmployee && sessionCustomAgentId === activeEmployee.id && selectedSessionId !== DEFAULT_THREAD_ID && chat.messages.length === 0 ? activeEmployee : null;
   const mentionableAgents = customAgentRecords.map((record) => ({ id: record.id, name: record.config.name, mascotPreset: record.config.mascotPreset, look: record.config.look, avatar: record.config.avatar, role: employeeRole(record.slug, record.config.roleTemplateId) }));
   const showEmployeeOnboarding = !teamWorkspaceId && !restrictedTeamMember && !employeeOnboardingDismissed && !threadsLoading && !customAgentsLoading && !customAgentsError && sessionApiAvailable && customAgentRecords.length === 0 && webSessions.every((session) => session.id === "default") && sessions.every((session) => session.id === "default") && !threadHasWork;
 

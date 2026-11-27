@@ -126,9 +126,11 @@ Remaining:
 
 - Move the main employee conversation surface from the legacy orchestrator to
   the runtime. Implemented first lane: thread-backed personal conversations
-  for harness-free employees render the runtime SSE surface in the main chat
-  panel; Work mode, teams, and legacy profiles remain on the compatibility
-  orchestrator until their migration lanes are verified.
+  for employees render the runtime SSE surface in the main chat panel when the
+  thread has no legacy orchestrator messages. Existing legacy threads stay on
+  the compatibility lane so profile edits do not hide their history; Work mode,
+  teams, and default threads remain on the compatibility orchestrator until
+  their migration lanes are verified.
 - Make streams resumable after disconnects through the Agents SDK chat patterns
   or an equivalent checkpointed transport.
 - Share employee identity, memory, and conversation context across Chat and
