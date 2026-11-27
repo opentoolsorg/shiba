@@ -598,9 +598,9 @@ describe("CollaborationView room access polling", () => {
     render(<CollaborationView />);
     await screen.findByText("Message 12");
     for (let index = 0; index < 12; index++) fireEvent.click(screen.getByLabelText(`Include message in next handoff: Message ${index}`));
-    expect((screen.getByLabelText("Include message in next handoff: Message 12") as HTMLInputElement).disabled).toBe(true);
+    await waitFor(() => expect((screen.getByLabelText("Include message in next handoff: Message 12") as HTMLInputElement).disabled).toBe(true));
     for (let index = 0; index < 8; index++) fireEvent.click(screen.getByLabelText(`Use shared note Guide ${index} in next handoff`));
-    expect((screen.getByLabelText("Use shared note Guide 8 in next handoff") as HTMLInputElement).disabled).toBe(true);
+    await waitFor(() => expect((screen.getByLabelText("Use shared note Guide 8 in next handoff") as HTMLInputElement).disabled).toBe(true));
   });
 
   it("keeps the new room selected when a message send from the previous room settles later", async () => {
