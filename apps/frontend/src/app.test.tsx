@@ -2440,7 +2440,7 @@ describe("bot thread links", () => {
     stubThreads();
     render(<App />);
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
-    await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("https://example.com/docs"));
+    await waitFor(() => expect((screen.getByRole("textbox", { name: "Runtime message" }) as HTMLTextAreaElement).value).toBe("https://example.com/docs"));
     expect(new URLSearchParams(window.location.search).has("prompt")).toBe(false);
     expect(readDraft(composerDraftScope("test-operator", RESEARCH_THREAD))).toBe("https://example.com/docs");
     expect(readDraft(composerDraftScope("test-operator", "default"))).toBe("Default thread draft");
@@ -2457,7 +2457,7 @@ describe("bot thread links", () => {
     mocks.chat.sendMessage.mockClear();
     stubThreads();
     render(<App />);
-    await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Unsent research notes\n\nhttps://example.com/docs"));
+    await waitFor(() => expect((screen.getByRole("textbox", { name: "Runtime message" }) as HTMLTextAreaElement).value).toBe("Unsent research notes\n\nhttps://example.com/docs"));
     expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD);
     expect(readDraft(composerDraftScope("test-operator", RESEARCH_THREAD))).toBe("Unsent research notes\n\nhttps://example.com/docs");
     expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
@@ -2473,7 +2473,7 @@ describe("bot thread links", () => {
     stubThreads();
     render(<App />);
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("session")).toBe(RESEARCH_THREAD));
-    await waitFor(() => expect((screen.getByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Create a 9:16 video of "));
+    await waitFor(() => expect((screen.getByRole("textbox", { name: "Runtime message" }) as HTMLTextAreaElement).value).toBe("Create a 9:16 video of "));
     await act(async () => {});
     expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
     const posts = vi.mocked(fetch).mock.calls.filter(([, options]) => options?.method === "POST").map(([url]) => String(url));

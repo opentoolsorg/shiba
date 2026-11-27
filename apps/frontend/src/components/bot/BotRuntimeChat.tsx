@@ -32,11 +32,13 @@ async function readSse(response: Response, onEvent: (event: EmployeeRuntimeStrea
 }
 
 /** Lightweight provider-independent employee conversation. No sandbox, repository, or coding harness is created here. */
-export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant = "panel" }: {
+export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant = "panel", draft: controlledDraft, onDraftChange }: {
   agentId: string;
   workspaceId?: string;
   conversationId: string;
   variant?: "panel" | "main";
+  draft?: string;
+  onDraftChange?: (value: string) => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pendingUser, setPendingUser] = useState<ChatMessage | null>(null);
@@ -49,17 +51,22 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant =
   const [recovering, setRecovering] = useState(false);
   const [confirmingClear, setConfirmingClear] = useState(false);
   const draftKey = `${workspaceId ?? "personal"}:${agentId}:${conversationId}`;
-  const [draft, setDraftState] = useState(() => runtimeDrafts.get(draftKey) ?? "");
+  const [localDraft, setLocalDraft] = useState(() => runtimeDrafts.get(draftKey) ?? "");
+  const draft = controlledDraft ?? localDraft;
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const loadRequest = useRef(0);
 
   const setDraft = useCallback((value: string) => {
+    if (onDraftChange) {
+      onDraftChange(value);
+      return;
+    }
     if (value) runtimeDrafts.set(draftKey, value);
     else runtimeDrafts.delete(draftKey);
-    setDraftState(value);
-  }, [draftKey]);
+    setLocalDraft(value);
+  }, [draftKey, onDraftChange]);
 
   const runtimePath = useCallback((suffix: string) => `/api/custom-agents/${encodeURIComponent(agentId)}/runtime${suffix}`, [agentId]);
   const load = useCallback(async () => {
@@ -85,8 +92,8 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant =
   }, [conversationId, runtimePath, workspaceId]);
 
   useEffect(() => {
-    setDraftState(runtimeDrafts.get(draftKey) ?? "");
-  }, [draftKey]);
+    if (!onDraftChange) setLocalDraft(runtimeDrafts.get(draftKey) ?? "");
+  }, [draftKey, onDraftChange]);
 
   useEffect(() => {
     setConfirmingClear(false);
