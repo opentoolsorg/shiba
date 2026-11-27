@@ -4794,6 +4794,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               threadsUnavailable={sessionsLoaded && !sessionApiAvailable}
               sharedTasks={teamWorkspaceId ? sharedWork.tasks : []}
               sharedTasksLoading={Boolean(teamWorkspaceId && sharedWork.loading)}
+              onCreateSharedTask={teamWorkspaceId ? (title, patch) => sharedWork.create(title, patch) : undefined}
               onUpdateSharedTask={teamWorkspaceId ? (id, patch) => { void sharedWork.update(id, patch); } : undefined}
               onOpenSharedTask={teamWorkspaceId ? (task) => {
                 applyWorkSelection({ view: workViewMode, task: task.id, tab: "steps" }, "push");

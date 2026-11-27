@@ -712,9 +712,10 @@ describe("account-scoped employee directory", () => {
     };
     const review = { ...newer, id: `task_${"d".repeat(24)}`, title: "Review board task", status: "in-review" as const, updatedAt: 400 };
     const done = { ...newer, id: `task_${"c".repeat(24)}`, title: "Finished board task", status: "done" as const, updatedAt: 50 };
+    const onCreateSharedTask = vi.fn(async () => null);
     const onUpdateSharedTask = vi.fn();
     const onOpenSharedTask = vi.fn();
-    render(<CustomAgentsView workspaceId={designWorkspace} sharedTasks={[newer, handoff, older, review, done]} onUpdateSharedTask={onUpdateSharedTask} onOpenSharedTask={onOpenSharedTask} />);
+    render(<CustomAgentsView workspaceId={designWorkspace} sharedTasks={[newer, handoff, older, review, done]} onCreateSharedTask={onCreateSharedTask} onUpdateSharedTask={onUpdateSharedTask} onOpenSharedTask={onOpenSharedTask} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "View profile Builder" }));
     const queue = await screen.findByRole("region", { name: "Builder task queue" });
@@ -726,6 +727,9 @@ describe("account-scoped employee directory", () => {
     expect(onUpdateSharedTask).toHaveBeenCalledWith(older.id, { status: "cancelled" });
     fireEvent.click(within(queue).getByRole("button", { name: "Approval handoff" }));
     expect(onOpenSharedTask).toHaveBeenCalledWith(handoff);
+    fireEvent.change(within(queue).getByLabelText("Queue work for Builder"), { target: { value: "Draft launch notes" } });
+    fireEvent.click(within(queue).getByRole("button", { name: "Queue" }));
+    await waitFor(() => expect(onCreateSharedTask).toHaveBeenCalledWith("Draft launch notes", { ownerId: "agent:eng-1", status: "todo" }));
   });
 });
 

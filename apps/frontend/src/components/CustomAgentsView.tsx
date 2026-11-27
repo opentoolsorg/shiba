@@ -142,6 +142,7 @@ export interface CustomAgentsViewProps {
   actorId?: string;
   sharedTasks?: readonly TeamWorkItem[];
   sharedTasksLoading?: boolean;
+  onCreateSharedTask?: (title: string, patch: WorkTaskPatch) => Promise<TeamWorkItem | null>;
   onUpdateSharedTask?: (id: string, patch: WorkTaskPatch) => unknown;
   onOpenSharedTask?: (task: TeamWorkItem) => void;
   // Receives the employee to preselect after a hire; plain links pass nothing.
@@ -175,6 +176,7 @@ function ScopedCustomAgentsView({
   actorId,
   sharedTasks = [],
   sharedTasksLoading = false,
+  onCreateSharedTask,
   onUpdateSharedTask,
   onOpenSharedTask,
   isCurrent,
@@ -699,7 +701,16 @@ function ScopedCustomAgentsView({
     }
   };
 
+  const [queueTitle, setQueueTitle] = useState("");
+  useEffect(() => setQueueTitle(""), [selectedAgent?.id]);
   const selectedQueue = selectedAgent && workspaceId ? employeeQueueTasks(sharedTasks, selectedAgent.id) : [];
+  const queueTask = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const title = queueTitle.trim();
+    if (!selectedAgent || !onCreateSharedTask || !title) return;
+    const created = await onCreateSharedTask(title, { ownerId: `agent:${selectedAgent.id}`, status: "todo" });
+    if (created && isActive()) setQueueTitle("");
+  };
 
   return (
     <div className="employee-directory flex h-full min-w-0 flex-1 flex-col overflow-hidden border border-[var(--border-1)] bg-[var(--bg)] text-[var(--fg)]">
@@ -820,6 +831,13 @@ function ScopedCustomAgentsView({
                         </div>
                         <span className="border border-[var(--line)] px-1.5 font-mono text-[10px] text-[var(--ink-2)]">{selectedQueue.length} active</span>
                       </div>
+                      {onCreateSharedTask ? (
+                        <form onSubmit={(event) => void queueTask(event)} className="mt-3 flex gap-2">
+                          <label className="sr-only" htmlFor="employee-queue-task">Queue work for {selectedAgent.config.name}</label>
+                          <input id="employee-queue-task" value={queueTitle} onChange={(event) => setQueueTitle(event.target.value)} placeholder="Queue work for this employee" className={`${FIELD} min-w-0 flex-1`} maxLength={200} />
+                          <button type="submit" disabled={!queueTitle.trim()} className={BTN_PRIMARY}>Queue</button>
+                        </form>
+                      ) : null}
                       {sharedTasksLoading ? <p className="mt-3 text-xs text-[var(--muted-foreground-2)]">Loading queue…</p> : selectedQueue.length === 0 ? (
                         <p className="mt-3 text-xs text-[var(--muted-foreground-2)]">No active work is assigned to this employee.</p>
                       ) : (
