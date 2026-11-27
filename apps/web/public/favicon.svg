@@ -1,14 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <title>Shiba robot mascot</title>
-  <g fill="none" fill-rule="evenodd">
-    <path d="M32 12v8" stroke="#e88767" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="32" cy="8" r="4.2" fill="#fff" stroke="#e88767" stroke-width="3"/>
-    <rect x="8" y="30" width="8" height="15" rx="4" fill="#e88767"/>
-    <rect x="48" y="30" width="8" height="15" rx="4" fill="#e88767"/>
-    <rect x="15" y="17" width="34" height="38" rx="17" fill="#e88767"/>
-    <rect x="19" y="26" width="26" height="17" rx="8.5" fill="#171a20"/>
-    <rect x="22" y="28.5" width="20" height="2.4" rx="1.2" fill="#2b3442"/>
-    <circle cx="26" cy="35" r="2.1" fill="#f6fbff"/>
-    <circle cx="38" cy="35" r="2.1" fill="#f6fbff"/>
+  <title>Shiba pet mascot</title>
+  <g fill-rule="evenodd">
+    <!-- ears -->
+    <path d="M16 24 13 8c0-1.4 1.5-2.3 2.7-1.5l11 7.5z" fill="#e88767"/>
+    <path d="M48 24 51 8c0-1.4-1.5-2.3-2.7-1.5l-11 7.5z" fill="#e88767"/>
+    <path d="M18.4 20.5 16.8 12l6.8 4.8z" fill="#f4b29a"/>
+    <path d="M45.6 20.5 47.2 12l-6.8 4.8z" fill="#f4b29a"/>
+    <!-- head -->
+    <path d="M32 14c12 0 20 8.6 20 20.4 0 12.4-8.6 21.6-20 21.6S12 46.8 12 34.4C12 22.6 20 14 32 14z" fill="#e88767"/>
+    <!-- cream cheeks and muzzle -->
+    <path d="M18.7 39.2c2.5 8.1 7.5 12.8 13.3 12.8s10.8-4.7 13.3-12.8c-2.4-1.7-5.1-2.5-7.5-2.5-2 0-4.1.5-5.8 1.4-1.7-.9-3.8-1.4-5.8-1.4-2.4 0-5.1.8-7.5 2.5z" fill="#fff1df"/>
+    <ellipse cx="32" cy="42" rx="8.6" ry="7" fill="#fff7ec"/>
+    <!-- eyes -->
+    <circle cx="24.5" cy="32" r="2.3" fill="#171a20"/>
+    <circle cx="39.5" cy="32" r="2.3" fill="#171a20"/>
+    <circle cx="25.3" cy="31.2" r=".65" fill="#f6fbff"/>
+    <circle cx="40.3" cy="31.2" r=".65" fill="#f6fbff"/>
+    <!-- nose and mouth -->
+    <path d="M28.5 38.7c0-1.2 1.2-2 3.5-2s3.5.8 3.5 2-1.6 2.7-3.5 2.7-3.5-1.5-3.5-2.7z" fill="#171a20"/>
+    <path d="M32 41.2v2.2" stroke="#171a20" stroke-width="1.6" stroke-linecap="round"/>
+    <path d="M32 43.4c-1.5 1.8-3.6 2-5.1.6M32 43.4c1.5 1.8 3.6 2 5.1.6" stroke="#171a20" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+    <!-- tiny forehead marking -->
+    <path d="M28.4 20.5c1-1.2 2.2-1.8 3.6-1.8s2.6.6 3.6 1.8" stroke="#d66f4e" stroke-width="1.5" stroke-linecap="round" fill="none" opacity=".55"/>
   </g>
 </svg>
