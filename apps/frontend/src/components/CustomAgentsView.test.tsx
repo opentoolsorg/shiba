@@ -735,6 +735,25 @@ describe("account-scoped employee directory", () => {
     await waitFor(() => expect(onCreateSharedTask).toHaveBeenCalledWith("Draft launch notes", { ownerId: "agent:eng-1", status: "todo" }));
   });
 
+  it("offers newly restored employees as reassignment targets in archived queues", async () => {
+    const restoredAgent: CustomAgentWire = { id: "old-1", slug: "archived", version: 1, archivedAt: 10, config: { name: "Archived Helper", instructions: "Help.", harness: "opencode" } };
+    const otherArchived: CustomAgentWire = { id: "old-2", slug: "other-archived", version: 1, archivedAt: 10, config: { name: "Other Archived", instructions: "Help.", harness: "opencode" } };
+    const activeAgent: CustomAgentWire = { id: "eng-2", slug: "reviewer", version: 1, config: { name: "Reviewer", instructions: "Review.", harness: "opencode" } };
+    stubWorkspaceDirectory([restoredAgent, otherArchived, activeAgent]);
+    const task = {
+      id: `task_${"f".repeat(24)}`, workspaceId: designWorkspace, roomId: "", roomTitle: "", title: "Other archived queue task",
+      assigneeKind: "agent" as const, assigneeActorId: "agent:old-2", status: "todo" as const, updatedAt: 100,
+    };
+    render(<CustomAgentsView workspaceId={designWorkspace} sharedTasks={[task]} onUpdateSharedTask={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Archived bots" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Restore bot Archived Helper" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "View profile Archived Helper" })).toBeNull());
+    fireEvent.click(await screen.findByRole("button", { name: "View profile Other Archived" }));
+    const queue = await screen.findByRole("region", { name: "Other Archived task queue" });
+    const select = await within(queue).findByLabelText("Reassign Other archived queue task");
+    await waitFor(() => expect(within(select as HTMLSelectElement).getByRole("option", { name: "Archived Helper" })).toBeTruthy());
+  });
+
   it("reassigns archived employee queue items to active employees", async () => {
     const archivedAgent: CustomAgentWire = { id: "old-1", slug: "archived", version: 1, archivedAt: 10, config: { name: "Archived Helper", instructions: "Help.", harness: "opencode" } };
     const activeAgent: CustomAgentWire = { id: "eng-2", slug: "reviewer", version: 1, config: { name: "Reviewer", instructions: "Review.", harness: "opencode" } };
@@ -759,9 +778,19 @@ const designWorkspace = `ws_${"c".repeat(24)}`;
 
 /** A workspace directory: every endpoint the profile panels read answers, and writes are reported to the caller. */
 function stubWorkspaceDirectory(agents: CustomAgentWire[]) {
+  const directory = agents.map((agent) => ({ ...agent }));
   const writes: Array<{ url: string; init: RequestInit }> = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    const lifecycle = /^\/api\/custom-agents\/([^/]+)\/(archive|restore)$/.exec(url);
+    if (init?.method === "POST" && lifecycle) {
+      writes.push({ url, init });
+      const index = directory.findIndex((agent) => agent.id === lifecycle[1]);
+      if (index < 0) return Response.json({ error: "missing" }, { status: 404 });
+      const updated = { ...directory[index]!, archivedAt: lifecycle[2] === "archive" ? Date.now() : undefined };
+      directory[index] = updated;
+      return Response.json({ agent: updated });
+    }
     if (init?.method && init.method !== "GET") { writes.push({ url, init }); return Response.json({ error: "unexpected write" }, { status: 500 }); }
     if (url.endsWith("/access")) return Response.json({ level: "manage", grants: [] });
     if (url.endsWith("/groups")) return Response.json({ groups: [] });
@@ -769,9 +798,9 @@ function stubWorkspaceDirectory(agents: CustomAgentWire[]) {
     if (url.startsWith("/api/workspaces/")) return Response.json({ workspace: { members: [] } });
     if (url.startsWith("/api/custom-agents")) {
       const archived = url.includes("archived=true");
-      return Response.json({ agents: agents.filter((agent) => archived ? agent.archivedAt : !agent.archivedAt) });
+      return Response.json({ agents: directory.filter((agent) => archived ? agent.archivedAt : !agent.archivedAt) });
     }
-    return Response.json({ agents });
+    return Response.json({ agents: directory });
   }));
   return writes;
 }

@@ -657,6 +657,10 @@ function ScopedCustomAgentsView({
       if (!isActive()) return;
       if (!response.ok || !body.agent) throw new Error(body.error ?? `Could not ${action} bot (${response.status}).`);
       setAgents((current) => (current ?? []).filter((item) => item.id !== agent.id));
+      if (action === "restore" && body.agent) {
+        const restored = body.agent;
+        setActiveReassignAgents((current) => current ? [restored, ...current.filter((item) => item.id !== restored.id)] : current);
+      }
       if (editingId === agent.id) resetForm();
       setNotice({ tone: "ok", text: action === "archive" ? "Bot archived. Its conversation history is preserved." : "Bot restored." });
       refresh();
