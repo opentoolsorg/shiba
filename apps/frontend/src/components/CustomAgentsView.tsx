@@ -190,6 +190,7 @@ function ScopedCustomAgentsView({
     return () => { alive.current = false; };
   }, []);
   const [agents, setAgents] = useState<CustomAgentWire[] | null>(null);
+  const [activeReassignAgents, setActiveReassignAgents] = useState<CustomAgentWire[] | null>(null);
   const [callerLevels, setCallerLevels] = useState<Record<string, EmployeeAccessLevel>>({});
   const canManage = (id: string) => !workspaceId || callerLevels[id] === "manage";
   useEffect(() => {
@@ -271,6 +272,15 @@ function ScopedCustomAgentsView({
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [startingAgentId, setStartingAgentId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  useEffect(() => {
+    if (!workspaceId || !showArchived) { setActiveReassignAgents(null); return; }
+    let cancelled = false;
+    fetch("/api/custom-agents", { headers: teamWorkspaceHeaders(workspaceId) })
+      .then(async (response) => response.ok ? ((await response.json()) as { agents?: CustomAgentWire[] }).agents ?? [] : [])
+      .then((active) => { if (!cancelled && isActive()) setActiveReassignAgents(active); })
+      .catch(() => { if (!cancelled && isActive()) setActiveReassignAgents([]); });
+    return () => { cancelled = true; };
+  }, [workspaceId, showArchived, isActive]);
   const [editingConfig, setEditingConfig] = useState<CustomAgentConfig | null>(null);
   const managerOptions = new Map<string, { label: string; reportsTo?: CustomAgentConfig["reportsTo"] }>();
   managerOptions.set("", { label: "No manager" });
@@ -704,6 +714,7 @@ function ScopedCustomAgentsView({
   const [queueTitle, setQueueTitle] = useState("");
   useEffect(() => setQueueTitle(""), [selectedAgent?.id]);
   const selectedQueue = selectedAgent && workspaceId ? employeeQueueTasks(sharedTasks, selectedAgent.id) : [];
+  const reassignTargets = (showArchived ? activeReassignAgents ?? [] : agents ?? []).filter((agent) => !agent.archivedAt);
   const queueTask = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const title = queueTitle.trim();
@@ -853,8 +864,9 @@ function ScopedCustomAgentsView({
                               {onUpdateSharedTask && canCancelBoardTask(task) ? (
                                 <>
                                   <label className="sr-only" htmlFor={`reassign-${task.id}`}>Reassign {task.title}</label>
-                                  <select id={`reassign-${task.id}`} value={selectedAgent.id} disabled={!agents || agents.length < 2} onChange={(event) => void onUpdateSharedTask(task.id, { ownerId: `agent:${event.target.value}` })} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)] px-2 text-[11px] text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] disabled:opacity-50">
-                                    {(agents ?? []).filter((agent) => !agent.archivedAt).map((agent) => <option key={agent.id} value={agent.id}>{agent.config.name}</option>)}
+                                  <select id={`reassign-${task.id}`} value={reassignTargets.some((agent) => agent.id === selectedAgent.id) ? selectedAgent.id : ""} disabled={!reassignTargets.some((agent) => agent.id !== selectedAgent.id)} onChange={(event) => void onUpdateSharedTask(task.id, { ownerId: `agent:${event.target.value}` })} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)] px-2 text-[11px] text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] disabled:opacity-50">
+                                    {!reassignTargets.some((agent) => agent.id === selectedAgent.id) ? <option value="" disabled>Choose employee</option> : null}
+                                    {reassignTargets.map((agent) => <option key={agent.id} value={agent.id}>{agent.config.name}</option>)}
                                   </select>
                                   <button type="button" onClick={() => void onUpdateSharedTask(task.id, { status: "cancelled" })} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--destructive)]/40 px-2 text-[11px] text-[var(--destructive)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">
                                     Cancel

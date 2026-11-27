@@ -734,6 +734,25 @@ describe("account-scoped employee directory", () => {
     fireEvent.click(within(queue).getByRole("button", { name: "Queue" }));
     await waitFor(() => expect(onCreateSharedTask).toHaveBeenCalledWith("Draft launch notes", { ownerId: "agent:eng-1", status: "todo" }));
   });
+
+  it("reassigns archived employee queue items to active employees", async () => {
+    const archivedAgent: CustomAgentWire = { id: "old-1", slug: "archived", version: 1, archivedAt: 10, config: { name: "Archived Helper", instructions: "Help.", harness: "opencode" } };
+    const activeAgent: CustomAgentWire = { id: "eng-2", slug: "reviewer", version: 1, config: { name: "Reviewer", instructions: "Review.", harness: "opencode" } };
+    stubWorkspaceDirectory([archivedAgent, activeAgent]);
+    const task = {
+      id: `task_${"e".repeat(24)}`, workspaceId: designWorkspace, roomId: "", roomTitle: "", title: "Archived queue task",
+      assigneeKind: "agent" as const, assigneeActorId: "agent:old-1", status: "todo" as const, updatedAt: 100,
+    };
+    const onUpdateSharedTask = vi.fn();
+    render(<CustomAgentsView workspaceId={designWorkspace} sharedTasks={[task]} onUpdateSharedTask={onUpdateSharedTask} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Archived bots" }));
+    fireEvent.click(await screen.findByRole("button", { name: "View profile Archived Helper" }));
+    const queue = await screen.findByRole("region", { name: "Archived Helper task queue" });
+    const select = await within(queue).findByLabelText("Reassign Archived queue task");
+    await waitFor(() => expect(within(select as HTMLSelectElement).getByRole("option", { name: "Reviewer" })).toBeTruthy());
+    fireEvent.change(select, { target: { value: "eng-2" } });
+    expect(onUpdateSharedTask).toHaveBeenCalledWith(task.id, { ownerId: "agent:eng-2" });
+  });
 });
 
 const designWorkspace = `ws_${"c".repeat(24)}`;
@@ -748,6 +767,10 @@ function stubWorkspaceDirectory(agents: CustomAgentWire[]) {
     if (url.endsWith("/groups")) return Response.json({ groups: [] });
     if (url.endsWith("/primary-bot")) return Response.json({ actorId: null });
     if (url.startsWith("/api/workspaces/")) return Response.json({ workspace: { members: [] } });
+    if (url.startsWith("/api/custom-agents")) {
+      const archived = url.includes("archived=true");
+      return Response.json({ agents: agents.filter((agent) => archived ? agent.archivedAt : !agent.archivedAt) });
+    }
     return Response.json({ agents });
   }));
   return writes;
