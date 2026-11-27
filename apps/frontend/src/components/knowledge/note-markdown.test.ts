@@ -347,4 +347,25 @@ describe("note Markdown", () => {
       expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
     }
   });
+  it("preserves struck-through inline code next to plain letters", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "code",
+              marks: [{ type: "strike" }, { type: "code" }],
+            },
+            { type: "text", text: "x" },
+          ],
+        },
+      ],
+    };
+    const saved = serializeNoteMarkdown(doc);
+    expect(saved).not.toContain("~~`code`~~x");
+    expect(parseNoteMarkdown(saved)).toEqual(doc);
+  });
 });

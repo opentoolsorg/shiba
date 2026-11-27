@@ -91,9 +91,13 @@ function inlineNodes(
   const result: JSONContent[] = [];
   for (let index = 0; index < nodes.length; index++) {
     const node = nodes[index] ?? { type: "text", value: "" };
-    if (node.type === "html" && (node.value === "<u>" || node.value === "<mark>")) {
-      const markType = node.value === "<u>" ? "underline" : "highlight";
-      const close = node.value === "<u>" ? "</u>" : "</mark>";
+    if (
+      node.type === "html" &&
+      (node.value === "<u>" || node.value === "<mark>" || node.value === "<del>")
+    ) {
+      const markType =
+        node.value === "<u>" ? "underline" : node.value === "<mark>" ? "highlight" : "strike";
+      const close = node.value === "<u>" ? "</u>" : node.value === "<mark>" ? "</mark>" : "</del>";
       let end = index + 1;
       while (end < nodes.length && !(nodes[end]?.type === "html" && nodes[end]?.value === close))
         end++;
@@ -385,7 +389,8 @@ function decodeLinkKey(key: string): { href: string; title: string | null } {
 function applyMark(nodes: MdastNode[], markType: string): MdastNode[] {
   if (markType === "bold") return [{ type: "strong", children: nodes }];
   if (markType === "italic") return [{ type: "emphasis", children: nodes }];
-  if (markType === "strike") return [{ type: "delete", children: nodes }];
+  if (markType === "strike")
+    return [{ type: "html", value: "<del>" }, ...nodes, { type: "html", value: "</del>" }];
   if (markType === "underline")
     return [{ type: "html", value: "<u>" }, ...nodes, { type: "html", value: "</u>" }];
   if (markType === "highlight")
