@@ -7,6 +7,7 @@ import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 import type { AppNavView } from "../AppNavRail";
 import { LoadErrorState } from "../LoadErrorState";
 import { FileAppPreview } from "./FileAppPreview";
+import { queueNewNoteIntent } from "./new-note-intent";
 
 const REVEAL_ON_HOVER = "transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100";
 
@@ -127,12 +128,33 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
     const update = (index: number, patch: Partial<(typeof uploads)[number]>) => {
       setUploads((current) => current.map((item, i) => i === index ? { ...item, ...patch } : item));
     };
+    const createdFolders = new Map<string, string>();
+    const uploadFolderFor = async (file: File) => {
+      const parts = ((file as File & { webkitRelativePath?: string }).webkitRelativePath ?? "").split("/").filter(Boolean);
+      if (parts.length < 2) return folderId || null;
+      let parentId = folderId || null;
+      for (let index = 0; index < parts.length - 1; index++) {
+        const path = parts.slice(0, index + 1).join("/");
+        const cached = createdFolders.get(path);
+        if (cached) { parentId = cached; continue; }
+        const response = await fetch(`/api/files/folders?scope=${scope}`, {
+          method: "POST", credentials: "same-origin",
+          headers: { ...workspaceHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({ name: parts[index], scope, parentId }),
+        });
+        const body = await response.json() as { folder?: { id?: string }; error?: string };
+        if (!response.ok || typeof body.folder?.id !== "string") throw new Error(body.error ?? "Folder create failed.");
+        parentId = body.folder.id;
+        createdFolders.set(path, parentId);
+      }
+      return parentId;
+    };
     try {
       for (const [index, file] of batch.entries()) {
         update(index, { state: "Uploading" });
         try {
           await uploadFile(file, {
-            scope, folderId: folderId || null, headers: workspaceHeaders,
+            scope, folderId: await uploadFolderFor(file), headers: workspaceHeaders,
             onProgress: (done, total) => update(index, { done, total }),
           });
           update(index, { state: "Uploaded" });
@@ -142,6 +164,7 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
         }
         await load().catch((err: unknown) => setError(err instanceof Error ? err.message : "Files failed to load."));
       }
+      if (createdFolders.size) await loadFolders().catch(() => undefined);
     } finally {
       uploadingRef.current = false;
       setBusy(false);
@@ -195,11 +218,11 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
             </select>
           </label>
           {onNavigate ? (
-            <button type="button" className="sr-only" onClick={() => onNavigate("memory")}>Review memory sources</button>
+            <button type="button" className="text-xs leading-5 text-[var(--muted-foreground-2)] underline-offset-2 transition-colors hover:text-[var(--fg)] hover:underline" onClick={() => onNavigate("memory")}>Review memory sources</button>
           ) : null}
         </div>
 
-        <div className="flex max-w-full shrink-0 items-center gap-2 overflow-x-auto scrollbar-none max-sm:order-2 max-sm:w-full sm:ml-auto sm:w-auto sm:overflow-visible [&::-webkit-scrollbar]:hidden">
+        <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2 overflow-x-auto scrollbar-none max-sm:order-2 max-sm:w-full max-sm:overflow-visible sm:ml-auto sm:w-auto sm:overflow-visible [&::-webkit-scrollbar]:hidden">
           {searchOpen ? <form role="search" aria-label="Search knowledge" aria-busy={searching} className="relative block w-52 max-w-[45vw]" onSubmit={(e) => {
             e.preventDefault();
             void runSearch().catch((err: unknown) => setError(err instanceof Error ? err.message : "Search failed."));
@@ -227,6 +250,7 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
                 <button type="button" role="menuitem" className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-[var(--muted-foreground-2)] transition-colors hover:bg-[var(--card-hover)] hover:text-[var(--fg)]" onClick={() => {
                   setCreateOpen(false);
                   setFolderFormOpen(false);
+                  if (onNavigate) queueNewNoteIntent();
                   onNavigate?.("notes");
                 }}>
                   <BookOpen size={13} /> New Note

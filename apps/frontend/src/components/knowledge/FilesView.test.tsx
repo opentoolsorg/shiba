@@ -10,7 +10,12 @@ function mockApi(failFirst = false) {
   let name = "";
   const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
     const url = new URL(input, "http://localhost");
-    if (url.pathname === "/api/files/folders") return Response.json({ folders: [{ id: "folder-1", name: "Documents" }] });
+    if (url.pathname === "/api/files/folders" && init?.method !== "POST") return Response.json({ folders: [{ id: "folder-1", name: "Documents" }] });
+    if (url.pathname === "/api/files/folders" && init?.method === "POST") {
+      const folder = JSON.parse(String(init.body));
+      const id = `created-${folder.name}`;
+      return Response.json({ folder: { id, name: folder.name } }, { status: 201 });
+    }
     if (url.pathname === "/api/files") return Response.json({ files: [...uploaded] });
     const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
     if (body?.action === "begin") {
@@ -110,6 +115,35 @@ describe("FilesView", () => {
     expect(screen.queryByRole("search", { name: "Search knowledge" })).toBeNull();
   });
 
+  it("preserves folder upload paths through created nested folders", async () => {
+    const api = mockApi();
+    render(<FilesView />);
+    await screen.findByRole("option", { name: "Documents" });
+    const file = new File(["nested"], "inner.md", { type: "text/markdown" });
+    Object.defineProperty(file, "webkitRelativePath", { value: "root/sub/inner.md" });
+    fireEvent.change(screen.getByLabelText("Upload folder"), { target: { files: [file] } });
+    await screen.findByText("inner.md", { selector: "span" });
+    const folderPosts = api.mock.calls.filter(([url, init]) => String(url).startsWith("/api/files/folders") && init?.method === "POST");
+    expect(folderPosts.map(([, init]) => JSON.parse(String(init?.body)))).toEqual([
+      { name: "root", scope: "personal", parentId: null },
+      { name: "sub", scope: "personal", parentId: "created-root" },
+    ]);
+    const begin = api.mock.calls.find(([, init]) => typeof init?.body === "string" && init.body.includes('"name":"inner.md"'));
+    expect(JSON.parse(String(begin?.[1]?.body))).toMatchObject({ folderId: "created-sub" });
+  });
+
+  it("queues note creation when New Note navigates to Notes", async () => {
+    mockApi();
+    const onNavigate = vi.fn();
+    render(<FilesView onNavigate={onNavigate} />);
+    await screen.findByRole("option", { name: "Documents" });
+    fireEvent.click(screen.getByRole("button", { name: "Create folder" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /New Note/ }));
+    expect(onNavigate).toHaveBeenCalledWith("notes");
+    expect(window.sessionStorage.getItem("shiba:notes:create-after-navigation")).toBe("1");
+  });
+
+
   it("links to memory sources only when navigation is wired, without saving anything", async () => {
     const api = mockApi();
     const onNavigate = vi.fn();
@@ -120,7 +154,9 @@ describe("FilesView", () => {
 
     render(<FilesView onNavigate={onNavigate} />);
     await screen.findByRole("option", { name: "Documents" });
-    fireEvent.click(screen.getByRole("button", { name: "Review memory sources" }));
+    const memory = screen.getByRole("button", { name: "Review memory sources" });
+    expect(memory.className).not.toContain("sr-only");
+    fireEvent.click(memory);
     expect(onNavigate).toHaveBeenCalledWith("memory");
     expect(api.mock.calls.every(([, init]) => !init?.method)).toBe(true);
   });

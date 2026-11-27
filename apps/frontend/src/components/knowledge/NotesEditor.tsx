@@ -6,6 +6,8 @@ import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { knowledgeNoteSchema, type KnowledgeNote, type KnowledgeScope } from "@shiba/shared";
 import type { AppNavView } from "../AppNavRail";
 import { LoadErrorState } from "../LoadErrorState";
+import { Plus } from "lucide-react";
+import { consumeNewNoteIntent } from "./new-note-intent";
 import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 import { toast } from "sonner";
 import { useWorkspaceEvents } from "../../state/workspace-events";
@@ -50,6 +52,7 @@ export function NotesEditor({ workspaceId = null, workspaceRole, actorId, onNavi
   const [creating, setCreating] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const [openingMemory, setOpeningMemory] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState("Saved");
   const [error, setError] = useState<string | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
@@ -334,6 +337,12 @@ export function NotesEditor({ workspaceId = null, workspaceRole, actorId, onNavi
     finally { setCreating(false); }
   }
 
+  const newNoteRef = useRef(newNote);
+  newNoteRef.current = newNote;
+  useEffect(() => {
+    if (consumeNewNoteIntent()) void newNoteRef.current();
+  }, []);
+
   async function recoverConflict(action: "copy" | "reload") {
     const id = activeIdRef.current;
     if (!editor || !id || !conflicted.current || recovering) return;
@@ -380,7 +389,7 @@ export function NotesEditor({ workspaceId = null, workspaceRole, actorId, onNavi
       <div data-testid="notes-workspace" className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--card)] text-[var(--fg)] md:flex-row">
         <aside data-testid="secondary-panel" aria-label="Notes" className="flex w-full shrink-0 flex-col border-b border-[var(--border-1)] bg-[var(--sidebar-surface)] md:w-52 md:border-b-0 md:border-r">
           <div className="flex min-h-16 items-center gap-2 border-b border-[var(--border-1)] px-3">
-            <button type="button" disabled={creating} className="flex-1 rounded-xl border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-left text-xs disabled:opacity-50" onClick={() => void newNote()}>+ New note</button>
+            <button type="button" disabled={creating} className="flex flex-1 items-center gap-2 rounded-xl border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-left text-xs disabled:opacity-50" onClick={() => void newNote()}><Plus size={13} /> New note</button>
           </div>
           <label className="px-3 py-2 text-xs text-[var(--knowledge-muted)]">Scope
             <select aria-label="Scope" className="ml-2 rounded-xl border border-[var(--border-1)] bg-[var(--card)] p-1" value={scope} onChange={(event) => {
@@ -395,7 +404,7 @@ export function NotesEditor({ workspaceId = null, workspaceRole, actorId, onNavi
             </li>)}</ul> : <p className="p-2 text-xs text-[var(--knowledge-muted)]">No notes yet</p>}
           </div>
         </aside>
-        <section data-testid="note-editor" aria-label="Note editor" className="flex min-h-[28rem] min-w-0 flex-1 flex-col">
+        <section data-testid="note-editor" aria-label="Note editor" className="relative flex min-h-[28rem] min-w-0 flex-1 flex-col">
           {saveStatus === "Version conflict" && <div className="border-b border-[var(--border-1)] px-5 py-2 text-sm">
             <p role="alert">This note changed elsewhere. Your draft is still here.</p>
             <div className="flex flex-wrap gap-2">
@@ -409,18 +418,19 @@ export function NotesEditor({ workspaceId = null, workspaceRole, actorId, onNavi
             void loadNotes().catch((err: unknown) => setError(err instanceof Error ? err.message : "Notes failed to load."));
           }} />}
           {activeId && editor ? <NoteDocument editor={editor} notes={notes} title={title} loading={bodyLoading} saveStatus={activeId && notes.find((note) => note.id === activeId && !canWriteNote(note)) ? "Read-only" : saveStatus} readOnly={Boolean(activeId && notes.find((note) => note.id === activeId && !canWriteNote(note)))}
+            chatOpen={chatOpen} onToggleChat={() => setChatOpen((open) => !open)}
             onTitleChange={(value) => { setTitle(value); markDirty(); }} onSave={async () => { await saveDraft(); }} /> : <div className="flex flex-1 items-center justify-center px-6 py-16 text-center"><div>
-              <h1 className="mb-2 text-3xl">notes</h1>
+              <h1 className="mb-2 font-serif text-3xl font-normal">notes</h1>
               <p className="mb-4 text-sm text-[var(--knowledge-muted)]">Select a note or create a new one</p>
               <button type="button" disabled={creating} onClick={() => void newNote()} className="rounded-xl border border-[var(--border-1)] px-3 py-2 text-sm">+ New Note</button>
             </div></div>}
-          {onNavigate && <p className="border-t border-[var(--border-1)] px-5 py-2 text-xs text-[var(--knowledge-muted)]">
+          {onNavigate && <p className="sr-only">
             Notes are not memory until you add them as a source.{" "}
             <button type="button" disabled={openingMemory} className="min-h-11 font-medium text-[var(--fg)] underline underline-offset-2 disabled:opacity-50" onClick={() => void openMemory()}>Save reviewed text as a memory source</button>
           </p>}
         </section>
       </div>
-      {activeId ? <div className="border-t border-[var(--border-1)] p-3 lg:border-l lg:border-t-0">
+      {activeId && chatOpen ? <div className="border-t border-[var(--border-1)] p-3 lg:border-l lg:border-t-0">
         <NoteChatPanel key={`${workspaceId}:${scope}:${activeId}`} noteId={activeId} notes={notes} scope={scope} workspaceId={workspaceId} disabled={bodyLoading || !editor || Boolean(activeId && notes.find((note) => note.id === activeId && !canWriteNote(note)))} getDraftBody={() => (editor ? editorMarkdown(editor).slice(0, 24000) : "")} onAdd={(text) => {
           if (!editor || !bodyReady.current) return;
           // Parsed, not inserted as plain text: the serializer escapes literal Markdown characters.

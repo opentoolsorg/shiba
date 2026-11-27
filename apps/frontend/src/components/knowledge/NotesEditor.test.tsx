@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Editor } from "@tiptap/react";
 import { NotesEditor } from "./NotesEditor";
+import { NEW_NOTE_INTENT_KEY } from "./new-note-intent";
 import type { UseWorkspaceEventsOptions } from "../../state/workspace-events";
 
 const current = vi.hoisted(() => ({ editor: null as Editor | null, options: null as UseWorkspaceEventsOptions | null }));
@@ -70,6 +71,15 @@ async function typeTrigger(text: string) {
 }
 
 describe("NotesEditor", () => {
+  it("creates a note queued by Files navigation", async () => {
+    window.sessionStorage.setItem(NEW_NOTE_INTENT_KEY, "1");
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => init?.method === "POST" ? Response.json({ note: { ...note, id: "queued-note", title: "Untitled" } }) : _url.endsWith("/body") ? new Response("") : Response.json({ notes: [] }));
+    render(<NotesEditor />);
+    await screen.findByRole("textbox", { name: "Note title" });
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true);
+    expect(window.sessionStorage.getItem(NEW_NOTE_INTENT_KEY)).toBeNull();
+  });
+
   it("navigates to Memory without saving when there are no changes", async () => {
     const { unmount } = render(<NotesEditor />);
     await screen.findByRole("button", { name: "Plan" });
@@ -170,7 +180,8 @@ describe("NotesEditor", () => {
     expect(payload.title).toBe("New plan");
     expect(payload.expectedVersion).toBe(1);
     expect(payload.markdown).toBe(noteMarkdown);
-    expect(screen.getByRole("toolbar", { name: "Note formatting" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open formatting toolbar" }));
+    expect(await screen.findByRole("toolbar", { name: "Note formatting" })).toBeTruthy();
   });
   it("keeps a draft and reports failed saves", async () => {
     await openNote();
@@ -304,7 +315,8 @@ describe("NotesEditor", () => {
     await openNote(); await typeTrigger("@missing");
     expect(screen.getByText("No results for “missing”")).toBeTruthy();
     fireEvent.keyDown(current.editor!.view.dom, { key: "Escape" });
-    fireEvent.click(screen.getByRole("button", { name: "Bold" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open formatting toolbar" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Bold" }));
     expect(current.editor!.isActive("bold")).toBe(true);
   });
   it("shows a pending create immediately, reconciles its id, and rolls back a failed create", async () => {
@@ -315,12 +327,12 @@ describe("NotesEditor", () => {
     vi.stubGlobal("fetch", fetcher);
     render(<NotesEditor workspaceId="ws_1" />);
     await act(async () => {});
-    fireEvent.click(screen.getByRole("button", { name: "+ New note" }));
+    fireEvent.click(screen.getByRole("button", { name: "New note" }));
     expect(screen.getByRole("button", { name: "Untitled" }).closest("li")?.getAttribute("aria-busy")).toBe("true");
     await act(async () => finish(new Response(JSON.stringify({ note: { id: "note_1", title: "Saved", version: 1 } }), { status: 201 })));
     await waitFor(() => expect(screen.getByRole("button", { name: "Saved" })).toBeTruthy());
     expect(screen.queryByRole("button", { name: "Untitled" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "+ New note" }));
+    fireEvent.click(screen.getByRole("button", { name: "New note" }));
     await act(async () => finish(new Response(JSON.stringify({ error: "Failed" }), { status: 500 })));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Untitled" })).toBeNull());
     expect(screen.getByRole("button", { name: "Saved" })).toBeTruthy();
@@ -396,6 +408,8 @@ describe("NotesEditor", () => {
       return Response.json({ notes: [note] });
     });
     await openNote();
+    expect(screen.queryByRole("button", { name: "Add to note" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Toggle note chat" }));
     fireEvent.click(await screen.findByRole("button", { name: "Add to note" }));
     expect(current.editor!.isActive("bulletList")).toBe(true);
     expect(screen.getByRole("heading", { name: "Next steps" })).toBeTruthy();

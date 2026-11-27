@@ -1291,6 +1291,21 @@ select:focus-visible,
   }
 }
 
+.note-page {
+  --note-gutter: 96px;
+  position: relative;
+  width: 100%;
+  max-width: calc(708px + 2 * var(--note-gutter));
+  margin: 0 auto;
+  padding: 64px var(--note-gutter) 160px;
+}
+@media (max-width: 900px) {
+  .note-page { --note-gutter: 56px; padding-top: 40px; }
+}
+@media (max-width: 560px) {
+  .note-page { --note-gutter: 24px; padding-top: 28px; }
+}
+
 .note-writing-surface .ProseMirror > * + * { margin-top: 0.75em; }
 .note-writing-surface h1 { font-size: 2em; font-weight: 700; }
 .note-writing-surface h2 { font-size: 1.5em; font-weight: 600; }
