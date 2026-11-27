@@ -324,6 +324,24 @@ describe("employee tool local workflow", () => {
     expect(body.result?.content?.[0]?.text).toContain("brief.md");
 
     authState.dashboard = true;
+    expect((await handleEmployeeTools(new Request(`https://x/api/employee-tools/${employee.id}/levels`, {
+      method: "PUT", headers: { "content-type": "application/json", "CF-Access-Authenticated-User-Email": "owner@example.test" },
+      body: JSON.stringify({ capabilityId: "mcp:shiba:knowledge_search", level: "ask" }),
+    }), bindings))?.status).toBe(200);
+    authState.dashboard = false;
+    const pending = await handleEmployeeTools(callRequest(employee.id, "knowledge_search", { query: "needle" }), bindings);
+    expect(pending?.status).toBe(202);
+    const { approvalId } = await pending!.json() as { approvalId: string };
+    authState.dashboard = true;
+    expect((await handleEmployeeTools(new Request(`https://x/api/employee-tools/approvals/${approvalId}`, {
+      method: "POST", headers: { "content-type": "application/json", "CF-Access-Authenticated-User-Email": "owner@example.test" },
+      body: JSON.stringify({ employeeId: employee.id, approved: true }),
+    }), bindings))?.status).toBe(200);
+    authState.dashboard = false;
+    const approved = await handleEmployeeTools(callRequest(employee.id, "knowledge_search", { query: "needle" }), bindings);
+    expect(approved?.status).toBe(200);
+
+    authState.dashboard = true;
     expect((await handleEmployeeTools(policyRequest(employee.id, {}, 2), bindings))?.status).toBe(200);
     authState.dashboard = false;
     const denied = await handleEmployeeTools(callRequest(employee.id, "knowledge_search", { query: "needle" }), bindings);
