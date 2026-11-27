@@ -84,15 +84,17 @@ describe("CustomAgentsView", () => {
     await screen.findByText("No bots");
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "My dog" } });
     fireEvent.change(screen.getByLabelText("Instructions"), { target: { value: "Review project notes." } });
-    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "google/gemini-2.5-pro" } });
+    fireEvent.change(screen.getByLabelText("Coding model"), { target: { value: "google/gemini-2.5-pro" } });
+    fireEvent.change(screen.getByLabelText("Conversation model"), { target: { value: "@cf/test/chat-model" } });
     fireEvent.change(screen.getByLabelText("Default repository"), { target: { value: "https://github.com/example/project" } });
     fireEvent.click(screen.getByRole("button", { name: "Sleepy" }));
     fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
-    await waitFor(() => expect(saved?.config).toMatchObject({ look: { eyes: "sleepy" }, codingModel: "google/gemini-2.5-pro", defaultRepoUrl: "https://github.com/example/project" }));
+    await waitFor(() => expect(saved?.config).toMatchObject({ look: { eyes: "sleepy" }, codingModel: "google/gemini-2.5-pro", model: "@cf/test/chat-model", defaultRepoUrl: "https://github.com/example/project" }));
     expect(saved?.config).not.toHaveProperty("mascotPreset");
     fireEvent.click(await screen.findByRole("button", { name: "Edit bot" }));
     expect(screen.getByRole("button", { name: "Sleepy" }).getAttribute("aria-pressed")).toBe("true");
-    expect((screen.getByLabelText("Model") as HTMLInputElement).value).toBe("google/gemini-2.5-pro");
+    expect((screen.getByLabelText("Coding model") as HTMLInputElement).value).toBe("google/gemini-2.5-pro");
+    expect((screen.getByLabelText("Conversation model") as HTMLInputElement).value).toBe("@cf/test/chat-model");
     fireEvent.click(screen.getByRole("button", { name: "Wrench" }));
     failSave = true;
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
@@ -878,14 +880,14 @@ describe("employee directory and hire design", () => {
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Finance Auditor" } });
     fireEvent.change(screen.getByLabelText("Role"), { target: { value: "finance" } });
     fireEvent.change(screen.getByLabelText("Instructions"), { target: { value: "Review approved invoices." } });
-    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "gpt-review" } });
+    fireEvent.change(screen.getByLabelText("Coding model"), { target: { value: "gpt-review" } });
     fireEvent.change(screen.getByLabelText("Model connection"), { target: { value: "conn-1" } });
     fireEvent.change(screen.getByLabelText("Default repository"), { target: { value: "https://github.com/example/books" } });
     fireEvent.change(screen.getByLabelText(/^Required deliverables/), { target: { value: "reports/a.md\nreports/b.md" } });
     expect(screen.queryByRole("radiogroup", { name: "Agent access" })).toBeNull();
 
     expect(within(review).getByText("Finance Auditor · Finance")).toBeTruthy();
-    expect(within(review).getByText("workspace default · gpt-review")).toBeTruthy();
+    expect(within(review).getByText("workspace default · gpt-review · chat deployment default")).toBeTruthy();
     expect(within(review).getByText("Team OpenAI")).toBeTruthy();
     expect(within(review).getByText("https://github.com/example/books")).toBeTruthy();
     expect(within(review).getByText("2 required paths")).toBeTruthy();

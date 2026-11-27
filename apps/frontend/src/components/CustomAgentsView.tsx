@@ -62,6 +62,7 @@ const EMPTY_FORM = {
   lookAcc: "",
   roleTemplateId: "",
   instructions: "",
+  model: "",
   harness: "",
   codingModel: "",
   connectionId: "",
@@ -424,6 +425,7 @@ function ScopedCustomAgentsView({
       lookAcc: agent.config.look?.acc ?? "",
       roleTemplateId: agent.config.roleTemplateId ?? (employeeRole(agent.slug) === "custom" ? "" : employeeRole(agent.slug)),
       instructions: agent.config.instructions,
+      model: agent.config.model ?? "",
       harness: agent.config.harness ?? "",
       codingModel: agent.config.codingModel ?? "",
       connectionId: agent.config.connectionId ?? "",
@@ -526,6 +528,7 @@ function ScopedCustomAgentsView({
       ...editingConfig,
       name,
       instructions,
+      ...(form.model.trim() ? { model: form.model.trim() } : {}),
       ...(form.harness.trim() ? { harness: form.harness.trim() } : {}),
       ...(EMPLOYEE_TEMPLATES.some((template) => template.id === form.roleTemplateId) ? { roleTemplateId: form.roleTemplateId as CustomAgentConfig["roleTemplateId"] } : {}),
       ...(form.emoji.trim() ? { emoji: form.emoji.trim() } : {}),
@@ -540,7 +543,7 @@ function ScopedCustomAgentsView({
     };
     // Clearing an optional field must clear its old value while other saved
     // settings survive an edit of the visible fields.
-    for (const key of ["emoji", "mascotPreset", "roleTemplateId", "harness", "codingModel", "connectionId", "sandboxProvider", "defaultRepoUrl", "expectedDeliverables", "title"] as const) {
+    for (const key of ["emoji", "mascotPreset", "roleTemplateId", "model", "harness", "codingModel", "connectionId", "sandboxProvider", "defaultRepoUrl", "expectedDeliverables", "title"] as const) {
       if (!form[key].trim()) delete config[key];
     }
     if (!look) delete config.look;
@@ -1207,14 +1210,20 @@ function ScopedCustomAgentsView({
                 <summary className="cursor-pointer text-xs font-semibold text-[var(--fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--primary)] flex items-center justify-between">
                   <span>Advanced settings</span>
                   <span className="text-[11px] font-normal text-[var(--muted-foreground-2)]">
-                    {form.codingModel ? `${form.codingModel} · Default tool policy` : "Default model · Default tool policy"}
+                    {form.model.trim() || form.codingModel ? `${form.model.trim() || "deployment chat model"} · ${form.codingModel.trim() || "default coding model"}` : "Default models"}
                   </span>
                 </summary>
                 <div className="mt-3 flex flex-col gap-3">
                   <p className="text-xs text-[var(--muted-foreground-2)]">Optional overrides. Model and sandbox availability are checked before a task is queued. Leave these settings unchanged to use existing defaults.</p>
+                  <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
+                    Conversation model
+                    <input aria-label="Conversation model" value={form.model} placeholder="Use the deployment default"
+                      onChange={(event) => setForm((current) => ({ ...current, model: event.target.value }))} className={FIELD} />
+                    <span className="normal-case tracking-normal text-[11px] text-[var(--muted-foreground-2)]">Used for direct employee chat when available. Coding work uses the coding settings below.</span>
+                  </label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
-                      Model
+                      Coding model
                       <input value={form.codingModel} list="custom-agent-models" placeholder="Use the harness default"
                         onChange={(event) => setForm((current) => ({ ...current, codingModel: event.target.value }))} className={FIELD} />
                       <datalist id="custom-agent-models">
@@ -1311,7 +1320,7 @@ function ScopedCustomAgentsView({
               </div>
               <dl className="grid grid-cols-[minmax(0,8.5rem)_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs">
                 <dt className="text-[var(--muted-foreground-2)]">Employee</dt><dd className="break-words">{form.name.trim() || "Not named yet"} · {reviewRole}</dd>
-                <dt className="text-[var(--muted-foreground-2)]">Runs on</dt><dd className="break-words font-mono">{form.harness.trim() || "workspace default"} · {form.codingModel.trim() || "default model"}</dd>
+                <dt className="text-[var(--muted-foreground-2)]">Runs on</dt><dd className="break-words font-mono">{form.harness.trim() || "workspace default"} · {form.codingModel.trim() || "default coding model"} · chat {form.model.trim() || "deployment default"}</dd>
                 <dt className="text-[var(--muted-foreground-2)]">Connection</dt><dd className="break-words">{reviewConnection || "Deployment default"}</dd>
                 <dt className="text-[var(--muted-foreground-2)]">Sandbox</dt><dd>{form.sandboxProvider || "Organization default"}</dd>
                 <dt className="text-[var(--muted-foreground-2)]">Repository</dt><dd className="break-all">{form.defaultRepoUrl.trim() || "Chosen when starting work"}</dd>
