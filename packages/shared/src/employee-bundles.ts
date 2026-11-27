@@ -23,7 +23,7 @@ export const EmployeeBundleSchema = z.object({
   profile: z.object({
     name: text(120),
     instructions: text(32_000),
-    harness: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
+    harness: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/).optional(),
     codingModel: text(200).optional(),
     emoji: text(16).optional(),
     mascotPreset: z.enum(CUSTOM_AGENT_MASCOT_PRESETS).optional(),

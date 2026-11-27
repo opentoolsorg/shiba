@@ -266,8 +266,7 @@
         "type": "object",
         "required": [
           "name",
-          "instructions",
-          "harness"
+          "instructions"
         ],
         "properties": {
           "name": {

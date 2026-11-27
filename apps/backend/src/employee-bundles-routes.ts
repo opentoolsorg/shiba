@@ -72,7 +72,7 @@ export async function handleEmployeeBundles(request: Request, env: Env): Promise
     }
     const input = ImportSchema.parse(body);
     const parsed = EmployeeBundleSchema.parse(input.recipe);
-    if (!Object.hasOwn(HARNESSES, parsed.profile.harness)) return json({ error: "unsupported_harness" }, 400);
+    if (parsed.profile.harness && !Object.hasOwn(HARNESSES, parsed.profile.harness)) return json({ error: "unsupported_harness" }, 400);
     const result = await importEmployeeBundle(env, auth.orgId, ownerId, input);
     return json({ ok: true, ...result }, 201);
   } catch (error) {

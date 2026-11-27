@@ -79,7 +79,8 @@ export async function exportEmployeeBundle(
   const config = profile.config;
   return validateEmployeeBundle({
     format: "shiba.employee-bundle.v1", audience: "personal",
-    profile: { name: config.name, instructions: config.instructions, harness: config.harness,
+    profile: { name: config.name, instructions: config.instructions,
+      ...(config.harness ? { harness: config.harness } : {}),
       ...(config.codingModel ? { codingModel: config.codingModel } : {}),
       ...(config.emoji ? { emoji: config.emoji } : {}),
       ...(config.mascotPreset ? { mascotPreset: config.mascotPreset } : {}),
@@ -117,7 +118,8 @@ export async function importEmployeeBundle(
   const result: EmployeeBundleImportResult = { employeeId, skillIds, profileState: "archived_pending_review",
     skillState: "draft", requirementsState: "unconfigured", routinesState: "descriptions_only" };
   const config = JSON.stringify({ name: recipe.profile.name, instructions: recipe.profile.instructions,
-    harness: recipe.profile.harness, ...(recipe.profile.emoji ? { emoji: recipe.profile.emoji } : {}),
+    ...(recipe.profile.harness ? { harness: recipe.profile.harness } : {}),
+    ...(recipe.profile.emoji ? { emoji: recipe.profile.emoji } : {}),
     ...(recipe.profile.codingModel ? { codingModel: recipe.profile.codingModel } : {}),
     ...(recipe.profile.mascotPreset ? { mascotPreset: recipe.profile.mascotPreset } : {}),
     ...(recipe.profile.look ? { look: recipe.profile.look } : {}),
