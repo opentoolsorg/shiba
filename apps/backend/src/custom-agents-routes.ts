@@ -16,6 +16,7 @@ import { resolveUserId } from "./request-auth.js";
 import { recordEmployeeBundleProfileOwner } from "./employee-bundles-store.js";
 import { visibleEmployees } from "./governance/employee-access.js";
 import { handleEmployeeRuntimeRequest } from "./employee-runtime-routes.js";
+import { employeeRuntimeStub } from "./employee-runtime-do.js";
 
 function publicAgent(record: Awaited<ReturnType<typeof listCustomAgents>>[number]) {
   return {
@@ -89,6 +90,10 @@ export async function handleCustomAgents(request: Request, env: Env, authenticat
     if (request.method !== "POST") return Response.json({ ok: false, error: "method_not_allowed" }, { status: 405 });
     if (!agentId) return Response.json({ ok: false, error: "invalid_agent_id" }, { status: 400 });
     try {
+      if (route[2] === "archive" && env.EmployeeRuntime) {
+        const cancelled = await employeeRuntimeStub(env, auth.orgId, agentId).fetch("https://internal/internal/employee-runtime/routines/clear", { method: "POST" });
+        if (!cancelled.ok) return Response.json({ ok: false, error: "employee_routine_cancellation_failed" }, { status: 502 });
+      }
       const agent = await setCustomAgentArchived(env, auth.orgId, agentId, route[2] === "archive");
       return Response.json({ ok: true, agent: publicAgent(agent) }, { headers: { "cache-control": "no-store" } });
     } catch (error) {

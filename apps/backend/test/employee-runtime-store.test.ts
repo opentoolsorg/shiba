@@ -94,6 +94,20 @@ describe("EmployeeRuntimeStore", () => {
     expect(store.getMemory(automatic.id)).toBeNull();
   });
 
+  it("prunes routine messages separately without deleting interactive history", () => {
+    const store = makeStore();
+    for (let index = 0; index < 400; index += 1) {
+      store.appendMessage({ conversationId: "default", role: "user", content: `interactive ${index}`, now: index + 1 });
+    }
+    for (let index = 0; index < 101; index += 1) {
+      store.appendMessage({ conversationId: "default", role: "assistant", content: `routine ${index}`, now: 1000 + index, origin: "routine" });
+    }
+    const contents = store.listMessages("default", 500).map((message) => message.content);
+    expect(contents).toContain("interactive 0");
+    expect(contents).not.toContain("routine 0");
+    expect(contents).toContain("routine 100");
+  });
+
   it("rejects new memories instead of silently dropping them when essential memories fill storage", () => {
     const store = makeStore();
     for (let index = 0; index < 1000; index += 1) {

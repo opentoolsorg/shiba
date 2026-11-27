@@ -13,7 +13,6 @@ import { createWorkersAI } from "workers-ai-provider";
 import {
   employeeRuntimeCancelSchema,
   employeeRuntimeChatRequestSchema,
-  employeeRuntimeConversationRequestSchema,
   employeeRuntimeMemoryDeleteSchema,
   employeeRuntimeMemoryUpdateSchema,
   employeeRuntimeMemoryWriteSchema,
@@ -46,6 +45,7 @@ const internalRuntimeChatRequestSchema = employeeRuntimeChatRequestSchema.safeEx
 const internalMemoryWriteSchema = employeeRuntimeMemoryWriteSchema.safeExtend({ conversationId: internalConversationIdSchema });
 const internalMemoryUpdateSchema = employeeRuntimeMemoryUpdateSchema.safeExtend({ conversationId: internalConversationIdSchema });
 const internalMemoryDeleteSchema = employeeRuntimeMemoryDeleteSchema.safeExtend({ conversationId: internalConversationIdSchema });
+const internalConversationRequestSchema = z.object({ conversationId: z.string().trim().min(1).max(600) }).strict();
 const internalRoutineWriteSchema = employeeRuntimeRoutineWriteSchema.safeExtend({ conversationId: z.string().trim().min(1).max(600) });
 const internalRoutineDeleteSchema = employeeRuntimeRoutineDeleteSchema.safeExtend({ conversationId: z.string().trim().min(1).max(600) });
 const routinePayloadSchema = z.object({
@@ -149,6 +149,7 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
       if (url.pathname === `${PREFIX}/routines` && request.method === "GET") return await this.listRoutines(url);
       if (url.pathname === `${PREFIX}/routines` && request.method === "POST") return await this.createRoutine(request);
       if (url.pathname === `${PREFIX}/routines/delete` && request.method === "POST") return await this.deleteRoutine(request);
+      if (url.pathname === `${PREFIX}/routines/clear` && request.method === "POST") return await this.clearRoutines();
       if (url.pathname === `${PREFIX}/cancel` && request.method === "POST") return await this.cancel(request);
       if (url.pathname === `${PREFIX}/recover` && request.method === "POST") return this.recover(request);
       return json({ error: "Not found." }, { status: 404 });
@@ -172,7 +173,7 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
   }
 
   private async clearConversation(request: Request): Promise<Response> {
-    const input = employeeRuntimeConversationRequestSchema.parse(await bodyObject(request));
+    const input = internalConversationRequestSchema.parse(await bodyObject(request));
     for (const execution of this.store.listExecutions(input.conversationId, 500)) {
       if (execution.status === "running") this.active.get(execution.id)?.abort();
     }
@@ -236,11 +237,23 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
     return json({ ok: true, deleted: await this.cancelSchedule(input.routineId) });
   }
 
+  private async clearRoutines(): Promise<Response> {
+    let deleted = 0;
+    for (const schedule of await this.listSchedules({ type: "interval" })) {
+      if (this.routineFromSchedule(schedule) && await this.cancelSchedule(schedule.id)) deleted += 1;
+    }
+    return json({ ok: true, deleted });
+  }
+
+  private hasLiveExecution(conversationId: string): boolean {
+    return this.store.listExecutions(conversationId, 500).some((execution) => execution.status === "running" && this.active.has(execution.id));
+  }
+
   async runEmployeeRoutine(payload: unknown, schedule?: { id?: unknown }): Promise<void> {
     const parsed = routinePayloadSchema.safeParse(payload);
     if (!parsed.success) return;
     const input = parsed.data;
-    if (!this.env.AGENT_AUDIT || this.store.listExecutions(input.conversationId, 500).some((execution) => execution.status === "running")) return;
+    if (!this.env.AGENT_AUDIT || this.hasLiveExecution(input.conversationId)) return;
     const pinned = this.store.profile(input.conversationId);
     if (!pinned) return;
     const employee = await getCustomAgentById(this.env, pinned.orgId, pinned.employeeId);
@@ -261,9 +274,9 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
     const body: ChatBody = { profile, conversationId: input.conversationId, message: `Scheduled routine "${input.name}":
 
 ${input.prompt}`, mode: "chat" };
-    if (this.store.listExecutions(input.conversationId, 500).some((execution) => execution.status === "running")) return;
+    if (this.hasLiveExecution(input.conversationId)) return;
     this.store.pinProfile(body.conversationId, body.profile);
-    const user = this.store.appendMessage({ conversationId: body.conversationId, role: "user", content: body.message });
+    const user = this.store.appendMessage({ conversationId: body.conversationId, role: "user", content: body.message, origin: "routine" });
     const execution = this.store.createExecution({
       conversationId: body.conversationId,
       mode: body.mode,
@@ -276,7 +289,7 @@ ${input.prompt}`, mode: "chat" };
       const answer = await this.answer(body, controller.signal, execution.id);
       const current = this.store.getExecution(execution.id);
       if (!current || current.status === "cancelled") return;
-      const assistant = this.store.appendMessage({ conversationId: body.conversationId, role: "assistant", content: answer, executionId: execution.id });
+      const assistant = this.store.appendMessage({ conversationId: body.conversationId, role: "assistant", content: answer, executionId: execution.id, origin: "routine" });
       this.store.updateExecution(execution.id, { status: "completed", checkpoint: "terminal", resultJson: JSON.stringify({ assistantMessageId: assistant.id }) });
       await this.consolidateConversation(body, controller.signal);
     } catch (error) {

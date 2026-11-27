@@ -12,6 +12,7 @@ export type SqlRow = Record<string, unknown>;
 export type SqlExec = (sql: string, ...params: Array<string | number | boolean | null>) => SqlRow[];
 
 const MAX_MESSAGES = 500;
+const MAX_ROUTINE_MESSAGES = 100;
 const MAX_MEMORIES = 1000;
 const MAX_EXECUTIONS = 500;
 
@@ -22,6 +23,7 @@ export const EMPLOYEE_RUNTIME_SCHEMA = [
     role TEXT NOT NULL CHECK(role IN ('user','assistant','system')),
     content TEXT NOT NULL,
     execution_id TEXT,
+    origin TEXT NOT NULL DEFAULT 'interactive',
     created_at INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS employee_runtime_messages_conversation
@@ -120,6 +122,7 @@ export class EmployeeRuntimeStore {
     for (const statement of EMPLOYEE_RUNTIME_SCHEMA) this.exec(statement);
     const columns = this.exec(`PRAGMA table_info(employee_runtime_messages)`).map((row) => String(row.name));
     if (!columns.includes("execution_id")) this.exec(`ALTER TABLE employee_runtime_messages ADD COLUMN execution_id TEXT`);
+    if (!columns.includes("origin")) this.exec(`ALTER TABLE employee_runtime_messages ADD COLUMN origin TEXT NOT NULL DEFAULT 'interactive'`);
     const memoryColumns = this.exec(`PRAGMA table_info(employee_runtime_memories)`).map((row) => String(row.name));
     if (!memoryColumns.includes("origin")) this.exec(`ALTER TABLE employee_runtime_memories ADD COLUMN origin TEXT NOT NULL DEFAULT 'manual'`);
   }
@@ -137,7 +140,7 @@ export class EmployeeRuntimeStore {
     try { return JSON.parse(String(row.profile_json)) as EmployeeRuntimeProfile; } catch { return null; }
   }
 
-  appendMessage(input: { conversationId: string; role: EmployeeRuntimeMessage["role"]; content: string; executionId?: string; now?: number }): EmployeeRuntimeMessage {
+  appendMessage(input: { conversationId: string; role: EmployeeRuntimeMessage["role"]; content: string; executionId?: string; now?: number; origin?: "interactive" | "routine" }): EmployeeRuntimeMessage {
     const content = input.content.trim();
     if (!content || content.length > 16000) throw new InputError("Message content must be 1-16000 characters.");
     const message: EmployeeRuntimeMessage = {
@@ -146,8 +149,8 @@ export class EmployeeRuntimeStore {
       ...(input.executionId ? { executionId: input.executionId } : {}),
     };
     this.exec(
-      `INSERT INTO employee_runtime_messages(id,conversation_id,role,content,execution_id,created_at) VALUES(?,?,?,?,?,?)`,
-      message.id, message.conversationId, message.role, message.content, message.executionId ?? null, message.createdAt,
+      `INSERT INTO employee_runtime_messages(id,conversation_id,role,content,execution_id,origin,created_at) VALUES(?,?,?,?,?,?,?)`,
+      message.id, message.conversationId, message.role, message.content, message.executionId ?? null, input.origin ?? "interactive", message.createdAt,
     );
     this.pruneMessages(message.conversationId);
     return message;
@@ -179,9 +182,14 @@ export class EmployeeRuntimeStore {
 
   private pruneMessages(conversationId: string): void {
     this.exec(
-      `DELETE FROM employee_runtime_messages WHERE conversation_id=? AND id NOT IN (
-        SELECT id FROM employee_runtime_messages WHERE conversation_id=? ORDER BY created_at DESC, rowid DESC,id DESC LIMIT ?
+      `DELETE FROM employee_runtime_messages WHERE conversation_id=? AND origin='interactive' AND id NOT IN (
+        SELECT id FROM employee_runtime_messages WHERE conversation_id=? AND origin='interactive' ORDER BY created_at DESC, rowid DESC,id DESC LIMIT ?
       )`, conversationId, conversationId, MAX_MESSAGES,
+    );
+    this.exec(
+      `DELETE FROM employee_runtime_messages WHERE conversation_id=? AND origin='routine' AND id NOT IN (
+        SELECT id FROM employee_runtime_messages WHERE conversation_id=? AND origin='routine' ORDER BY created_at DESC, rowid DESC,id DESC LIMIT ?
+      )`, conversationId, conversationId, MAX_ROUTINE_MESSAGES,
     );
   }
 
