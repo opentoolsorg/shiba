@@ -20,14 +20,13 @@ current binding matters:
 | Architecture role | Current implementation | Meaning |
 |---|---|---|
 | **Employee Runtime** | `EmployeeRuntime` Durable Object | Provider-independent per-employee boundary for actor-private conversation state, working memory, routines, cancellation, recovery, resumable streams, and lightweight inference/tool turns. It never edits a repository or directly performs external effects. |
-| **Legacy Room/Coding Orchestrator** | `CodingOrchestrator` Durable Object | Existing shared-room and repository-run spine: planning, approval queue, run lineage, delegation, and events. It remains authoritative for legacy room/coding flows while work is migrated into the employee runtime. |
-| **Run Execution Agent** | `OpenCodeAgent` Durable Object | Optional sandbox-side execution child. Despite the legacy name, it coordinates the selected harness/runtime and makes no model product decisions of its own. |
+| **Room/Coding Orchestrator** | `CodingOrchestrator` Durable Object | Shared-room and repository-run spine: planning, approval queue, run lineage, delegation, and events. It coordinates room and repository work while `EmployeeRuntime` owns employee identity, conversation, memory, recovery, and lightweight execution state. |
+| **Run Execution Agent** | `OpenCodeAgent` Durable Object | Optional sandbox-side execution child. Despite the historical implementation name, it coordinates the selected harness/runtime and makes no model product decisions of its own. |
 | **Harness** | `opencode`, `claude-code`, `codex`, ACP lanes, etc. | A pluggable coding CLI/transport inside the repository execution lane, not the center of the product and not required for ordinary employee chat. |
 
-A documentation rename is not a Durable Object migration. `CodingOrchestrator`
-and `OpenCodeAgent` are still live code/binding names even where the architecture
-uses product-role names. Do not claim either binding has been renamed until the
-migration actually lands.
+`CodingOrchestrator` and `OpenCodeAgent` are implementation/binding names. Product
+architecture uses the role names above. Do not claim either binding has been
+renamed until the code and Durable Object migration actually land.
 
 ## Architectural spine
 
@@ -39,7 +38,7 @@ people and channels
   → goal/plan/task with exact scope
   → human approval
   → run orchestration and event spine
-    (legacy CodingOrchestrator for room/repository work until migration completes)
+    (CodingOrchestrator coordinates room/repository work)
   → execution lane
   → deliverables, provenance, verification, receipts
   → human review

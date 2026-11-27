@@ -16,7 +16,7 @@ does not rename a live Durable Object binding.
                                             ▼
 ┌──────────────────── Cloudflare Worker: shiba control plane ───────────────────┐
 │                                                                               │
-│  EmployeeRuntime DO + legacy CodingOrchestrator DO                             │
+│  EmployeeRuntime DO + CodingOrchestrator DO                             │
 │  actor-private runtime chat/memory/routines · room/coding orchestration       │
 │  approval queue · run lineage · durable event spine · cancellation/recovery   │
 │                                                                               │

@@ -52,7 +52,7 @@ channel-delivered work follow the same control shape.
 
 ```text
  1  approve     exact repo/ref/task and harness/runtime route are frozen
- 2  dispatch    legacy room/coding orchestrator sends a structured envelope to the
+ 2  dispatch    room/coding orchestrator sends a structured envelope to the
                 Run Execution Agent (current implementation: OpenCodeAgent)
  3  sandbox     Sandbox DO starts an ephemeral container for the run
  4  clone       container receives only the approved scoped git capability

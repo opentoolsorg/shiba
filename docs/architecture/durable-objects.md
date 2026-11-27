@@ -12,7 +12,7 @@ Current Durable Object bindings in `apps/backend/wrangler.jsonc`:
 
 | Durable Object | Coordinates |
 |---|---|
-| **Legacy Room/Coding Orchestrator** (`CodingOrchestrator` in current code and binding) | Shared-room conversation, employee/run orchestration, approval queue, retained run lineage, delegation, and event-spine state for the repository/room migration lane. |
+| **Room/Coding Orchestrator** (`CodingOrchestrator` in current code and binding) | Shared-room conversation, employee/run orchestration, approval queue, retained run lineage, delegation, and event-spine state for room and repository execution. |
 | **Run Execution Agent** (`OpenCodeAgent` in current code and binding) | Sandbox-side execution child session, structured input envelope, progress, and result envelope. |
 | `Sandbox` | Container lifecycle for one sandbox run. |
 | `Automations` | Automation definitions and scheduled trigger coordination. |
