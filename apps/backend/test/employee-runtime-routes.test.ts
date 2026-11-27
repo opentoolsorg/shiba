@@ -137,11 +137,12 @@ describe("employee runtime routes", () => {
       "state",
     );
     expect(await response.json()).toMatchObject({ conversationId: "client-thread" });
-    expect(calls[0]?.url).toBe("https://internal/internal/employee-runtime/recover");
-    expect(new URL(calls[1]!.url).searchParams.get("conversationId")).toMatch(/^u_[a-f0-9]{32}_[A-Za-z0-9_-]+$/);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).not.toBe("https://internal/internal/employee-runtime/recover");
+    expect(new URL(calls[0]!.url).searchParams.get("conversationId")).toMatch(/^u_[a-f0-9]{32}_[A-Za-z0-9_-]+$/);
   });
 
-  it("does not trigger recovery inference when reading an archived employee", async () => {
+  it("does not trigger recovery inference when reading archived or active state", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const env = runtimeEnv(calls);
     const agent = await createCustomAgent(env, "self-hosted", "archived-state-scout", { name: "Scout", instructions: "Answer carefully." });

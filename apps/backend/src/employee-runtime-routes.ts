@@ -169,9 +169,6 @@ export async function handleEmployeeRuntimeRequest(
       const value = incoming.searchParams.get(key);
       if (value) url.searchParams.set(key, value);
     }
-    // Recovery is an authorized lifecycle action, so only active employees may
-    // trigger it; merely reading archived history must never start inference.
-    if (!agent.archivedAt) await stub.fetch("https://internal/internal/employee-runtime/recover", { method: "POST", body: "{}" });
     return forwardConversation(await stub.fetch(url));
   }
 
