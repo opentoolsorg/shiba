@@ -1,5 +1,6 @@
 import {
   employeeRuntimeCancelSchema,
+  verifyStandinEnabled,
   employeeRuntimeChatRequestSchema,
   employeeRuntimeMemoryWriteSchema,
 } from "@shiba/shared";
@@ -107,6 +108,12 @@ export async function handleEmployeeRuntimeRequest(
   if (body instanceof Response) return body;
 
   if (action === "chat") {
+    // Team inference must go through the exact funded team-model turn lane until
+    // EmployeeRuntime implements the same grant/budget contract. Verification
+    // standin remains available because it performs no deployment inference.
+    if (orgId.startsWith("team:") && !verifyStandinEnabled(env)) {
+      return json({ ok: false, error: "employee_runtime_funding_required" }, { status: 403 });
+    }
     const parsed = employeeRuntimeChatRequestSchema.safeParse(body);
     if (!parsed.success) return json({ ok: false, error: "invalid_body" }, { status: 400 });
     return forward(await stub.fetch(internal, {

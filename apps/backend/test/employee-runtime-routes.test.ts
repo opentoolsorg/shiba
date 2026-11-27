@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { handleCustomAgents } from "../src/custom-agents-routes.js";
+import { handleEmployeeRuntimeRequest } from "../src/employee-runtime-routes.js";
 import { createCustomAgent } from "../src/custom-agents-store.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
@@ -106,5 +107,20 @@ describe("employee runtime routes", () => {
     const agent = await createCustomAgent(env, "self-hosted", "scout", { name: "Scout", instructions: "Answer carefully.", harness: "opencode" });
     const response = await handleCustomAgents(post(`/${agent.id}/runtime/unknown`, { message: "hello" }), env);
     expect(response?.status).toBe(404);
+  });
+  it("fails closed for unfunded team workspace inference", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const env = runtimeEnv(calls);
+    const agent = await createCustomAgent(env, "team:ws_aaaaaaaaaaaaaaaaaaaaaaaa", "scout", { name: "Scout", instructions: "Answer carefully." });
+    const response = await handleEmployeeRuntimeRequest(
+      post(`/${agent.id}/runtime/chat`, { message: "hello" }),
+      env,
+      { orgId: "team:ws_aaaaaaaaaaaaaaaaaaaaaaaa", principal: null },
+      agent.id,
+      "chat",
+    );
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: "employee_runtime_funding_required" });
+    expect(calls).toEqual([]);
   });
 });

@@ -59,8 +59,13 @@ Implemented in this branch:
   loads the employee profile from D1 and forwards a server-owned frozen
   envelope. The caller cannot invent identity, instructions, version, harness,
   repository, or model authority.
-- Add direct chat inference through Workers AI and the AI SDK. The path has no
-  repository, sandbox, or coding harness dependency.
+- Add direct chat inference through Workers AI and the AI SDK for controlled
+  deployment owners. Team-workspace inference fails closed until the exact
+  funded team-model turn contract is integrated; verification standin remains
+  inference-free.
+- Namespace conversations by the authenticated actor at the Worker boundary so
+  shared employees do not expose private threads. Cancellation is bound to the
+  scoped conversation and recovery requires manage authority.
 - Add cancellation and interrupted-execution recovery markers.
 
 This slice proves the boundary only. It does not complete streaming, tools,
