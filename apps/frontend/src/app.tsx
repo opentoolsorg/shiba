@@ -4769,7 +4769,7 @@ function employeeConversationRoomTitle(name: string): string {
           ) : mainView === "notes" ? (
             <NotesEditor workspaceId={teamWorkspaceId || null} onNavigate={(view) => { if (view === "memory") setMemoryView("sources"); openView(view); }} />
           ) : mainView === "projects" ? (
-            <ProjectsView onNavigate={openView} />
+            <ProjectsView key={teamWorkspaceId || "personal"} workspaceId={teamWorkspaceId || null} onNavigate={openView} />
           ) : mainView === "outputs" ? (
             <OutputsView onNavigate={openView} onOpenEvidence={(runId) => {
               applyWorkSelection({ view: "board", task: runId, taskKind: "run", tab: "steps" }, "push");

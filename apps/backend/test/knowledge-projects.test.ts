@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { Env } from "../src/env.js";
 import { getFile, insertFileRecord } from "../src/files/files-store.js";
+import { canAccessKnowledgeResource } from "../src/knowledge/knowledge-access.js";
 import {
   assignProjectResource,
   createProject,
@@ -113,6 +114,63 @@ describe("knowledge projects", () => {
           projectId: project.id,
         }),
       ).rejects.toBeInstanceOf(ProjectStoreError);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("keeps older project members visible beyond the unfiltered knowledge page size", async () => {
+    const { env, sqlite } = fixture();
+    try {
+      const project = await createProject(env, "ws", "Archive");
+      const member = await insertFileRecord(env, {
+        workspaceId: "ws",
+        scope: "personal",
+        name: "member.md",
+        mime: "text/markdown",
+        size: 4,
+        r2Key: "member",
+        sha256: "a".repeat(64),
+        createdBy: "alice@example.test",
+        projectId: project.id,
+      });
+      await env.AGENT_AUDIT.prepare(`UPDATE files SET updated_at=1 WHERE id=?`)
+        .bind(member.id)
+        .run();
+      for (let index = 0; index < 210; index += 1) {
+        await insertFileRecord(env, {
+          workspaceId: "ws",
+          scope: "personal",
+          name: `newer-${index}.md`,
+          mime: "text/markdown",
+          size: 4,
+          r2Key: `newer-${index}`,
+          sha256: `${index}`.padStart(64, "0"),
+          createdBy: "alice@example.test",
+        });
+      }
+      const detail = await listProjectResources(env, "ws", "alice@example.test", project.id);
+      expect(detail.files.map((file) => file.id)).toEqual([member.id]);
+      expect((await listProjects(env, "ws", "alice@example.test"))[0]).toMatchObject({
+        fileCount: 1,
+      });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("treats workspace scope as shared in the self-hosted workspace", async () => {
+    const { env, sqlite } = fixture();
+    try {
+      await expect(
+        canAccessKnowledgeResource(env, "alice@example.test", {
+          workspaceId: "self-hosted",
+          scope: "workspace",
+          createdBy: "bob@example.test",
+          resourceId: "file_1",
+          resourceKind: "file",
+        }),
+      ).resolves.toBe(true);
     } finally {
       sqlite.close();
     }

@@ -1,8 +1,8 @@
 import type { KnowledgeFile, KnowledgeNote, KnowledgeProject } from "@shiba/shared";
 import type { Env } from "../env.js";
-import { listFiles } from "../files/files-store.js";
+import { countProjectFiles, listProjectFiles } from "../files/files-store.js";
 import { randomHex } from "../mailbox-store.js";
-import { listNotes } from "../notes/notes-store.js";
+import { countProjectNotes, listProjectNotes } from "../notes/notes-store.js";
 
 export class ProjectStoreError extends Error {
   constructor(
@@ -27,23 +27,6 @@ function projectDto(
   };
 }
 
-async function visibleKnowledge(
-  env: Env,
-  workspaceId: string,
-  viewer: string,
-): Promise<{ files: KnowledgeFile[]; notes: KnowledgeNote[] }> {
-  const [personalFiles, workspaceFiles, personalNotes, workspaceNotes] = await Promise.all([
-    listFiles(env, workspaceId, "personal", viewer),
-    listFiles(env, workspaceId, "workspace", viewer),
-    listNotes(env, workspaceId, "personal", viewer),
-    listNotes(env, workspaceId, "workspace", viewer),
-  ]);
-  return {
-    files: [...personalFiles, ...workspaceFiles],
-    notes: [...personalNotes, ...workspaceNotes],
-  };
-}
-
 export async function listProjects(
   env: Env,
   workspaceId: string,
@@ -55,11 +38,14 @@ export async function listProjects(
     .bind(workspaceId)
     .all<{ id: string; workspace_id: string; name: string; created_at: number }>();
   if (!viewer) return rows.results.map((row) => projectDto(row));
-  const visible = await visibleKnowledge(env, workspaceId, viewer);
+  const [fileCounts, noteCounts] = await Promise.all([
+    countProjectFiles(env, workspaceId, viewer),
+    countProjectNotes(env, workspaceId, viewer),
+  ]);
   return rows.results.map((row) =>
     projectDto(row, {
-      fileCount: visible.files.filter((file) => file.projectId === row.id).length,
-      noteCount: visible.notes.filter((note) => note.projectId === row.id).length,
+      fileCount: fileCounts.get(String(row.id)) ?? 0,
+      noteCount: noteCounts.get(String(row.id)) ?? 0,
     }),
   );
 }
@@ -167,9 +153,9 @@ export async function listProjectResources(
   viewer: string,
   projectId: string,
 ): Promise<{ files: KnowledgeFile[]; notes: KnowledgeNote[] }> {
-  const visible = await visibleKnowledge(env, workspaceId, viewer);
-  return {
-    files: visible.files.filter((file) => file.projectId === projectId),
-    notes: visible.notes.filter((note) => note.projectId === projectId),
-  };
+  const [files, notes] = await Promise.all([
+    listProjectFiles(env, workspaceId, viewer, projectId),
+    listProjectNotes(env, workspaceId, viewer, projectId),
+  ]);
+  return { files, notes };
 }

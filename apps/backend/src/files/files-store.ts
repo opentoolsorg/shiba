@@ -71,6 +71,25 @@ export async function listFiles(env: Env, workspaceId: string, scope: KnowledgeS
   return rows.results.map((row) => fileDto(row as Record<string, unknown>));
 }
 
+export async function listProjectFiles(env: Env, workspaceId: string, viewer: string, projectId: string): Promise<KnowledgeFile[]> {
+  const rows = await env.AGENT_AUDIT.prepare(
+    `SELECT * FROM files WHERE workspace_id=? AND project_id=? AND archived_at IS NULL
+       AND (scope='workspace' OR created_by=?)
+     ORDER BY updated_at DESC`,
+  ).bind(workspaceId, projectId, viewer).all();
+  return rows.results.map((row) => fileDto(row as Record<string, unknown>));
+}
+
+export async function countProjectFiles(env: Env, workspaceId: string, viewer: string): Promise<Map<string, number>> {
+  const rows = await env.AGENT_AUDIT.prepare(
+    `SELECT project_id, COUNT(*) AS count FROM files
+     WHERE workspace_id=? AND project_id IS NOT NULL AND archived_at IS NULL
+       AND (scope='workspace' OR created_by=?)
+     GROUP BY project_id`,
+  ).bind(workspaceId, viewer).all<{ project_id: string; count: number }>();
+  return new Map(rows.results.map((row) => [String(row.project_id), Number(row.count)]));
+}
+
 export async function getFile(env: Env, fileId: string): Promise<KnowledgeFile | null> {
   const row = await env.AGENT_AUDIT.prepare(`SELECT * FROM files WHERE id=?`).bind(fileId).first();
   return row ? fileDto(row as Record<string, unknown>) : null;

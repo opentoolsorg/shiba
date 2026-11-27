@@ -2,7 +2,7 @@
  * Access checks for knowledge-scoped resources (files, notes, search).
  * Uses WS06 `canAccess` when `governance/resource-access` is deployed; otherwise owner/member fallback.
  */
-import type { GovernanceResourceKind, KnowledgeScope } from "@shiba/shared";
+import { isTeamWorkspaceId, type GovernanceResourceKind, type KnowledgeScope } from "@shiba/shared";
 import type { Env } from "../env.js";
 import { getTeamWorkspaceMembership } from "../team-workspaces-store.js";
 
@@ -24,6 +24,8 @@ export async function canAccessKnowledgeResource(
   }
   const governance = await governanceCanAccess(env, viewerUserId, resource);
   if (governance) return true;
+  // Outside team workspaces, `workspace` scope is the deployment-wide shared scope.
+  if (!isTeamWorkspaceId(resource.workspaceId)) return true;
   const membership = await getTeamWorkspaceMembership(env, resource.workspaceId, viewerUserId);
   return membership?.role === "owner" || membership?.role === "admin" || membership?.role === "member";
 }

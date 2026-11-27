@@ -42,6 +42,25 @@ export async function listNotes(env: Env, workspaceId: string, scope: KnowledgeS
   return rows.results.map((row) => noteDto(row as Record<string, unknown>));
 }
 
+export async function listProjectNotes(env: Env, workspaceId: string, viewer: string, projectId: string): Promise<KnowledgeNote[]> {
+  const rows = await env.AGENT_AUDIT.prepare(
+    `SELECT * FROM notes WHERE workspace_id=? AND project_id=? AND archived_at IS NULL
+       AND (scope='workspace' OR created_by=?)
+     ORDER BY updated_at DESC`,
+  ).bind(workspaceId, projectId, viewer).all();
+  return rows.results.map((row) => noteDto(row as Record<string, unknown>));
+}
+
+export async function countProjectNotes(env: Env, workspaceId: string, viewer: string): Promise<Map<string, number>> {
+  const rows = await env.AGENT_AUDIT.prepare(
+    `SELECT project_id, COUNT(*) AS count FROM notes
+     WHERE workspace_id=? AND project_id IS NOT NULL AND archived_at IS NULL
+       AND (scope='workspace' OR created_by=?)
+     GROUP BY project_id`,
+  ).bind(workspaceId, viewer).all<{ project_id: string; count: number }>();
+  return new Map(rows.results.map((row) => [String(row.project_id), Number(row.count)]));
+}
+
 export async function getNote(env: Env, noteId: string): Promise<(KnowledgeNote & { r2Key: string }) | null> {
   const row = await env.AGENT_AUDIT.prepare(`SELECT * FROM notes WHERE id=?`).bind(noteId).first();
   if (!row) return null;

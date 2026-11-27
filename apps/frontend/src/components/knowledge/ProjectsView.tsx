@@ -5,6 +5,7 @@ import type {
   KnowledgeProjectDetail,
 } from "@shiba/shared";
 import { type JSX, useCallback, useEffect, useMemo, useState } from "react";
+import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 import type { AppNavView } from "../AppNavRail";
 import { LoadErrorState } from "../LoadErrorState";
 import { MainCard } from "../ui/ContextPanel";
@@ -22,8 +23,10 @@ async function readJson<T>(response: Response, fallback: string): Promise<T> {
 
 export function ProjectsView({
   onNavigate,
+  workspaceId,
 }: {
   onNavigate?: (view: AppNavView) => void;
+  workspaceId?: string | null;
 } = {}): JSX.Element {
   const [projects, setProjects] = useState<KnowledgeProject[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -37,50 +40,68 @@ export function ProjectsView({
   const [noteChoice, setNoteChoice] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const workspaceHeaders = useMemo(
+    () => teamWorkspaceHeaders(workspaceId ?? undefined),
+    [workspaceId],
+  );
 
   const load = useCallback(async () => {
     const response = await fetch("/api/projects", {
       credentials: "same-origin",
       cache: "no-store",
+      headers: workspaceHeaders,
     });
     const body = await readJson<{ projects?: KnowledgeProject[] }>(
       response,
       "Projects unavailable.",
     );
     if (!Array.isArray(body.projects)) throw new Error("Projects unavailable.");
+    const firstProjectId = body.projects[0]?.id ?? null;
     setProjects(body.projects);
     setLoaded(true);
-    if (!selectedId && body.projects[0]) setSelectedId(body.projects[0].id);
-  }, [selectedId]);
+    setSelectedId((current) => current ?? firstProjectId);
+  }, [workspaceHeaders]);
 
-  const loadDetail = useCallback(async (projectId: string) => {
-    const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
-      credentials: "same-origin",
-      cache: "no-store",
-    });
-    const body = await readJson<KnowledgeProjectDetail>(response, "Project unavailable.");
-    setDetail(body);
-    setRename(body.project.name);
-  }, []);
+  const loadDetail = useCallback(
+    async (projectId: string) => {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: workspaceHeaders,
+      });
+      const body = await readJson<KnowledgeProjectDetail>(response, "Project unavailable.");
+      setDetail(body);
+      setRename(body.project.name);
+    },
+    [workspaceHeaders],
+  );
 
   const loadLibrary = useCallback(async () => {
     const [personalFiles, workspaceFiles, personalNotes, workspaceNotes] = await Promise.all([
-      fetch("/api/files?scope=personal", { credentials: "same-origin", cache: "no-store" }).then(
-        (r) => readJson<{ files?: KnowledgeFile[] }>(r, "Files unavailable."),
-      ),
-      fetch("/api/files?scope=workspace", { credentials: "same-origin", cache: "no-store" }).then(
-        (r) => readJson<{ files?: KnowledgeFile[] }>(r, "Files unavailable."),
-      ),
-      fetch("/api/notes?scope=personal", { credentials: "same-origin", cache: "no-store" }).then(
-        (r) => readJson<{ notes?: KnowledgeNote[] }>(r, "Notes unavailable."),
-      ),
-      fetch("/api/notes?scope=workspace", { credentials: "same-origin", cache: "no-store" }).then(
-        (r) => readJson<{ notes?: KnowledgeNote[] }>(r, "Notes unavailable."),
-      ),
+      fetch("/api/files?scope=personal", {
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: workspaceHeaders,
+      }).then((r) => readJson<{ files?: KnowledgeFile[] }>(r, "Files unavailable.")),
+      fetch("/api/files?scope=workspace", {
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: workspaceHeaders,
+      }).then((r) => readJson<{ files?: KnowledgeFile[] }>(r, "Files unavailable.")),
+      fetch("/api/notes?scope=personal", {
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: workspaceHeaders,
+      }).then((r) => readJson<{ notes?: KnowledgeNote[] }>(r, "Notes unavailable.")),
+      fetch("/api/notes?scope=workspace", {
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: workspaceHeaders,
+      }).then((r) => readJson<{ notes?: KnowledgeNote[] }>(r, "Notes unavailable.")),
     ]);
     setAvailableFiles([...(personalFiles.files ?? []), ...(workspaceFiles.files ?? [])]);
     setAvailableNotes([...(personalNotes.notes ?? []), ...(workspaceNotes.notes ?? [])]);
-  }, []);
+  }, [workspaceHeaders]);
 
   useEffect(() => {
     void load().catch((err: unknown) =>
@@ -112,7 +133,9 @@ export function ProjectsView({
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(input.url, { credentials: "same-origin", ...input });
+      const headers = new Headers(input.headers);
+      for (const [key, value] of Object.entries(workspaceHeaders)) headers.set(key, value);
+      const response = await fetch(input.url, { credentials: "same-origin", ...input, headers });
       await readJson(response, fallback);
       await Promise.all([
         load(),
@@ -131,7 +154,7 @@ export function ProjectsView({
     const response = await fetch("/api/projects", {
       method: "POST",
       credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
+      headers: { ...workspaceHeaders, "Content-Type": "application/json" },
       body: JSON.stringify({ name }),
     });
     try {
@@ -260,6 +283,7 @@ export function ProjectsView({
                                 {
                                   method: "DELETE",
                                   credentials: "same-origin",
+                                  headers: workspaceHeaders,
                                 },
                               );
                               await readJson(response, "Could not delete project.");
