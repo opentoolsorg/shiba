@@ -19,7 +19,7 @@ every subsystem.
 | Sandbox execution | Sandbox containers provide isolated execution. Approval is minted before a sandbox starts, and egress attaches credentials outside the container. | This is the correct high-trust lane for terminal/code work. It is not optional enough: approval, evidence, and run concepts assume this lane in several contracts. |
 | Memory | `Memory` Durable Objects store facts and owner memory. Vectorize stores embeddings. Memory routes and MCP tools exist. | Memory is split across agent-named facts, owner memory, conversation state, knowledge modules, and files. There is no single employee-private/thread/shared model with uniform tenant checks. |
 | Workspace knowledge | D1, R2, files, notes, knowledge ingestion, projects, and semantic search already exist. | These capabilities are workspace features, not yet a repository-independent employee workspace with private files, generated artifacts, and shared knowledge under one permission model. |
-| Tools and integrations | The lazy tool catalog, MCP registry, connected app actions, browser tools, media tools, and employee tool policy exist. `employee-run-tools.ts` resolves authority server-side. | Tooling is powerful but distributed. Approval requirements are not expressed as one execution-boundary contract across native tools, MCP, browser, terminal, external APIs, and employee delegation. |
+| Tools and integrations | The lazy tool catalog, MCP registry, connected app actions, browser tools, media tools, and employee tool policy exist. `employee-run-tools.ts` resolves authority server-side. `EmployeeRuntime` now supplies this registry to direct multi-step model turns using the server-resolved employee actor, and streams inspectable tool activity. Approval-required actions still execute through the existing exact-payload approval boundary. | Tooling remains distributed across legacy orchestrator, runtime, browser, terminal, external APIs, and employee delegation. Owner-reviewed external MCP actions are available to the runtime through execution-bound authority, but browser/terminal execution and durable Work orchestration are not fully unified yet. |
 | Scheduling and automation | `Automations`, queues, workflows, alarms, Slack/email ingress, routines, and run recovery exist. | Routines are not yet first-class employee schedules with per-employee spend, dedupe, delegation-depth, and notification policy. |
 | Frontend | Custom employee profiles, roster/workspace surfaces, approvals, work views, files, memories, skills, and integrations exist in the dashboard. | Creation no longer forces a harness, but operation still exposes coding/repository concepts to non-technical users. There is no single employee-centric runtime surface for chat, work, memory, files, tools, schedules, and history. |
 | Deployment state | Durable Objects coordinate live state. D1 owns shared records. R2 owns bytes. Vectorize owns embeddings. Queues and Workflows carry asynchronous control. | This ownership model is sound. The migration must not mirror all of D1 into the employee object. It needs a stricter split between durable domain state and live execution coordination. |
@@ -179,6 +179,18 @@ Remaining:
   artifacts, and deleted employees.
 
 ### Phase 6. Unify tools and approvals
+
+Implemented first runtime slice: `EmployeeRuntime` now constructs the existing
+employee tool catalog for both buffered and streaming inference. The Worker
+adapter, not the client, resolves the raw tool actor; the runtime stores that
+actor in checkpoint metadata so interrupted turns recover with the same
+authority. Model-selected catalog calls re-check D1 membership, grants,
+resources, policies, audit records, and exact-payload approvals before
+execution. Owner-reviewed external MCP actions use the runtime execution ID as
+their durable invocation context. Streaming surfaces bounded, redacted,
+inspectable tool activity in the runtime chat UI.
+
+Still required before the phase is complete:
 
 - Build one tool registry across native tools, MCP servers, browser automation,
   terminal execution, external APIs, connected apps, and employee delegation.

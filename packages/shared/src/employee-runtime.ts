@@ -120,8 +120,18 @@ export interface EmployeeRuntimeChatResponse {
   answer: string;
 }
 
+export interface EmployeeRuntimeToolActivity {
+  toolCallId: string;
+  toolName: string;
+  state: "call" | "result" | "error";
+  input?: unknown;
+  output?: unknown;
+  error?: string;
+}
+
 export type EmployeeRuntimeStreamEvent =
   | { type: "execution"; execution: EmployeeRuntimeExecution }
   | { type: "delta"; text: string }
+  | { type: "tool"; tool: EmployeeRuntimeToolActivity }
   | { type: "done"; execution: EmployeeRuntimeExecution; message: EmployeeRuntimeMessage; answer: string }
   | { type: "error"; error: string; execution?: EmployeeRuntimeExecution };

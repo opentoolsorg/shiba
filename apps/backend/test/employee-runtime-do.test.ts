@@ -1,6 +1,11 @@
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("../src/employee-run-tools.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/employee-run-tools.js")>(),
+  createEmployeeRunTools: vi.fn(() => ({})),
+}));
+
 vi.mock("agents", () => ({
   Agent: class {
     initialState = { startedAt: 0 };
@@ -13,6 +18,7 @@ vi.mock("agents", () => ({
 }));
 
 import { EmployeeRuntime } from "../src/employee-runtime-do.js";
+import { createEmployeeRunTools } from "../src/employee-run-tools.js";
 import type { Env } from "../src/env.js";
 
 function fixture(envOverrides: Partial<Env> = {}) {
@@ -193,6 +199,28 @@ describe("EmployeeRuntime Durable Object", () => {
     const response = await runtime.onRequest(new Request("https://do/internal/employee-runtime/clear", { method: "POST", body: JSON.stringify({ conversationId: "default" }) }));
     expect(response.status).toBe(200);
     expect(db.prepare(`SELECT COUNT(*) AS n FROM employee_runtime_summaries`).get()).toMatchObject({ n: 0 });
+  });
+
+  it("wires the server-resolved tool actor into runtime tool authority and recovery metadata", async () => {
+    const { runtime, db } = fixture();
+    const request = new Request("https://do/internal/employee-runtime/chat", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ profile, conversationId: "default", message: "use tools if available", mode: "chat", toolActorId: "owner@example.test" }),
+    });
+    const response = await runtime.onRequest(request);
+    expect(response.status).toBe(200);
+    const inputJson = db.prepare(`SELECT input_json AS json FROM employee_runtime_executions LIMIT 1`).get() as { json: string };
+    expect(JSON.parse(inputJson.json)).toMatchObject({ toolActorId: "owner@example.test" });
+    const factory = vi.mocked(createEmployeeRunTools);
+    (runtime as unknown as { runtimeTools(body: { profile: typeof profile; conversationId: string; message: string; mode: "chat"; toolActorId: string }, executionId: string): unknown }).runtimeTools(
+      { profile, conversationId: "default", message: "use tools if available", mode: "chat", toolActorId: "owner@example.test" }, "run_test",
+    );
+    expect(factory).toHaveBeenCalled();
+    const args = factory.mock.calls.at(-1) ?? [];
+    expect(args[1]?.()).toBe(profile.employeeId);
+    expect(args[2]?.()).toBe("run_test");
+    expect(args[3]?.()).toBe(profile.orgId);
+    expect(args[4]?.()).toBe("owner@example.test");
   });
 
   it("marks abandoned running executions recoverable in state", async () => {

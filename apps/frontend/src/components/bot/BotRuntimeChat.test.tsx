@@ -44,6 +44,8 @@ describe("BotRuntimeChat", () => {
       if (path.includes("/runtime/chat/stream")) {
         return streamResponse([
           { type: "execution", execution },
+          { type: "tool", tool: { toolCallId: "tool-1", toolName: "tool_search", state: "call", input: { query: "mail" } } },
+          { type: "tool", tool: { toolCallId: "tool-1", toolName: "tool_search", state: "result", output: { actions: [] } } },
           { type: "delta", text: "Hello" },
           { type: "delta", text: " there" },
           { type: "done", execution: { ...execution, status: "completed" }, message: assistant, answer: assistant.content },
@@ -56,6 +58,7 @@ describe("BotRuntimeChat", () => {
     fireEvent.change(screen.getByLabelText(/Runtime message/), { target: { value: "hello?" } });
     fireEvent.click(screen.getByRole("button", { name: "Send runtime message" }));
     expect(await screen.findByText("Hello there")).toBeTruthy();
+    expect(screen.getByLabelText("Runtime tool activity").textContent).toContain("tool_search");
     await waitFor(() => expect(stateReads).toBeGreaterThan(1));
     const stream = calls.find((call) => call.path.includes("/runtime/chat/stream"));
     expect(JSON.parse(String(stream?.init?.body))).toEqual({ conversationId: "thread-1", message: "hello?", mode: "chat" });

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EMPLOYEE_RUNTIME_MESSAGE_MAX_LENGTH } from "@shiba/shared";
-import type { EmployeeRuntimeConversationSummary, EmployeeRuntimeExecution, EmployeeRuntimeMessage, EmployeeRuntimeState, EmployeeRuntimeStreamEvent } from "@shiba/shared";
+import type { EmployeeRuntimeConversationSummary, EmployeeRuntimeExecution, EmployeeRuntimeMessage, EmployeeRuntimeState, EmployeeRuntimeStreamEvent, EmployeeRuntimeToolActivity } from "@shiba/shared";
 import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 import { FIELD_CLASS, QUIET_BUTTON } from "./BotPanel";
 
@@ -41,6 +41,7 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant =
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pendingUser, setPendingUser] = useState<ChatMessage | null>(null);
   const [streamingText, setStreamingText] = useState("");
+  const [toolEvents, setToolEvents] = useState<EmployeeRuntimeToolActivity[]>([]);
   const [activeExecution, setActiveExecution] = useState<EmployeeRuntimeExecution | null>(null);
   const [executions, setExecutions] = useState<EmployeeRuntimeExecution[]>([]);
   const [conversationSummary, setConversationSummary] = useState<EmployeeRuntimeConversationSummary | null>(null);
@@ -92,6 +93,7 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant =
     setMessages([]);
     setPendingUser(null);
     setStreamingText("");
+    setToolEvents([]);
     setActiveExecution(null);
     setExecutions([]);
     setConversationSummary(null);
@@ -118,6 +120,7 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant =
     setDraft("");
     setPendingUser(runtimeMessage(`local-user-${Date.now()}`, "user", text));
     setStreamingText("");
+    setToolEvents([]);
     try {
       const response = await fetch(runtimePath("/chat/stream"), {
         method: "POST", credentials: "same-origin",
@@ -133,6 +136,9 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant =
       await readSse(response, (event) => {
         if (event.type === "execution") setActiveExecution(event.execution);
         if (event.type === "delta") setStreamingText((current) => current + event.text);
+        if (event.type === "tool") {
+          setToolEvents((current) => [...current.filter((item) => !(item.toolCallId === event.tool.toolCallId && item.state === event.tool.state)), event.tool]);
+        }
         if (event.type === "done" || event.type === "error") {
           terminalType = event.type;
           terminalError = event.type === "error" ? event.error : null;
@@ -219,6 +225,25 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant =
       <p className="text-[11px] leading-relaxed text-[var(--muted-foreground-2)]">
         Lightweight Chat mode uses this employee's identity, instructions, and runtime memory directly. It does not create a repository, sandbox, or coding harness.
       </p>
+      {toolEvents.length > 0 ? (
+        <ol className="flex flex-col gap-1 rounded-md border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-[11px] text-[var(--fg)]" aria-label="Runtime tool activity">
+          {toolEvents.map((event) => (
+            <li key={`${event.toolCallId}:${event.state}`} className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-[10px] uppercase tracking-wide text-[var(--muted-foreground-2)]">{event.state}</span>
+              <span className="font-medium">{event.toolName}</span>
+              {event.error ? <span className="text-[var(--destructive)]">{event.error}</span> : null}
+              {event.input !== undefined || event.output !== undefined ? (
+                <details className="basis-full text-[var(--muted-foreground-2)]">
+                  <summary className="cursor-pointer select-none">Payload</summary>
+                  <pre className="mt-1 max-h-36 overflow-auto whitespace-pre-wrap break-words rounded bg-[var(--bg)] p-2 font-mono text-[10px]">
+                    {JSON.stringify({ ...(event.input !== undefined ? { input: event.input } : {}), ...(event.output !== undefined ? { output: event.output } : {}) }, null, 2)}
+                  </pre>
+                </details>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      ) : null}
       {executions.some((execution) => execution.recoverable === true) ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--border-1)] bg-[var(--warning-subtle)] px-3 py-2 text-[11px] text-[var(--fg)]">
           <span>Interrupted runtime work needs recovery.</span>

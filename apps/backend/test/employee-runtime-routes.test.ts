@@ -72,6 +72,7 @@ describe("employee runtime routes", () => {
     expect(forwarded.profile).not.toHaveProperty("codingModel");
     expect(forwarded.conversationId).toMatch(/^u_[a-f0-9]{32}_[A-Za-z0-9_-]+$/);
     expect(forwarded.conversationId).not.toBe("default");
+    expect(forwarded.toolActorId).toBe("owner@example.test");
   });
 
   it("gives different authenticated actors different private conversation namespaces", async () => {

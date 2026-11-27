@@ -122,6 +122,12 @@ async function scopedConversationId(actorIdentity: string, conversationId: strin
   return `u_${actorHash}_${base64UrlEncode(conversationId)}`;
 }
 
+async function runtimeToolActorId(request: Request, env: Env, auth: ResolvedOrgAuth): Promise<string | null> {
+  if (auth.principal) return auth.principal.principal;
+  if (auth.workspace) return auth.workspace.userId;
+  return await resolveUserId(request, env);
+}
+
 async function canManageEmployee(env: Env, auth: ResolvedOrgAuth, employeeId: string): Promise<boolean> {
   if (!auth.workspace) return true;
   const userId = auth.principal?.principal ?? auth.workspace.userId;
@@ -150,6 +156,7 @@ export async function handleEmployeeRuntimeRequest(
   const stub = employeeRuntimeStub(env, orgId, agent.id);
   const internal = `https://internal/internal/employee-runtime${action === "state" ? "/state" : action === "memory" ? "/memory" : action === "memory-update" ? "/memory/update" : action === "memory-delete" ? "/memory/delete" : action === "memory-search" ? "/memory/search" : action === "cancel" ? "/cancel" : action === "clear" ? "/clear" : action === "recover" ? "/recover" : action === "chat-stream" ? "/chat/stream" : "/chat"}`;
   const manager = await canManageEmployee(env, auth, agent.id);
+  const toolActorId = await runtimeToolActorId(request, env, auth);
   const runtimeModel = agent.config.model;
   const profile = {
     orgId,
@@ -204,7 +211,7 @@ export async function handleEmployeeRuntimeRequest(
     const storageId = await scopedConversationId(actorIdentity, parsed.data.conversationId);
     const streamed = await stub.fetch(internal, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...parsed.data, conversationId: storageId, profile }),
+      body: JSON.stringify({ ...parsed.data, conversationId: storageId, profile, ...(toolActorId ? { toolActorId } : {}) }),
     });
     return action === "chat-stream" ? forwardStreamConversations(streamed) : forwardConversation(streamed);
   }
