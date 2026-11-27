@@ -108,9 +108,10 @@ describe("EmployeeRuntime Durable Object", () => {
     expect(body.execution).toMatchObject({ status: "completed", checkpoint: "terminal" });
 
     const state = await runtime.onRequest(new Request("https://do/internal/employee-runtime/state?conversationId=default"));
-    const persisted = await state.json() as { messages: Array<{ role: string }>; executions: Array<{ status: string }> };
+    const persisted = await state.json() as { messages: Array<{ role: string }>; executions: Array<{ status: string; resumable?: boolean }> };
     expect(persisted.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
     expect(persisted.executions[0]?.status).toBe("completed");
+    expect(persisted.executions[0]?.resumable).toBeUndefined();
   });
 
   it("streams standin chat and persists the completed assistant message", async () => {
@@ -126,8 +127,9 @@ describe("EmployeeRuntime Durable Object", () => {
     expect(events.filter((event) => event.type === "delta").map((event) => event.text).join("")).toContain("Synthetic employee runtime response");
     expect(events.at(-1)).toMatchObject({ type: "done" });
     const state = await runtime.onRequest(new Request("https://do/internal/employee-runtime/state?conversationId=default"));
-    const persisted = await state.json() as { messages: Array<{ role: string; content: string }> };
+    const persisted = await state.json() as { messages: Array<{ role: string; content: string }>; executions: Array<{ resumable?: boolean }> };
     expect(persisted.messages.at(-1)).toMatchObject({ role: "assistant" });
+    expect(persisted.executions[0]?.resumable).toBe(true);
   });
 
   it("resumes a stream from durable events after the client disconnects", async () => {

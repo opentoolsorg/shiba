@@ -67,6 +67,22 @@ describe("BotRuntimeChat", () => {
     expect(screen.getByText(/Lightweight Chat mode uses/).parentElement?.className).toContain("flex-col");
   });
 
+  it("does not resume routine or recovery executions that have no durable stream", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      calls.push(path);
+      if (path.includes("/runtime/state")) return json({ conversationId: "thread-1", messages: [user], memories: [], executions: [execution] });
+      throw new Error(`unexpected fetch ${path}`);
+    }));
+    render(<BotRuntimeChat agentId="agent-1" conversationId="thread-1" />);
+
+    expect(await screen.findByText("hello?")).toBeTruthy();
+    await waitFor(() => expect(calls.some((path) => path.includes("/runtime/state"))).toBe(true));
+    expect(calls.some((path) => path.includes("/runtime/chat/stream/resume"))).toBe(false);
+    expect((screen.getByLabelText(/Runtime message/) as HTMLTextAreaElement).disabled).toBe(false);
+  });
+
   it("automatically resumes a live runtime stream after reload", async () => {
     let stateReads = 0;
     const resumeBodies: Array<Record<string, unknown>> = [];
@@ -75,7 +91,7 @@ describe("BotRuntimeChat", () => {
       if (path.includes("/runtime/state")) {
         stateReads += 1;
         return json(stateReads === 1
-          ? { conversationId: "thread-1", messages: [user], memories: [], executions: [execution] }
+          ? { conversationId: "thread-1", messages: [user], memories: [], executions: [{ ...execution, resumable: true }] }
           : { conversationId: "thread-1", messages: [user, assistant], memories: [], executions: [{ ...execution, status: "completed" }] });
       }
       if (path.includes("/runtime/chat/stream/resume")) {

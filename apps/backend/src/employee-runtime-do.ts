@@ -361,7 +361,7 @@ ${input.prompt}`, mode: "chat" };
     const execution = this.store.createExecution({
       conversationId: body.conversationId,
       mode: body.mode,
-      inputJson: JSON.stringify({ conversationId: body.conversationId, mode: body.mode, employeeVersion: body.profile.employeeVersion, userMessageId: user.id, messageLength: body.message.length, messagePreview: body.message.slice(0, 4000), ...(body.toolActorId ? { toolActorId: body.toolActorId } : {}) }),
+      inputJson: JSON.stringify({ conversationId: body.conversationId, mode: body.mode, employeeVersion: body.profile.employeeVersion, userMessageId: user.id, messageLength: body.message.length, messagePreview: body.message.slice(0, 4000), stream: true, ...(body.toolActorId ? { toolActorId: body.toolActorId } : {}) }),
     });
     const abort = new AbortController();
     this.active.set(execution.id, abort);
@@ -642,6 +642,15 @@ ${input.prompt}`, mode: "chat" };
     return result.text.trim() || "I do not have a useful answer yet.";
   }
 
+  private executionResumable(executionId: string): boolean {
+    try {
+      const input = JSON.parse(this.store.executionInputJson(executionId) ?? "{}") as { stream?: unknown };
+      return input.stream === true;
+    } catch {
+      return false;
+    }
+  }
+
   private stateResponse(url: URL): Response {
     const conversationId = url.searchParams.get("conversationId")?.trim() || "default";
     const rawMemoryLimit = Number(url.searchParams.get("memoryLimit") ?? "100");
@@ -655,6 +664,7 @@ ${input.prompt}`, mode: "chat" };
       executions: this.store.listExecutions(conversationId).map((execution) => ({
         ...execution,
         ...(execution.status === "interrupted" || (execution.status === "running" && !this.active.has(execution.id)) ? { recoverable: true } : {}),
+        ...(this.executionResumable(execution.id) ? { resumable: true } : {}),
       })),
       conversationSummary: this.store.conversationSummary(conversationId) ?? undefined,
     };

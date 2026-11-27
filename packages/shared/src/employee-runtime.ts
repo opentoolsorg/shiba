@@ -133,6 +133,8 @@ export interface EmployeeRuntimeExecution {
   updatedAt: number;
   error?: string;
   recoverable?: boolean;
+  /** True only for executions created by the durable streaming transport. */
+  resumable?: boolean;
 }
 
 export interface EmployeeRuntimeConversationSummary {

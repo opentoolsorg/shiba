@@ -165,7 +165,7 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant =
 
   useEffect(() => {
     if (loading || busy || activeExecution) return;
-    const running = executions.find((execution) => execution.status === "running" && execution.recoverable !== true);
+    const running = executions.find((execution) => execution.status === "running" && execution.recoverable !== true && execution.resumable === true);
     if (!running || autoResumeAttempts.current.has(running.id)) return;
     autoResumeAttempts.current.add(running.id);
     setBusy(true);
