@@ -1,5 +1,7 @@
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { runInNewContext } from "node:vm";
+import { generateText, type ModelMessage } from "ai";
+import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { createTeamWorkspace } from "../src/team-workspaces-store.js";
@@ -126,6 +128,10 @@ function rendering(initialUrl = site) {
     detach: vi.fn(async () => {}),
   };
   const page = {
+    viewport: () => ({ width: 800, height: 600 }),
+    target: () => ({ createCDPSession: async () => ({
+      send: async () => ({ targetInfo: { targetId: "original-tab" } }), detach: async () => {},
+    }) }),
     url: () => address, setUrl: (next: string) => { address = next; },
     goto: vi.fn(async () => {}), setViewport: vi.fn(async () => {}),
     title: () => echoed || "Vendor login",
@@ -140,13 +146,45 @@ function rendering(initialUrl = site) {
     mouse: { click: vi.fn(), move: vi.fn(), wheel: vi.fn() },
     keyboard: { press: vi.fn(), sendCharacter: vi.fn() },
   };
-  const browser = { pages: async () => [page], disconnect: vi.fn(async () => {}), close: vi.fn(async () => {}) };
+  const asTarget = (tab: typeof page) => ({ ...tab.target(), type: () => "page", page: vi.fn(async () => tab) });
+  const original = asTarget(page);
+  const browser = { pages: vi.fn(async () => [page]), targets: vi.fn(() => [original]), disconnect: vi.fn(async () => {}), close: vi.fn(async () => {}) };
   acquire.mockImplementation(async () => ({ sessionId: "remote-browser-only" }));
   connect.mockResolvedValue(browser);
-  return { browser, page, cdp, submit };
+  return { browser, page, cdp, submit, original, asTarget };
 }
 
 describe("dashboard browser access", () => {
+  it("uses the reconnected page viewport for frame metadata and input bounds", async () => {
+    const f = fixture();
+    const { page } = rendering();
+    await f.command({ kind: "open", runId: owner, url: site });
+    expect(await f.command({ kind: "frame", actor: owner })).toMatchObject(page.viewport());
+    await f.command({ kind: "control", actor: owner, runId: owner, control: { action: "takeover" } });
+    const click = (x: number) => f.command({ kind: "control", actor: owner, runId: owner,
+      control: { action: "input", input: { kind: "click", x, y: 599 } } });
+    await click(799);
+    await expect(click(800)).rejects.toThrow(/outside the browser viewport/);
+    expect(page.mouse.click).toHaveBeenCalledExactlyOnceWith(799, 599);
+  });
+
+  it("pins the original tab across reconnects and refuses a replacement when it closes", async () => {
+    const f = fixture();
+    const { page, browser, original, asTarget } = rendering();
+    await f.command({ kind: "open", runId: owner, url: site });
+    const replacement = { ...page, title: () => "Not the original tab", target: () => ({
+      createCDPSession: async () => ({ send: async () => ({ targetInfo: { targetId: "different-tab" } }), detach: async () => {} }),
+    }) };
+    const different = asTarget(replacement);
+    browser.pages.mockResolvedValue([replacement, page]);
+    browser.targets.mockReturnValue([different, original]);
+    expect(await f.command({ kind: "read" })).toMatchObject({ title: "Vendor login" });
+    expect(different.page).not.toHaveBeenCalled();
+    browser.pages.mockResolvedValue([replacement]);
+    browser.targets.mockReturnValue([different]);
+    expect(await f.command({ kind: "frame", actor: owner })).toEqual({ state: "closed" });
+    expect(page.screenshot).not.toHaveBeenCalled();
+  });
   it("requires human auth, scopes frame reads to the owner, and verifies a named thread before accessing its DO", async () => {
     const f = fixture();
     rendering();
@@ -208,6 +246,65 @@ describe("dashboard browser access", () => {
 });
 
 describe("saved browser logins", () => {
+  it.each([false, true])("executes only after an affirmative SDK approval response (approved=%s)", async (approved) => {
+    const f = fixture();
+    const { submit } = rendering();
+    const loginId = await createLogin(f.env);
+    await f.command({ kind: "open", runId: owner, url: site });
+    const tools = createChatAgentMediaTools(f.env, { runId: owner, userId: owner, canUseBrowserLogins: async () => true });
+    const usage = {
+      inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+      outputTokens: { total: 1, text: 1, reasoning: 0 },
+    };
+    const model = new MockLanguageModelV4({ doGenerate: [
+      { usage, warnings: [], finishReason: { unified: "tool-calls", raw: undefined }, content: [
+        { type: "tool-call", toolName: "browser_sign_in", toolCallId: "sdk-login", input: JSON.stringify({ loginId }) },
+      ] },
+      { usage, warnings: [], finishReason: { unified: "stop", raw: undefined }, content: [{ type: "text", text: "Done" }] },
+    ] });
+    const messages: ModelMessage[] = [{ role: "user", content: "Use the synthetic saved login." }];
+    const pending = await generateText({ model, tools, messages });
+    const approval = pending.content.find((part) => part.type === "tool-approval-request");
+    if (!approval || approval.isAutomatic) throw new Error("Expected a manual approval.");
+    expect(submit).not.toHaveBeenCalled();
+    messages.push(...pending.responseMessages, {
+      role: "tool", content: [{ type: "tool-approval-response", approvalId: approval.approvalId, approved }],
+    });
+    const result = await generateText({ model, tools, messages });
+    expect(submit).toHaveBeenCalledTimes(approved ? 1 : 0);
+    const visible = JSON.stringify([messages, result.responseMessages, model.doGenerateCalls]);
+    expect(visible.includes(password) || visible.includes(fakeSeed)).toBe(false);
+    if (approved) expect(visible).toContain("Vendor console");
+  });
+  it.each([
+    ["DELETE", "frame"], ["PATCH", "frame"], ["DELETE", "input"], ["PATCH", "input"], ["invalid URL", "frame"],
+  ] as const)("invalidates the live signed-in tab on %s before %s", async (reason, check) => {
+    const f = fixture();
+    const { page, browser } = rendering();
+    const loginId = await createLogin(f.env);
+    const args = { loginId, actor: owner, toolCallId: "revocable" };
+    await f.command({ kind: "open", runId: owner, url: site });
+    await f.command({ kind: "prepare-sign-in", ...args });
+    expect(await f.command({ kind: "sign-in", ...args })).toMatchObject({ signedIn: true });
+    if (check === "input") await f.command({ kind: "control", actor: owner, runId: owner, control: { action: "takeover" } });
+    if (reason === "invalid URL") page.setUrl("about:blank");
+    else {
+      const update = await handleBrowserLogins(request(`/api/browser-logins/${loginId}`, {
+        method: reason, ...(reason === "PATCH" ? { body: { label: "Rotated" } } : {}),
+      }), f.env);
+      expect(update.ok).toBe(true);
+    }
+    if (check === "input") {
+      await expect(f.command({ kind: "control", actor: owner, runId: owner, control: {
+        action: "input", input: { kind: "click", x: 10, y: 10 },
+      } })).rejects.toThrow(/was closed/);
+    } else {
+      expect(await f.command({ kind: "frame", actor: owner })).toEqual({ state: "closed" });
+    }
+    expect(browser.close).toHaveBeenCalledOnce();
+    expect(page.screenshot).not.toHaveBeenCalled();
+    expect(page.mouse.click).not.toHaveBeenCalled();
+  });
   it("scopes CRUD, keeps fields write-only, and enforces a canonical origin", async () => {
     const { env, db } = fixture();
     const id = await createLogin(env);
