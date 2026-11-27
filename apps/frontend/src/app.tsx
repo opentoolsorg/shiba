@@ -3978,6 +3978,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               workspaceName={teamWorkspace?.name}
               sharedTasks={teamWorkspaceId ? sharedWork.tasks : []}
               sharedTasksLoading={Boolean(teamWorkspaceId && sharedWork.loading)}
+              onOpenSharedTask={(taskId) => {
+                applyWorkSelection({ view: workViewMode, task: taskId, tab: "steps" }, "push");
+                setMainView("work");
+              }}
               scope={teamWorkspaceId ? "workspace" : "personal"}
               launchBlocked={launchBlocked}
               connectionLabel={connectionState}

@@ -13,6 +13,7 @@ import {
   Plus,
   ShieldCheck,
   Terminal,
+  Users,
 } from "lucide-react";
 import {
   ERROR_FAMILY_STATUSES,
@@ -44,6 +45,7 @@ export interface DashboardViewProps {
   workspaceName?: string;
   sharedTasks?: TeamWorkItem[];
   sharedTasksLoading?: boolean;
+  onOpenSharedTask?: (taskId: string) => void;
   scope?: Scope;
   sidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
@@ -80,6 +82,7 @@ export function DashboardView({
   workspaceName,
   sharedTasks = [],
   sharedTasksLoading = false,
+  onOpenSharedTask,
   scope = "personal",
   sidebarCollapsed = false,
   onToggleSidebar,
@@ -118,8 +121,13 @@ export function DashboardView({
     for (const run of stats.active) {
       if (run.customAgentId) ids.add(run.customAgentId);
     }
+    for (const task of sharedTasks) {
+      if (!["running", "in-progress"].includes(task.status)) continue;
+      const actorId = task.assigneeActorId ?? task.ownerId;
+      if (task.assigneeKind === "agent" && actorId) ids.add(actorId.startsWith("agent:") ? actorId.slice("agent:".length) : actorId);
+    }
     return ids;
-  }, [stats.active]);
+  }, [stats.active, sharedTasks]);
   const workingEmployees = employees.filter((employee) => activeEmployeeIds.has(employee.id)).length;
   const title = scope === "workspace" ? workspaceName?.trim() || "Workspace" : "Dashboard";
   const workspaceActiveTasks = sharedTasks.filter((task) => ["queued", "running", "in-progress", "needs-approval"].includes(task.status)).length;
@@ -364,7 +372,7 @@ export function DashboardView({
                 <ul className="shiba-overview-run-list">
                   {sharedTasks.slice(0, 4).map((task) => (
                     <li key={task.id}>
-                      <button type="button" onClick={() => onNavigate("work")} className="shiba-overview-run">
+                      <button type="button" onClick={() => onOpenSharedTask ? onOpenSharedTask(task.id) : onNavigate("work")} className="shiba-overview-run">
                         <span className="shiba-overview-run-icon">
                           <Activity className="size-4" aria-hidden="true" />
                         </span>
@@ -393,6 +401,7 @@ export function DashboardView({
           ) : null}
 
           <div className="shiba-overview-columns">
+            {scope === "personal" ? (
             <section className="shiba-overview-panel" aria-labelledby="dashboard-recent-title">
               <header className="shiba-overview-section-header">
                 <div>
@@ -470,6 +479,7 @@ export function DashboardView({
                 </span>
               </footer>
             </section>
+            ) : null}
 
             <div className="flex min-w-0 flex-col gap-4">
               <section className="shiba-overview-panel" aria-labelledby="dashboard-approvals-title">
@@ -595,6 +605,7 @@ export function DashboardView({
                 </div>
               </section>
 
+              {scope === "personal" ? (
               <section className="shiba-overview-panel" aria-labelledby="dashboard-agents-title">
                 <header className="shiba-overview-section-header">
                   <div>
@@ -634,6 +645,7 @@ export function DashboardView({
                   </button>
                 </div>
               </section>
+              ) : null}
             </div>
           </div>
 
@@ -656,10 +668,10 @@ export function DashboardView({
                     icon: Blocks,
                   },
                   {
-                    id: "memory",
-                    title: "Add useful context",
-                    detail: "Manage memory and source documents",
-                    icon: BookOpen,
+                    id: scope === "workspace" ? "team" : "memory",
+                    title: scope === "workspace" ? "Manage people" : "Add useful context",
+                    detail: scope === "workspace" ? "Members, invitations, and workspace roles" : "Manage memory and source documents",
+                    icon: scope === "workspace" ? Users : BookOpen,
                   },
                   {
                     id: "custom-agents",
