@@ -39,6 +39,7 @@ describe("five-area desktop shell", () => {
       within(rail).getByRole("button", { name: area.label }).getAttribute("aria-current"),
     ).toBe("page");
     const destinations = screen.getByRole("navigation", { name: `${area.label} destinations` });
+    fireEvent.click(within(destinations).getByRole("button", { name: `More in ${area.label}` }));
     expect(
       within(destinations)
         .getByRole("button", { name: navigationLabel(id) })

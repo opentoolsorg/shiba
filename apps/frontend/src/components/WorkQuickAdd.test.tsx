@@ -8,14 +8,15 @@ afterEach(() => {
 });
 
 const getInput = () =>
-  screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement;
+  screen.getByRole("textbox", { name: "Write a task…" }) as HTMLInputElement;
 
 describe("WorkQuickAdd", () => {
-  it("renders the dashed add bar with the spec placeholder", () => {
+  it("renders the bottom composer with the spec placeholder", () => {
     render(<WorkQuickAdd onSubmit={vi.fn()} />);
     const input = getInput();
-    expect(input.getAttribute("placeholder")).toBe("Add a task and press Enter");
-    expect(input.closest("label")?.className).toContain("border-dashed");
+    expect(input.getAttribute("placeholder")).toBe("Write a task…");
+    expect(input.tagName).toBe("TEXTAREA");
+    expect(input.closest("form")?.className).toContain("rounded-2xl");
   });
 
   it("submits trimmed text on Enter, clears the input and keeps focus", () => {

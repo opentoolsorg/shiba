@@ -717,7 +717,7 @@ describe("app Work and Threads routing", () => {
   it("keeps a quick-add draft in the composer after creating and navigating to a thread", async () => {
     window.history.replaceState(null, "", "/work/");
     render(<App />);
-    const input = await screen.findByRole("textbox", { name: "Add a task and press Enter" });
+    const input = await screen.findByRole("textbox", { name: "Write a task…" });
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({ cache: "no-store" })));
     await act(async () => {});
     fireEvent.change(input, { target: { value: "Investigate latency" } });
@@ -750,7 +750,7 @@ describe("app Work and Threads routing", () => {
     });
     try {
       render(<App />);
-      const input = await screen.findByRole("textbox", { name: "Add a task and press Enter" });
+      const input = await screen.findByRole("textbox", { name: "Write a task…" });
       await waitFor(() => expect(finishSessions).toBeTypeOf("function"));
       await act(async () => finishSessions(Response.json({ sessions: [] })));
       fireEvent.change(input, { target: { value: "Keep this task without storage" } });
@@ -774,13 +774,13 @@ describe("app Work and Threads routing", () => {
       return originalFetch(url, options);
     }));
     render(<App />);
-    const input = await screen.findByRole("textbox", { name: "Add a task and press Enter" });
+    const input = await screen.findByRole("textbox", { name: "Write a task…" });
     await act(async () => {});
     fireEvent.change(input, { target: { value: "Different quick task" } });
     fireEvent.submit(input.closest("form")!);
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({ method: "POST" })));
     await act(async () => {});
-    expect((screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement).value).toBe("Different quick task");
+    expect((screen.getByRole("textbox", { name: "Write a task…" }) as HTMLInputElement).value).toBe("Different quick task");
     fireEvent.click(screen.getByRole("button", { name: "Chat" }));
     expect((await screen.findByRole("textbox", { name: "Task draft" }) as HTMLTextAreaElement).value).toBe("Original unfinished task");
     expect(readDraft(composerDraftScope("test-operator", "default"))).toBe("Original unfinished task");
@@ -801,7 +801,7 @@ describe("app Work and Threads routing", () => {
     }));
     render(<App />);
     const newTask = await screen.findByRole("button", { name: "New task" }) as HTMLButtonElement;
-    const input = screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement;
+    const input = screen.getByRole("textbox", { name: "Write a task…" }) as HTMLInputElement;
     // Creation opens once the thread registry has answered; the burst must land on that state.
     await waitFor(() => expect(newTask.disabled || input.disabled).toBe(false));
     fireEvent.change(input, { target: { value: "Keep quick-add draft" } });
@@ -834,7 +834,7 @@ describe("app Work and Threads routing", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, options?: RequestInit) => {
       if (String(url) === "/api/sessions" && options?.method === "POST") return createSession();
       if (String(url) === "/api/sessions") {
-        const controls = document.querySelectorAll<HTMLButtonElement | HTMLInputElement>('button[aria-label="New task"], input[aria-label="Add a task and press Enter"]');
+        const controls = document.querySelectorAll<HTMLButtonElement | HTMLInputElement>('button[aria-label="New task"], textarea[aria-label="Write a task…"]');
         liveAtRegistryRead.push(...[...controls].filter((control) => !control.disabled).map((control) => control.getAttribute("aria-label")!));
         await registry;
         return Response.json({ sessions: [], defaultSessionId: "default" });
@@ -843,7 +843,7 @@ describe("app Work and Threads routing", () => {
     }));
     render(<App />);
     const newTask = await screen.findByRole("button", { name: "New task" }) as HTMLButtonElement;
-    const input = screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement;
+    const input = screen.getByRole("textbox", { name: "Write a task…" }) as HTMLInputElement;
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sessions", expect.not.objectContaining({ method: "POST" })));
     expect(liveAtRegistryRead).toEqual([]);
     expect(newTask.disabled).toBe(true);
@@ -958,7 +958,7 @@ describe("app Work and Threads routing", () => {
     const newTask = await screen.findByRole("button", { name: "New task" }) as HTMLButtonElement;
     await screen.findByText("Session creation is unavailable on this server.");
     expect(newTask.disabled).toBe(true);
-    expect((screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("textbox", { name: "Write a task…" }) as HTMLInputElement).disabled).toBe(true);
     fireEvent.click(newTask);
     expect(createSession).not.toHaveBeenCalled();
   });
@@ -1029,7 +1029,7 @@ describe("app Work and Threads routing", () => {
     const assignee = screen.getByRole("combobox", { name: "Assignee" });
     const builderOption = await within(assignee).findByRole<HTMLOptionElement>("option", { name: "Builder" });
     fireEvent.change(assignee, { target: { value: builderOption.value } });
-    const title = screen.getByRole("textbox", { name: "Add a task and press Enter" });
+    const title = screen.getByRole("textbox", { name: "Write a task…" });
     fireEvent.change(title, { target: { value: task.title } });
     fireEvent.keyDown(title, { key: "Enter" });
     await waitFor(() => expect(createTask).toHaveBeenCalledExactlyOnceWith({ title: task.title, ownerId: builderActor }));

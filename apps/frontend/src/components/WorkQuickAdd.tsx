@@ -23,7 +23,7 @@ export function WorkQuickAdd({
   onSubmit,
   fields,
   disabled = false,
-  placeholder = "Add a task and press Enter",
+  placeholder = "Write a task…",
   className = "",
   "aria-label": ariaLabel,
   failureMessage = "Could not create the task. Your draft has been kept. Try again.",
@@ -68,8 +68,8 @@ export function WorkQuickAdd({
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       void submit();
     } else if (e.key === "Escape") {
@@ -83,24 +83,18 @@ export function WorkQuickAdd({
   return (
     <form
       aria-busy={pending}
+      className={`rounded-2xl border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 shadow-[var(--sh-card)] ${className}`.trim()}
       onSubmit={(e) => {
         e.preventDefault();
         void submit();
       }}
     >
-      <label
-        className={`w-full flex items-center gap-2 px-2.5 min-h-11 lg:min-h-8 border border-dashed border-zinc-300 dark:border-zinc-700 rounded-lg bg-transparent transition-colors hover:border-zinc-400 dark:hover:border-zinc-600 focus-within:border-solid focus-within:border-zinc-400 dark:focus-within:border-zinc-500 ${
-          disabled ? "opacity-50 cursor-not-allowed" : "cursor-text"
-        } ${className}`.trim()}
-      >
-        <Icon
-          className={`w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 shrink-0 ${pending ? "motion-safe:animate-spin" : ""}`}
-          aria-hidden="true"
-        />
-        {/* readOnly (not disabled) while pending so focus stays in the bar for the next task. */}
-        <input
-          type="text"
+      <label className="block cursor-text">
+        <span className="sr-only">{ariaLabel || placeholder}</span>
+        {/* readOnly (not disabled) while pending so focus stays in the composer for the next task. */}
+        <textarea
           value={text}
+          rows={2}
           disabled={disabled}
           readOnly={pending}
           placeholder={placeholder}
@@ -111,53 +105,68 @@ export function WorkQuickAdd({
             if (error) setError(null);
           }}
           onKeyDown={handleKeyDown}
-          className="w-full bg-transparent text-xs sm:text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:outline-none disabled:cursor-not-allowed read-only:text-zinc-500"
+          className="min-h-12 w-full resize-none bg-transparent px-1 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none disabled:cursor-not-allowed read-only:text-zinc-500 dark:text-zinc-100 dark:placeholder:text-zinc-500"
         />
-        {pending ? <span className="sr-only">Adding task</span> : null}
       </label>
-      {fields ? (
-        <>
-          <button
-            type="button"
-            aria-expanded={open}
-            aria-controls={open ? panelId : undefined}
-            onClick={() => setOpen((value) => !value)}
-            className="mt-1 min-h-11 px-1 text-xs text-[var(--muted-foreground-2)] underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-[var(--ring)] lg:min-h-8"
-          >
-            {open ? "Hide details" : "Add details"}
-          </button>
-          {open ? <div id={panelId} className="grid gap-2 pb-1 sm:grid-cols-2">
-            <label className={detailLabel}>
-              Assignee
-              <select value={extra.owner} disabled={disabled} onChange={(e) => setExtra({ ...extra, owner: e.target.value })} className={detailField}>
-                <option value="">Unassigned</option>
-                {fields.owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.name}</option>)}
-              </select>
-            </label>
-            <label className={detailLabel}>
-              Reviewer
-              <select value={extra.reviewer} disabled={disabled} onChange={(e) => setExtra({ ...extra, reviewer: e.target.value })} className={detailField}>
-                <option value="">No reviewer</option>
-                {fields.owners.map((reviewer) => <option key={reviewer.id} value={reviewer.id}>{reviewer.name}</option>)}
-              </select>
-            </label>
-            <label className={detailLabel}>
-              Depends on
-              <select value={extra.dependsOn} disabled={disabled} onChange={(e) => setExtra({ ...extra, dependsOn: e.target.value })} className={detailField}>
-                <option value="">No dependency</option>
-                {fields.tasks.map((task) => <option key={task.id} value={task.id}>{task.title || "Untitled task"}</option>)}
-              </select>
-            </label>
-            <label className={detailLabel}>
-              Start date
-              <input type="date" value={extra.start} max={extra.end || undefined} disabled={disabled} onChange={(e) => setExtra({ ...extra, start: e.target.value })} className={detailField} />
-            </label>
-            <label className={detailLabel}>
-              End date
-              <input type="date" value={extra.end} min={extra.start || undefined} disabled={disabled} onChange={(e) => setExtra({ ...extra, end: e.target.value })} className={detailField} />
-            </label>
-          </div> : null}
-        </>
+      <div className="flex min-h-11 items-center justify-between gap-2">
+        <div className="min-w-0">
+          {fields ? (
+            <button
+              type="button"
+              aria-expanded={open}
+              aria-controls={open ? panelId : undefined}
+              onClick={() => setOpen((value) => !value)}
+              className="min-h-11 rounded-md px-2 text-xs text-[var(--muted-foreground-2)] underline-offset-4 hover:text-[var(--fg)] hover:underline focus-visible:outline-2 focus-visible:outline-[var(--ring)] lg:min-h-8"
+            >
+              {open ? "Hide details" : "Add details"}
+            </button>
+          ) : null}
+        </div>
+        <button
+          type="submit"
+          disabled={disabled || pending || !text.trim()}
+          aria-label="Add task"
+          className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-[var(--primary-text)] transition hover:opacity-90 focus-visible:outline-2 focus-visible:outline-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-35"
+        >
+          <Icon
+            className={`size-4 ${pending ? "motion-safe:animate-spin" : ""}`}
+            aria-hidden="true"
+          />
+          <span className="sr-only">{pending ? "Adding task" : "Add task"}</span>
+        </button>
+      </div>
+      {fields && open ? (
+        <div id={panelId} className="grid gap-2 border-t border-[var(--border-1)] px-1 py-3 sm:grid-cols-2">
+          <label className={detailLabel}>
+            Assignee
+            <select value={extra.owner} disabled={disabled} onChange={(e) => setExtra({ ...extra, owner: e.target.value })} className={detailField}>
+              <option value="">Unassigned</option>
+              {fields.owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.name}</option>)}
+            </select>
+          </label>
+          <label className={detailLabel}>
+            Reviewer
+            <select value={extra.reviewer} disabled={disabled} onChange={(e) => setExtra({ ...extra, reviewer: e.target.value })} className={detailField}>
+              <option value="">No reviewer</option>
+              {fields.owners.map((reviewer) => <option key={reviewer.id} value={reviewer.id}>{reviewer.name}</option>)}
+            </select>
+          </label>
+          <label className={detailLabel}>
+            Depends on
+            <select value={extra.dependsOn} disabled={disabled} onChange={(e) => setExtra({ ...extra, dependsOn: e.target.value })} className={detailField}>
+              <option value="">No dependency</option>
+              {fields.tasks.map((task) => <option key={task.id} value={task.id}>{task.title || "Untitled task"}</option>)}
+            </select>
+          </label>
+          <label className={detailLabel}>
+            Start date
+            <input type="date" value={extra.start} max={extra.end || undefined} disabled={disabled} onChange={(e) => setExtra({ ...extra, start: e.target.value })} className={detailField} />
+          </label>
+          <label className={detailLabel}>
+            End date
+            <input type="date" value={extra.end} min={extra.start || undefined} disabled={disabled} onChange={(e) => setExtra({ ...extra, end: e.target.value })} className={detailField} />
+          </label>
+        </div>
       ) : null}
       {error ? (
         <p role="alert" className="mt-2 text-sm text-[var(--destructive-fg)]">

@@ -148,6 +148,7 @@ function workShell(props: WorkViewProps, lists: PanelLists, card: JSX.Element, d
       {showPanel && props.onScopeChange ? (
         <WorkLeftPanel
           scope={props.workspaceId ? "workspace" : "personal"}
+          workspaceName={props.workspaceName}
           onScopeChange={props.onScopeChange}
           view={props.view ?? "list"}
           onViewChange={props.onViewChange ?? (() => {})}
@@ -530,14 +531,6 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
         <button type="button" role="tab" aria-selected={showRoutines} className={viewButtonClass} onClick={() => setShowRoutines(true)}>Routines</button>
       </div> : null}
       {showRoutines ? <RoutinesList {...routineState} onChanged={routineState.refresh} /> : <>
-      {/* Quick Add dashed row */}
-      <div className="px-4 pt-3 pb-2 shrink-0">
-        <WorkQuickAdd
-          onSubmit={(text) => onQuickAddTask?.(text)}
-          disabled={!onQuickAddTask}
-            />
-      </div>
-
       {/* Main body by view */}
       {activeView === "list" ? (
         <section aria-label="List view" className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 flex flex-col">
@@ -551,7 +544,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
                 No tasks yet
               </h3>
               <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                Add a task above to start a thread.
+                Add a task below to start a thread.
               </p>
             </div>
           ) : (
@@ -611,6 +604,13 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
           />
         </section>
       )}
+      {/* Bottom-docked task composer, matching the Overlay work surface. */}
+      <div className="shrink-0 px-4 pb-4 pt-2">
+        <WorkQuickAdd
+          onSubmit={(text) => onQuickAddTask?.(text)}
+          disabled={!onQuickAddTask}
+        />
+      </div>
       </>}
     </div>
   );
@@ -702,7 +702,7 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
     if (task) onUpdateTask?.(id, { status: workListGroup(task.status) === "done" ? "todo" : "done" });
   };
   const newTask = () => {
-    const input = quickAddRef.current?.querySelector("input");
+    const input = quickAddRef.current?.querySelector("textarea");
     if (onCreateTask && input) input.focus();
     else onNewTask?.();
   };
@@ -754,16 +754,6 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
       {sharedTasksError ? <p role="alert" className="px-4 pt-3 text-sm text-[var(--destructive-fg)]">{sharedTasksError}</p> : null}
       {sharedTasksLoading ? <p role="status" className="px-4 pt-3 text-sm text-[var(--muted-foreground-2)]">Loading work…</p> : null}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {view !== "organization" ? (
-            <div ref={quickAddRef} className="shrink-0 px-4 pt-3 pb-2">
-              <WorkQuickAdd
-                onSubmit={async (title, patch) => (onCreateTask ? (await (patch ? onCreateTask(title, patch) : onCreateTask(title))) !== null : false)}
-                fields={{ owners: agents, tasks: all.filter((task) => !task.archived) }}
-                disabled={!onCreateTask}
-                failureMessage="Could not create the task. Your draft has been kept. Try again."
-              />
-            </div>
-          ) : null}
           {view === "list" ? (
             <section aria-label="List view" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
               <WorkListView agents={agents} tasks={tasks} selectedId={selected?.id} onOpen={onTaskChange} onToggleDone={toggleDone} onNewTask={onCreateTask || onNewTask ? newTask : undefined} />
@@ -793,6 +783,16 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
               <WorkOrganizationView employees={employees} onOpen={onOpenEmployee} onOpenApprovals={onOpenApprovals} onOpenChief={onOpenChief} onOpenChiefPage={onOpenChiefPage} onHireEmployee={onHireEmployee} onOpenOutputs={onOpenOutputs} user={user} />
             </section>
           )}
+          {view !== "organization" ? (
+            <div ref={quickAddRef} className="shrink-0 px-4 pb-4 pt-2">
+              <WorkQuickAdd
+                onSubmit={async (title, patch) => (onCreateTask ? (await (patch ? onCreateTask(title, patch) : onCreateTask(title))) !== null : false)}
+                fields={{ owners: agents, tasks: all.filter((task) => !task.archived) }}
+                disabled={!onCreateTask}
+                      failureMessage="Could not create the task. Your draft has been kept. Try again."
+              />
+            </div>
+          ) : null}
       </div>
     </div>
   );

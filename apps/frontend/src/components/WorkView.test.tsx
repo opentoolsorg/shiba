@@ -140,7 +140,7 @@ describe("WorkView", () => {
     const onQuickAddTask = vi.fn().mockResolvedValue(true);
     render(<WorkView runs={mockRuns} onQuickAddTask={onQuickAddTask} />);
 
-    const input = screen.getByRole("textbox", { name: "Add a task and press Enter" });
+    const input = screen.getByRole("textbox", { name: "Write a task…" });
     fireEvent.change(input, { target: { value: "Investigate latency spikes" } });
     fireEvent.submit(input.closest("form")!);
 
@@ -152,7 +152,7 @@ describe("WorkView", () => {
     let finish!: (success: boolean) => void;
     const onQuickAddTask = vi.fn(() => new Promise<boolean>((resolve) => { finish = resolve; }));
     render(<WorkView onQuickAddTask={onQuickAddTask} />);
-    const input = screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement;
+    const input = screen.getByRole("textbox", { name: "Write a task…" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "Keep this draft" } });
     const form = input.closest("form")!;
     fireEvent.submit(form);
@@ -171,7 +171,7 @@ describe("WorkView", () => {
 
   it("keeps a rejected quick-add draft and reports the failure", async () => {
     render(<WorkView onQuickAddTask={vi.fn().mockRejectedValue(new Error("Offline"))} />);
-    const input = screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement;
+    const input = screen.getByRole("textbox", { name: "Write a task…" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "Keep this offline draft" } });
     await act(async () => {
       fireEvent.submit(input.closest("form")!);
@@ -233,7 +233,7 @@ describe("WorkView", () => {
   it("renders centered empty state when there are zero tasks", () => {
     render(<WorkView runs={[]} storedApprovals={[]} sessions={[]} />);
     expect(screen.getByText("No tasks yet")).toBeTruthy();
-    expect(screen.getByText("Add a task above to start a thread.")).toBeTruthy();
+    expect(screen.getByText("Add a task below to start a thread.")).toBeTruthy();
   });
 
   it("shows Review for pending approvals in Board and Timeline as well as List", () => {
@@ -425,7 +425,7 @@ describe("WorkView", () => {
     render(<WorkView workspaceId="workspace-1" sharedTasks={[sharedTask]} onUpdateTask={onUpdateTask} onCreateTask={onCreateTask} />);
     fireEvent.click(screen.getByRole("button", { name: `Mark ${sharedTask.title} done` }));
     expect(onUpdateTask).toHaveBeenCalledWith(sharedTask.id, { status: "done" });
-    const input = screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement;
+    const input = screen.getByRole("textbox", { name: "Write a task…" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "Draft the launch post" } });
     await act(async () => { fireEvent.submit(input.closest("form")!); });
     expect(onCreateTask).toHaveBeenCalledWith("Draft the launch post");
@@ -451,10 +451,10 @@ describe("WorkView", () => {
     const onCreateTask = vi.fn().mockResolvedValue({ ...sharedTask, id: "new" });
     const { rerender } = render(<WorkView workspaceId="workspace-1" view="list" sharedTasks={[sharedTask]} onUpdateTask={onUpdateTask} onCreateTask={onCreateTask} agents={[{ id: "agent:coder", name: "Coder" }]} />);
     fireEvent.click(screen.getByRole("button", { name: "Describe a new task" }));
-    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Add a task and press Enter" }));
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Write a task…" }));
     fireEvent.click(screen.getByRole("button", { name: "Add details" }));
     fireEvent.change(screen.getByLabelText("Assignee"), { target: { value: "agent:coder" } });
-    const input = screen.getByRole("textbox", { name: "Add a task and press Enter" });
+    const input = screen.getByRole("textbox", { name: "Write a task…" });
     fireEvent.change(input, { target: { value: "Plan the launch" } });
     await act(async () => { fireEvent.submit(input.closest("form")!); });
     expect(onCreateTask).toHaveBeenCalledWith("Plan the launch", { ownerId: "agent:coder" });

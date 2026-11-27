@@ -247,7 +247,7 @@ export function AppNavRail({
       className={
         sheet
           ? "shiba-navigation-sheet"
-          : "shiba-app-rail hidden lg:flex w-[72px] shrink-0 flex-col items-center py-3 h-full"
+          : "shiba-app-rail hidden lg:flex w-[60px] shrink-0 flex-col items-center py-3 h-full"
       }
       onFocusCapture={() => {
         restoreToggleFocus.current = true;

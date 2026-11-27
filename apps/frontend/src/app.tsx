@@ -3659,7 +3659,7 @@ function employeeConversationRoomTitle(name: string): string {
 
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {/* TOP BAR — subtle chrome header */}
-        <header className="shiba-app-topbar pt-[env(safe-area-inset-top)] shrink-0 text-[var(--fg)] flex items-center gap-2.5 pl-2 pr-3 lg:px-4 z-20">
+        <header className="shiba-app-topbar pt-[env(safe-area-inset-top)] shrink-0 text-[var(--fg)] flex items-center gap-2.5 pl-2 pr-3 lg:hidden z-20">
           <button
             type="button"
             ref={mobileNavTriggerRef}
@@ -3747,7 +3747,7 @@ function employeeConversationRoomTitle(name: string): string {
           <OnboardingNudgePopup status={nudgeStatus} open={nudgeSession?.popupOpen ?? false} onResume={(step) => { void resumeNudgeStep(step); }} onDismiss={closeNudgePopup} />
         </> : null}
 
-        <div className={`shiba-app-content flex-1 flex min-w-0 min-h-0 ${mainView === "work" ? "" : "gap-3 p-3"}`}>
+        <div className={`shiba-app-content flex-1 flex min-w-0 min-h-0 ${mainView === "work" ? "" : "gap-2 p-2"}`}>
           {mainView !== "work" && !sessionsCollapsed ? <div id="app-context-panel" className="hidden min-h-0 lg:flex">{destinationPanel ?? <AppAreaSidebar />}</div> : null}
           <MainCard className={mainView === "work" || mainView === "settings" || (!personalOnlyNotice && SELF_CARDED_VIEWS.includes(mainView) && !(mainView === "integrations" && (teamWorkspaceId || restrictedTeamMember))) ? "!rounded-none !border-0 !bg-transparent !shadow-none" : ""}>
           {inboxMounted && privateDataEnabled ? (
