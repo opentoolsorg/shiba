@@ -180,14 +180,14 @@ export class EmployeeRuntimeStore {
 
   listMemories(input: { conversationId?: string; essential?: boolean; limit?: number } = {}): EmployeeRuntimeMemory[] {
     const limit = Math.max(1, Math.min(500, Math.floor(input.limit ?? 100)));
-    const rows = input.essential
-      ? this.exec(`SELECT * FROM employee_runtime_memories WHERE essential=1 ORDER BY updated_at DESC LIMIT ?`, limit)
-      : input.conversationId
-        ? this.exec(
-          `SELECT * FROM employee_runtime_memories WHERE scope='employee' OR conversation_id=? ORDER BY updated_at DESC LIMIT ?`,
-          cleanId(input.conversationId, "conversationId"), limit,
-        )
-        : this.exec(`SELECT * FROM employee_runtime_memories ORDER BY updated_at DESC LIMIT ?`, limit);
+    const rows = input.conversationId
+      ? this.exec(
+        `SELECT * FROM employee_runtime_memories WHERE ${input.essential ? "essential=1 AND " : ""}(scope='employee' OR conversation_id=?) ORDER BY updated_at DESC LIMIT ?`,
+        cleanId(input.conversationId, "conversationId"), limit,
+      )
+      : this.exec(
+        `SELECT * FROM employee_runtime_memories WHERE ${input.essential ? "essential=1 AND " : ""}scope='employee' ORDER BY updated_at DESC LIMIT ?`, limit,
+      );
     return rows.map(rowToMemory);
   }
 
@@ -202,7 +202,7 @@ export class EmployeeRuntimeStore {
       )
       : this.exec(
         `SELECT m.* FROM employee_runtime_memory_fts f JOIN employee_runtime_memories m ON m.id=f.memory_id
-         WHERE employee_runtime_memory_fts MATCH ? ORDER BY m.updated_at DESC LIMIT ?`, match, limit,
+         WHERE employee_runtime_memory_fts MATCH ? AND m.scope='employee' ORDER BY m.updated_at DESC LIMIT ?`, match, limit,
       );
     return rows.map(rowToMemory);
   }

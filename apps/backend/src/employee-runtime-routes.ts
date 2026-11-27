@@ -44,11 +44,12 @@ export async function handleEmployeeRuntimeRequest(
   action: string,
 ): Promise<Response> {
   if (!env.EmployeeRuntime) return json({ ok: false, error: "employee_runtime_unavailable" }, { status: 503 });
-  const agent = await getCustomAgentById(env, orgId, agentId);
+  const agent = await getCustomAgentById(env, orgId, agentId, { includeArchived: true });
   if (!agent) return json({ ok: false, error: "not_found" }, { status: 404 });
+  if (agent.archivedAt && !["state", "memory-search"].includes(action)) return json({ ok: false, error: "employee_archived" }, { status: 409 });
   const stub = employeeRuntimeStub(env, orgId, agent.id);
   const internal = `https://internal/internal/employee-runtime${action === "state" ? "/state" : action === "memory" ? "/memory" : action === "memory-search" ? "/memory/search" : action === "cancel" ? "/cancel" : action === "recover" ? "/recover" : "/chat"}`;
-  const runtimeModel = agent.config.model ?? agent.config.codingModel;
+  const runtimeModel = agent.config.model;
   const profile = {
     orgId,
     employeeId: agent.id,

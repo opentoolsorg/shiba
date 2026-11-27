@@ -11,8 +11,8 @@ export const employeeRuntimeProfileSchema = z.object({
   employeeVersion: z.number().int().positive(),
   name: z.string().trim().min(1).max(120),
   role: z.string().trim().max(120).optional(),
-  instructions: z.string().max(12000).default(""),
-  model: z.string().trim().max(160).optional(),
+  instructions: z.string().max(32000).default(""),
+  model: z.string().trim().max(200).optional(),
 });
 export type EmployeeRuntimeProfile = z.infer<typeof employeeRuntimeProfileSchema>;
 
