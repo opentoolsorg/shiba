@@ -184,6 +184,16 @@ describe("employee runtime routes", () => {
     expect(forwarded.conversationId).not.toBe("private-thread");
   });
 
+  it("allows clearing runtime history for an archived employee", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const env = runtimeEnv(calls);
+    const agent = await createCustomAgent(env, "self-hosted", "archived-clear-scout", { name: "Scout", instructions: "Answer carefully." });
+    await env.AGENT_AUDIT.prepare(`UPDATE org_custom_agents SET archived_at=? WHERE org_id=? AND id=?`).bind(1, "self-hosted", agent.id).run();
+    const response = await handleCustomAgents(post(`/${agent.id}/runtime/clear`, { conversationId: "private-thread" }), env);
+    expect(response?.status).toBe(200);
+    expect(calls[0]?.url).toBe("https://internal/internal/employee-runtime/clear");
+  });
+
   it("scopes thread memory mutations before forwarding them", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const env = runtimeEnv(calls);

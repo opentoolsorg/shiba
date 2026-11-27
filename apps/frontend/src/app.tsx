@@ -2478,8 +2478,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     try {
       await chat.clearHistory();
       historyCleared = true;
-      if (customAgentId) {
-        const runtimeResponse = await fetch(`/api/custom-agents/${encodeURIComponent(customAgentId)}/runtime/clear`, {
+      if (sessionCustomAgentId) {
+        const runtimeResponse = await fetch(`/api/custom-agents/${encodeURIComponent(sessionCustomAgentId)}/runtime/clear`, {
           method: "POST",
           credentials: "same-origin",
           headers: { "content-type": "application/json", ...teamWorkspaceHeaders(teamWorkspaceId || undefined) },
@@ -2537,7 +2537,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       clearInFlight.current = false;
       setClearing(false);
     }
-  }, [chat, customAgentId, refreshRuns, selectedSessionId, sessionApiAvailable, teamWorkspaceId]);
+  }, [chat, refreshRuns, selectedSessionId, sessionApiAvailable, sessionCustomAgentId, teamWorkspaceId]);
 
   const cancelRun = useCallback(
     async (runId: string) => {

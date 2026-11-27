@@ -143,7 +143,7 @@ export async function handleEmployeeRuntimeRequest(
   if (!env.EmployeeRuntime) return json({ ok: false, error: "employee_runtime_unavailable" }, { status: 503 });
   const agent = await getCustomAgentById(env, orgId, agentId, { includeArchived: true });
   if (!agent) return json({ ok: false, error: "not_found" }, { status: 404 });
-  if (agent.archivedAt && !["state", "memory-search"].includes(action)) return json({ ok: false, error: "employee_archived" }, { status: 409 });
+  if (agent.archivedAt && !["state", "memory-search", "clear"].includes(action)) return json({ ok: false, error: "employee_archived" }, { status: 409 });
   const stub = employeeRuntimeStub(env, orgId, agent.id);
   const internal = `https://internal/internal/employee-runtime${action === "state" ? "/state" : action === "memory" ? "/memory" : action === "memory-update" ? "/memory/update" : action === "memory-delete" ? "/memory/delete" : action === "memory-search" ? "/memory/search" : action === "cancel" ? "/cancel" : action === "clear" ? "/clear" : action === "recover" ? "/recover" : action === "chat-stream" ? "/chat/stream" : "/chat"}`;
   const manager = await canManageEmployee(env, auth, agent.id);
