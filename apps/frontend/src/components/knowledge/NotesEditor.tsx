@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { knowledgeNoteSchema, type KnowledgeNote, type KnowledgeScope } from "@shiba/shared";
 import type { AppNavView } from "../AppNavRail";
 import { LoadErrorState } from "../LoadErrorState";
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { consumeNewNoteIntent } from "./new-note-intent";
 import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 import { toast } from "sonner";
@@ -350,6 +350,32 @@ export function NotesEditor({ workspaceId = null, workspaceRole, actorId, onNavi
     finally { setCreating(false); }
   }
 
+  async function deleteNote(note: KnowledgeNote) {
+    if (note.id.startsWith("pending:") || !canWriteNote(note)) return;
+    const previousNotes = notesRef.current;
+    const remaining = previousNotes.filter((item) => item.id !== note.id);
+    setNotes(remaining);
+    if (activeIdRef.current === note.id) {
+      dirty.current = false;
+      conflicted.current = false;
+      const next = remaining[0];
+      if (next) selectNote(next);
+      else {
+        setActiveId(null);
+        setTitle("Untitled");
+      }
+    }
+    try {
+      const response = await fetch(`/api/notes/${encodeURIComponent(note.id)}`, {
+        method: "DELETE", credentials: "same-origin", headers: teamWorkspaceHeaders(workspaceId ?? undefined),
+      });
+      if (!response.ok) throw new Error("Delete note failed.");
+    } catch {
+      if (contextRef.current === context) setNotes(previousNotes);
+      toast.error("Note could not be deleted.");
+    }
+  }
+
   const newNoteRef = useRef(newNote);
   newNoteRef.current = newNote;
   const queuedNoteScope = useRef<"personal" | "workspace" | null>(null);
@@ -420,8 +446,9 @@ export function NotesEditor({ workspaceId = null, workspaceRole, actorId, onNavi
             }}><option value="personal">Personal</option><option value="workspace">Workspace</option></select>
           </label>
           <div className="max-h-48 overflow-y-auto p-2 md:max-h-none md:flex-1">
-            {loading && !notes.length ? <div role="status" aria-label="Loading notes" className="space-y-2 p-2">{[0, 1, 2].map((i) => <div key={i} className="h-6 rounded-md bg-[var(--surface-subtle)] motion-safe:animate-pulse" />)}</div> : notes.length ? <ul className="space-y-0.5">{notes.map((note) => <li key={note.id} className={pendingIds.has(note.id) ? "opacity-60" : undefined} aria-busy={pendingIds.has(note.id)}>
-              <button type="button" disabled={note.id.startsWith("pending:")} aria-current={activeId === note.id ? "page" : undefined} onClick={() => void openNote(note)} className={`w-full truncate rounded-[6px] px-2.5 py-1.5 text-left text-xs ${activeId === note.id ? "bg-[var(--surface-subtle)] text-[var(--fg)]" : "text-[var(--knowledge-muted)] hover:bg-[var(--surface-subtle)]"}`}>{note.title || "Untitled"}</button>
+            {loading && !notes.length ? <div role="status" aria-label="Loading notes" className="space-y-2 p-2">{[0, 1, 2].map((i) => <div key={i} className="h-6 rounded-md bg-[var(--surface-subtle)] motion-safe:animate-pulse" />)}</div> : notes.length ? <ul className="space-y-0.5">{notes.map((note) => <li key={note.id} className={`group flex items-center justify-between rounded-[6px] transition-colors ${pendingIds.has(note.id) ? "opacity-60" : ""} ${activeId === note.id ? "bg-[var(--surface-subtle)] text-[var(--fg)]" : "text-[var(--knowledge-muted)] hover:bg-[var(--surface-subtle)] hover:text-[var(--fg)]"}`} aria-busy={pendingIds.has(note.id)}>
+              <button type="button" disabled={note.id.startsWith("pending:")} aria-current={activeId === note.id ? "page" : undefined} onClick={() => void openNote(note)} className="min-w-0 flex-1 truncate rounded-l-[6px] px-2.5 py-1.5 text-left text-xs">{note.title || "Untitled"}</button>
+              {canWriteNote(note) ? <button type="button" aria-label={`Delete ${note.title || "Untitled"}`} title="Delete note" disabled={note.id.startsWith("pending:")} onClick={(event) => { event.stopPropagation(); void deleteNote(note); }} className="mr-1 rounded-sm p-1 opacity-0 transition-opacity hover:bg-[var(--border-1)] focus:opacity-100 group-hover:opacity-100 disabled:opacity-0"><Trash2 size={11} /></button> : null}
             </li>)}</ul> : <p className="p-2 text-xs text-[var(--knowledge-muted)]">No notes yet</p>}
           </div>
         </aside>

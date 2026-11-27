@@ -6,7 +6,7 @@ import { resolveOrgForApiRequest } from "../org-request-auth.js";
 import { assertKnowledgeRead, assertKnowledgeWrite, KnowledgeAccessError } from "../knowledge/knowledge-access.js";
 import { enqueueIngestion } from "../knowledge/knowledge-ingestion.js";
 import { filesBucket } from "../knowledge/knowledge-ingestion.js";
-import { createNote, getNote, listNotes, NotesConflictError, NotesStoreError, updateNoteMarkdown } from "./notes-store.js";
+import { archiveNote, createNote, getNote, listNotes, NotesConflictError, NotesStoreError, updateNoteMarkdown } from "./notes-store.js";
 import { handleNoteChat } from "./note-chat.js";
 import { canMutateProject } from "../knowledge/knowledge-projects-routes.js";
 import { getProject } from "../knowledge/knowledge-projects.js";
@@ -15,7 +15,7 @@ const json = (body: unknown, status = 200) => Response.json(body, { status, head
   "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
 } });
 
-async function publishNote(env: Env, kind: "note.created" | "note.updated", note: KnowledgeNote): Promise<void> {
+async function publishNote(env: Env, kind: "note.created" | "note.updated" | "note.deleted", note: KnowledgeNote): Promise<void> {
   // Parse the public DTO to exclude storage keys and any future internal fields.
   await publishWorkspaceEvent(env, note.workspaceId, {
     kind, entityId: note.id, payload: { note: knowledgeNoteSchema.parse(note) },
@@ -123,6 +123,27 @@ export async function handleNotes(request: Request, env: Env): Promise<Response 
       return json({ note: updated, jobId });
     } catch (error) {
       if (error instanceof NotesConflictError) return json({ error: error.message }, 409);
+      if (error instanceof NotesStoreError) return json({ error: error.message }, error.status);
+      throw error;
+    }
+  }
+
+  if (!match[2] && request.method === "DELETE") {
+    const blocked = requireSameOriginBrowserMutation(request);
+    if (blocked) return blocked;
+    try {
+      await assertKnowledgeWrite(env, userId, {
+        workspaceId: note.workspaceId,
+        scope: note.scope,
+        createdBy: note.createdBy,
+        resourceId: note.id,
+        resourceKind: "note",
+      });
+      const archived = await archiveNote(env, noteId);
+      await publishNote(env, "note.deleted", archived);
+      return json({ note: archived });
+    } catch (error) {
+      if (error instanceof KnowledgeAccessError) return json({ error: error.message }, error.status);
       if (error instanceof NotesStoreError) return json({ error: error.message }, error.status);
       throw error;
     }

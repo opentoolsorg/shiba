@@ -21,6 +21,7 @@ const note = { id: "note-1", title: "Plan", version: 1, updatedAt: 1 };
 const noteMarkdown = "## Existing heading\r\n\r\nA **bold** plan for C:\\Users\\Ada.\r\n\r\n";
 async function defaultFetch(url: string, init?: RequestInit) {
   if (url.endsWith("/body")) return new Response(noteMarkdown);
+  if (init?.method === "DELETE") return Response.json({ note: { ...note, archivedAt: 2 } });
   if (init?.method === "PATCH") return Response.json({ note: { ...note, ...JSON.parse(String(init.body)), version: 2 } });
   if (init?.method === "POST") return Response.json({ note: { ...note, id: "new-note", title: "Untitled" } });
   return Response.json({ notes: [note, { ...note, id: "note-2", title: "Research" }] });
@@ -172,6 +173,14 @@ describe("NotesEditor", () => {
     fireEvent.click(toggle);
     fireEvent.click(toggle);
     expect(screen.getByPlaceholderText("Ask about this note")).toHaveProperty("value", "draft question");
+  });
+
+  it("deletes a note from the sidebar and opens the next note", async () => {
+    await openNote();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Plan" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Plan" })).toBeNull());
+    expect(fetchMock.mock.calls.some(([url, init]) => String(url).includes("/api/notes/note-1") && init?.method === "DELETE")).toBe(true);
+    expect(screen.getByRole("textbox", { name: "Note title" })).toHaveProperty("value", "Research");
   });
 
   it("renders the notes list, empty editor prompt, and loading skeleton", async () => {

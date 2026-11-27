@@ -114,3 +114,12 @@ export async function updateNoteMarkdown(
   if (!note) throw new NotesStoreError("Note missing after update.", 500);
   return note;
 }
+export async function archiveNote(env: Env, noteId: string): Promise<KnowledgeNote> {
+  const current = await getNote(env, noteId);
+  if (!current) throw new NotesStoreError("Note not found.", 404);
+  const now = Date.now();
+  await env.AGENT_AUDIT.prepare(
+    `UPDATE notes SET archived_at=?, updated_at=? WHERE id=? AND archived_at IS NULL`,
+  ).bind(now, now, noteId).run();
+  return { ...current, archivedAt: now, updatedAt: now };
+}
