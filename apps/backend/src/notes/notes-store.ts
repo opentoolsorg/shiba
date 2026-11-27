@@ -96,7 +96,7 @@ export async function updateNoteMarkdown(
   input: { markdown: string; expectedVersion: number; title?: string },
 ): Promise<KnowledgeNote & { r2Key: string }> {
   const current = await getNote(env, noteId);
-  if (!current) throw new NotesStoreError("Note not found.", 404);
+  if (!current || current.archivedAt) throw new NotesStoreError("Note not found.", 404);
   if (current.version !== input.expectedVersion) throw new NotesConflictError();
   const now = Date.now();
   const nextVersion = current.version + 1;
@@ -106,10 +106,15 @@ export async function updateNoteMarkdown(
   const bucket = filesBucket(env);
   const r2Key = `notes/${current.workspaceId}/${current.scope}/${noteId}/v${nextVersion}.md`;
   await bucket.put(r2Key, bytes, { httpMetadata: { contentType: "text/markdown" } });
-  await env.AGENT_AUDIT.prepare(
+  const write = await env.AGENT_AUDIT.prepare(
     `UPDATE notes SET title=?, r2_key=?, sha256=?, version=?, updated_at=?, ingestion_state='pending', ingestion_error=NULL
-     WHERE id=? AND version=?`,
+     WHERE id=? AND version=? AND archived_at IS NULL`,
   ).bind(input.title?.trim() || current.title, r2Key, sha256, nextVersion, now, noteId, current.version).run();
+  if (write.meta.changes !== 1) {
+    const latest = await getNote(env, noteId);
+    if (latest?.archivedAt) throw new NotesStoreError("Note not found.", 404);
+    throw new NotesConflictError();
+  }
   const note = await getNote(env, noteId);
   if (!note) throw new NotesStoreError("Note missing after update.", 500);
   return note;
