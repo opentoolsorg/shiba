@@ -1,0 +1,83 @@
+---
+import MarketingPage from '../layouts/MarketingPage.astro';
+import RobotAvatar from '../components/RobotAvatar.astro';
+import '../styles/landing.css';
+
+const goals = [
+  { title: 'Owned by you', copy: 'The workspace, credentials, source code, and output stay in infrastructure you control.' },
+  { title: 'Approval before action', copy: 'AI employees can prepare work, but execution waits for an explicit human decision.' },
+  { title: 'Shaped around your team', copy: 'Create role-specific employees, tune their instructions, and customize their robot identity.' },
+];
+
+const milestones = [
+  { phase: 'Now', title: 'Approval-first core', copy: 'Self-hosted workspace, repository tasks, run approvals, employee roster, and audit-friendly source.' },
+  { phase: 'Next', title: 'Deeper daily workflows', copy: 'Richer chat surfaces, stronger review loops, broader integration acceptance, and more reliable recurring work.' },
+  { phase: 'Later', title: 'A full AI workforce', copy: 'Teams of specialized employees with durable memory, delegation, private workspaces, and cross-channel operations.' },
+];
+---
+<MarketingPage
+  title="About Shiba — Goal and Milestones"
+  description="The goal and roadmap behind Shiba: owned AI employees, human approval before execution, and customizable robot teammates."
+  path="/about/"
+  breadcrumbs={[{ name: 'Home', path: '/' }, { name: 'About', path: '/about/' }]}
+>
+  <div class="landing about-page">
+    <section class="about-hero lp-shell">
+      <p class="lp-eyebrow">About Shiba</p>
+      <h1>Build an AI workforce<br /><span>you actually own.</span></h1>
+      <p class="about-lead">Shiba exists for teams who want capable AI employees without handing control of their work, credentials, or decisions to a closed hosted platform.</p>
+      <div class="about-robots" aria-hidden="true">
+        <RobotAvatar character="engineering" size="mark" />
+        <RobotAvatar character="marketing" size="mark" />
+        <RobotAvatar character="research" size="mark" />
+      </div>
+    </section>
+
+    <section class="lp-shell about-section" aria-labelledby="goal-title">
+      <p class="lp-eyebrow">The goal</p>
+      <h2 id="goal-title">Useful autonomy.<br />Human control.</h2>
+      <div class="goal-grid">
+        {goals.map((goal) => <article><h3>{goal.title}</h3><p>{goal.copy}</p></article>)}
+      </div>
+    </section>
+
+    <section class="lp-shell about-section" aria-labelledby="milestones-title">
+      <div class="milestone-head">
+        <div>
+          <p class="lp-eyebrow">Milestones</p>
+          <h2 id="milestones-title">Where Shiba is going.</h2>
+        </div>
+        <p>These are product milestones, not dates or promises. Verify the current state in the open-source repository.</p>
+      </div>
+      <ol class="milestones">
+        {milestones.map((milestone) => <li><span>{milestone.phase}</span><div><h3>{milestone.title}</h3><p>{milestone.copy}</p></div></li>)}
+      </ol>
+    </section>
+  </div>
+</MarketingPage>
+
+<style>
+  .about-page { min-height: 100vh; }
+  .about-hero { position: relative; padding: 110px 0 72px; text-align: center; }
+  .about-hero h1 { margin: 24px auto 20px; max-width: 900px; font-size: clamp(52px, 7vw, 86px); line-height: .98; letter-spacing: -.055em; font-weight: 700; text-wrap: balance; }
+  .about-hero h1 span { color: var(--lp-accent); }
+  .about-lead { max-width: 650px; margin: 0 auto; color: var(--lp-ink2); font-size: 18px; line-height: 1.6; }
+  .about-robots { display: flex; justify-content: center; margin-top: 34px; }
+  .about-robots svg { width: 78px; height: 78px; margin-left: -12px; filter: drop-shadow(0 12px 24px rgba(91,33,182,.16)); }
+  .about-robots svg:first-child { margin-left: 0; }
+  .about-section { padding: 72px 0; }
+  .about-section h2 { margin: 0 0 32px; font-size: clamp(38px, 4vw, 56px); line-height: 1; letter-spacing: -.04em; text-wrap: balance; }
+  .goal-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 18px; }
+  .goal-grid article { padding: 24px; border: 1px solid var(--lp-line); border-radius: 16px; background: var(--lp-card); box-shadow: 0 12px 40px rgba(91,33,182,.06); }
+  .goal-grid h3 { margin: 0 0 10px; font-size: 18px; }
+  .goal-grid p { margin: 0; color: var(--lp-ink2); font-size: 14px; line-height: 1.6; }
+  .milestone-head { display: flex; align-items: end; justify-content: space-between; gap: 32px; margin-bottom: 30px; }
+  .milestone-head h2 { margin-bottom: 0; }
+  .milestone-head > p { max-width: 340px; margin: 0; color: var(--lp-ink2); font-size: 14px; }
+  .milestones { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
+  .milestones li { display: grid; grid-template-columns: 110px 1fr; gap: 20px; padding: 24px; border: 1px solid var(--lp-line); border-radius: 16px; background: linear-gradient(135deg, var(--lp-card), var(--lp-panel)); }
+  .milestones span { color: var(--lp-accent); font: 700 12px/1 var(--lp-font-mono); text-transform: uppercase; letter-spacing: .12em; }
+  .milestones h3 { margin: 0 0 8px; font-size: 20px; }
+  .milestones p { margin: 0; color: var(--lp-ink2); font-size: 14px; line-height: 1.6; }
+  @media (max-width: 760px) { .goal-grid { grid-template-columns: 1fr } .milestone-head { display: block } .milestones li { grid-template-columns: 1fr; gap: 8px } .about-hero { padding-top: 80px } }
+</style>
