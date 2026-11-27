@@ -33,12 +33,39 @@ function forward(response: Response): Response {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
-/** Internal storage keys must never become client conversation ids. */
-async function forwardConversation(response: Response, storageId: string, clientId: string): Promise<Response> {
+function base64UrlEncode(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+function base64UrlDecode(value: string): string | null {
+  try {
+    const padded = value.replaceAll("-", "+").replaceAll("_", "/");
+    const binary = atob(padded + "=".repeat((4 - padded.length % 4) % 4));
+    return new TextDecoder().decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)));
+  } catch { return null; }
+}
+function decodeStorageConversationId(value: string): string | null {
+  const match = /^u_[a-f0-9]{32}_([A-Za-z0-9_-]+)$/.exec(value);
+  return match ? base64UrlDecode(match[1]!) : null;
+}
+function decodeConversations(value: unknown): unknown {
+  if (typeof value === "string") return decodeStorageConversationId(value) ?? value;
+  if (Array.isArray(value)) return value.map(decodeConversations);
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, decodeConversations(entry)]));
+  return value;
+}
+/** Internal storage keys must never become client conversation ids, and JSON stays valid for arbitrary client ids. */
+async function forwardConversation(response: Response): Promise<Response> {
   const headers = new Headers(response.headers);
   headers.set("Cache-Control", "no-store");
-  const body = (await response.text()).split(storageId).join(clientId);
-  return new Response(body, { status: response.status, statusText: response.statusText, headers });
+  headers.delete("content-length");
+  try {
+    return new Response(JSON.stringify(decodeConversations(await response.json())), { status: response.status, statusText: response.statusText, headers });
+  } catch {
+    return new Response(null, { status: response.status, statusText: response.statusText, headers });
+  }
 }
 
 async function sha256Hex32(value: string): Promise<string> {
@@ -56,8 +83,7 @@ async function runtimeActorIdentity(request: Request, env: Env, auth: ResolvedOr
 /** Server-derived private conversation key: stable for the actor, but leaks neither identity nor client naming. */
 async function scopedConversationId(actorIdentity: string, conversationId: string): Promise<string> {
   const actorHash = await sha256Hex32(actorIdentity);
-  const conversationHash = await sha256Hex32(conversationId);
-  return `u_${actorHash}_${conversationHash}`;
+  return `u_${actorHash}_${base64UrlEncode(conversationId)}`;
 }
 
 /**
@@ -98,7 +124,7 @@ export async function handleEmployeeRuntimeRequest(
     const conversationId = new URL(request.url).searchParams.get("conversationId") ?? "default";
     const storageId = await scopedConversationId(actorIdentity, conversationId);
     url.searchParams.set("conversationId", storageId);
-    return forwardConversation(await stub.fetch(url), storageId, conversationId);
+    return forwardConversation(await stub.fetch(url));
   }
 
   if (action === "memory-search") {
@@ -111,7 +137,7 @@ export async function handleEmployeeRuntimeRequest(
     const storageId = conversationId ? await scopedConversationId(actorIdentity, conversationId) : null;
     if (conversationId && storageId) url.searchParams.set("conversationId", storageId);
     const response = await stub.fetch(url);
-    return storageId && conversationId ? forwardConversation(response, storageId, conversationId) : forward(response);
+    return storageId ? forwardConversation(response) : forward(response);
   }
 
   if (request.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, { status: 405 });
@@ -131,7 +157,7 @@ export async function handleEmployeeRuntimeRequest(
     return forwardConversation(await stub.fetch(internal, {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ ...parsed.data, conversationId: storageId, profile }),
-    }), storageId, parsed.data.conversationId);
+    }));
   }
 
   if (action === "memory") {
@@ -142,7 +168,7 @@ export async function handleEmployeeRuntimeRequest(
     const response = await stub.fetch(internal, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(memoryBody),
     });
-    return storageId && parsed.data.conversationId ? forwardConversation(response, storageId, parsed.data.conversationId) : forward(response);
+    return storageId ? forwardConversation(response) : forward(response);
   }
 
   if (action === "cancel") {
@@ -151,7 +177,7 @@ export async function handleEmployeeRuntimeRequest(
     const storageId = await scopedConversationId(actorIdentity, parsed.data.conversationId);
     return forwardConversation(await stub.fetch(internal, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...parsed.data, conversationId: storageId }),
-    }), storageId, parsed.data.conversationId);
+    }));
   }
 
   if (action === "recover") {

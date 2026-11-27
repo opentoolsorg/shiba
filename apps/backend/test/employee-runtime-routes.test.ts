@@ -70,7 +70,7 @@ describe("employee runtime routes", () => {
     expect(forwarded.profile).toMatchObject({ model: "@cf/test/employee-model" });
     expect(forwarded.profile).not.toHaveProperty("harness");
     expect(forwarded.profile).not.toHaveProperty("codingModel");
-    expect(forwarded.conversationId).toMatch(/^u_[a-f0-9]{32}_[a-f0-9]{32}$/);
+    expect(forwarded.conversationId).toMatch(/^u_[a-f0-9]{32}_[A-Za-z0-9_-]+$/);
     expect(forwarded.conversationId).not.toBe("default");
   });
 
@@ -137,7 +137,7 @@ describe("employee runtime routes", () => {
       "state",
     );
     expect(await response.json()).toMatchObject({ conversationId: "client-thread" });
-    expect(new URL(calls[0]!.url).searchParams.get("conversationId")).toMatch(/^u_[a-f0-9]{32}_[a-f0-9]{32}$/);
+    expect(new URL(calls[0]!.url).searchParams.get("conversationId")).toMatch(/^u_[a-f0-9]{32}_[A-Za-z0-9_-]+$/);
   });
 
   it("separates conversations for distinctly issued API keys with the same principal", async () => {
