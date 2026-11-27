@@ -37,6 +37,9 @@ export async function handleCustomAgents(request: Request, env: Env, authenticat
   if (!url.pathname.startsWith("/api/custom-agents")) return null;
   const auth = authenticatedAuth ?? await resolveOrgForApiRequest(request, env, { allowMemberWrite: Boolean(url.pathname.match(/^\/api\/custom-agents\/[^/]+/)) });
   if (auth instanceof Response) return auth;
+  if (auth.principal?.apiKey && request.headers.has("X-Shiba-Workspace")) {
+    return Response.json({ error: "Workspace selectors cannot override an API credential." }, { status: 403 });
+  }
   if (!env.AGENT_AUDIT) {
     return Response.json({ ok: false, error: "AGENT_AUDIT D1 binding is not configured." }, { status: 503 });
   }

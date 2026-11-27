@@ -125,6 +125,17 @@ describe("custom-agent route boundaries", () => {
     expect(mocks.authCalls).toBe(0);
   });
 
+  it("rejects a workspace selector on an already-authenticated org-agent API-key request", async () => {
+    const request = new Request("https://worker.test/api/v1/org-agents", { method: "POST", headers: { "content-type": "application/json", "X-Shiba-Workspace": `ws_${"a".repeat(24)}` }, body: "{}" });
+    const context: V1Context = {
+      request, url: new URL(request.url), env,
+      principal: { principal: "owner", orgId: "org-a", scopes: ["api:write"], apiKey: { principal: "owner", scopes: ["api:write"], created: 1, revoked: false, orgId: "org-a", kind: "api_key", keyId: "key_1" } },
+      forward: vi.fn(),
+    };
+    expect((await handleOrgAgents(context))?.status).toBe(403);
+    untouched();
+  });
+
   it("leaves unrelated paths to their own handlers", async () => {
     expect(await handleCustomAgents(new Request("https://worker.test/api/other"), env)).toBeNull();
     untouched();
