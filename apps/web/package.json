@@ -21,17 +21,17 @@
     "astro": "^7.4.13",
     "clsx": "^2.1.1",
     "openapi-sampler": "1.7.4",
-    "react": "^19.3.0",
+    "react": "catalog:",
     "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.12",
     "@tailwindcss/vite": "^4.3.5",
-    "@types/react": "19.2.18",
+    "@types/react": "catalog:",
     "autoprefixer": "^10.6.2",
     "pagefind": "^1.6.0",
     "postcss": "^8.5.33",
     "tailwindcss": "^4.3.4",
-    "typescript": "5.9.3"
+    "typescript": "catalog:"
   }
 }
