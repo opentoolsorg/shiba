@@ -266,4 +266,15 @@ describe("run deliverables", () => {
       .toBe("My unsaved draft");
     expect(screen.getByText("Current saved review: approved · Current server note")).toBeTruthy();
   });
+
+  it("offers run evidence only when a handler is given", () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ versions: [] })));
+    const onOpenEvidence = vi.fn();
+    const view = render(<RunDeliverables runId="run-7" status="completed" deliverables={[report]} onOpenEvidence={onOpenEvidence} />);
+    fireEvent.click(screen.getByRole("button", { name: "Inspect run evidence" }));
+    expect(onOpenEvidence).toHaveBeenCalledWith("run-7");
+    view.unmount();
+    render(<RunDeliverables runId="run-7" status="completed" deliverables={[report]} />);
+    expect(screen.queryByRole("button", { name: "Inspect run evidence" })).toBeNull();
+  });
 });

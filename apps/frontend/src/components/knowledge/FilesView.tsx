@@ -208,6 +208,8 @@ export function FilesView({ onNavigate }: { onNavigate?: (view: AppNavView) => v
             {files.map((file) => (
               <li key={file.id} className="flex items-center justify-between gap-3 py-2">
                 <span className="truncate font-medium">{file.name}</span>
+                <span className="hidden shrink-0 text-xs text-[var(--muted-foreground-2)] sm:inline">{file.mime}</span>
+                <span className="shrink-0 text-xs text-[var(--muted-foreground-2)]">{new Date(file.updatedAt).toLocaleDateString()}</span>
                 <span className="shrink-0 text-xs text-[var(--muted-foreground-2)]">{file.size.toLocaleString()} bytes</span>
                 <span className="shrink-0 rounded bg-[var(--panel)] px-2 py-0.5 text-xs text-[var(--muted-foreground-2)]">{file.ingestion.state}</span>
               </li>

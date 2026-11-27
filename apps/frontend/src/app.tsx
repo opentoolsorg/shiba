@@ -93,6 +93,8 @@ import {
 import { StepTimeline } from "./components/StepTimeline";
 import { UiBlockQuestions } from "./components/UiBlockQuestions";
 import { DiffView } from "./components/DiffView";
+import { EmployeeWorkspace } from "./components/EmployeeWorkspace";
+import { ChiefOfStaffView } from "./components/ChiefOfStaffView";
 import { ApprovalsView } from "./components/ApprovalsView";
 import { InboxTab } from "./components/InboxTab";
 import { IntegrationsView } from "./components/IntegrationsView";
@@ -476,6 +478,7 @@ export function App(): React.JSX.Element {
   const [harness, setHarness] = useState("opencode");
   const taskRouteChosen = useRef(false);
   const [customAgentId, setCustomAgentId] = useState("");
+  const [workspaceEmployee, setWorkspaceEmployee] = useState<CustomAgentWire | null>(null);
   const [agentDetailsOpen, setAgentDetailsOpen] = useState(() => typeof window !== "undefined" && window.innerWidth >= 1280);
   // A bot page can be open without its conversation: the bot has no thread yet,
   // or its thread did not answer. Both are their own states — the surface shows
@@ -561,9 +564,11 @@ export function App(): React.JSX.Element {
     if (view !== "threads") clearRoomIntentRef.current();
     setShowFirstRun(false);
     setAnalyticsRunId(null);
+    if (view === "custom-agents") setWorkspaceEmployee(null);
     if (view === "settings") previousViewRef.current = currentNavigation.current.view === "settings" ? previousViewRef.current : currentNavigation.current.view;
     setMainView(view);
   }, []);
+  useEffect(() => { if (mainView !== "custom-agents") setWorkspaceEmployee(null); }, [mainView]);
   const closeSettings = useCallback(() => {
     setMainView((view) => (view === "settings" ? previousViewRef.current : view));
   }, []);
@@ -1151,6 +1156,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       })),
     [customAgentRecords],
   );
+  useEffect(() => { setWorkspaceEmployee(null); }, [teamWorkspaceId]);
   const {
     localRunAvailable,
     targetMachineId: selectedLocalMachineId,
@@ -1733,7 +1739,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [refreshToken, selectedSessionId, sessionApiAvailable, privateDataEnabled, mainView]);
   const approvalsEnabled =
-    privateDataEnabled && (mainView === "approvals" || mainView === "tasks" || mainView === "threads" || mainView === "dashboard" || mainView === "work");
+    privateDataEnabled && (mainView === "approvals" || mainView === "tasks" || mainView === "threads" || mainView === "dashboard" || mainView === "work" || mainView === "diff");
   const workspaceEventsEnabled =
     Boolean(teamWorkspaceId) && (mainView === "tasks" || mainView === "work" || mainView === "threads");
   const workspaceLive = useWorkspaceEvents({
@@ -2838,7 +2844,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       reloadModelConfig();
       reloadAgentsDirectory();
     }
-    if (mainView === "tasks" || mainView === "threads" || mainView === "work") refreshCustomAgents();
+    if (mainView === "tasks" || mainView === "threads" || mainView === "work" || mainView === "custom-agents" || mainView === "chief-of-staff") refreshCustomAgents();
   }, [mainView, reloadModelConfig, reloadAgentsDirectory, refreshCustomAgents]);
 
   const repoSuggestions = useMemo(() => {
@@ -3826,6 +3832,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   // The approvals queue is personal-only; team workspaces would land on a notice.
                   onOpenApprovals={teamWorkspaceId ? undefined : () => setMainView("approvals")}
                   onOpenChief={teamWorkspaceId ? undefined : () => { void handleSelectSession("default"); openView("threads"); }}
+                  onOpenChiefPage={teamWorkspaceId ? undefined : () => openView("chief-of-staff")}
                   // In a team workspace only owners and admins configure employees.
                   onHireEmployee={teamWorkspaceId && teamWorkspace?.membership.role !== "owner" && teamWorkspace?.membership.role !== "admin" ? undefined : () => openView("custom-agents")}
                   onOpenOutputs={teamWorkspaceId ? undefined : () => openView("outputs")}
@@ -4661,6 +4668,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                 applyWorkSelection({ view: "board", task: runId, taskKind: "run", tab: "steps" }, "push");
                 setMainView("work");
               }}
+              publicationApprovals={storedApprovals}
+              onOpenApproval={(approvalId) => {
+                applyWorkSelection({ view: "board", task: approvalId, taskKind: "approval", tab: "approval" }, "push");
+                setMainView("work");
+              }}
               loading={!runsDetailReady}
               error={runsError}
               liveHarness
@@ -4709,7 +4721,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ) : mainView === "projects" ? (
             <ProjectsView onNavigate={openView} />
           ) : mainView === "outputs" ? (
-            <OutputsView onNavigate={openView} />
+            <OutputsView onNavigate={openView} onOpenEvidence={(runId) => {
+              applyWorkSelection({ view: "board", task: runId, taskKind: "run", tab: "steps" }, "push");
+              setMainView("work");
+            }} />
           ) : mainView === "automations" ? (
             <AutomationsView initialDraft={automationDraft} onDraftSaved={() => setAutomationDraft(null)} scope={scope} sidebarCollapsed={sessionsCollapsed} onToggleSidebar={toggleSessionsCollapsed} selectedAutomationId={selectedAutomationId} onSelectAutomation={setSelectedAutomationId} onAutomationsChange={setAutomationList} />
           ) : mainView === "swarm" ? (
@@ -4768,8 +4783,24 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
           ) : mainView === "custom-agents" ? (
             <div className="flex min-h-0 flex-1 flex-col">
               {firstRunProgress?.draftTask ? <section aria-label="Return to first task setup" className="border-b border-[var(--border-1)] bg-[var(--card)] px-4 py-3 text-xs text-[var(--fg)]"><p>Configure and save an employee here. Then choose its saved version for your first task.</p><button type="button" className="mt-2 text-[var(--primary)]" onClick={() => { void updateFirstRunProgress({ action: "save-draft", draftTask: { currentStep: "employee" } }).then(() => { openFirstRun(); setJourneyStage("employee"); }).catch(() => setNotice("Setup could not be opened. Retry from your saved first task draft.")); }}>Choose saved employee in setup</button></section> : null}
+            {workspaceEmployee ? (
+              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                <button type="button" className="m-4 mb-0 min-h-11 self-start border border-[var(--border-1)] px-3 text-xs" onClick={() => setWorkspaceEmployee(null)}>Back to employees</button>
+                <EmployeeWorkspace
+                  key={workspaceEmployee.id}
+                  employee={workspaceEmployee}
+                  employees={customAgentRecords}
+                  actorId={orchestratorName ?? undefined}
+                  workspaceId={teamWorkspaceId || undefined}
+                  onOpenConversation={teamWorkspaceId ? undefined : openBotPanel}
+                  onOpenToolPolicy={teamWorkspaceId ? undefined : openEmployeeToolPolicy}
+                  onOpenOutputs={teamWorkspaceId ? undefined : () => openView("outputs")}
+                />
+              </div>
+            ) : (
             <CustomAgentsView
               key={`${orchestratorName}:${teamWorkspaceId || "personal"}`}
+              onOpenWorkspace={setWorkspaceEmployee}
               workspaceId={teamWorkspaceId || undefined}
               actorId={orchestratorName ?? undefined}
               draftScope={orchestratorName ? `${orchestratorName}:${teamWorkspaceId || "personal"}` : undefined}
@@ -4786,7 +4817,19 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               onOpenToolPolicy={openEmployeeToolPolicy}
               onOpenThread={(id) => { void handleSelectSession(id); }}
             />
+            )}
             </div>
+          ) : mainView === "chief-of-staff" ? (
+            <ChiefOfStaffView
+              employees={workEmployees}
+              loading={customAgentsLoading}
+              error={customAgentsError}
+              onRetry={refreshCustomAgents}
+              onOpenChief={teamWorkspaceId ? undefined : () => { void handleSelectSession("default"); openView("threads"); }}
+              onOpenApprovals={teamWorkspaceId ? undefined : () => setMainView("approvals")}
+              onOpenOutputs={teamWorkspaceId ? undefined : () => openView("outputs")}
+              onOpenEmployee={teamWorkspaceId ? undefined : (id) => { const record = customAgentRecords.find((item) => item.id === id); if (!record) return; openView("custom-agents"); setWorkspaceEmployee(record); }}
+            />
           ) : mainView === "employee-tools" ? (
             <EmployeeToolPolicyView initialEmployeeId={toolPolicyIntent?.scope === toolPolicyScope ? toolPolicyIntent.employeeId : null} />
           ) : mainView === "agents" ? (
@@ -4812,6 +4855,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               onScopeChange={handleScopeChange}
               actorId={orchestratorName?.trim().toLowerCase() ?? null}
               workspaceId={teamWorkspaceId || undefined}
+              slackWorkspaceId={teamWorkspace?.membership.role === "owner" ? teamWorkspaceId || undefined : undefined}
+              slackActorId={orchestratorName ?? undefined}
               invitationToken={invitationToken}
               onInvitationAccepted={(id) => { setInvitationToken(""); void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }}
               onSelectWorkspace={(id) => { roomRoute.clear(); void teamDirectory.refresh().then(() => teamDirectory.selectWorkspace(id)); }}

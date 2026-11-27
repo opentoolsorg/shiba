@@ -23,6 +23,8 @@ export interface DiffViewProps {
   /** Exact Work receipt URL for this run; /diff/ carries no selection key. */
   onOpenInWork?: (runId: string) => void;
   onOpenEvidence?: (runId: string) => void;
+  publicationApprovals?: readonly { approvalId: string; kind?: string; status?: string }[];
+  onOpenApproval?: (approvalId: string) => void;
   /** Full run payload still loading — empty/"no diff" claims are premature. */
   loading?: boolean;
   error?: string | null;
@@ -51,6 +53,8 @@ export function DiffView({
   onSelectRun,
   onOpenInWork,
   onOpenEvidence,
+  publicationApprovals,
+  onOpenApproval,
   loading = false,
   error = null,
   liveHarness = false,
@@ -77,6 +81,10 @@ export function DiffView({
     if (!activeRun) return null;
     return extractCompletedDiff(activeRun) ?? activeRun.diff ?? null;
   }, [activeRun]);
+
+  const publicationApproval = activeRun?.status === "completed" && !activeRun.pullUrl
+    ? publicationApprovals?.find((item) => item.kind === "pr_publish" && item.status === "pending" && item.approvalId === `pr-publish:${activeRun.runId}`)
+    : undefined;
 
   const runsWithDiff = useMemo(
     () => runs.filter((r) => Boolean(extractCompletedDiff(r) ?? r.diff)),
@@ -185,6 +193,15 @@ export function DiffView({
           </div>
         ) : (
           <div className="max-w-6xl mx-auto flex flex-col gap-4">
+            {publicationApproval && onOpenApproval ? (
+              <button
+                type="button"
+                onClick={() => onOpenApproval(publicationApproval.approvalId)}
+                className="min-h-11 self-start rounded-md border border-[var(--border-1)] px-3 text-sm font-medium text-[var(--fg)] hover:bg-[var(--hover)] focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+              >
+                Review publication
+              </button>
+            ) : null}
             <SubagentTree runs={runs} onSelectRun={handleSelect} />
             <RunLivePanel
               key={`${sessionId ?? "default"}:${activeRun.runId}`}
