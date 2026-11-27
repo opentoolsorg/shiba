@@ -16,7 +16,6 @@ import {
 } from "@shiba/shared";
 import type { EmployeeRole } from "../employee-templates";
 import { AgentMascot } from "./AgentMascot";
-import { ShibaMark } from "./ShibaMark";
 
 function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
@@ -73,7 +72,7 @@ export function AgentLookStyler({ id, role, preset, shape, color, eyes, acc, onC
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
         <div className="flex shrink-0 flex-col items-center gap-2">
           <span className="inline-flex size-28 rounded-lg border border-[var(--border-1)] bg-[var(--panel)] p-2">
-            {automatic ? <ShibaMark className="size-full" decorative /> : <AgentMascot look={preview} live />}
+            {<AgentMascot look={preview} live />}
           </span>
           <div className="flex flex-wrap items-center justify-center gap-1.5">
             <button
