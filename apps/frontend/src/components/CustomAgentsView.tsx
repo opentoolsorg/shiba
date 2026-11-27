@@ -597,10 +597,12 @@ function ScopedCustomAgentsView({
           const rest = (current ?? []).filter((agent) => agent.id !== saved.id);
           return [saved, ...rest];
         });
+        const created = !editingId;
         setNotice({ tone: "ok", text: editingId ? "Bot updated." : "Bot created." });
-        setCreatedAgentForToolSetup(!editingId && !workspaceId ? saved : null);
-        resetForm(!editingId);
+        setCreatedAgentForToolSetup(created && !workspaceId && !onStartThread ? saved : null);
+        resetForm(created);
         refresh();
+        if (created && onStartThread) await startThread(saved);
       }
     } catch {
       if (isActive()) setNotice({ tone: "err", text: "Save failed: the backend could not be reached." });
@@ -1328,7 +1330,7 @@ function ScopedCustomAgentsView({
                 <dt className="text-[var(--muted-foreground-2)]">Deliverables</dt><dd>{reviewDeliverables ? `${reviewDeliverables} required path${reviewDeliverables === 1 ? "" : "s"}` : "None required"}</dd>
                 <dt className="text-[var(--muted-foreground-2)]">Approval</dt><dd>Interactive tasks and automated runs require human approval.</dd>
               </dl>
-              <p className="text-xs text-[var(--muted-foreground-2)]">Creating a profile does not start a thread, computer, or run. Tool access is not granted by the profile.</p>
+              <p className="text-xs text-[var(--muted-foreground-2)]">Creating a profile opens its first conversation; it does not start a computer or run. Tool access is not granted by the profile.</p>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--border-1)]">
                 <button

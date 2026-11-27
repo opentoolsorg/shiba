@@ -389,7 +389,7 @@ describe("CustomAgentsView", () => {
     expect(onApplied).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
-    await waitFor(() => expect(screen.getByText("Bot created.")).toBeTruthy());
+    await waitFor(() => expect(onStartThread).toHaveBeenCalledOnce());
     const createCall = fetchMock.mock.calls.find((call) => call[0] === "/api/custom-agents" && call[1]?.method === "POST");
     expect(createCall).toBeTruthy();
     const body = JSON.parse(String(createCall?.[1]?.body)) as { slug: string; config: { expectedDeliverables: string[]; instructions: string } };
@@ -397,9 +397,6 @@ describe("CustomAgentsView", () => {
     expect(body.config.expectedDeliverables).toEqual(["research/report.md", "research/sources.json"]);
     expect(body.config.instructions).toContain("Answer the user's research question");
 
-    const launch = await screen.findByRole("button", { name: "Launch bot Research bot" });
-    fireEvent.click(launch);
-    await waitFor(() => expect(onStartThread).toHaveBeenCalledOnce());
     expect(onStartThread).toHaveBeenCalledWith(savedAgent);
     expect(savedSession).toMatchObject({ metadata: { customAgentId: "research-1" }, id: "research-session" });
 
@@ -892,7 +889,7 @@ describe("employee directory and hire design", () => {
     expect(within(review).getByText("https://github.com/example/books")).toBeTruthy();
     expect(within(review).getByText("2 required paths")).toBeTruthy();
     expect(within(review).getByText("Interactive tasks and automated runs require human approval.")).toBeTruthy();
-    expect(within(review).getByText(/does not start a thread, computer, or run/)).toBeTruthy();
+    expect(within(review).getByText(/opens its first conversation; it does not start a computer or run/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
     await screen.findByText("Bot created.");
