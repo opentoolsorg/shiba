@@ -74,7 +74,7 @@ export async function handleWorkspaceBilling(request: Request, env: Env): Promis
     return Response.json({ billing: await readWorkspaceBilling(env, subject.key, Date.now()) });
   }
   if (!isWorkspaceBillingEnabled(env)) return Response.json({ error: "Billing is not configured on this deployment." }, { status: 503 });
-  const returnUrl = subject.scope === "team" ? `${url.origin}/settings/?section=team` : `${url.origin}/analytics`;
+  const returnUrl = subject.scope === "team" ? `${url.origin}/settings/?section=team&teamTab=settings` : `${url.origin}/analytics`;
   const account = await ensureBillingAccount(env.AGENT_AUDIT, subject.key, Date.now());
 
   if (route === "portal") {

@@ -82,7 +82,11 @@ function TeamWorkspaceSurface({
   const nameDirty = useRef(false);
   const [email, setEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<TeamWorkspaceRole>("member");
-  const [activeTab, setActiveTab] = useState<TeamWorkspaceTab>("people");
+  const [activeTab, setActiveTab] = useState<TeamWorkspaceTab>(() => {
+    if (typeof window === "undefined") return "people";
+    const requested = new URLSearchParams(window.location.search).get("teamTab");
+    return requested === "people" || requested === "invitations" || requested === "roles" || requested === "settings" ? requested : "people";
+  });
   const [createdLink, setCreatedLink] = useState<{
     url: string;
     email: string;

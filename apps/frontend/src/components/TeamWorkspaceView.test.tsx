@@ -46,12 +46,22 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   localStorage.clear();
+  window.history.replaceState({}, "", "/");
 });
 const loaded = async () => {
   await screen.findByRole("heading", { name: "Acme team" });
 };
 
 describe("team workspace settings", () => {
+  it("opens the general settings tab from a billing return deep link", async () => {
+    window.history.replaceState({}, "", "/settings/?section=team&teamTab=settings&billing=success");
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ workspace: detail() })));
+    render(<TeamWorkspaceView actorId="owner@example.com" workspaceId={idA} />);
+    await loaded();
+    expect(screen.getByRole("button", { name: "General" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("Workspace details")).toBeTruthy();
+  });
+
   it("requires an explicit authenticated accept click and sends only a JSON token", async () => {
     const fetcher = vi.fn(async (_path: RequestInfo | URL, _init?: RequestInit) =>
       Response.json({ workspace: detail() }),
