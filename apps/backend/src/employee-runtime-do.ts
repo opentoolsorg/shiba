@@ -22,6 +22,7 @@ import {
   EMPLOYEE_RUNTIME_ROUTINE_MAX_PER_EMPLOYEE,
   verifyStandinEnabled,
   type EmployeeRuntimeChatResponse,
+  type EmployeeRuntimeMessage,
   type EmployeeRuntimeProfile,
   type EmployeeRuntimeRoutine,
   type EmployeeRuntimeState,
@@ -525,17 +526,21 @@ ${input.prompt}`, mode: "chat" };
     }
   }
 
-  private inferencePrompt(body: ChatBody): { system: string; history: ModelMessage[]; modelName: string } {
+  private inferencePrompt(body: ChatBody, replayMessages?: EmployeeRuntimeMessage[]): { system: string; history: ModelMessage[]; modelName: string } {
     const essential = this.store.listMemories({ conversationId: body.conversationId, essential: true, limit: MAX_ESSENTIAL_MEMORIES });
     const contextual = this.store.listMemories({ conversationId: body.conversationId, limit: 20 });
     const memoryBlock = [...essential, ...contextual.filter((memory) => !essential.some((item) => item.id === memory.id))]
       .slice(0, MAX_ESSENTIAL_MEMORIES)
       .map((memory) => `- [${memory.scope}/${memory.kind}] ${memory.content}`)
       .join("\n");
-    const summary = this.store.conversationSummary(body.conversationId);
-    const allMessages = this.store.listMessages(body.conversationId, 500)
+    const storedSummary = this.store.conversationSummary(body.conversationId);
+    const allMessages = (replayMessages ?? this.store.listMessages(body.conversationId, 500))
       .filter((message) => message.role === "user" || message.role === "assistant");
-    const summarizedThrough = summary ? allMessages.findIndex((message) => message.id === summary.throughMessageId) : -1;
+    const summarizedThrough = storedSummary ? allMessages.findIndex((message) => message.id === storedSummary.throughMessageId) : -1;
+    // Replayed turns must not see summaries written after their interrupted
+    // prompt. A summary is safe only when its exact boundary is still present
+    // in the replayed prefix.
+    const summary = replayMessages && summarizedThrough < 0 ? null : storedSummary;
     const history: ModelMessage[] = (summarizedThrough >= 0 ? allMessages.slice(summarizedThrough + 1) : allMessages)
       .slice(-MAX_CONTEXT_MESSAGES)
       .map((message) => ({ role: message.role, content: message.content }));
@@ -559,12 +564,12 @@ ${input.prompt}`, mode: "chat" };
     };
   }
 
-  private async answer(body: ChatBody, signal: AbortSignal, executionId: string): Promise<string> {
+  private async answer(body: ChatBody, signal: AbortSignal, executionId: string, replayMessages?: EmployeeRuntimeMessage[]): Promise<string> {
     if (verifyStandinEnabled(this.env)) {
       return `Synthetic employee runtime response for ${body.profile.name}. No sandbox, repository, harness, or model provider was used.`;
     }
     if (!this.env.AI) throw new Error("Workers AI binding is unavailable.");
-    const prompt = this.inferencePrompt(body);
+    const prompt = this.inferencePrompt(body, replayMessages);
     const workersAi = createWorkersAI({ binding: this.env.AI });
     const result = await generateText({
       model: workersAi(prompt.modelName, { sessionAffinity: this.sessionAffinity }),
@@ -715,7 +720,12 @@ ${input.prompt}`, mode: "chat" };
       const controller = new AbortController();
       this.active.set(execution.id, controller);
       try {
-        const answer = await this.answer({ profile, conversationId: execution.conversationId, message: user.content, mode: execution.mode, ...(toolActorId ? { toolActorId } : {}) }, controller.signal, execution.id);
+        const answer = await this.answer(
+          { profile, conversationId: execution.conversationId, message: user.content, mode: execution.mode, ...(toolActorId ? { toolActorId } : {}) },
+          controller.signal,
+          execution.id,
+          messages.slice(0, userIndex + 1),
+        );
         const current = this.store.getExecution(execution.id);
         if (!current || current.status === "cancelled") {
           skipped += 1;

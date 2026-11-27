@@ -15,6 +15,11 @@ vi.mock("../src/custom-agents-store.js", () => ({
   })),
 }));
 
+vi.mock("ai", async (importOriginal) => ({
+  ...await importOriginal<typeof import("ai")>(),
+  generateText: vi.fn(async () => ({ text: "Recovered deterministic answer." })),
+}));
+
 vi.mock("agents", () => ({
   Agent: class {
     initialState = { startedAt: 0 };
@@ -49,6 +54,7 @@ vi.mock("agents", () => ({
 
 import { EmployeeRuntime } from "../src/employee-runtime-do.js";
 import { createEmployeeRunTools } from "../src/employee-run-tools.js";
+import { generateText } from "ai";
 import type { Env } from "../src/env.js";
 
 function fixture(envOverrides: Partial<Env> = {}) {
@@ -359,6 +365,23 @@ describe("EmployeeRuntime Durable Object", () => {
       body: JSON.stringify({ memoryId: memory.id, conversationId, content: "Updated encoded thread fact" }),
     }));
     expect(update.status).toBe(200);
+  });
+
+  it("replays only the conversation prefix that existed at the interrupted prompt", async () => {
+    const { runtime, db } = fixture({ SHIBA_VERIFY_STANDIN: "0", AI: {} as Env["AI"] });
+    db.prepare(`INSERT INTO employee_runtime_profiles(conversation_id,profile_json,updated_at) VALUES('default',?,1)`).run(JSON.stringify(profile));
+    db.prepare(`INSERT INTO employee_runtime_messages(id,conversation_id,role,content,origin,created_at) VALUES('msg_interactive','default','user','finish the interactive answer','interactive',1)`).run();
+    db.prepare(`INSERT INTO employee_runtime_messages(id,conversation_id,role,content,origin,created_at) VALUES('msg_routine_user','default','user','routine prompt','routine',2)`).run();
+    db.prepare(`INSERT INTO employee_runtime_messages(id,conversation_id,role,content,origin,created_at) VALUES('msg_routine_assistant','default','assistant','routine answer','routine',3)`).run();
+    const inputJson = JSON.stringify({ conversationId: "default", mode: "chat", employeeVersion: 2, userMessageId: "msg_interactive", messageLength: 28 });
+    db.prepare(`INSERT INTO employee_runtime_executions(id,conversation_id,mode,status,checkpoint,input_json,created_at,updated_at)
+      VALUES('run_prefix','default','chat','running','inference',?,1,1)`).run(inputJson);
+    vi.mocked(generateText).mockClear();
+    const response = await runtime.onRequest(new Request("https://do/internal/employee-runtime/recover", { method: "POST", body: "{}" }));
+    expect(await response.json()).toMatchObject({ recovered: 1, failed: 0 });
+    const call = vi.mocked(generateText).mock.calls[0]?.[0] as { messages?: Array<{ role: string; content: string }> } | undefined;
+    expect(call?.messages).toEqual([{ role: "user", content: "finish the interactive answer" }]);
+    expect(JSON.stringify(call?.messages)).not.toContain("routine prompt");
   });
 
   it("does not let an automatic routine prompt supersede interactive recovery", async () => {
