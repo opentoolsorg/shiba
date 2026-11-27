@@ -1276,6 +1276,7 @@ function ScopedCustomAgentsView({
                       Harness
                       <input
                         type="text"
+                        aria-label="Harness"
                         value={form.harness}
                         onChange={(e) => setForm((f) => ({ ...f, harness: e.target.value }))}
                         placeholder="Workspace default"
