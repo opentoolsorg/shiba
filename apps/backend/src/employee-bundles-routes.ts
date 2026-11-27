@@ -72,14 +72,14 @@ export async function handleEmployeeBundles(request: Request, env: Env): Promise
     }
     const input = ImportSchema.parse(body);
     const parsed = EmployeeBundleSchema.parse(input.recipe);
-    if (!Object.hasOwn(HARNESSES, parsed.profile.harness)) return json({ error: "unsupported_harness" }, 400);
+    if (parsed.profile.harness && !Object.hasOwn(HARNESSES, parsed.profile.harness)) return json({ error: "unsupported_harness" }, 400);
     const result = await importEmployeeBundle(env, auth.orgId, ownerId, input);
     return json({ ok: true, ...result }, 201);
   } catch (error) {
     if (error instanceof EmployeeBundleError) return json({ error: error.message }, error.status);
     if (error instanceof z.ZodError || error instanceof SyntaxError || error instanceof TypeError)
       return json({ error: "invalid_bundle" }, 400);
-    if (error instanceof Error && /credential-shaped|too large|control characters/.test(error.message))
+    if (error instanceof Error && /credential-shaped|too large|control characters|employee-bundle/.test(error.message))
       return json({ error: error.message }, 400);
     // Storage errors are retryable with the same import id; never expose SQL or private recipe content.
     return json({ error: "bundle_storage_failed_retry_same_import" }, 503);

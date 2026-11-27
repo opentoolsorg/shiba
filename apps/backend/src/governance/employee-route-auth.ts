@@ -3,7 +3,7 @@ import type { Env } from "../env.js";
 import { resolveOrgForApiRequest } from "../org-request-auth.js";
 import { resolveUserId } from "../request-auth.js";
 import { COLLAB_TENANT_ID } from "../collaboration-store.js";
-import { verifyToken } from "../agent-tokens.js";
+import { orgIdForRecord, verifyToken } from "../agent-tokens.js";
 import { getAgentByName } from "agents/routing";
 import { resolveTeamCollaborationScope } from "../team-collaboration-scope.js";
 import { employeeAccessDenial, resolveEmployeeAccess } from "./employee-access.js";
@@ -11,6 +11,10 @@ import { employeeAccessDenial, resolveEmployeeAccess } from "./employee-access.j
 type Route = { path: RegExp; required: (method: string) => EmployeeAccessLevel; source: "path" | "body" | "handoff" | "turn" | "turn-body" | "session"; bodyKey?: "recipientActorId" | "metadata" | "customAgentId" };
 const settings = (method: string): EmployeeAccessLevel => ["GET", "HEAD"].includes(method) ? "view" : "manage";
 export const employeeRouteAuth: readonly Route[] = [
+  { path: /^\/api\/custom-agents\/([^/]+)\/runtime\/recover\/?$/, required: () => "manage", source: "path" },
+  { path: /^\/api\/custom-agents\/([^/]+)\/runtime\/(chat\/stream|chat|state|memory|memory\/search|memory\/update|memory\/delete|cancel|clear)\/?$/, required: (method) => method === "GET" ? "view" : "chat", source: "path" },
+  { path: /^\/api\/v1\/org-agents\/([^/]+)\/runtime\/recover\/?$/, required: () => "manage", source: "path" },
+  { path: /^\/api\/v1\/org-agents\/([^/]+)\/runtime\/(chat\/stream|chat|state|memory|memory\/search|memory\/update|memory\/delete|cancel|clear)\/?$/, required: (method) => method === "GET" ? "view" : "chat", source: "path" },
   { path: /^\/api\/custom-agents\/([^/]+)(?:\/.*)?$/, required: settings, source: "path" },
   { path: /^\/api\/employee-tools\/(?!approvals(?:\/|$))([^/]+)\/(policy|call)\/?$/, required: settings, source: "path" },
   { path: /^\/api\/governance\/employees\/([^/]+)\/access\/?$/, required: settings, source: "path" },
@@ -42,7 +46,24 @@ export async function enforceEmployeeRouteAccess(request: Request, env: Env): Pr
   // Agent credentials retain their existing capability-based tool authority.
   const bearer = /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1];
   if (bearer && (await verifyToken(env, bearer))?.kind === "agent") return null;
-  const auth = await resolveOrgForApiRequest(request, env, { allowMemberWrite: true });
+  // This is additional authorization, not primary authentication. Reusing the
+  // bearer record avoids charging the public API-key minute budget a second
+  // time before the owning route authenticates the same request.
+  const apiKeyRecord = bearer ? await verifyToken(env, bearer) : null;
+  if (apiKeyRecord?.kind === "api_key" && request.headers.has("X-Shiba-Workspace")) {
+    return Response.json({ error: "Workspace selectors cannot override an API credential." }, { status: 403 });
+  }
+  const auth = apiKeyRecord?.kind === "api_key"
+    ? {
+      orgId: orgIdForRecord(apiKeyRecord),
+      principal: {
+        principal: apiKeyRecord.principal,
+        orgId: orgIdForRecord(apiKeyRecord),
+        scopes: apiKeyRecord.scopes,
+        apiKey: apiKeyRecord,
+      },
+    }
+    : await resolveOrgForApiRequest(request, env, { allowMemberWrite: true });
   if (auth instanceof Response) return auth;
   const workspaceId = auth.workspace?.workspaceId ?? /^team:(ws_[a-f0-9]{24})$/.exec(auth.orgId)?.[1];
   if (!workspaceId) return null;

@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import type { Browser, Page } from "@cloudflare/puppeteer";
+import type { Browser, Page, Target } from "@cloudflare/puppeteer";
 import type { Env } from "../env.js";
 import { audit } from "../audit.js";
 import { getTeamWorkspaceMembership } from "../team-workspaces-store.js";
@@ -10,7 +10,6 @@ import type { BrowserCommand } from "./browser-sessions.js";
 
 const IDLE_MS = 3 * 60_000;
 const APPROVAL_MS = 2 * 60_000;
-const viewport = { width: 1000, height: 700 };
 const PAUSED = "Browser paused: a person is controlling the browser.";
 
 type SignInApproval = {
@@ -23,6 +22,7 @@ type SignInApproval = {
 
 type Session = {
   remoteId: string;
+  targetId?: string;
   expiresAt: number;
   controller?: string;
   approval?: SignInApproval;
@@ -37,6 +37,15 @@ class BrowserCommandError extends Error {}
 
 function pageUrl(page: Page): URL {
   return assertPublicBrowserUrl(page.url());
+}
+
+async function browserTargetId(target: Target): Promise<string> {
+  const client = await target.createCDPSession();
+  try {
+    return (await client.send("Target.getTargetInfo")).targetInfo.targetId;
+  } finally {
+    await client.detach().catch(() => undefined);
+  }
 }
 
 function displayUrl(page: Page, session: Session): string {
@@ -132,7 +141,7 @@ export class BrowserSession extends DurableObject<Env> {
       await this.save(session);
       browser = await this.connectBrowser(remoteId);
       const page = (await browser.pages())[0] ?? await browser.newPage();
-      await page.setViewport(viewport);
+      await this.save({ ...session, targetId: await browserTargetId(page.target()) });
       await page.goto(target.href, { waitUntil: "domcontentloaded", timeout: 20_000 });
       return json({ sessionId: command.runId, url: displayUrl(page, session), title: await page.title() });
     } catch (error) {
@@ -159,21 +168,36 @@ export class BrowserSession extends DurableObject<Env> {
       throw new BrowserCommandError("Could not reconnect to the browser. Try again or open a new page.");
     }
     try {
-      const page = (await browser.pages())[0];
+      let page: Page | undefined;
+      for (const target of session.targetId ? browser.targets() : []) {
+        if (target.type() === "page" && await browserTargetId(target).catch(() => undefined) === session.targetId) {
+          page = await target.page().catch(() => null) ?? undefined;
+          break;
+        }
+      }
       if (!page) {
         await this.close(session, browser);
         if (command.kind === "frame") return json({ state: "closed" });
         throw new BrowserCommandError("The browser tab was closed.");
       }
-      if (session.signedIn && (pageUrl(page).origin !== session.signedIn.login.origin || !await this.canUseLogin(session.signedIn))) {
-        await this.close(session, browser);
-        if (command.kind === "frame") return json({ state: "closed" });
-        throw new BrowserCommandError("The signed-in browser left its approved origin and was closed.");
+      if (session.signedIn) {
+        const { login, scope } = session.signedIn;
+        const current = await browserLoginIntent(this.env, scope, login.id);
+        let origin: string | undefined;
+        try { origin = pageUrl(page).origin; } catch {}
+        if (current?.revision !== login.revision || current.origin !== login.origin ||
+            origin !== login.origin || !await this.canUseLogin(session.signedIn)) {
+          await this.close(session, browser);
+          if (command.kind === "frame") return json({ state: "closed" });
+          throw new BrowserCommandError("The signed-in browser no longer matches its login, origin or permissions and was closed.");
+        }
       }
       switch (command.kind) {
         case "frame": {
+          const viewport = page.viewport();
+          if (!viewport) throw new BrowserCommandError("The current browser viewport is unavailable.");
           const image = await page.screenshot({ encoding: "base64", type: "png" });
-          return json({ ...this.state(session, command.actor), url: displayUrl(page, session), image, ...viewport });
+          return json({ ...this.state(session, command.actor), url: displayUrl(page, session), image, width: viewport.width, height: viewport.height });
         }
         case "read": {
           const secrets = session.signedIn ? await this.activeSecrets(session.signedIn) : [];
@@ -205,7 +229,8 @@ export class BrowserSession extends DurableObject<Env> {
           if (command.control.action !== "input") break;
           const input = command.control.input;
           if (input.kind === "click" || input.kind === "scroll") {
-            if (input.x >= viewport.width || input.y >= viewport.height) throw new BrowserCommandError("Input is outside the browser viewport.");
+            const viewport = page.viewport();
+            if (!viewport || input.x >= viewport.width || input.y >= viewport.height) throw new BrowserCommandError("Input is outside the browser viewport.");
             if (input.kind === "click") await page.mouse.click(input.x, input.y);
             else {
               await page.mouse.move(input.x, input.y);

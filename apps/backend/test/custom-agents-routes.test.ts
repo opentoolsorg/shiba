@@ -48,6 +48,17 @@ describe("custom agent archive and version HTTP contracts", () => {
     expect(stored?.config).not.toHaveProperty("approvalPolicy");
   });
 
+  it("creates an employee without a coding harness", async () => {
+    authState.dashboard = true;
+    const bindings = env();
+    const providerless = { name: "Research assistant", instructions: "Prepare sourced research briefs." };
+    const createdResponse = await handleCustomAgents(request("", "POST", { slug: "research-assistant", config: providerless }), bindings);
+    expect(createdResponse?.status).toBe(201);
+    const { agent } = await createdResponse!.json() as { agent: { id: string; config: Record<string, unknown> } };
+    expect(agent.config).toEqual(providerless);
+    expect(await getCustomAgentById(bindings, "self-hosted", agent.id)).toMatchObject({ config: providerless });
+  });
+
   it("allows API-key writes without Origin but requires Origin for ambient sessions", async () => {
     const bindings = env();
     authState.principal = { principal: "writer", orgId: "org-a", scopes: ["api:read", "api:write"] };
@@ -73,6 +84,44 @@ describe("custom agent archive and version HTTP contracts", () => {
     expect(await (await handleCustomAgents(request(""), bindings))?.json()).toMatchObject({ agents: [{ id: created.id, config }] });
     expect((await handleCustomAgents(request(`/${created.id}`, "DELETE"), bindings))?.status).toBe(200);
     expect((await handleCustomAgents(request(`/${created.id}/restore`, "POST"), bindings))?.status).toBe(404);
+  });
+
+  it("does not create a runtime when archiving an unknown employee", async () => {
+    authState.dashboard = true;
+    const bindings = env();
+    const calls: string[] = [];
+    bindings.EmployeeRuntime = {
+      idFromName: (name: string) => ({ name }),
+      get: () => ({ fetch: async (input: RequestInfo | URL) => { calls.push(String(input)); return Response.json({ ok: true }); } }),
+    } as unknown as NonNullable<Env["EmployeeRuntime"]>;
+    expect((await handleCustomAgents(request("/missing-employee/archive", "POST"), bindings))?.status).toBe(404);
+    expect(calls).toEqual([]);
+  });
+
+  it("blocks restore when routine cancellation fails and keeps the employee archived", async () => {
+    authState.dashboard = true;
+    const bindings = env();
+    const created = await createCustomAgent(bindings, "self-hosted", "scout", config);
+    expect((await handleCustomAgents(request(`/${created.id}/archive`, "POST"), bindings))?.status).toBe(200);
+    bindings.EmployeeRuntime = {
+      idFromName: (name: string) => ({ name }),
+      get: () => ({ fetch: async () => Response.json({ ok: false }, { status: 500 }) }),
+    } as unknown as NonNullable<Env["EmployeeRuntime"]>;
+    expect((await handleCustomAgents(request(`/${created.id}/restore`, "POST"), bindings))?.status).toBe(502);
+    expect(await getCustomAgentById(bindings, "self-hosted", created.id, { includeArchived: true })).toMatchObject({ archivedAt: expect.any(Number) });
+  });
+
+  it("does not clear routines when restore is called for an already active employee", async () => {
+    authState.dashboard = true;
+    const bindings = env();
+    const created = await createCustomAgent(bindings, "self-hosted", "active-scout", config);
+    const calls: string[] = [];
+    bindings.EmployeeRuntime = {
+      idFromName: (name: string) => ({ name }),
+      get: () => ({ fetch: async (input: RequestInfo | URL) => { calls.push(String(input)); return Response.json({ ok: true }); } }),
+    } as unknown as NonNullable<Env["EmployeeRuntime"]>;
+    expect((await handleCustomAgents(request(`/${created.id}/restore`, "POST"), bindings))?.status).toBe(200);
+    expect(calls).toEqual([]);
   });
 
   it("denies cross-org and read-only archive/restore requests", async () => {

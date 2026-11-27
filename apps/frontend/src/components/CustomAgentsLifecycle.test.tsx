@@ -21,7 +21,7 @@ it("saves selected model and ready connection from the creation form", async () 
   fireEvent.change(screen.getByLabelText("Slug", { exact: true }), { target: { value: "reviewer" } });
   fireEvent.change(screen.getByLabelText("Name", { exact: true }), { target: { value: "Reviewer" } });
   fireEvent.change(screen.getByLabelText("Instructions", { exact: true }), { target: { value: "Inspect changes" } });
-  fireEvent.change(screen.getByLabelText("Model", { exact: true }), { target: { value: "google/model-a" } });
+  fireEvent.change(screen.getByLabelText("Coding model", { exact: true }), { target: { value: "google/model-a" } });
   fireEvent.change(screen.getByLabelText("Model connection", { exact: true }), { target: { value: "google-ready" } });
   fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
   await screen.findByText("Bot created.");
@@ -35,7 +35,7 @@ it("preserves saved settings while clearing an optional model during edit", asyn
   vi.stubGlobal("fetch", request);
   render(<CustomAgentsView connections={connections} />);
   fireEvent.click(await screen.findByRole("button", { name: "Edit bot" }));
-  fireEvent.change(screen.getByLabelText("Model", { exact: true }), { target: { value: "" } });
+  fireEvent.change(screen.getByLabelText("Coding model", { exact: true }), { target: { value: "" } });
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await screen.findByText("Bot updated.");
   const submission = request.mock.calls.find(([, init]) => init?.method === "PATCH");

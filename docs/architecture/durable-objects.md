@@ -26,6 +26,7 @@ Current Durable Object bindings in `apps/backend/wrangler.jsonc`:
 | `Spaces` | Shared workspace/space presence and coordination. |
 | `ConversationRoom` | Room-scoped chat/session state. |
 | `WorkspaceEvents` | Workspace event distribution and realtime coordination. |
+| `EmployeeRuntime` | Per-employee live conversation coordination, execution checkpoints, cancellation, recovery, and private working memory. |
 | `DiscordGateway` | Discord gateway connection state. |
 | `BrowserSession` | Browser control/session state. |
 | `ComputerSession` where configured | Dedicated computer allocation, evidence, control, and release. |

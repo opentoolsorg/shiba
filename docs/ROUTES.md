@@ -12,6 +12,7 @@ Phase boundaries preserve precedence: `capability` runs before identity verifica
 | --- | --- | --- | --- | --- | --- |
 | permit | capability | `*` | `^/internal/founder-automatic-read/permit$` | internal | One-purpose signed permit; verified before identity or D1. |
 | artifactDownload | ingress | `*` | `^/api/artifacts/download$` | signature | Signed archive capability; public landing only, verified download token. |
+| fileAppPreviewResponse | ingress | `*` | `^/api/files/[^/]+/app-preview$` | access | Verified Access identity, active workspace and personal file ownership; reads only, before session refresh and model preflight. |
 | betterAuthResponse | ingress | `*` | `^/api/auth/` | public | Sign-in protocol; package excludes subscription routes and verifies protected verbs. |
 | callback | ingress | `*` | `^/api/slack/installations/callback$` | public | OAuth callback validates pending state and original owner. |
 | discordInstallCallback | ingress | `GET` | `^/api/discord/installations/callback$` | public | OAuth callback validates single-use state and the original dashboard user. |

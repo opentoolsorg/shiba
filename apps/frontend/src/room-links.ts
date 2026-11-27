@@ -63,7 +63,7 @@ export function useRoomLinkRoute(actorId: string | null, directory: Directory) {
     url.searchParams.delete("workspace");
     window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
   }, [clearIntent]);
-  const onRoomChange = useCallback((roomId: string) => {
+  const onRoomChange = useCallback((roomId: string, options: { push?: boolean } = {}) => {
     if (!actorId || !directory.verified || directory.error || !isRoomId(roomId) ||
       !directory.workspaces.some((workspace) => workspace.workspaceId === directory.selectedWorkspaceId && workspace.membership.workspaceId === directory.selectedWorkspaceId && workspace.membership.userId === actorId)) return;
     const link = { workspaceId: directory.selectedWorkspaceId, roomId };
@@ -75,7 +75,7 @@ export function useRoomLinkRoute(actorId: string | null, directory: Directory) {
     setIntent((current) => current && current !== "invalid" && current.workspaceId === link.workspaceId && current.roomId === roomId ? current : link);
     const url = new URL(roomLinkUrl(link, window.location.origin));
     if (window.location.pathname + window.location.search !== url.pathname + url.search)
-      window.history.replaceState(window.history.state, "", url.pathname + url.search);
+      (options.push ? window.history.pushState : window.history.replaceState).call(window.history, window.history.state, "", url.pathname + url.search);
   }, [actorId, directory.verified, directory.loading, directory.error, directory.workspaces, directory.selectedWorkspaceId]);
   useEffect(() => {
     if (directory.loading || !pendingRoom.current) return;

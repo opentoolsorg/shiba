@@ -143,6 +143,10 @@
         "class_name": "WorkspaceEvents"
       },
       {
+        "name": "EmployeeRuntime",
+        "class_name": "EmployeeRuntime"
+      },
+      {
         "name": "DISCORD_GATEWAY",
         "class_name": "DiscordGateway"
       },
@@ -334,6 +338,7 @@
     "UserProviderOAuth": { "type": "durable-object", "storage": "sqlite" },
     "Waitlist": { "type": "durable-object", "storage": "sqlite" },
     "WorkspaceEvents": { "type": "durable-object", "storage": "sqlite" },
+    "EmployeeRuntime": { "type": "durable-object", "storage": "sqlite" },
     "BrowserSession": { "type": "durable-object", "storage": "sqlite" }
   },
   // No OPEN_CONNECTOR service binding: shiba-openconnector-dogfood does not

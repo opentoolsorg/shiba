@@ -31,6 +31,14 @@ describe("optional employee role provenance", () => {
     expect(decodeUpdateCustomAgent({ config: { ...config, mascotPreset } })).toBeNull();
   });
 
+
+  it("accepts an employee without a coding harness", () => {
+    const { harness: _harness, ...providerless } = config;
+    const input = { slug: "assistant", config: providerless };
+    expect(decodeCreateCustomAgent(input)).toEqual(input);
+    expect(decodeUpdateCustomAgent({ config: providerless, expectedVersion: 1 })).toEqual({ config: providerless, expectedVersion: 1 });
+  });
+
   it("keeps legacy custom profiles optional rather than inferring a role", () => {
     expect(decodeCreateCustomAgent({ slug: "finance-bot", config })).toEqual({ slug: "finance-bot", config });
   });

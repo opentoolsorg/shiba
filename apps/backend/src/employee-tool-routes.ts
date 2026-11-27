@@ -9,7 +9,7 @@ import { resolveOrgForApiRequest } from "./org-request-auth.js";
 import { employeeAccessDenial, resolveEmployeeAccess } from "./governance/employee-access.js";
 import { resolveUserId } from "./request-auth.js";
 import { gmailOwner } from "./gmail-routes.js";
-import { resolveOwnedAppSession } from "./employee-app-session.js";
+import { resolveEmployeeRuntimeExecutionContext, resolveOwnedAppSession } from "./employee-app-session.js";
 import { parseSessionAgentName } from "./web-sessions.js";
 import { parseSlackThreadName } from "./slack-thread.js";
 import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
@@ -79,6 +79,7 @@ async function currentNativeApprovalContext(env: Env, row: EmployeeApprovalRecor
       grant.policyVersion !== row.policyVersion || grant.accountId !== row.accountId) return false;
   if (!row.executionContextId) return true;
   if (parseSlackThreadName(row.executionContextId) || parseChatThreadName(row.executionContextId)) return true;
+  if (await resolveEmployeeRuntimeExecutionContext(env, { orgId: row.orgId, employeeId: row.employeeId, actorId: row.actorId, executionContextId: row.executionContextId })) return true;
   if (!parseSessionAgentName(row.executionContextId)) return false;
   const session = await resolveOwnedAppSession(env, row.executionContextId);
   return Boolean(session && session.userId === row.actorId && session.metadata?.customAgentId === row.employeeId &&
@@ -94,7 +95,7 @@ function nativeApprovalViewer(env: Env, row: EmployeeApprovalRecord, userId: str
   if (row.accountId) return ownerAccountId !== null && ownerAccountId === row.accountId;
   // Missing private connection provenance never falls back to an operator role.
   if (row.action.startsWith("integrations.")) return false;
-  if (row.executionContextId && parseSessionAgentName(row.executionContextId)) return row.actorId === userId;
+  if (row.executionContextId && (parseSessionAgentName(row.executionContextId) || /^run_[a-f0-9]{24}$/.test(row.executionContextId))) return row.actorId === userId;
   return isApprover(userId, parseApproverAllowlist(env.DASHBOARD_APPROVERS));
 }
 
@@ -102,7 +103,7 @@ async function nativeApprovalDecisionCurrent(env: Env, row: EmployeeApprovalReco
   if (row.status !== "approved" || !humanDecisionIdentity(row.decidedBy) || !await currentNativeApprovalContext(env, row)) return false;
   if (row.accountId) return row.decisionOwnerAccountId === row.accountId;
   if (row.action.startsWith("integrations.")) return false;
-  if (row.executionContextId && parseSessionAgentName(row.executionContextId)) return row.decidedBy === row.actorId;
+  if (row.executionContextId && (parseSessionAgentName(row.executionContextId) || /^run_[a-f0-9]{24}$/.test(row.executionContextId))) return row.decidedBy === row.actorId;
   const slack = row.executionContextId && parseSlackThreadName(row.executionContextId);
   if (slack && row.decidedBy.startsWith("slack:")) return isApprover(row.decidedBy.slice(6), parseApproverAllowlist(env.SLACK_APPROVERS));
   const chat = row.executionContextId && parseChatThreadName(row.executionContextId);

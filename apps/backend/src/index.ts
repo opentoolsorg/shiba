@@ -45,6 +45,7 @@ import { log, withLogContext } from "./obs/log.js";
 // pushed deploys past the startup CPU limit.
 
 export { CodingOrchestrator } from "./agents/orchestrator.js";
+export { EmployeeRuntime } from "./employee-runtime-do.js";
 export { OpenCodeAgent } from "./agents/opencode-agent.js";
 export { ExplorerAgent } from "./agents/specialists/explorer-agent.js";
 export { ReviewerAgent } from "./agents/specialists/reviewer-agent.js";

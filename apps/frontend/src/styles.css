@@ -1210,7 +1210,7 @@ select:focus-visible,
   .shiba-overview-next { align-items: flex-start; flex-wrap: wrap; gap: 12px; padding: 16px; }
   .shiba-overview-next-icon { display: none; }
   .shiba-overview-next > div { flex-basis: 100%; }
-  .shiba-overview-columns > div { display: flex; }
+  .shiba-overview-columns > div { display: flex; flex-direction: column; align-items: stretch; }
   .shiba-overview-section-header, .shiba-overview-run { padding: 14px 16px; }
   .shiba-overview-run-icon { display: none; }
   .shiba-overview-panel-footer { padding-inline: 16px; }

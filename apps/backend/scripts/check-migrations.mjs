@@ -110,7 +110,7 @@ export function checkMigrations(repository = root) {
     group.push(name);
     prefixes.set(prefix, group);
   }
-  for (const [prefix, group] of prefixes) {
+  for (const group of prefixes.values()) {
     if (group.length > 1 && !group.every(name => legacyDuplicate.has(name))) {
       errors.push(`Duplicate migration prefix: ${group.join(", ")}`);
     }

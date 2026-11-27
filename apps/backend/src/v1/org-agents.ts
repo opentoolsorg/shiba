@@ -6,5 +6,6 @@ export async function handleOrgAgents(ctx: V1Context): Promise<Response | null> 
   const rewritten = new URL(ctx.request.url);
   rewritten.pathname = ctx.url.pathname.replace("/api/v1/org-agents", "/api/custom-agents");
   const { handleCustomAgents } = await import("../custom-agents-routes.js");
-  return handleCustomAgents(new Request(rewritten, ctx.request), ctx.env);
+  return handleCustomAgents(new Request(rewritten, ctx.request), ctx.env,
+    ctx.principal.apiKey ? { orgId: ctx.principal.orgId, principal: ctx.principal } : undefined);
 }

@@ -39,6 +39,7 @@ import { CustomAgentsView, useCustomAgentOptions, type CustomAgentWire } from ".
 import { EmployeeToolPolicyView } from "./components/EmployeeToolPolicyView";
 import { AgentDetailsPanel, BotThreadlessState, EmployeeOnboarding, ONBOARDING_DISMISSED_KEY, createEmployeeAgent, employeeExamples } from "./components/AgentExperience";
 import type { BotRunsScope } from "./components/bot/BotPanel";
+import { BotRuntimeChat } from "./components/bot/BotRuntimeChat";
 import { ThreadTitleEditor } from "./components/ThreadTitleEditor";
 import { applyThreadRename, createAgentThread, loadThreadMessages, threadAgentId, useAgentThreadDefaults, type WebThread } from "./agent-threads";
 import { saveBotConfig, saveBotDeliverables, type BotConfigEdit } from "./bot-library";
@@ -68,7 +69,7 @@ import { OnboardingProgressClient, type FirstRunProgressUpdate } from "./onboard
 import { ConversationalOnboarding } from "./components/ConversationalOnboarding";
 import { OnboardingJourney, type JourneyEmployee, type JourneyRun } from "./components/OnboardingJourney";
 import { deriveJourney, shouldOpenJourney, type JourneyStepId } from "./onboarding-journey";
-import { teamWorkspaceRequest } from "./team-workspaces-client";
+import { teamWorkspaceHeaders, teamWorkspaceRequest } from "./team-workspaces-client";
 import { OnboardingNudgeBanner } from "./components/OnboardingNudgeBanner";
 import { OnboardingNudgePopup } from "./components/OnboardingNudgePopup";
 import { TeamOnboardingDraft } from "./components/TeamOnboardingDraft";
@@ -1540,7 +1541,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const builtinTaskDefaults = useRef<{ harness: string; codingModel: string; connectionId: string; repoUrl: string; runTarget: "sandbox" | "local" } | null>(null);
   const applyThreadProfile = useCallback((profile: CustomAgentWire) => {
     taskRouteChosen.current = true;
-    setHarness(profile.config.harness);
+    setHarness(profile.config.harness ?? "");
     setCodingModel(profile.config.codingModel ?? "");
     setConnectionId(profile.config.connectionId ?? "");
     setRepoUrl(profile.config.defaultRepoUrl ?? "");
@@ -2352,7 +2353,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       const text = [
         `Repository: ${normalizedRepoUrl ?? repoUrl.trim()}`,
         `Base branch: ${branch}`,
-        `Coding agent harness: ${harness}`,
+        `Coding agent harness: ${harness || "workspace default"}`,
         ...(codingModel.trim() ? [`Coding model: ${codingModel.trim()}`] : []),
         ...(effort ? [`Reasoning effort: ${effort}`] : []),
         ...(sealedEnv ? [`Environment variables: ${sealedEnv.names.join(", ")}`] : []),
@@ -2386,7 +2387,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               ...(activeOnboardingRef ? { draftTaskId: activeOnboardingRef.draftTaskId, draftTaskVersion: activeOnboardingRef.version } : {}),
               skillPins: attachedSkills.map((skill) => ({ skillId: skill.id, version: skill.version })),
               baseBranch: branch,
-              harness,
+              ...(harness ? { harness } : {}),
               publishPullRequest,
               ...(publishPullRequest && reviewAfterPublish ? { reviewAfterPublish: true } : {}),
               ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),
@@ -2486,6 +2487,15 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     try {
       await chat.clearHistory();
       historyCleared = true;
+      if (sessionCustomAgentId) {
+        const runtimeResponse = await fetch(`/api/custom-agents/${encodeURIComponent(sessionCustomAgentId)}/runtime/clear`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json", ...teamWorkspaceHeaders(teamWorkspaceId || undefined) },
+          body: JSON.stringify({ conversationId: selectedSessionId }),
+        });
+        if (!runtimeResponse.ok) throw new Error(`Runtime conversation clear failed: ${runtimeResponse.status}`);
+      }
       // Session-scoped delete only when the sessions API exists; never fall
       // back to an unscoped delete for a named session — that would wipe runs
       // belonging to other sessions.
@@ -2536,7 +2546,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       clearInFlight.current = false;
       setClearing(false);
     }
-  }, [chat, refreshRuns, selectedSessionId, sessionApiAvailable]);
+  }, [chat, refreshRuns, selectedSessionId, sessionApiAvailable, sessionCustomAgentId, teamWorkspaceId]);
 
   const cancelRun = useCallback(
     async (runId: string) => {
@@ -3102,10 +3112,28 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }, [taskCreationBlocker, teamWorkspaceId, pushThreadUrl]);
   handleNewTaskRef.current = () => { void handleNewTask(); };
 
+
+function employeeConversationRoomTitle(name: string): string {
+  const suffix = " conversation";
+  const base = name.trim().slice(0, 120 - suffix.length).trimEnd() || "Employee";
+  return `${base}${suffix}`;
+}
+
   const handleStartAgentThread = useCallback(async (profile: CustomAgentWire) => {
     if (teamWorkspaceId) {
-      setSharedRoomId(undefined); setSharedHandoffId(undefined); setSharedEmployeeId(profile.id); setMainView("threads");
-      return null;
+      const created = await teamWorkspaceRequest<{ room: { roomId: string } }>("/api/collaboration/rooms", {
+        method: "POST",
+        headers: teamWorkspaceHeaders(teamWorkspaceId),
+        body: JSON.stringify({ title: employeeConversationRoomTitle(profile.config.name), visibility: "private" }),
+      });
+      await teamWorkspaceRequest(`/api/collaboration/rooms/${encodeURIComponent(created.room.roomId)}/agents`, {
+        method: "POST",
+        headers: teamWorkspaceHeaders(teamWorkspaceId),
+        body: JSON.stringify({ profileId: profile.id, profileVersion: profile.version }),
+      });
+      setSharedRoomId(created.room.roomId); setSharedHandoffId(undefined); setSharedEmployeeId(profile.id); setMainView("threads");
+      roomRoute.onRoomChange(created.room.roomId, { push: true });
+      return created.room.roomId;
     }
     if (taskCreationBlocker) throw new Error(taskCreationBlocker);
     const creationScope = activeSurfaceScopeRef.current;
@@ -3136,7 +3164,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     } finally {
       threadCreationPending.current = false;
     }
-  }, [applyThreadProfile, orchestratorName, refreshCustomAgents, teamWorkspaceId, taskCreationBlocker, pushThreadUrl]);
+  }, [applyThreadProfile, orchestratorName, refreshCustomAgents, roomRoute.onRoomChange, teamWorkspaceId, taskCreationBlocker, pushThreadUrl]);
 
   const startSidebarAgentThread = async (profile?: CustomAgentWire) => {
     const creationScope = activeSurfaceScopeRef.current;
@@ -3261,6 +3289,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   } : null), [activeEmployee, codingModelSuggestions, saveBotConfigEdit]);
   const employeeName = activeEmployee?.config.name ?? "Shiba";
   const chatAgent = { id: activeEmployee?.id ?? "shiba", name: employeeName, mascotPreset: activeEmployee?.config.mascotPreset, look: activeEmployee?.config.look, avatar: activeEmployee?.config.avatar, role: activeEmployee ? employeeRole(activeEmployee.slug, activeEmployee.config.roleTemplateId) : undefined };
+  const hasLegacyChatHistory = chat.messages.some((message) => (message.metadata as { shibaMode?: unknown } | undefined)?.shibaMode !== "work");
+  const runtimeMainEmployee = !teamWorkspaceId && botPage === "chat" && conversationMode === "chat" && activeEmployee && sessionCustomAgentId === activeEmployee.id && selectedSessionId !== DEFAULT_THREAD_ID && !hasLegacyChatHistory && videoHandoffScope !== composerScope ? activeEmployee : null;
   const mentionableAgents = customAgentRecords.map((record) => ({ id: record.id, name: record.config.name, mascotPreset: record.config.mascotPreset, look: record.config.look, avatar: record.config.avatar, role: employeeRole(record.slug, record.config.roleTemplateId) }));
   const showEmployeeOnboarding = !teamWorkspaceId && !restrictedTeamMember && !employeeOnboardingDismissed && !threadsLoading && !customAgentsLoading && !customAgentsError && sessionApiAvailable && customAgentRecords.length === 0 && webSessions.every((session) => session.id === "default") && sessions.every((session) => session.id === "default") && !threadHasWork;
 
@@ -3850,7 +3880,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   onCommentTask={(id, text) => { void sharedWork.comment(id, text); }}
                   agents={teamWorkspaceId ? mentionableAgents.map((agent) => ({ ...agent, id: `agent:${agent.id}` })) : mentionableAgents}
                   onOpenTeam={() => openView("team")}
-                  onOpenSharedTask={(item) => { setSharedRoomId(item.roomId); setSharedHandoffId(item.id); setMainView("threads"); }}
+                  onOpenSharedTask={(item) => { if (!item.roomId) { setMainView("work"); return; } roomRoute.clear(); setSharedRoomId(item.roomId); setSharedHandoffId(item.id); setMainView("threads"); }}
                   runs={retainedRuns}
                   sessions={sessions}
                   storedApprovals={visibleStoredApprovals}
@@ -3983,14 +4013,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               pendingApprovals={pendingApprovals}
               storedApprovals={visibleStoredApprovals}
               agents={agentPrincipals}
-              employees={workEmployees}
-              workspaceName={teamWorkspace?.name}
-              sharedTasks={teamWorkspaceId ? sharedWork.tasks : []}
+              workspaceId={teamWorkspaceId || undefined}
+              currentActorId={orchestratorName ? `human:${orchestratorName.trim().toLowerCase()}` : undefined}
               sharedTasksLoading={Boolean(teamWorkspaceId && sharedWork.loading)}
-              onOpenSharedTask={(taskId) => {
-                applyWorkSelection({ view: workViewMode, task: taskId, tab: "steps" }, "push");
-                setMainView("work");
-              }}
               scope={teamWorkspaceId ? "workspace" : "personal"}
               launchBlocked={launchBlocked}
               connectionLabel={connectionState}
@@ -4005,6 +4030,11 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               onNavigate={openView}
               onNewTask={handleNewTask}
               onInspectRun={openRunInAnalytics}
+              employees={workEmployees}
+              workspaceName={teamWorkspace?.name}
+              sharedTasks={sharedWork.tasks}
+              onOpenEmployee={(id) => { setInitialEmployeeId(id); openView("custom-agents"); }}
+              onOpenSharedTask={(item) => { if (!item.roomId) { applyWorkSelection({ view: workViewMode, task: item.id, tab: "steps" }, "push"); setMainView("work"); return; } roomRoute.clear(); setSharedRoomId(item.roomId); setSharedHandoffId(item.id); setMainView("threads"); }}
             />
           ) : mainView === "threads" && teamWorkspaceId ? (
             <CollaborationView key={`${orchestratorName}:${teamWorkspaceId}`} workspaceId={teamWorkspaceId} initialRoomId={roomRoute.roomId ?? sharedRoomId} initialHandoffId={sharedHandoffId} initialEmployeeId={sharedEmployeeId} incomingMention={incomingRoomMention} onMentionConsumed={(id) => setRoomMention((current) => current?.id === id ? undefined : current)} incomingTaskDraft={currentSlackTask ?? undefined} onTaskDraftConsumed={(id) => setIncomingSlackTask((current) => current?.id === id ? null : current)} onRoomChange={(id) => { setSharedRoomId(id); roomRoute.onRoomChange(id); }} onOpenNotificationPreferences={teamWorkspaceId ? undefined : () => { setSettingsSection("notifications"); openView("settings"); }}
@@ -4344,7 +4374,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   </div>
                 ) : null}
 
-                <details className="mx-3 mt-3 shrink-0 rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)]/70 px-3 py-2 sm:mx-5 xl:mx-8">
+                <details className={`${runtimeMainEmployee ? "hidden " : ""}mx-3 mt-3 shrink-0 rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)]/70 px-3 py-2 sm:mx-5 xl:mx-8`}>
                   <summary className="cursor-pointer select-none text-xs font-medium text-[var(--muted-foreground-1)]">
                     Task history · {taskHistoryItems.length}
                   </summary>
@@ -4360,9 +4390,17 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   </div>
                 </details>
 
+                {runtimeMainEmployee ? (
+                  <div className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-4 sm:px-5 xl:px-8">
+                    <ConversationModeSwitch value={conversationMode} onChange={setConversationMode} disabled={false} />
+                    <BotRuntimeChat key={`${runtimeMainEmployee.id}:${selectedSessionId}`} agentId={runtimeMainEmployee.id} workspaceId={teamWorkspaceId || undefined} conversationId={selectedSessionId} variant="main" draft={task} onDraftChange={setTask} />
+                  </div>
+                ) : null}
+
                 {/* TIMELINE (scrollable) — hidden on the empty-state hero */}
                 <div
                   className={`min-h-0 px-3 sm:px-5 xl:px-8 py-5 ${conversationMode === "chat" ? "flex-auto xl:flex-1 xl:overflow-y-auto xl:overscroll-contain" : "flex-1 overflow-y-auto overscroll-contain"} ${threadHasWork ? "" : "hidden"}`}
+                  style={runtimeMainEmployee ? { display: "none" } : undefined}
                 >
                   {conversationMode === "chat" ? <RemoteAgentStream stream={realtimeRemoteStream} /> : null}
                   {privateDataEnabled && chatAgentName && conversationMode !== "chat" ? <UiBlockQuestions key={chatAgentName} runId={chatAgentName} sessionId={selectedSessionId} /> : null}
@@ -4409,7 +4447,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   ) : null}
                 </div>
 
-                {privateDataEnabled && !threadLinkPending && conversationMode === "chat" ? (
+                {privateDataEnabled && !runtimeMainEmployee && !threadLinkPending && conversationMode === "chat" ? (
                   <BrowserPanel key={orchestratorName} sessionId={selectedSessionId} />
                 ) : null}
 
@@ -4420,6 +4458,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                       ? `flex flex-col min-h-0 ${conversationMode === "chat" ? "flex-auto xl:flex-1" : "flex-1"}`
                       : "border-t border-[var(--border-1)] bg-[var(--card)]/60 px-3 sm:px-5 xl:px-8 pt-3 sm:pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] shrink-0"
                   }
+                  style={runtimeMainEmployee ? { display: "none" } : undefined}
                 >
                   {conversationMode === "chat" ? (
                     <ConversationRoomPresence
@@ -4607,6 +4646,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   agent={activeEmployee}
                   directoryLoading={customAgentsLoading && Boolean(customAgentId)}
                   workspaceName={teamWorkspace?.name}
+                  workspaceId={teamWorkspaceId || undefined}
+                  conversationId={botPage === "chat" ? selectedSessionId : undefined}
                   ownerName={orchestratorName ?? undefined}
                   editing={!teamWorkspaceId && !restrictedTeamMember}
                   modelEdit={botModelEdit}
@@ -4727,7 +4768,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               onNavigate={openView}
             />
           ) : mainView === "files" ? (
-            <FilesView onNavigate={(view) => { if (view === "memory") setMemoryView("sources"); openView(view); }} />
+            <FilesView appPreviewOwner={privateDataEnabled && authMode === "access" ? orchestratorName?.trim().toLowerCase() : undefined} onNavigate={(view) => { if (view === "memory") setMemoryView("sources"); openView(view); }} />
           ) : mainView === "notes" ? (
             <NotesEditor workspaceId={teamWorkspaceId || null} onNavigate={(view) => { if (view === "memory") setMemoryView("sources"); openView(view); }} />
           ) : mainView === "projects" ? (
@@ -4895,8 +4936,9 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   Clear Conversation & Runs?
                 </h3>
                 <p className="text-sm text-[var(--muted-foreground-2)] mb-5 leading-relaxed">
-                  This will erase all active conversation history and delete retained run registry
-                  records on the orchestrator. Active sandboxes will not be destroyed automatically.
+                  This will erase all active conversation history, including lightweight employee runtime
+                  messages, and delete retained run registry records on the orchestrator. Active
+                  sandboxes will not be destroyed automatically.
                 </p>
                 <div className="flex items-center justify-end gap-3">
                   <button

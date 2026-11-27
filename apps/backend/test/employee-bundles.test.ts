@@ -134,6 +134,19 @@ describe("personal reviewed employee bundles", () => {
     await expect(exportEmployeeBundle(env, "org-a", auth.owner, withSkill)).rejects.toThrow("skill_source_changed_or_unavailable");
   });
 
+  it("exports and imports a conversational employee without a coding harness", async () => {
+    const { env } = bindings();
+    const { harness: _harness, ...portableProfile } = recipe().profile;
+    const portableRecipe = validateEmployeeBundle({ ...recipe(), format: "shiba.employee-bundle.v2", profile: portableProfile });
+    expect(portableRecipe.profile).not.toHaveProperty("harness");
+    const profile = await createCustomAgent(env, "org-a", "conversational", { name: "Researcher", instructions: "Prepare sourced briefs." });
+    await recordEmployeeBundleProfileOwner(env, "org-a", profile.id, auth.owner);
+    const exported = await exportEmployeeBundle(env, "org-a", auth.owner, { employeeId: profile.id, expectedVersion: 1, skillPins: [] });
+    expect(exported.format).toBe("shiba.employee-bundle.v2");
+    expect(exported.profile).not.toHaveProperty("harness");
+    expect(() => validateEmployeeBundle({ ...exported, format: "shiba.employee-bundle.v1" })).toThrow("v2");
+  });
+
   it.each([
     (value: EmployeeBundle) => ({ ...value, tokens: { access_token: "privatevalue" } }),
     (value: EmployeeBundle) => ({ ...value, audience: "workspace" }),

@@ -97,7 +97,6 @@ try {
   const engineering = agents.body.agents.find((agent) => agent.config.name === "Engineering bot");
   assert.ok(research && engineering, "both seeded bots are listed");
   const briefFileId = research.config.libraryFileIds[0];
-  const docxFileId = research.config.libraryFileIds[1];
   pass("Both bots and their linked files exist in D1");
 
   await page.goto(`${BASE}/app/`);

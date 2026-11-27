@@ -212,6 +212,7 @@
       { "name": "Spaces", "class_name": "Spaces" },
       { "name": "ConversationRoom", "class_name": "ConversationRoom" },
       { "name": "WorkspaceEvents", "class_name": "WorkspaceEvents" },
+      { "name": "EmployeeRuntime", "class_name": "EmployeeRuntime" },
       { "name": "DISCORD_GATEWAY", "class_name": "DiscordGateway" },
       { "name": "BrowserSession", "class_name": "BrowserSession" },
     ],
@@ -312,5 +313,6 @@
     { "tag": "v15", "new_sqlite_classes": ["ConversationRoom"] },
     { "tag": "v16", "new_sqlite_classes": ["WorkspaceEvents"] },
     { "tag": "v17", "new_sqlite_classes": ["DiscordGateway", "BrowserSession"] },
+    { "tag": "v18", "new_sqlite_classes": ["EmployeeRuntime"] },
   ],
 }
