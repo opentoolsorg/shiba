@@ -17,6 +17,7 @@ export async function GET() {
 	const entries: Array<{ path: string; lastmod?: string }> = [
 		{ path: '/' },
 		{ path: '/why-shiba/' },
+		{ path: '/about/' },
 		{ path: '/waitlist/' },
 		{ path: '/network/' },
 		{ path: '/integrations/' },
