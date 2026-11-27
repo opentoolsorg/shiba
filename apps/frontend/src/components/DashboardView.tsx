@@ -146,6 +146,10 @@ export function DashboardView({
   const workspaceTerminalTasks = sharedTasks.filter((task) => ["done", "completed", "blocked", "cancelled"].includes(task.status)).length;
   const workspaceCompletionRate = workspaceTerminalTasks > 0 ? Math.round((workspaceCompletedTasks / workspaceTerminalTasks) * 100) : null;
   const title = workspaceScope ? workspaceName?.trim() || "Workspace" : "Dashboard";
+  const inMotionTasks = openSharedTasks.filter((task) => ["queued", "running", "in-progress"].includes(task.status)).length;
+  const inMotion = workspaceScope
+    ? { count: inMotionTasks, detail: `${inMotionTasks} shared task${inMotionTasks === 1 ? " is" : "s are"} queued or in progress. Open Work to follow progress and next steps.` }
+    : { count: stats.active.length, detail: `${stats.active.length} run${stats.active.length === 1 ? " is" : "s are"} running or pending. Open Work to follow progress and next steps.` };
   const nextStep =
     approvalCount > 0
       ? {
@@ -164,10 +168,10 @@ export function DashboardView({
             icon: Terminal,
           }
         : {
-            label: stats.active.length > 0 ? "Work is in motion" : "Make room for your next idea",
+            label: inMotion.count > 0 ? "Work is in motion" : "Make room for your next idea",
             detail:
-              stats.active.length > 0
-                ? `${stats.active.length} run${stats.active.length === 1 ? " is" : "s are"} running or pending. Open Work to follow progress and next steps.`
+              inMotion.count > 0
+                ? inMotion.detail
                 : "Plan a task, choose an agent, and review the request before execution starts.",
             action: "Open work",
             view: "work" as const,

@@ -159,6 +159,9 @@ describe("DashboardView", () => {
     expect(within(summary).getByRole("button", { name: /Shared tasks.*1 active in this workspace/ })).toBeTruthy();
     expect(within(summary).getByRole("button", { name: /AI employees.*1 working on shared tasks/ })).toBeTruthy();
     expect(within(summary).getByRole("button", { name: /Completion rate.*No finished shared tasks yet/ })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Work is in motion" })).toBeTruthy();
+    expect(screen.getByText("1 shared task is queued or in progress. Open Work to follow progress and next steps.")).toBeTruthy();
+    expect(screen.queryByText(/run is running or pending/)).toBeNull();
   });
 
   it("keeps workspace actions in workspace scope and opens the selected shared task", () => {
