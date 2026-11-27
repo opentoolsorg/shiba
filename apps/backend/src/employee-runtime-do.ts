@@ -106,7 +106,7 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
     const execution = this.store.createExecution({
       conversationId: body.conversationId,
       mode: body.mode,
-      inputJson: JSON.stringify({ message: body.message, employeeVersion: body.profile.employeeVersion }),
+      inputJson: JSON.stringify({ conversationId: body.conversationId, mode: body.mode, employeeVersion: body.profile.employeeVersion, messageLength: body.message.length, messagePreview: body.message.slice(0, 4000) }),
     });
     const controller = new AbortController();
     this.active.set(execution.id, controller);
@@ -199,7 +199,7 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
   private async cancel(request: Request): Promise<Response> {
     const parsed = employeeRuntimeCancelSchema.parse(await bodyObject(request));
     const execution = this.store.getExecution(parsed.executionId);
-    if (!execution) return json({ error: "Execution not found." }, { status: 404 });
+    if (!execution || execution.conversationId !== parsed.conversationId) return json({ error: "Execution not found." }, { status: 404 });
     if (execution.status !== "running") return json({ execution, cancelled: false });
     this.active.get(execution.id)?.abort();
     const updated = this.store.updateExecution(execution.id, { status: "cancelled", checkpoint: "cancelled", error: "Execution cancelled." });

@@ -34,6 +34,7 @@ export type EmployeeRuntimeMemoryWrite = z.infer<typeof employeeRuntimeMemoryWri
 
 export const employeeRuntimeCancelSchema = z.object({
   executionId: z.string().trim().min(1).max(128),
+  conversationId: z.string().trim().min(1).max(128).default("default"),
 });
 export type EmployeeRuntimeCancelRequest = z.infer<typeof employeeRuntimeCancelSchema>;
 

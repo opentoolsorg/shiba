@@ -4,12 +4,12 @@ import { handleCustomAgents } from "../src/custom-agents-routes.js";
 import { createCustomAgent } from "../src/custom-agents-store.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
-const authState = vi.hoisted(() => ({ dashboard: false }));
+const authState = vi.hoisted(() => ({ dashboard: false, userId: "owner@example.test" }));
 
 vi.mock("../src/request-auth.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../src/request-auth.js")>(),
   isAuthorizedRequest: vi.fn(async () => authState.dashboard),
-  resolveUserId: vi.fn(async () => authState.dashboard ? "owner@example.test" : null),
+  resolveUserId: vi.fn(async () => authState.dashboard ? authState.userId : null),
 }));
 
 function runtimeEnv(calls: Array<{ url: string; init?: RequestInit }>): Env {
@@ -42,6 +42,7 @@ function post(path: string, body: unknown): Request {
 describe("employee runtime routes", () => {
   beforeEach(() => {
     authState.dashboard = true;
+    authState.userId = "owner@example.test";
   });
 
   it("forwards a server-owned frozen employee profile without harness authority", async () => {
@@ -66,6 +67,20 @@ describe("employee runtime routes", () => {
     expect(forwarded.profile).toMatchObject({ model: "@cf/test/employee-model" });
     expect(forwarded.profile).not.toHaveProperty("harness");
     expect(forwarded.profile).not.toHaveProperty("codingModel");
+    expect(forwarded.conversationId).toMatch(/^u_[a-f0-9]{32}_[a-f0-9]{32}$/);
+    expect(forwarded.conversationId).not.toBe("default");
+  });
+
+  it("gives different authenticated actors different private conversation namespaces", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const env = runtimeEnv(calls);
+    const agent = await createCustomAgent(env, "self-hosted", "private-scout", { name: "Scout", instructions: "Answer carefully." });
+    await handleCustomAgents(post(`/${agent.id}/runtime/chat`, { conversationId: "default", message: "hello" }), env);
+    authState.userId = "teammate@example.test";
+    await handleCustomAgents(post(`/${agent.id}/runtime/chat`, { conversationId: "default", message: "hello" }), env);
+    const first = JSON.parse(String(calls[0]?.init?.body)) as { conversationId: string };
+    const second = JSON.parse(String(calls[1]?.init?.body)) as { conversationId: string };
+    expect(first.conversationId).not.toBe(second.conversationId);
   });
 
   it("rejects invalid chat input before touching the runtime object", async () => {

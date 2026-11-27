@@ -61,6 +61,15 @@ describe("employee access", () => {
     expect(sqlite.prepare("SELECT COUNT(*) AS n FROM audit_log").get()).toMatchObject({ n: 5 });
     await expect(set("everyone", "*", "inherit")).rejects.toThrow("Everyone requires an explicit level");
   });
+  it("requires manage authority for employee runtime recovery", async () => {
+    const { env, employee, workspaceId, set, auth } = await fixture(); auth();
+    const request = () => new Request(`https://app.test/api/custom-agents/${employee.id}/runtime/recover`, { method: "POST", headers: { "X-Shiba-Workspace": workspaceId }, body: "{}" });
+    for (const [level, status] of [["none", 404], ["view", 403], ["chat", 403], ["manage", undefined]] as const) {
+      await set("everyone", "*", level);
+      expect((await enforceEmployeeRouteAccess(request(), env))?.status).toBe(status);
+    }
+  });
+
   it("leaves empty or unparseable new session bodies to the session handler", async () => {
     const { env, auth } = await fixture(); auth();
     for (const body of [undefined, "", "{"]) expect(await enforceEmployeeRouteAccess(new Request("https://app.test/api/sessions", { method: "POST", body }), env)).toBeNull();

@@ -89,4 +89,25 @@ describe("EmployeeRuntime Durable Object", () => {
     expect(await response.json()).toEqual({ interrupted: 1 });
     expect(db.prepare("SELECT status,checkpoint FROM employee_runtime_executions WHERE id='run_test'").get()).toMatchObject({ status: "interrupted", checkpoint: "recovery_required" });
   });
+  it("does not cancel an execution from a different conversation", async () => {
+    const { runtime, db } = fixture();
+    db.prepare(`INSERT INTO employee_runtime_executions(id,conversation_id,mode,status,checkpoint,input_json,created_at,updated_at)
+      VALUES('run_scoped','u_actor_conv','chat','running','inference','{}',1,1)`).run();
+    const response = await runtime.onRequest(new Request("https://do/internal/employee-runtime/cancel", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ executionId: "run_scoped", conversationId: "u_actor_other" }),
+    }));
+    expect(response.status).toBe(404);
+    expect(db.prepare("SELECT status FROM employee_runtime_executions WHERE id='run_scoped'").get()).toEqual({ status: "running" });
+  });
+
+  it("stores bounded structured input metadata for execution checkpoints", async () => {
+    const { runtime, db } = fixture();
+    const response = await runtime.onRequest(chat("hello"));
+    expect(response.status).toBe(200);
+    const row = db.prepare("SELECT input_json FROM employee_runtime_executions").get() as { input_json: string };
+    const input = JSON.parse(row.input_json) as Record<string, unknown>;
+    expect(input).toMatchObject({ conversationId: "default", mode: "chat", employeeVersion: 2, messageLength: 5, messagePreview: "hello" });
+    expect(input).not.toHaveProperty("message");
+  });
 });

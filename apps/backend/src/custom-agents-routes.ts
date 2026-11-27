@@ -63,7 +63,7 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
     }
     if (/[/\\]/.test(runtimeAgentId)) return Response.json({ ok: false, error: "invalid_agent_id" }, { status: 400 });
     const action = runtimeRoute[2] === "memory/search" ? "memory-search" : runtimeRoute[2]!;
-    return handleEmployeeRuntimeRequest(request, env, auth.orgId, runtimeAgentId, action);
+    return handleEmployeeRuntimeRequest(request, env, auth, runtimeAgentId, action);
   }
 
   // Only explicit lifecycle suffixes are supported. An unknown suffix must
