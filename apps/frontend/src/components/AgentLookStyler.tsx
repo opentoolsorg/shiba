@@ -93,7 +93,7 @@ export function AgentLookStyler({ id, role, preset, shape, color, eyes, acc, onC
             </button>
           </div>
           <p className="text-center text-[11px] text-[var(--muted-foreground-2)]">
-            {custom ? "Custom avatar" : automatic ? "Default Shiba portrait" : "Matched to name and role"}
+            {custom ? "Custom avatar" : automatic ? "Default robot portrait" : "Matched to name and role"}
           </p>
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-3">
@@ -135,13 +135,13 @@ export function AgentLookStyler({ id, role, preset, shape, color, eyes, acc, onC
           </div>
           <div className="flex flex-col gap-1">
             <span className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">Color</span>
-            <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Fur color">
-              {AGENT_MASCOT_FURS.map((fur, index) => (
+            <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Shell color">
+              {AGENT_MASCOT_FURS.map((shell, index) => (
                 <button
-                  key={fur.id}
+                  key={shell.id}
                   type="button"
                   role="radio"
-                  aria-checked={preview.color === fur.hex}
+                  aria-checked={preview.color === shell.hex}
                   tabIndex={index === Math.max(0, AGENT_MASCOT_FURS.findIndex((option) => option.hex === preview.color)) ? 0 : -1}
                   onKeyDown={(event) => {
                     let next: number;
@@ -154,14 +154,14 @@ export function AgentLookStyler({ id, role, preset, shape, color, eyes, acc, onC
                     pick({ color: AGENT_MASCOT_FURS[next]!.hex });
                     event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="radio"]')[next]?.focus();
                   }}
-                  aria-label={fur.label}
-                  title={fur.label}
-                  onClick={() => pick({ color: fur.hex })}
+                  aria-label={shell.label}
+                  title={shell.label}
+                  onClick={() => pick({ color: shell.hex })}
                   className={`inline-flex size-11 cursor-pointer items-center justify-center rounded border focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] ${
-                    custom && preview.color === fur.hex ? "border-[var(--primary)]" : "border-[var(--border-1)]"
+                    custom && preview.color === shell.hex ? "border-[var(--primary)]" : "border-[var(--border-1)]"
                   }`}
                 >
-                  <span className="size-6 rounded-sm border border-black/10" style={{ background: fur.hex }} />
+                  <span className="size-6 rounded-sm border border-black/10" style={{ background: shell.hex }} />
                 </button>
               ))}
             </div>

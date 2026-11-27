@@ -1,6 +1,7 @@
 ---
 import '../styles/landing.css';
 import EmployeeCast from '../components/landing/EmployeeCast.astro';
+import RobotAvatar from '../components/RobotAvatar.astro';
 import ThemedScreenshot from '../components/landing/ThemedScreenshot.astro';
 import MarketingPage from '../layouts/MarketingPage.astro';
 
@@ -144,7 +145,7 @@ const controls = [
     <section id="cta" class="cta" aria-labelledby="cta-title">
       <div class="cta-dots" aria-hidden="true"></div>
       <div class="lp-shell cta-inner" data-motion="reveal">
-        <img class="cta-logo" src="/landing/shiba-logo.webp" alt="" width="120" height="120" loading="lazy" decoding="async" />
+        <span class="cta-logo"><RobotAvatar character="shiba" size="mark" /></span>
         <h2 id="cta-title" class="cta-title">Give the next task a clear place to start.</h2>
         <p class="cta-lead">Free to self-host. Your servers, your repository, your approval.</p>
         <div class="cta-actions">
@@ -199,7 +200,7 @@ const controls = [
   .hero-pill {
     display: inline-block;
     padding: 6px 14px;
-    border: 1px solid var(--lp-line2);
+    border: 1px solid var(--lp-line);
     border-radius: 999px;
     background: var(--lp-card);
     color: var(--lp-accent);
@@ -211,10 +212,11 @@ const controls = [
     max-width: none;
     margin: 28px 0 22px;
     color: var(--lp-ink);
-    font-size: 84px;
-    font-weight: 600;
-    line-height: 1;
-    letter-spacing: -0.05em;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: clamp(56px, 7vw, 92px);
+    font-weight: 400;
+    line-height: 0.98;
+    letter-spacing: -0.04em;
     text-wrap: balance;
   }
   .hero-accent { color: var(--lp-accent); }

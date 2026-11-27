@@ -1,6 +1,6 @@
 ---
 import MarketingPage from '../layouts/MarketingPage.astro';
-import ShibaMascot from '../components/ShibaMascot.astro';
+import RobotAvatar from '../components/RobotAvatar.astro';
 import AgentCast from '../components/AgentCast.astro';
 
 const states = [
@@ -25,7 +25,7 @@ const states = [
         {states.map(({ state, label, detail }, index) => (
           <article class="state-card">
             <div class="state-top"><span>{String(index + 1).padStart(2, '0')}</span><code>{state}</code></div>
-            <ShibaMascot state={state} size="card" title={`Shiba ${state.replaceAll('-', ' ')}`} />
+            <RobotAvatar size="card" title={`Robot ${state.replaceAll('-', ' ')}`} />
             <h3>{label}</h3><p>{detail}</p>
           </article>
         ))}
@@ -40,10 +40,10 @@ const states = [
     <section class="hero-studies" aria-labelledby="hero-states-title">
       <div class="section-heading"><h2 id="hero-states-title">Big feelings. Same little Shiba.</h2><span>03 — 240PX EXPRESSION STUDIES</span></div>
       <div class="hero-states">
-        {states.map(({ state, label }) => <article class="state-card"><ShibaMascot state={state} size="hero" title={label} /><h3>{label}</h3></article>)}
+        {states.map(({ state, label }) => <article class="state-card"><RobotAvatar size="hero" title={label} /><h3>{label}</h3></article>)}
       </div>
       <div class="state-lab">
-        <div id="live-expression"><ShibaMascot size="hero" title="Interactive Shiba expression preview" /></div>
+        <div id="live-expression"><RobotAvatar size="hero" title="Interactive robot expression preview" /></div>
         <fieldset hidden data-preview-controls><legend>Change the live SVG’s data-state</legend>{states.map(({ state }) => <button type="button" data-preview-state={state} aria-pressed={state === 'idle'}>{state}</button>)}</fieldset>
         <noscript><p>All five expression studies remain visible above without JavaScript.</p></noscript>
       </div>

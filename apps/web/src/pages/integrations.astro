@@ -1,5 +1,6 @@
 ---
 import IntegrationLogos from '../components/IntegrationLogos.astro';
+import RobotAvatar from '../components/RobotAvatar.astro';
 import MarketingPage from '../layouts/MarketingPage.astro';
 import PlannedCatalog from '../components/landing/PlannedCatalog.astro';
 import '../styles/landing.css';
@@ -13,7 +14,7 @@ const repoUrl = 'https://github.com/opentoolsorg/shiba';
 const workflows = [
   {
     title: 'Brief a campaign',
-    mascot: '/landing/mascots/marketing.svg',
+    robot: 'marketing',
     left: 'Slack · task brief',
     right: 'GitHub · draft files',
     copy: 'Supply the product context in a conversation. Review the proposed run before an employee prepares campaign files in your repository.',
@@ -22,7 +23,7 @@ const workflows = [
   },
   {
     title: 'Research with context',
-    mascot: '/landing/mascots/research.svg',
+    robot: 'research',
     left: 'Gmail · read-only context',
     right: 'GitHub · research files',
     copy: 'Use permitted email search results to frame a focused question. Approve the repository task and review its sources and open questions.',
@@ -31,7 +32,7 @@ const workflows = [
   },
   {
     title: 'Repeat the useful work',
-    mascot: '/landing/mascots/engineering.svg',
+    robot: 'engineering',
     left: 'Cron · scheduled request',
     right: 'GitHub · changes + checks',
     copy: 'Schedule a request for repository maintenance. The proposed run still waits for human approval before the configured AI tool acts.',
@@ -82,7 +83,7 @@ const boundaries = [
         <div class="tool-chip chip-c"><IntegrationLogos providerKey="github" />GitHub · your repository</div>
         <div class="visual-center">
           <div class="visual-tag">Instructions + your approval</div>
-          <img src="/landing/mascots/operations.svg" alt="" width="260" height="240" decoding="async" />
+          <RobotAvatar character="operations" size="hero" />
           <div class="employee-label">Your Shiba employee</div>
           <div class="visual-tag">Your own servers</div>
         </div>
@@ -107,7 +108,7 @@ const boundaries = [
             <article class="workflow" data-motion="reveal">
               <div class="workflow-art">
                 <span class="mini-chip mini-left">{flow.left}</span>
-                <img src={flow.mascot} alt="" width="190" height="176" loading="lazy" decoding="async" />
+                <RobotAvatar character={flow.robot} size="card" />
                 <span class="mini-chip mini-right">{flow.right}</span>
               </div>
               <div class="workflow-copy">
@@ -193,7 +194,7 @@ const boundaries = [
 
     <section class="cta" aria-labelledby="cta-title">
       <div class="lp-shell" data-motion="reveal">
-        <img src="/landing/mascots/custom.svg" alt="" width="130" height="120" loading="lazy" decoding="async" />
+        <RobotAvatar character="custom" size="mark" />
         <h2 id="cta-title">Start with one employee.<br />Give it one clear brief.</h2>
         <p>Set up your own workspace, choose a repository, and verify the tools you plan to use. Free software; hosting and model usage cost extra.</p>
         <div class="actions">

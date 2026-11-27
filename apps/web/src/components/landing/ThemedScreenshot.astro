@@ -1,64 +1,78 @@
 ---
-interface Props {
-  class?: string;
-}
-
+import RobotAvatar from '../RobotAvatar.astro';
+interface Props { class?: string }
 const { class: className } = Astro.props;
 ---
 
 <figure class:list={['lp-shot', className]}>
-  <div class="lp-shot-frame">
-    <picture>
-      <source
-        data-theme-source
-        media="(prefers-color-scheme: dark)"
-        srcset="/landing/app-agents-dark.png"
-        width="3024"
-        height="1672"
-      />
-      <img
-        src="/landing/app-agents-light.png"
-        alt="Actual Shiba app showing the Agents workspace and template catalog"
-        width="3000"
-        height="1666"
-        loading="eager"
-        decoding="async"
-        fetchpriority="high"
-      />
-    </picture>
+  <div class="lp-shot-frame" role="img" aria-label="Shiba dashboard workspace with robot employee avatars and template catalog">
+    <div class="mock-window">
+      <div class="mock-top"><span></span><span></span><span></span><strong>Shiba · Agents</strong></div>
+      <div class="mock-body">
+        <aside class="mock-nav">
+          <div class="mock-brand"><RobotAvatar character="shiba" size="mark" /><span>Shiba</span></div>
+          <div class="mock-search"></div>
+          {['Workspace', 'Personal'].map((label) => <div class="mock-group">{label}</div>)}
+          {['shiba', 'engineering', 'research', 'operations'].map((role) => <div class="mock-agent"><RobotAvatar character={role} size="mark" /><span>{role}</span><i></i></div>)}
+        </aside>
+        <main class="mock-main">
+          <div class="mock-crumbs">Workspace / Agents / All</div>
+          <section class="mock-hero">
+            <div>
+              <small>A little team, a lot of possibility.</small>
+              <h2>Your next great teammate.</h2>
+              <p>Give the work a home. Hire a specialist, start a thread, and build on what you learn together.</p>
+            </div>
+            <div class="mock-cluster"><RobotAvatar character="engineering" size="mark" /><RobotAvatar character="marketing" size="mark" /><RobotAvatar character="research" size="mark" /></div>
+          </section>
+          <section class="mock-catalog">
+            <div class="mock-catalog-head"><h3>Template catalog</h3><span></span></div>
+            <div class="mock-cards">
+              {['engineering', 'marketing', 'research', 'operations'].map((role) => <article><RobotAvatar character={role} size="mark" /><h4>{role}</h4><p></p><p class="short"></p></article>)}
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
   </div>
-  <figcaption>Actual Shiba app · Agents and template catalog · captured product UI</figcaption>
+  <figcaption>Shiba app · customizable robot employee avatars · Agents workspace</figcaption>
 </figure>
 
 <style>
-  .lp-shot {
-    max-width: 1180px;
-    margin: 0 auto;
-  }
-
-  .lp-shot-frame {
-    overflow: hidden;
-    background: var(--lp-raised);
-    border: 1px solid var(--lp-line2);
-    border-radius: 8px;
-    box-shadow: var(--lp-shadow);
-  }
-
-  /* One fixed ratio for both captures (they differ by <0.5%), so a theme
-     switch never moves the content below. */
-  .lp-shot img {
-    display: block;
-    width: 100%;
-    height: auto;
-    aspect-ratio: 3000 / 1666;
-    object-fit: cover;
-    object-position: top center;
-  }
-
-  figcaption {
-    margin: 16px 0 0;
-    color: var(--lp-ink2);
-    font: 500 12px/1.5 var(--lp-font-mono);
-    text-align: center;
-  }
+  .lp-shot { max-width: 1180px; margin: 0 auto; }
+  .lp-shot-frame { overflow: hidden; background: var(--lp-raised); border: 1px solid var(--lp-line); border-radius: 14px; box-shadow: 0 24px 80px rgba(10,10,10,.10); }
+  .mock-window { background: #fafafa; color: #0a0a0a; font-family: Geist, system-ui, sans-serif; }
+  .mock-top { display: flex; align-items: center; gap: 7px; height: 38px; padding: 0 16px; border-bottom: 1px solid #e4e4e7; background: #fff; }
+  .mock-top span { width: 8px; height: 8px; border-radius: 99px; background: #d4d4d8; }
+  .mock-top strong { margin-left: 8px; font-size: 11px; color: #71717a; font-weight: 500; }
+  .mock-body { display: grid; grid-template-columns: 230px 1fr; min-height: 570px; }
+  .mock-nav { border-right: 1px solid #e4e4e7; background: #fff; padding: 14px; }
+  .mock-brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 13px; }
+  .mock-brand svg { width: 25px; height: 25px; }
+  .mock-search { height: 30px; margin: 16px 0 14px; border: 1px solid #e4e4e7; border-radius: 7px; background: #fafafa; }
+  .mock-group { margin: 13px 4px 6px; color: #71717a; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
+  .mock-agent { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 5px 6px; border-radius: 7px; color: #52525b; font-size: 11px; text-transform: capitalize; }
+  .mock-agent:nth-of-type(5) { background: #f4f4f5; color: #0a0a0a; }
+  .mock-agent svg { width: 24px; height: 24px; }
+  .mock-agent i { width: 5px; height: 5px; margin-left: auto; border-radius: 99px; background: #22c55e; }
+  .mock-main { padding: 20px; background: #fafafa; }
+  .mock-crumbs { color: #71717a; font: 500 10px/1 Geist Mono, monospace; margin-bottom: 16px; }
+  .mock-hero { display: flex; align-items: center; justify-content: space-between; min-height: 150px; padding: 24px; border: 1px solid #e4e4e7; border-radius: 12px; background: #fff; }
+  .mock-hero small { color: #71717a; font: 500 9px/1 Geist Mono, monospace; text-transform: uppercase; letter-spacing: .12em; }
+  .mock-hero h2 { margin: 8px 0; font-size: 25px; line-height: 1.1; letter-spacing: -.03em; }
+  .mock-hero p { max-width: 440px; margin: 0; color: #71717a; font-size: 11px; line-height: 1.6; }
+  .mock-cluster { display: flex; margin-right: 20px; }
+  .mock-cluster svg { width: 70px; height: 70px; margin-left: -13px; filter: drop-shadow(0 5px 10px rgba(0,0,0,.12)); }
+  .mock-catalog { margin-top: 18px; }
+  .mock-catalog-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .mock-catalog-head h3 { margin: 0; font-size: 15px; }
+  .mock-catalog-head span { width: 220px; height: 28px; border: 1px solid #e4e4e7; border-radius: 7px; background: #fff; }
+  .mock-cards { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; }
+  .mock-cards article { min-height: 150px; padding: 14px; border: 1px solid #e4e4e7; border-radius: 10px; background: #fff; }
+  .mock-cards svg { width: 58px; height: 58px; }
+  .mock-cards h4 { margin: 8px 0 10px; font-size: 12px; text-transform: capitalize; }
+  .mock-cards p { width: 100%; height: 7px; margin: 8px 0 0; border-radius: 99px; background: #e4e4e7; }
+  .mock-cards p.short { width: 62%; }
+  figcaption { margin: 16px 0 0; color: var(--lp-ink2); font: 500 12px/1.5 var(--lp-font-mono); text-align: center; }
+  @media (max-width: 760px) { .mock-body { grid-template-columns: 76px 1fr; min-height: 480px; } .mock-brand span,.mock-group,.mock-agent span,.mock-agent i,.mock-search { display:none } .mock-agent { justify-content:center } .mock-main { padding: 12px } .mock-hero { min-height: 130px; padding: 16px } .mock-cluster svg { width: 50px; height: 50px } .mock-cards { grid-template-columns: repeat(2,1fr) } .mock-catalog-head span { width: 100px } }
 </style>

@@ -1,4 +1,6 @@
 ---
+import RobotAvatar from '../RobotAvatar.astro';
+
 const roles = [
   { t: 'Marketing', kind: 'Built-in template', mascot: 'marketing', d: 'Turn a product brief into campaign drafts for your review.', a: 'Launch brief', b: 'Campaign copy' },
   { t: 'Sales', kind: 'Custom role example', mascot: 'sales', d: 'Prepare account research and outreach drafts from supplied context.', a: 'Account brief', b: 'Draft outreach' },
@@ -34,7 +36,7 @@ const roles = [
               <span aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>
             </div>
             <div class="lp-avatar">
-              <img src={`/landing/mascots/${e.mascot}.svg`} alt="" width="260" height="240" loading="lazy" decoding="async" />
+              <RobotAvatar character={e.mascot} size="card" />
             </div>
             <h3>{e.t}</h3>
             <p class="lp-role">{e.d}</p>
@@ -96,9 +98,9 @@ const roles = [
     flex-direction: column;
     padding: 24px;
     background: var(--lp-card);
-    border: 2px solid var(--lp-ink);
-    border-radius: 0;
-    box-shadow: -3px 3px 0 var(--lp-ink);
+    border: 1px solid var(--lp-line);
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(10,10,10,.06);
   }
 
   .lp-card-top {
@@ -113,7 +115,7 @@ const roles = [
 
   .lp-template-label {
     padding: 3px 8px;
-    border: 1.5px solid var(--lp-ink);
+    border: 1px solid var(--lp-line2);
     border-radius: 4px;
     font-size: 11px;
     font-weight: 500;
