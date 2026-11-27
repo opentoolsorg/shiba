@@ -45,7 +45,7 @@ test("all-checks-pass needs every other job and runs unless the workflow was can
   const body = jobBody("all-checks-pass");
   const needs = body.match(/needs: \[([^\]]*)\]/)?.[1].split(",").map((s) => s.trim()) ?? [];
   assert.deepEqual(needs.sort(), jobIds.filter((id) => id !== "all-checks-pass").sort());
-  assert.match(body, /!cancelled\(\)/);
+  assert.match(body, /always\(\) && !cancelled\(\)/);
 });
 
 test("desktop and image lanes have separate cost opt-ins", () => {

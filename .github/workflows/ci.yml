@@ -170,7 +170,7 @@ jobs:
     # lanes must succeed after build:validate, and browser verification must
     # either run through verify:shiba or be explicitly deferred with ci:deferred.
     if: >-
-      ${{ !cancelled() &&
+      ${{ always() && !cancelled() &&
         (github.event_name == 'push' ||
           contains(github.event.pull_request.labels.*.name, 'build:validate') ||
           contains(github.event.pull_request.labels.*.name, 'verify:shiba') ||
