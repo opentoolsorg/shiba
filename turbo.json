@@ -39,7 +39,7 @@
     // slow one. If a live-suite escape hatch is ever needed, keep it here.
     "test": {
       "cache": false,
-      "passThroughEnv": ["SHIBA_TEST_LIVE_GIT_CHECKOUT"],
+      "passThroughEnv": ["SHIBA_TEST_LIVE_GIT_CHECKOUT", "SHIBA_TEST_BUILT_MARKETING"],
       "outputs": [
         "coverage/**"
       ]
