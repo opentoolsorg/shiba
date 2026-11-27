@@ -90,11 +90,18 @@ export async function handleCustomAgents(request: Request, env: Env, authenticat
     if (request.method !== "POST") return Response.json({ ok: false, error: "method_not_allowed" }, { status: 405 });
     if (!agentId) return Response.json({ ok: false, error: "invalid_agent_id" }, { status: 400 });
     try {
-      if (route[2] === "archive" && env.EmployeeRuntime) {
+      const existing = await getCustomAgentById(env, auth.orgId, agentId, { includeArchived: true });
+      if (!existing) return Response.json({ ok: false, error: "not_found" }, { status: 404 });
+      if (route[2] === "restore" && existing.archivedAt !== undefined && env.EmployeeRuntime) {
         const cancelled = await employeeRuntimeStub(env, auth.orgId, agentId).fetch("https://internal/internal/employee-runtime/routines/clear", { method: "POST" });
         if (!cancelled.ok) return Response.json({ ok: false, error: "employee_routine_cancellation_failed" }, { status: 502 });
       }
       const agent = await setCustomAgentArchived(env, auth.orgId, agentId, route[2] === "archive");
+      if (route[2] === "archive" && env.EmployeeRuntime) {
+        // Archived employees self-cancel any schedule that somehow survives; a
+        // later restore must clear schedules before reactivating the employee.
+        await employeeRuntimeStub(env, auth.orgId, agentId).fetch("https://internal/internal/employee-runtime/routines/clear", { method: "POST" }).catch(() => undefined);
+      }
       return Response.json({ ok: true, agent: publicAgent(agent) }, { headers: { "cache-control": "no-store" } });
     } catch (error) {
       if (error instanceof Error && error.message === "Agent not found.") {
