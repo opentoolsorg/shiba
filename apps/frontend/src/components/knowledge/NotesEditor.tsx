@@ -1,12 +1,5 @@
 import { useEditor } from "@tiptap/react";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import StarterKit from "@tiptap/starter-kit";
-import Placeholder from "@tiptap/extension-placeholder";
-import Highlight from "@tiptap/extension-highlight";
-import TaskItem from "@tiptap/extension-task-item";
-import TaskList from "@tiptap/extension-task-list";
-import TextAlign from "@tiptap/extension-text-align";
-import Underline from "@tiptap/extension-underline";
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { knowledgeNoteSchema, type KnowledgeNote, type KnowledgeScope } from "@shiba/shared";
 import type { AppNavView } from "../AppNavRail";
@@ -20,6 +13,7 @@ import { optimisticMutation } from "../../state/optimistic";
 import { patchNotes } from "../../state/note-events";
 import { NoteChatPanel } from "./NoteChatPanel";
 import { NoteDocument } from "./NoteDocument";
+import { noteEditorExtensions } from "./note-editor-extensions";
 import { parseNoteMarkdown, serializeNoteMarkdown } from "./note-markdown";
 
 function editorMarkdown(editor: NonNullable<ReturnType<typeof useEditor>>): string {
@@ -85,15 +79,7 @@ export function NotesEditor({ workspaceId = null, workspaceRole, actorId, onNavi
   contextRef.current = context;
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editor = useEditor({
-    extensions: [
-      StarterKit,
-      Placeholder.configure({ placeholder: "Write something, or press '/' for commands…" }),
-      TextAlign.configure({ types: ["heading", "paragraph"] }),
-      TaskList,
-      TaskItem.configure({ nested: true }),
-      Highlight.configure({ multicolor: true }),
-      Underline,
-    ],
+    extensions: noteEditorExtensions(),
     content: "<p></p>",
     editable: false,
     onUpdate: () => { if (bodyReady.current) markDirty(); },

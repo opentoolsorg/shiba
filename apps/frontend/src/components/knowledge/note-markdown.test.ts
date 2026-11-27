@@ -1,4 +1,7 @@
+import { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { getSchema } from "@tiptap/react";
 import { describe, expect, it } from "vitest";
+import { noteEditorExtensions } from "./note-editor-extensions";
 import { parseNoteMarkdown, serializeNoteMarkdown } from "./note-markdown";
 
 describe("note Markdown", () => {
@@ -166,6 +169,131 @@ describe("note Markdown", () => {
     const itemContent = doc.content?.[0]?.content?.[0]?.content;
     expect(itemContent?.map((node) => node.type)).toEqual(["paragraph", "taskList", "paragraph"]);
     expect(itemContent?.[2]?.content?.[0]?.text).toBe("Follow-up text");
+    expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
+  });
+
+  it("recovers legacy six-space nested checklist serialization", () => {
+    const doc = parseNoteMarkdown("- [ ] Parent\n\n      - [ ] Child\n");
+    const itemContent = doc.content?.[0]?.content?.[0]?.content;
+    expect(itemContent?.map((node) => node.type)).toEqual(["paragraph", "taskList"]);
+    expect(itemContent?.[1]?.content?.[0]?.content?.[0]?.content?.[0]?.text).toBe("Child");
+    expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
+  });
+
+  it("keeps bare and reference links stable", () => {
+    const bare = parseNoteMarkdown("Visit https://example.com now\n");
+    const bareLinked = bare.content?.[0]?.content?.find((node) =>
+      node.marks?.some((mark) => mark.type === "link"),
+    );
+    expect(bareLinked?.text).toBe("https://example.com");
+    expect(parseNoteMarkdown(serializeNoteMarkdown(bare))).toEqual(bare);
+
+    const reference = parseNoteMarkdown(
+      "Read [the guide][guide]\n\n[guide]: https://example.com/docs\n",
+    );
+    const linked = reference.content?.[0]?.content?.find((node) =>
+      node.marks?.some((mark) => mark.type === "link"),
+    );
+    expect(linked?.text).toBe("the guide");
+    expect(linked?.marks?.find((mark) => mark.type === "link")?.attrs?.href).toBe(
+      "https://example.com/docs",
+    );
+    expect(parseNoteMarkdown(serializeNoteMarkdown(reference))).toEqual(reference);
+  });
+
+  it("round trips Markdown tables from chat replies", () => {
+    const doc = parseNoteMarkdown("| Name | State |\n| - | - |\n| Alpha | Done |\n");
+    expect(doc.content?.[0]?.type).toBe("table");
+    expect(
+      doc.content?.[0]?.content?.[1]?.content?.map((cell) => cell.content?.[0]?.content?.[0]?.text),
+    ).toEqual(["Alpha", "Done"]);
+    expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
+  });
+
+  it("preserves checkboxes and alignment inside aligned tasks", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "taskList",
+          content: [
+            {
+              type: "taskItem",
+              attrs: { checked: true },
+              content: [
+                {
+                  type: "paragraph",
+                  attrs: { textAlign: "center" },
+                  content: [{ type: "text", text: "Aligned" }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const saved = serializeNoteMarkdown(doc);
+    expect(saved).toContain("- [x] Aligned");
+    expect(parseNoteMarkdown(saved)).toEqual(doc);
+  });
+
+  it("round trips overlapping bold and italic ranges without literal asterisks", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "a ", marks: [{ type: "bold" }] },
+            { type: "text", text: "b", marks: [{ type: "bold" }, { type: "italic" }] },
+            { type: "text", text: " c", marks: [{ type: "italic" }] },
+          ],
+        },
+      ],
+    };
+    const reopened = parseNoteMarkdown(serializeNoteMarkdown(doc));
+    expect(reopened).toEqual(doc);
+    expect(reopened.content?.[0]?.content?.some((node) => node.text?.includes("*"))).toBe(false);
+  });
+
+  it("round trips a trailing hard break without a literal backslash", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "line" }, { type: "hardBreak" }] },
+      ],
+    };
+    const saved = serializeNoteMarkdown(doc);
+    expect(saved).not.toContain("\\");
+    expect(parseNoteMarkdown(saved)).toEqual(doc);
+  });
+
+  it("resumes ordered numbering after mixed checklist items", () => {
+    const doc = parseNoteMarkdown("1. [ ] task\n2. plain\n3. next\n");
+    expect(doc.content?.map((node) => node.type)).toEqual(["taskList", "orderedList"]);
+    expect(doc.content?.[1]?.attrs).toEqual({ start: 2 });
+    expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
+  });
+
+  it("parses links and tables into the live editor schema", () => {
+    const doc = parseNoteMarkdown("| Name | Link |\n| - | - |\n| Alpha | https://example.com |\n");
+    const schema = getSchema(noteEditorExtensions());
+    expect(() => ProseMirrorNode.fromJSON(schema, doc)).not.toThrow();
+  });
+
+  it("does not preserve unsafe link protocols", () => {
+    const doc = parseNoteMarkdown("[click](javascript:alert(1))\n");
+    expect(doc.content?.[0]?.content?.[0]?.text).toBe("click");
+    expect(doc.content?.[0]?.content?.[0]?.marks).toBeUndefined();
+  });
+
+  it("preserves link titles", () => {
+    const doc = parseNoteMarkdown('[guide](https://example.com "Guide title")\n');
+    const linked = doc.content?.[0]?.content?.[0];
+    expect(linked?.marks?.find((mark) => mark.type === "link")?.attrs).toEqual({
+      href: "https://example.com",
+      title: "Guide title",
+    });
     expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
   });
 });
