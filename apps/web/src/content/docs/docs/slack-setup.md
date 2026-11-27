@@ -13,6 +13,20 @@ The manifest registers `/shiba`, subscribes to mentions and direct messages, and
 
 Keep `chat:write`, `chat:write.customize` and `reactions:write` among the bot scopes. Shiba uses `reactions:write` to acknowledge short thank-you replies with a check mark instead of another approval card. Existing installations need administrator review and reauthorization for the added scope.
 
+### Attach result files
+
+`files:write` lets an approved run attach its named deliverables, and a Slack image request attach its image, to the conversation that asked. The manifest includes it. Without it Shiba still posts replies and the dashboard link in the same thread, says once that files need an administrator, and attempts no upload.
+
+To grant it:
+
+1. In the Slack app, open **OAuth & Permissions** and add `files:write` under **Bot Token Scopes** — or re-import the updated manifest. Keep only the scopes you intend to grant.
+2. Choose **Reinstall to Workspace** and approve the new scope list as a workspace admin.
+3. For the bot-token connection, replace `SLACK_BOT_TOKEN` with the token Slack shows after that reinstall. Shiba reads the granted scopes from Slack, so an old token keeps posting text and stops attempting attachments.
+
+Workspace-owner installations upgrade through **Settings → Integrations → Slack**: select `files:write`, prepare a new authorization request, and have a verified workspace owner review the scopes and activate the returned installation. Selecting the scope is not approval; nothing changes until that review finishes.
+
+Files stay available in Shiba while the scope is missing, and nothing is silently retried later. Ask again after the reinstall to receive them in the conversation.
+
 ## Configure delivery
 
 | Slack setting | Shiba endpoint |

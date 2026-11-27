@@ -1697,7 +1697,7 @@ export async function collectRepositoryChanges(
     opts.onDiffExported?.(key);
   }
   const files = await collectExpectedSandboxDeliverables(ops, workdir, settled, opts.expectedDeliverables, signal);
-  let totalBytes = files.reduce((sum, file) => sum + new TextEncoder().encode(file.content ?? "").byteLength, 0);
+  let totalBytes = 0;
   for (const { path, objectId } of changes) {
     signal?.throwIfAborted();
     if (objectId === null || opts.expectedDeliverables?.includes(path)) continue;

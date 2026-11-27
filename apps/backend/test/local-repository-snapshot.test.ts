@@ -30,6 +30,17 @@ beforeEach(async () => {
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
 describe("local immutable repository capture", () => {
+  it("exports a larger approved workbook and a changed note from one frozen repository", async () => {
+    const content = Buffer.alloc(800_000);
+    content.set([0x50, 0x4b, 0x03, 0x04]);
+    await writeFile(path.join(root, "sales.xlsx"), content);
+    await writeFile(path.join(root, "README.md"), "Reconciled with workbook.");
+    const result = await collectLocalRepositorySnapshot({ cloneDir: root, baseRevision, expectedDeliverables: ["sales.xlsx"], git });
+    expect(result.files).toEqual([
+      { path: "sales.xlsx", encoding: "base64", content: content.toString("base64") },
+      { path: "README.md", encoding: "utf8", content: "Reconciled with workbook." },
+    ]);
+  });
   it("counts unchanged requested deliverables toward the complete 50-file limit", async () => {
     for (let index = 0; index < 50; index++) await writeFile(path.join(root, `file-${index}.txt`), "complete output\n");
     await expect(collectLocalRepositorySnapshot({ cloneDir: root, baseRevision, expectedDeliverables: ["README.md"], git })).rejects.toThrow(/50-file limit/);
@@ -82,6 +93,14 @@ describe("local immutable repository capture", () => {
       return output;
     } });
     expect(result.files[0]).toEqual({ path: "brief.md", content: "# Approved settled brief\n", encoding: "utf8" });
+  });
+
+  it("refuses named bytes that differ from the staged checkpoint", async () => {
+    await writeFile(path.join(root, "brief.md"), "approved version\n");
+    await expect(collectLocalRepositorySnapshot({ cloneDir: root, baseRevision, expectedDeliverables: ["brief.md"], git: async (args, maxBytes) => {
+      if (gitCommand(args)[0] === "add") await writeFile(path.join(root, "brief.md"), "modified version\n");
+      return git(args, maxBytes);
+    } })).rejects.toThrow(/do not match the frozen Git blob/);
   });
 
   it.each(["truncated", "corrupt"])("rejects %s immutable blob transport", async (mode) => {

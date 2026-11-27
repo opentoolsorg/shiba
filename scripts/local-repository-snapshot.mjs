@@ -20,16 +20,15 @@ function nulRecords(bytes) {
   return text === "" ? [] : text.slice(0, -1).split("\0");
 }
 
-function textContent(bytes, required) {
+function textContent(bytes) {
   try {
     const text = decoder().decode(bytes);
     if ([...text].some((character) => {
       const code = character.charCodeAt(0);
       return (code < 32 && ![9, 10, 13].includes(code)) || (code >= 127 && code <= 159);
-    }) || (required && !text.trim())) throw new Error("Expected nonblank UTF-8 text.");
+    })) throw new Error("Expected UTF-8 text.");
     return { content: text, encoding: "utf8" };
-  } catch (error) {
-    if (required) throw error;
+  } catch {
     return { content: bytes.toString("base64"), encoding: "base64" };
   }
 }
@@ -40,9 +39,7 @@ export async function collectLocalRepositorySnapshot({ cloneDir, baseRevision, e
   // refs cannot redirect their trees or blobs to other valid objects.
   const git = (args, maxBytes) => invokeGit(["--no-replace-objects", ...args], maxBytes);
   if (!/^[a-f0-9]{40}$/.test(baseRevision)) throw new Error("Repository capture requires an immutable base revision.");
-  // Keep the native link/containment checks before staging. Returned file bodies
-  // below come exclusively from the frozen Git tree, never this worktree read.
-  await captureExpectedDeliverables(cloneDir, expectedDeliverables);
+  const files = await captureExpectedDeliverables(cloneDir, expectedDeliverables);
   await git(["status", "--porcelain", "-z", "-uall"], 1_000_000);
   const pending = [...new Set([
     ...nulRecords(await git(["diff", "--name-only", "-z", "--no-renames", "--no-ext-diff", "--no-textconv", baseRevision, "--"], 1_000_000)),
@@ -80,27 +77,29 @@ export async function collectLocalRepositorySnapshot({ cloneDir, baseRevision, e
     changes.push({ path: name, objectId: deleted ? null : match[4] });
   }
   if (new Set([...requested, ...changes.map((change) => change.path)]).size > MAX_FILES) throw new Error("Repository checkpoint exceeds the 50-file limit; refusing to publish a partial tree.");
-  const files = [];
   let totalBytes = 0;
-  async function capture(name, objectId, required) {
+  async function capture(name, objectId) {
     const sizeText = (await git(["cat-file", "-s", objectId], 1024)).toString("utf8");
     const size = Number(sizeText.trim());
-    if (!/^\d+\s*$/.test(sizeText) || !Number.isSafeInteger(size) || size > (required ? 16_384 : MAX_FILE_BYTES) || (required && size === 0)) {
+    if (!/^\d+\s*$/.test(sizeText) || !Number.isSafeInteger(size) || size > MAX_FILE_BYTES) {
       throw new Error(`File ${name} exceeds its complete capture size limit.`);
     }
     const bytes = await git(["cat-file", "blob", objectId], size);
     const hash = createHash("sha1").update(`blob ${size}\0`).update(bytes).digest("hex");
     if (bytes.length !== size || hash !== objectId) throw new Error(`File ${name} has truncated or corrupt Git blob bytes.`);
     totalBytes += size;
-    if (totalBytes > MAX_TOTAL_BYTES || (required && totalBytes > 65_536)) throw new Error("Captured files exceed their complete byte limit.");
-    files.push({ path: name, ...textContent(bytes, required) });
+    if (totalBytes > MAX_TOTAL_BYTES) throw new Error("Captured files exceed their complete byte limit.");
+    files.push({ path: name, ...textContent(bytes) });
   }
-  for (const name of requested) {
+  for (const file of files) {
+    const name = file.path;
     try {
       const entry = nulRecords(await git(["ls-tree", "-z", tree, "--", name], 4096));
       const match = entry.length === 1 && /^(100644|100755) blob ([a-f0-9]{40})\t(.+)$/.exec(entry[0]);
       if (!match || match[3] !== name) throw new Error("Expected a regular checkpoint file.");
-      await capture(name, match[2], true);
+      const bytes = Buffer.from(file.content, file.encoding);
+      const hash = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+      if (hash !== match[2]) throw new Error("Validated bytes do not match the frozen Git blob.");
     } catch (error) {
       throw new Error(`Expected deliverable ${name} could not be captured: ${error.message}`);
     }
@@ -109,7 +108,7 @@ export async function collectLocalRepositorySnapshot({ cloneDir, baseRevision, e
     if (change.objectId === null) files.push({ path: change.path, content: null, encoding: "utf8" });
     else {
       if (!validated.has(change.path)) throw new Error("Repository paths changed while freezing the checkpoint.");
-      await capture(change.path, change.objectId, false);
+      await capture(change.path, change.objectId);
     }
   }
   const diff = decoder().decode(await git(["diff", "--no-ext-diff", "--no-textconv", "--no-color", baseRevision, tree, "--"], 2_000_000));

@@ -452,9 +452,13 @@ export async function decideEmployeeActionApproval(
       level_at_decision = CASE WHEN capability_kind = 'mcp' AND employee_context_json IS NULL THEN COALESCE(${currentLevel}, 'ask') END
     WHERE org_id = ? AND employee_id = ? AND approval_id = ? AND status = 'pending' AND expires_at > ?
       AND (capability_kind != 'mcp' OR employee_context_json IS NOT NULL OR COALESCE(${currentLevel}, 'ask') != 'off')
+      AND (capability_kind != 'mcp' OR capability_id != ('mcp:shiba:' || action)
+        OR (account_id IS NULL AND action NOT IN ('gmail_read', 'integrations.search_actions', 'integrations.execute'))
+        OR (account_id IS NOT NULL AND account_id = ?))
       AND (? IS NULL OR (capability_id = ? AND ${currentLevel} = 'ask'))`)
     .bind(input.approved ? "approved" : "denied", input.decidedBy, now, input.decisionOwnerAccountId ?? null,
-      input.orgId, input.employeeId, input.approvalId, now, input.standingCapabilityId ?? null, input.standingCapabilityId ?? null);
+      input.orgId, input.employeeId, input.approvalId, now, input.decisionOwnerAccountId ?? null,
+      input.standingCapabilityId ?? null, input.standingCapabilityId ?? null);
   const updated = input.approved && input.standingCapabilityId
     ? (await env.AGENT_AUDIT.batch([
       decision,

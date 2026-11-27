@@ -7,6 +7,8 @@ import {
   type TelegramDeps,
 } from "../src/telegram.js";
 import type { OrchestratorStub } from "../src/chat-lane.js";
+import { createCustomAgent } from "../src/custom-agents-store.js";
+import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
 const REPO = "https://github.com/owner/repo";
 const APPROVAL_ID = "a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6";
@@ -149,6 +151,22 @@ describe("handleTelegramWebhook routing and auth", () => {
 });
 
 describe("handleTelegramWebhook messages", () => {
+  it("queues a Sales report without a repo in the requesting topic and shows the files before approval", async () => {
+    const { database } = customAgentD1();
+    const runtime = env({ AGENT_AUDIT: database });
+    const employee = await createCustomAgent(runtime, "self-hosted", "sales-report", {
+      name: "Sales report", harness: "opencode", instructions: "Reconcile supplied figures.",
+      expectedDeliverables: ["report.pdf", "sales.xlsx"],
+    });
+    const { deps, runBodies, calls } = makeDeps();
+    const response = await handleTelegramWebhook(webhookRequest(messageUpdate("/shiba employee:sales-report Compare Q1 and Q2.", { message_thread_id: 71 })), runtime, undefined, deps);
+    expect(response?.status).toBe(200);
+    expect(runBodies).toEqual([expect.objectContaining({
+      threadKey: `telegram:${CHAT_ID}:71`, customAgentId: employee.id, repoUrl: "", publishPullRequest: false,
+      executionTarget: { kind: "artifact-workspace", workspaceName: "sales-report-workspace", expectedDeliverables: ["report.pdf", "sales.xlsx"] },
+    })]);
+    expect(calls[0]?.body).toMatchObject({ message_thread_id: 71, text: expect.stringContaining("report.pdf, sales.xlsx") });
+  });
   beforeEach(() => {
     clearSeenTelegramUpdates();
   });

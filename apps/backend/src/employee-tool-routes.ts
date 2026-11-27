@@ -94,7 +94,7 @@ async function nativeApprovalAudience(env: Env, row: EmployeeApprovalRecord, use
 function nativeApprovalViewer(env: Env, row: EmployeeApprovalRecord, userId: string, ownerAccountId: string | null): boolean {
   if (row.accountId) return ownerAccountId !== null && ownerAccountId === row.accountId;
   // Missing private connection provenance never falls back to an operator role.
-  if (row.action.startsWith("integrations.")) return false;
+  if (row.action === "gmail_read" || row.action.startsWith("integrations.")) return false;
   if (row.executionContextId && (parseSessionAgentName(row.executionContextId) || /^run_[a-f0-9]{24}$/.test(row.executionContextId))) return row.actorId === userId;
   return isApprover(userId, parseApproverAllowlist(env.DASHBOARD_APPROVERS));
 }
@@ -102,7 +102,7 @@ function nativeApprovalViewer(env: Env, row: EmployeeApprovalRecord, userId: str
 async function nativeApprovalDecisionCurrent(env: Env, row: EmployeeApprovalRecord): Promise<boolean> {
   if (row.status !== "approved" || !humanDecisionIdentity(row.decidedBy) || !await currentNativeApprovalContext(env, row)) return false;
   if (row.accountId) return row.decisionOwnerAccountId === row.accountId;
-  if (row.action.startsWith("integrations.")) return false;
+  if (row.action === "gmail_read" || row.action.startsWith("integrations.")) return false;
   if (row.executionContextId && (parseSessionAgentName(row.executionContextId) || /^run_[a-f0-9]{24}$/.test(row.executionContextId))) return row.decidedBy === row.actorId;
   const slack = row.executionContextId && parseSlackThreadName(row.executionContextId);
   if (slack && row.decidedBy.startsWith("slack:")) return isApprover(row.decidedBy.slice(6), parseApproverAllowlist(env.SLACK_APPROVERS));
@@ -551,18 +551,15 @@ export async function dispatchEmployeeToolForPrincipal(
       });
       const { notifyEmployeeToolApprovalInChat } = await import("./chat-employee.js");
       await notifyEmployeeToolApprovalInChat(env, {
-        approvalId: pending.approvalId,
-        employeeId,
-        action: toolName,
-        payload: args,
-        executionContextId,
-        orgId: principal.orgId,
+        ...pending,
         employeeLabel: employee.config.name?.trim() || employee.slug,
       }).catch(() => undefined);
       return Response.json({ ok: true, status: "pending_approval", approvalId: pending.approvalId,
+        ...(pending.accountId ? { approvalSurface: "employee_tool_policy" } : {}),
         employeeId, employeeVersion: employee.version, tool: toolName }, { status: 202, headers: { "cache-control": "no-store" } });
     }
-    if (level === "ask" && saved && saved.status !== "approved") return Response.json({ ok: true, status: saved.status, approvalId: saved.approvalId }, { status: 202, headers: { "cache-control": "no-store" } });
+    if (level === "ask" && saved && saved.status !== "approved") return Response.json({ ok: true, status: saved.status, approvalId: saved.approvalId,
+      ...(saved.accountId ? { approvalSurface: "employee_tool_policy" } : {}) }, { status: 202, headers: { "cache-control": "no-store" } });
     if (saved?.status === "approved" && (level === "ask" || (saved.consumedAt === undefined && saved.consumedInvocationId === undefined && Date.now() < saved.expiresAt))) {
       if (!await nativeApprovalDecisionCurrent(env, saved)) return jsonError("employee_approval_authority_changed", 403);
       const idempotencyKey = `${EMPLOYEE_ACTION_IDEMPOTENCY_PREFIX}${saved.approvalId}`;
