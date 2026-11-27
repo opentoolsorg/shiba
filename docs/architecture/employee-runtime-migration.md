@@ -163,8 +163,10 @@ Remaining:
   essential-memory context selection. Implemented first slice: the runtime now
   maintains bounded per-conversation working summaries after batches of older
   messages, includes them as untrusted context while retaining recent messages,
-  and clears them with the owning conversation. Automatic memory review,
-  reusable skills, cross-thread consolidation, and Vectorize migration remain.
+  clears them with the owning conversation, and reviews each consolidated
+  summary for at most three deduplicated, secret-shaped-memory-filtered,
+  thread-scoped durable facts/preferences. Reusable skills, cross-thread
+  consolidation, employee-scope promotion, and Vectorize migration remain.
 - Enforce tenant, workspace, employee, and thread permissions inside retrieval,
   not only in route handlers.
 - Keep Vectorize optional and degrade to FTS5 when it is absent.
