@@ -130,6 +130,9 @@ describe("BotRuntimeChat", () => {
     render(<BotRuntimeChat agentId="agent-1" conversationId="thread-1" />);
     expect(await screen.findByText("Working context summary · 26 messages")).toBeTruthy();
     expect(screen.getByText("User prefers concise launch updates.")).toBeTruthy();
+    expect(screen.getByLabelText("Runtime context monitor").textContent).toContain("0/36 unsummarized");
+    expect(screen.getByRole("progressbar", { name: "Unsummarized runtime context" }).getAttribute("aria-valuenow")).toBe("0");
+    expect(screen.getByText("26 earlier messages compacted into working memory.")).toBeTruthy();
   });
 
   it("recovers interrupted work against the selected thread", async () => {

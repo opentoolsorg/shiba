@@ -11,6 +11,7 @@ import { generateText, Output, stepCountIs, streamText, type ModelMessage, type 
 import { z } from "zod";
 import { createWorkersAI } from "workers-ai-provider";
 import {
+  EMPLOYEE_RUNTIME_SUMMARY_TRIGGER_MESSAGES,
   employeeRuntimeCancelSchema,
   employeeRuntimeChatRequestSchema,
   employeeRuntimeMemoryDeleteSchema,
@@ -59,7 +60,7 @@ const routinePayloadSchema = z.object({
 const PREFIX = "/internal/employee-runtime";
 const MAX_ESSENTIAL_MEMORIES = 12;
 const MAX_CONTEXT_MESSAGES = 40;
-const SUMMARY_TRIGGER_MESSAGES = 36;
+const SUMMARY_TRIGGER_MESSAGES = EMPLOYEE_RUNTIME_SUMMARY_TRIGGER_MESSAGES;
 const SUMMARY_RETAINED_MESSAGES = 12;
 const SUMMARY_BATCH_MESSAGES = 12;
 const MAX_AUTOMATIC_MEMORIES = 3;

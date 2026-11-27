@@ -3,6 +3,7 @@ import { z } from "zod";
 /** Provider-independent employee runtime wire contracts. */
 
 export const EMPLOYEE_RUNTIME_MESSAGE_MAX_LENGTH = 12000;
+export const EMPLOYEE_RUNTIME_SUMMARY_TRIGGER_MESSAGES = 36;
 
 export const EMPLOYEE_RUNTIME_MODES = ["chat", "work"] as const;
 export type EmployeeRuntimeMode = (typeof EMPLOYEE_RUNTIME_MODES)[number];
