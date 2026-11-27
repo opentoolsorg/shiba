@@ -54,4 +54,14 @@ describe("note Markdown", () => {
     const doc = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "a * literal * b", marks: [{ type: "bold" }] }] }] };
     expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
   });
+  it("round trips underline, highlight, task lists, and alignment", () => {
+    const source = "A <u>underlined</u> and <mark>highlighted</mark> sentence.\n\n- [ ] Open task\n- [x] Done task\n\n<p style=\"text-align: center\">Centered</p>\n\n<h2 style=\"text-align: right\">Right heading</h2>\n";
+    const doc = parseNoteMarkdown(source);
+    expect(doc.content?.[0]?.content?.some((node) => node.marks?.some((mark) => mark.type === "underline"))).toBe(true);
+    expect(doc.content?.[0]?.content?.some((node) => node.marks?.some((mark) => mark.type === "highlight"))).toBe(true);
+    expect(doc.content?.[1]?.type).toBe("taskList");
+    expect(doc.content?.[2]?.attrs).toEqual({ textAlign: "center" });
+    expect(doc.content?.[3]?.attrs).toEqual({ level: 2, textAlign: "right" });
+    expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
+  });
 });

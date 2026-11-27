@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { EditorContent, type Editor } from "@tiptap/react";
 import type { KnowledgeNote } from "@shiba/shared";
-import { Bold, ChevronRight, Italic, Heading1, Heading2, List, ListOrdered, Code, MessageSquare, Pencil, Quote, Strikethrough, Undo2, Redo2 } from "lucide-react";
+import { AlignCenter, AlignLeft, AlignRight, Bold, ChevronRight, Italic, Heading1, Heading2, Highlighter, List, ListOrdered, ListTodo, Code, MessageSquare, Pencil, Strikethrough, Underline } from "lucide-react";
 import { NoteSuggestions } from "./NoteSuggestions";
 
 export function NoteDocument({ editor, notes, title, loading, saveStatus, readOnly = false, chatOpen = false, onToggleChat, onTitleChange, onSave }: {
@@ -14,17 +14,20 @@ export function NoteDocument({ editor, notes, title, loading, saveStatus, readOn
   }, [title]);
   const [formatOpen, setFormatOpen] = useState(false);
   const actions = [
-    { label: "Undo", icon: Undo2, run: () => editor.chain().focus().undo().run() },
-    { label: "Redo", icon: Redo2, run: () => editor.chain().focus().redo().run() },
     { label: "Heading 1", icon: Heading1, active: editor.isActive("heading", { level: 1 }), run: () => editor.chain().focus().toggleHeading({ level: 1 }).run() },
     { label: "Heading 2", icon: Heading2, active: editor.isActive("heading", { level: 2 }), run: () => editor.chain().focus().toggleHeading({ level: 2 }).run() },
     { label: "Bold", icon: Bold, active: editor.isActive("bold"), run: () => editor.chain().focus().toggleBold().run() },
     { label: "Italic", icon: Italic, active: editor.isActive("italic"), run: () => editor.chain().focus().toggleItalic().run() },
+    { label: "Underline", icon: Underline, active: editor.isActive("underline"), run: () => editor.chain().focus().toggleUnderline().run() },
     { label: "Strikethrough", icon: Strikethrough, active: editor.isActive("strike"), run: () => editor.chain().focus().toggleStrike().run() },
     { label: "Inline code", icon: Code, active: editor.isActive("code"), run: () => editor.chain().focus().toggleCode().run() },
+    { label: "Highlight", icon: Highlighter, active: editor.isActive("highlight"), run: () => editor.chain().focus().toggleHighlight().run() },
     { label: "Bulleted list", icon: List, active: editor.isActive("bulletList"), run: () => editor.chain().focus().toggleBulletList().run() },
     { label: "Numbered list", icon: ListOrdered, active: editor.isActive("orderedList"), run: () => editor.chain().focus().toggleOrderedList().run() },
-    { label: "Quote", icon: Quote, active: editor.isActive("blockquote"), run: () => editor.chain().focus().toggleBlockquote().run() },
+    { label: "Task list", icon: ListTodo, active: editor.isActive("taskList"), run: () => editor.chain().focus().toggleTaskList().run() },
+    { label: "Align left", icon: AlignLeft, active: editor.isActive({ textAlign: "left" }), run: () => editor.chain().focus().setTextAlign("left").run() },
+    { label: "Align center", icon: AlignCenter, active: editor.isActive({ textAlign: "center" }), run: () => editor.chain().focus().setTextAlign("center").run() },
+    { label: "Align right", icon: AlignRight, active: editor.isActive({ textAlign: "right" }), run: () => editor.chain().focus().setTextAlign("right").run() },
   ];
   return <>
     <header className="flex min-h-16 flex-wrap items-center justify-between gap-2 border-b border-[var(--border-1)] px-5">

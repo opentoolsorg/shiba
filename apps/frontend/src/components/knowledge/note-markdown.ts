@@ -52,6 +52,15 @@ function inline(text: string, marks: NonNullable<JSONContent["marks"]> = []): JS
       flush(); result.push(...inline(text.slice(i + delimiter.length, end), [...marks, { type }]));
       i = end + delimiter.length; continue;
     }
+    const htmlMark = ([["<u>", "</u>", "underline"], ["<mark>", "</mark>", "highlight"]] as const).find(([open]) => text.startsWith(open, i));
+    if (htmlMark) {
+      const [open, close, type] = htmlMark;
+      const end = text.indexOf(close, i + open.length);
+      if (end > i + open.length) {
+        flush(); result.push(...inline(text.slice(i + open.length, end), [...marks, { type }]));
+        i = end + close.length; continue;
+      }
+    }
     plain += text[i]; i++;
   }
   flush();
@@ -59,9 +68,10 @@ function inline(text: string, marks: NonNullable<JSONContent["marks"]> = []): JS
 }
 
 const listLine = /^( *)([-+*]|\d+\.) +(.*)$/;
+const taskLine = /^( *)- +\[([ xX])\] +(.*)$/;
 const startsBlock = (line: string) => /^(#{1,6} |>|```|~~~|(?:[-*_] *){3,}$)/.test(line) || listLine.test(line);
 
-/** The supported Markdown subset maps only to nodes supplied by StarterKit. */
+/** The supported Markdown subset maps to the note editor schema; inline HTML is limited to safe formatting wrappers. */
 export function parseNoteMarkdown(markdown: string): JSONContent {
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
   const content: JSONContent[] = [];
@@ -84,6 +94,33 @@ export function parseNoteMarkdown(markdown: string): JSONContent {
       const body: string[] = [];
       while (i < lines.length && (lines[i] ?? "").startsWith(">")) body.push((lines[i++] ?? "").replace(/^> ?/, ""));
       content.push({ type: "blockquote", content: parseNoteMarkdown(body.join("\n")).content }); continue;
+    }
+    const alignedParagraph = /^<p style="text-align: (left|center|right|justify)">([\s\S]*)<\/p>$/.exec(line);
+    if (alignedParagraph) {
+      content.push({ type: "paragraph", attrs: { textAlign: alignedParagraph[1] }, content: inline((alignedParagraph[2] ?? "")) });
+      i++; continue;
+    }
+    const alignedHeading = /^<h([1-6]) style="text-align: (left|center|right|justify)">([\s\S]*)<\/h\1>$/.exec(line);
+    if (alignedHeading) {
+      content.push({ type: "heading", attrs: { level: Number.parseInt((alignedHeading[1] ?? "1"), 10), textAlign: alignedHeading[2] }, content: inline((alignedHeading[3] ?? "")) });
+      i++; continue;
+    }
+    const firstTask = taskLine.exec(line);
+    if (firstTask) {
+      const items: JSONContent[] = [];
+      const indent = (firstTask[1] ?? "").length;
+      while (i < lines.length) {
+        const item = taskLine.exec((lines[i] ?? ""));
+        if (!item || (item[1] ?? "").length !== indent) break;
+        const body = [(item[3] ?? "")];
+        const width = item[0].length - (item[3] ?? "").length;
+        i++;
+        while (i < lines.length && ((lines[i] ?? "").startsWith(" ".repeat(width)) || (!(lines[i] ?? "").trim() && lines[i + 1]?.startsWith(" ".repeat(width))))) {
+          body.push((lines[i++] ?? "").slice(width));
+        }
+        items.push({ type: "taskItem", attrs: { checked: (item[2] ?? " ").toLowerCase() === "x" }, content: parseNoteMarkdown(body.join("\n")).content });
+      }
+      content.push({ type: "taskList", content: items }); continue;
     }
     const first = listLine.exec(line);
     if (first) {
@@ -122,6 +159,8 @@ function renderInline(node: JSONContent): string {
   for (const [delimiter, type] of [...delimiters].reverse()) {
     if (node.marks?.some((mark) => mark.type === type)) text = `${delimiter}${text}${delimiter}`;
   }
+  if (node.marks?.some((mark) => mark.type === "underline")) text = `<u>${text}</u>`;
+  if (node.marks?.some((mark) => mark.type === "highlight")) text = `<mark>${text}</mark>`;
   return text;
 }
 
@@ -129,8 +168,14 @@ function renderNode(node: JSONContent): string {
   const children = node.content ?? [];
   const text = () => children.map(renderInline).join("");
   switch (node.type) {
-    case "heading": return `${"#".repeat(Number(node.attrs?.level ?? 1))} ${text()}`;
-    case "paragraph": return text();
+    case "heading": {
+      const level = Number(node.attrs?.level ?? 1);
+      if (typeof node.attrs?.textAlign === "string") return `<h${level} style="text-align: ${node.attrs.textAlign}">${text()}</h${level}>`;
+      return `${"#".repeat(level)} ${text()}`;
+    }
+    case "paragraph":
+      if (typeof node.attrs?.textAlign === "string") return `<p style="text-align: ${node.attrs.textAlign}">${text()}</p>`;
+      return text();
     case "horizontalRule": return "---";
     case "codeBlock": {
       const value = children.map((child) => child.text ?? "").join("");
@@ -138,6 +183,11 @@ function renderNode(node: JSONContent): string {
       return `${fence}${node.attrs?.language ?? ""}\n${value}\n${fence}`;
     }
     case "blockquote": return children.map(renderNode).join("\n\n").split("\n").map((line) => `> ${line}`).join("\n");
+    case "taskList": return children.map((item) => {
+      const prefix = `- [${item.attrs?.checked ? "x" : " "}] `;
+      const lines = (item.content ?? []).map(renderNode).join("\n\n").split("\n");
+      return prefix + lines.map((line, lineIndex) => lineIndex ? " ".repeat(prefix.length) + line : line).join("\n");
+    }).join("\n");
     case "bulletList":
     case "orderedList": return children.map((item, index) => {
       const prefix = node.type === "orderedList" ? `${Number(node.attrs?.start ?? 1) + index}. ` : "- ";
