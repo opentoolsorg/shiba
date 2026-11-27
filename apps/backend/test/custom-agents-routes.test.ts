@@ -48,6 +48,17 @@ describe("custom agent archive and version HTTP contracts", () => {
     expect(stored?.config).not.toHaveProperty("approvalPolicy");
   });
 
+  it("creates an employee without a coding harness", async () => {
+    authState.dashboard = true;
+    const bindings = env();
+    const providerless = { name: "Research assistant", instructions: "Prepare sourced research briefs." };
+    const createdResponse = await handleCustomAgents(request("", "POST", { slug: "research-assistant", config: providerless }), bindings);
+    expect(createdResponse?.status).toBe(201);
+    const { agent } = await createdResponse!.json() as { agent: { id: string; config: Record<string, unknown> } };
+    expect(agent.config).toEqual(providerless);
+    expect(await getCustomAgentById(bindings, "self-hosted", agent.id)).toMatchObject({ config: providerless });
+  });
+
   it("allows API-key writes without Origin but requires Origin for ambient sessions", async () => {
     const bindings = env();
     authState.principal = { principal: "writer", orgId: "org-a", scopes: ["api:read", "api:write"] };

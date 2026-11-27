@@ -1534,7 +1534,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   const builtinTaskDefaults = useRef<{ harness: string; codingModel: string; connectionId: string; repoUrl: string; runTarget: "sandbox" | "local" } | null>(null);
   const applyThreadProfile = useCallback((profile: CustomAgentWire) => {
     taskRouteChosen.current = true;
-    setHarness(profile.config.harness);
+    setHarness(profile.config.harness ?? "");
     setCodingModel(profile.config.codingModel ?? "");
     setConnectionId(profile.config.connectionId ?? "");
     setRepoUrl(profile.config.defaultRepoUrl ?? "");
@@ -2344,7 +2344,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
       const text = [
         `Repository: ${normalizedRepoUrl ?? repoUrl.trim()}`,
         `Base branch: ${branch}`,
-        `Coding agent harness: ${harness}`,
+        `Coding agent harness: ${harness || "workspace default"}`,
         ...(codingModel.trim() ? [`Coding model: ${codingModel.trim()}`] : []),
         ...(effort ? [`Reasoning effort: ${effort}`] : []),
         ...(sealedEnv ? [`Environment variables: ${sealedEnv.names.join(", ")}`] : []),
@@ -2378,7 +2378,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               ...(activeOnboardingRef ? { draftTaskId: activeOnboardingRef.draftTaskId, draftTaskVersion: activeOnboardingRef.version } : {}),
               skillPins: attachedSkills.map((skill) => ({ skillId: skill.id, version: skill.version })),
               baseBranch: branch,
-              harness,
+              ...(harness ? { harness } : {}),
               publishPullRequest,
               ...(publishPullRequest && reviewAfterPublish ? { reviewAfterPublish: true } : {}),
               ...(codingModel.trim() ? { codingModel: codingModel.trim() } : {}),

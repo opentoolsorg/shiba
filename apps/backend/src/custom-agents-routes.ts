@@ -125,7 +125,7 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
       return Response.json({ ok: false, error: "unsupported_tool_scopes", detail: "Custom tool scopes are not enforced yet. Use the deployment tool policy." }, { status: 400 });
     }
     try {
-      resolveHarness(parsed.config.harness, env);
+      if (parsed.config.harness) resolveHarness(parsed.config.harness, env);
     } catch (error) {
       return Response.json(
         { ok: false, error: error instanceof Error ? error.message : "Unknown harness." },
@@ -169,7 +169,7 @@ export async function handleCustomAgents(request: Request, env: Env): Promise<Re
       return Response.json({ ok: false, error: "unsupported_tool_scopes", detail: "Custom tool scopes are not enforced yet. Clear legacy scopes explicitly before saving; existing stored configuration was not changed." }, { status: 400 });
     }
     try {
-      resolveHarness(parsed.config.harness, env);
+      if (parsed.config.harness) resolveHarness(parsed.config.harness, env);
     } catch (error) {
       return Response.json(
         { ok: false, error: error instanceof Error ? error.message : "Unknown harness." },

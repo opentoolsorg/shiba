@@ -12,16 +12,16 @@ every subsystem.
 
 | Area | Current state | Migration problem |
 |---|---|---|
-| Employee identity | `org_custom_agents` and `org_custom_agent_versions` store versioned employee profiles in D1. `CustomAgentConfig` carries role, instructions, library links, tool scopes, approval policy, repository, harness, model, and sandbox preferences. | `harness` is mandatory even for employees that never write code. Identity, model policy, tool authority, repository preference, and execution lane configuration share one configuration blob. |
+| Employee identity | `org_custom_agents` and `org_custom_agent_versions` store versioned employee profiles in D1. `CustomAgentConfig` carries role, instructions, library links, tool scopes, approval policy, repository, harness, model, and sandbox preferences. | `harness` is now optional for new employees, but identity, model policy, tool authority, repository preference, and execution lane configuration still share one configuration blob. |
 | Orchestration | `apps/backend/src/agents/orchestrator.ts` uses Cloudflare Agents SDK and AI SDK through `Think`. It owns approvals, run lineage, chat sessions, delegation, cancellation, and recovery. | The object is keyed by user/session/thread rather than by employee. Employee identity is metadata attached to a run or session, not the coordination boundary. The class name and large parts of its state model remain coding-run centric. |
 | Chat and Work modes | Chat mode already exists. `conversation-mode.ts` disables tools for plain chat and allows selected read-only/generation tools for a single turn. App-only Work turns use the employee tool policy. | Both modes depend on the legacy orchestrator and its session naming. Work execution still centers on delegated coding runs and sandbox evidence contracts. |
-| Coding providers | OpenCode, Claude Code, Codex, and other harnesses sit behind `harness/` transport shims. `OpenCodeAgent` is the sandbox-side execution child even when it drives another harness. | Provider selection is embedded in employee profile creation and run admission. Normal non-repository employees must still carry a coding harness field. |
+| Coding providers | OpenCode, Claude Code, Codex, and other harnesses sit behind `harness/` transport shims. `OpenCodeAgent` is the sandbox-side execution child even when it drives another harness. | Provider selection is no longer mandatory in employee profile creation. Run admission still falls back to deployment coding-provider defaults when sandbox work is approved. |
 | Sandbox execution | Sandbox containers provide isolated execution. Approval is minted before a sandbox starts, and egress attaches credentials outside the container. | This is the correct high-trust lane for terminal/code work. It is not optional enough: approval, evidence, and run concepts assume this lane in several contracts. |
 | Memory | `Memory` Durable Objects store facts and owner memory. Vectorize stores embeddings. Memory routes and MCP tools exist. | Memory is split across agent-named facts, owner memory, conversation state, knowledge modules, and files. There is no single employee-private/thread/shared model with uniform tenant checks. |
 | Workspace knowledge | D1, R2, files, notes, knowledge ingestion, projects, and semantic search already exist. | These capabilities are workspace features, not yet a repository-independent employee workspace with private files, generated artifacts, and shared knowledge under one permission model. |
 | Tools and integrations | The lazy tool catalog, MCP registry, connected app actions, browser tools, media tools, and employee tool policy exist. `employee-run-tools.ts` resolves authority server-side. | Tooling is powerful but distributed. Approval requirements are not expressed as one execution-boundary contract across native tools, MCP, browser, terminal, external APIs, and employee delegation. |
 | Scheduling and automation | `Automations`, queues, workflows, alarms, Slack/email ingress, routines, and run recovery exist. | Routines are not yet first-class employee schedules with per-employee spend, dedupe, delegation-depth, and notification policy. |
-| Frontend | Custom employee profiles, roster/workspace surfaces, approvals, work views, files, memories, skills, and integrations exist in the dashboard. | Creation and operation still expose harness/repository concepts to non-technical users. There is no single employee-centric runtime surface for chat, work, memory, files, tools, schedules, and history. |
+| Frontend | Custom employee profiles, roster/workspace surfaces, approvals, work views, files, memories, skills, and integrations exist in the dashboard. | Creation no longer forces a harness, but operation still exposes coding/repository concepts to non-technical users. There is no single employee-centric runtime surface for chat, work, memory, files, tools, schedules, and history. |
 | Deployment state | Durable Objects coordinate live state. D1 owns shared records. R2 owns bytes. Vectorize owns embeddings. Queues and Workflows carry asynchronous control. | This ownership model is sound. The migration must not mirror all of D1 into the employee object. It needs a stricter split between durable domain state and live execution coordination. |
 
 ## Target ownership
@@ -69,8 +69,12 @@ migration.
 
 ### Phase 1. Decouple employee identity from coding providers
 
-- Make `harness`, `codingModel`, `defaultRepoUrl`, and `sandboxProvider`
-  optional execution-provider preferences.
+Implemented in this branch: `harness` is optional in saved employee profiles, onboarding no longer injects OpenCode, and the composer omits harness authority when an employee has no explicit coding provider.
+
+Remaining:
+
+- Make `codingModel`, `defaultRepoUrl`, and `sandboxProvider` clearly grouped
+  optional execution-provider preferences rather than peer identity fields.
 - Add provider-independent model configuration for direct inference.
 - Keep existing saved profiles valid by treating their harness fields as a
   migration-backfilled `coding` provider preference.

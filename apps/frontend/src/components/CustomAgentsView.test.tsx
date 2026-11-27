@@ -885,7 +885,7 @@ describe("employee directory and hire design", () => {
     expect(screen.queryByRole("radiogroup", { name: "Agent access" })).toBeNull();
 
     expect(within(review).getByText("Finance Auditor · Finance")).toBeTruthy();
-    expect(within(review).getByText("opencode · gpt-review")).toBeTruthy();
+    expect(within(review).getByText("workspace default · gpt-review")).toBeTruthy();
     expect(within(review).getByText("Team OpenAI")).toBeTruthy();
     expect(within(review).getByText("https://github.com/example/books")).toBeTruthy();
     expect(within(review).getByText("2 required paths")).toBeTruthy();
@@ -895,7 +895,7 @@ describe("employee directory and hire design", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
     await screen.findByText("Bot created.");
     expect(body?.config).toEqual({
-      name: "Finance Auditor", instructions: "Review approved invoices.", harness: "opencode", roleTemplateId: "finance", department: "finance",
+      name: "Finance Auditor", instructions: "Review approved invoices.", roleTemplateId: "finance", department: "finance",
       codingModel: "gpt-review", connectionId: "conn-1", defaultRepoUrl: "https://github.com/example/books", expectedDeliverables: ["reports/a.md", "reports/b.md"],
     });
     expect(body?.config).not.toHaveProperty("access");

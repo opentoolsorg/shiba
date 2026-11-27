@@ -62,7 +62,7 @@ const EMPTY_FORM = {
   lookAcc: "",
   roleTemplateId: "",
   instructions: "",
-  harness: "opencode",
+  harness: "",
   codingModel: "",
   connectionId: "",
   sandboxProvider: "",
@@ -214,7 +214,7 @@ function ScopedCustomAgentsView({
     }
   }, [agents, roleFilter, rosterRolesKey]);
   const visibleAgents = agents?.filter((agent) => (roleFilter === ROLE_FILTER_ALL || employeeRole(agent.slug, agent.config.roleTemplateId) === roleFilter)
-    && [agent.config.name, agent.slug, agent.config.harness,
+    && [agent.config.name, agent.slug, agent.config.harness ?? "",
     agent.config.codingModel ?? "", employeeRoleLabel(employeeRole(agent.slug, agent.config.roleTemplateId))]
     .some((value) => value.toLocaleLowerCase().includes(rosterQuery)));
   const agentsByDepartment = new Map<CustomAgentDepartment, CustomAgentWire[]>();
@@ -424,7 +424,7 @@ function ScopedCustomAgentsView({
       lookAcc: agent.config.look?.acc ?? "",
       roleTemplateId: agent.config.roleTemplateId ?? (employeeRole(agent.slug) === "custom" ? "" : employeeRole(agent.slug)),
       instructions: agent.config.instructions,
-      harness: agent.config.harness,
+      harness: agent.config.harness ?? "",
       codingModel: agent.config.codingModel ?? "",
       connectionId: agent.config.connectionId ?? "",
       sandboxProvider: agent.config.sandboxProvider ?? "",
@@ -526,7 +526,7 @@ function ScopedCustomAgentsView({
       ...editingConfig,
       name,
       instructions,
-      harness: form.harness.trim() || "opencode",
+      ...(form.harness.trim() ? { harness: form.harness.trim() } : {}),
       ...(EMPLOYEE_TEMPLATES.some((template) => template.id === form.roleTemplateId) ? { roleTemplateId: form.roleTemplateId as CustomAgentConfig["roleTemplateId"] } : {}),
       ...(form.emoji.trim() ? { emoji: form.emoji.trim() } : {}),
       ...(CUSTOM_AGENT_MASCOT_PRESETS.some((preset) => preset === form.mascotPreset) ? { mascotPreset: form.mascotPreset as CustomAgentConfig["mascotPreset"] } : {}),
@@ -540,7 +540,7 @@ function ScopedCustomAgentsView({
     };
     // Clearing an optional field must clear its old value while other saved
     // settings survive an edit of the visible fields.
-    for (const key of ["emoji", "mascotPreset", "roleTemplateId", "codingModel", "connectionId", "sandboxProvider", "defaultRepoUrl", "expectedDeliverables", "title"] as const) {
+    for (const key of ["emoji", "mascotPreset", "roleTemplateId", "harness", "codingModel", "connectionId", "sandboxProvider", "defaultRepoUrl", "expectedDeliverables", "title"] as const) {
       if (!form[key].trim()) delete config[key];
     }
     if (!look) delete config.look;
@@ -772,7 +772,7 @@ function ScopedCustomAgentsView({
               <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
                 <div className="flex min-w-0 flex-col gap-5">
                   <dl className="grid gap-3 text-xs sm:grid-cols-2">
-                    <div><dt className="text-[var(--muted-foreground-2)]">Harness</dt><dd className="break-words font-mono">{selectedAgent.config.harness}</dd></div>
+                    <div><dt className="text-[var(--muted-foreground-2)]">Coding harness</dt><dd className="break-words font-mono">{selectedAgent.config.harness || "Workspace default"}</dd></div>
                     <div><dt className="text-[var(--muted-foreground-2)]">Model</dt><dd className="break-words font-mono">{selectedAgent.config.codingModel || "Workspace default"}</dd></div>
                     <div><dt className="text-[var(--muted-foreground-2)]">Sandbox</dt><dd>{selectedAgent.config.sandboxProvider || "Organization default"}</dd></div>
                     <div><dt className="text-[var(--muted-foreground-2)]">Repository</dt><dd className="break-all">{selectedAgent.config.defaultRepoUrl || "Choose when starting work"}</dd></div>
@@ -887,7 +887,7 @@ function ScopedCustomAgentsView({
                       {agent.config.instructions}
                     </div>
                     <div className="break-words text-[10px] font-mono text-[var(--muted-foreground-3)] mt-1">
-                      Runs on {agent.config.harness}
+                      Runs on {agent.config.harness || "workspace default"}
                       {agent.config.codingModel ? ` · ${agent.config.codingModel}` : " · Default model"}
                       {agent.config.sandboxProvider ? ` · ${agent.config.sandboxProvider}` : ""}
                     </div>
@@ -974,7 +974,7 @@ function ScopedCustomAgentsView({
 
           <AgentTemplatesCatalog workspaceId={workspaceId} onUse={async (template: AgentTemplate, savedConfig?: CustomAgentConfig) => {
             if (!isActive()) return;
-            const response = await fetch("/api/custom-agents", { method: "POST", headers: { "Content-Type": "application/json", ...teamWorkspaceHeaders(workspaceId) }, body: JSON.stringify({ slug: savedConfig ? `${template.id.slice(0, 39)}-${crypto.randomUUID().slice(0, 8)}` : template.id, config: savedConfig ?? { name: template.name, look: defaultLookFor(template.id, template.roleTemplateId), instructions: template.instructions, harness: template.harness ?? "opencode", ...(template.roleTemplateId ? { roleTemplateId: template.roleTemplateId } : {}), ...(template.expectedDeliverables ? { expectedDeliverables: template.expectedDeliverables } : {}), ...(template.appearance ? { emoji: template.appearance } : {}) } }) });
+            const response = await fetch("/api/custom-agents", { method: "POST", headers: { "Content-Type": "application/json", ...teamWorkspaceHeaders(workspaceId) }, body: JSON.stringify({ slug: savedConfig ? `${template.id.slice(0, 39)}-${crypto.randomUUID().slice(0, 8)}` : template.id, config: savedConfig ?? { name: template.name, look: defaultLookFor(template.id, template.roleTemplateId), instructions: template.instructions, ...(template.harness ? { harness: template.harness } : {}), ...(template.roleTemplateId ? { roleTemplateId: template.roleTemplateId } : {}), ...(template.expectedDeliverables ? { expectedDeliverables: template.expectedDeliverables } : {}), ...(template.appearance ? { emoji: template.appearance } : {}) } }) });
             const body = await response.json().catch(() => ({})) as { error?: string };
             if (!isActive()) return;
             if (!response.ok) throw new Error(body.error ?? `Could not add template (${response.status}).`);
@@ -1269,8 +1269,11 @@ function ScopedCustomAgentsView({
                         type="text"
                         value={form.harness}
                         onChange={(e) => setForm((f) => ({ ...f, harness: e.target.value }))}
+                        placeholder="Workspace default"
+                        aria-describedby="employee-harness-hint"
                         className={FIELD}
                       />
+                      <span id="employee-harness-hint" className="normal-case tracking-normal text-[11px] text-[var(--muted-foreground-2)]">Leave blank to use the deployment provider only for approved coding work.</span>
                     </label>
                     <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
                       Sandbox
@@ -1308,7 +1311,7 @@ function ScopedCustomAgentsView({
               </div>
               <dl className="grid grid-cols-[minmax(0,8.5rem)_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs">
                 <dt className="text-[var(--muted-foreground-2)]">Employee</dt><dd className="break-words">{form.name.trim() || "Not named yet"} · {reviewRole}</dd>
-                <dt className="text-[var(--muted-foreground-2)]">Runs on</dt><dd className="break-words font-mono">{form.harness.trim() || "opencode"} · {form.codingModel.trim() || "default model"}</dd>
+                <dt className="text-[var(--muted-foreground-2)]">Runs on</dt><dd className="break-words font-mono">{form.harness.trim() || "workspace default"} · {form.codingModel.trim() || "default model"}</dd>
                 <dt className="text-[var(--muted-foreground-2)]">Connection</dt><dd className="break-words">{reviewConnection || "Deployment default"}</dd>
                 <dt className="text-[var(--muted-foreground-2)]">Sandbox</dt><dd>{form.sandboxProvider || "Organization default"}</dd>
                 <dt className="text-[var(--muted-foreground-2)]">Repository</dt><dd className="break-all">{form.defaultRepoUrl.trim() || "Chosen when starting work"}</dd>

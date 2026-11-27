@@ -133,7 +133,7 @@ export function EmployeeOnboarding({ onSelect, onSkip }: { onSelect: (template: 
 }
 
 export async function createEmployeeAgent(template: EmployeeTemplate, workspaceId?: string): Promise<CustomAgentWire> {
-  const response = await fetch("/api/custom-agents", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", ...teamWorkspaceHeaders(workspaceId) }, body: JSON.stringify({ slug: template.slug, config: { ...template.config, harness: "opencode", approvalPolicy: "standard" } }) });
+  const response = await fetch("/api/custom-agents", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", ...teamWorkspaceHeaders(workspaceId) }, body: JSON.stringify({ slug: template.slug, config: { ...template.config, approvalPolicy: "standard" } }) });
   const body = await response.json().catch(() => ({})) as { agent?: CustomAgentWire; error?: string };
   if (!response.ok || !body.agent) throw new Error(body.error ?? `Could not create agent (${response.status}).`);
   return body.agent;

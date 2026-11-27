@@ -61,7 +61,7 @@ export const CustomAgentConfigSchema = Schema.Struct({
     Schema.makeFilter((ids: ReadonlyArray<string>) => new Set(ids).size === ids.length || "Library file ids must be unique."),
     Schema.makeFilter((ids: ReadonlyArray<string>) => ids.every((id) => BOT_LIBRARY_FILE_ID.test(id)) || "Library links must be knowledge file ids."),
   )),
-  harness: Bounded(64),
+  harness: Schema.optional(Bounded(64)),
   model: Schema.optional(Bounded(200)),
   codingModel: Schema.optional(Bounded(200)),
   connectionId: Schema.optional(Bounded(120)),
