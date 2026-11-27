@@ -3104,12 +3104,19 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }, [taskCreationBlocker, teamWorkspaceId, pushThreadUrl]);
   handleNewTaskRef.current = () => { void handleNewTask(); };
 
+
+function employeeConversationRoomTitle(name: string): string {
+  const suffix = " conversation";
+  const base = name.trim().slice(0, 120 - suffix.length).trimEnd() || "Employee";
+  return `${base}${suffix}`;
+}
+
   const handleStartAgentThread = useCallback(async (profile: CustomAgentWire) => {
     if (teamWorkspaceId) {
       const created = await teamWorkspaceRequest<{ room: { roomId: string } }>("/api/collaboration/rooms", {
         method: "POST",
         headers: teamWorkspaceHeaders(teamWorkspaceId),
-        body: JSON.stringify({ title: `${profile.config.name} conversation`, visibility: "private" }),
+        body: JSON.stringify({ title: employeeConversationRoomTitle(profile.config.name), visibility: "private" }),
       });
       await teamWorkspaceRequest(`/api/collaboration/rooms/${encodeURIComponent(created.room.roomId)}/agents`, {
         method: "POST",
