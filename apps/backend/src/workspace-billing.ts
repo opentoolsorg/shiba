@@ -234,8 +234,11 @@ export async function clearPendingSpend(db: D1Database, subject: string, runId: 
 
 /**
  * Atomically holds a bounded in-flight cost only when settled credits cover
- * all run debits, refunds and unexpired holds. D1 executes this as one write,
- * so concurrent requests cannot all pass a balance check before spending.
+ * all run debits, refunds and unexpired holds with headroom left over. The
+ * strict comparison keeps a discretionary chat hold from zeroing the balance
+ * and cancelling already running tasks before the hold settles. D1 executes
+ * this as one write, so concurrent requests cannot all pass a balance check
+ * before spending.
  */
 export async function reserveWorkspaceCredit(db: D1Database, input: { subject: string; runId: string; amountMicroUsd: number; now?: number }): Promise<boolean> {
   const now = input.now ?? Date.now();
@@ -244,7 +247,7 @@ export async function reserveWorkspaceCredit(db: D1Database, input: { subject: s
     SELECT ?,?,?,?
     WHERE COALESCE((SELECT SUM(amount_micro_usd) FROM workspace_billing_topups WHERE owner=? AND status='succeeded'),0)
       - COALESCE((SELECT SUM(amount_micro_usd) FROM workspace_billing_debits WHERE subject=?),0)
-      - COALESCE((SELECT SUM(amount_micro_usd) FROM workspace_billing_pending WHERE subject=? AND updated_at>=?),0) >= ?`)
+      - COALESCE((SELECT SUM(amount_micro_usd) FROM workspace_billing_pending WHERE subject=? AND updated_at>=?),0) > ?`)
     .bind(input.subject, input.runId, input.amountMicroUsd, now,
       input.subject, input.subject, input.subject, now - PENDING_TTL_MS, input.amountMicroUsd).run();
   return result.meta.changes === 1;

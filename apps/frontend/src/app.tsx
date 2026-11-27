@@ -4767,7 +4767,7 @@ function employeeConversationRoomTitle(name: string): string {
           ) : mainView === "files" ? (
             <FilesView key={teamWorkspaceId || "personal"} workspaceId={teamWorkspaceId || null} appPreviewOwner={privateDataEnabled && authMode === "access" ? orchestratorName?.trim().toLowerCase() : undefined} onNavigate={(view) => { if (view === "memory") setMemoryView("sources"); openView(view); }} />
           ) : mainView === "notes" ? (
-            <NotesEditor workspaceId={teamWorkspaceId || null} onNavigate={(view) => { if (view === "memory") setMemoryView("sources"); openView(view); }} />
+            <NotesEditor workspaceId={teamWorkspaceId || null} workspaceRole={teamWorkspace?.membership.role} actorId={orchestratorName?.trim().toLowerCase()} onNavigate={(view) => { if (view === "memory") setMemoryView("sources"); openView(view); }} />
           ) : mainView === "projects" ? (
             <ProjectsView key={teamWorkspaceId || "personal"} workspaceId={teamWorkspaceId || null} workspaceRole={teamWorkspace?.membership.role} actorId={orchestratorName?.trim().toLowerCase()} onNavigate={openView} />
           ) : mainView === "outputs" ? (

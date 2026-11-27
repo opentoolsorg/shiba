@@ -289,15 +289,19 @@ export function useUsageReport(
 // Workspace credits (GET /api/billing, POST /api/billing/checkout|portal)
 // ---------------------------------------------------------------------------
 
-function billingPath(path: string, sessionId: string, sessionApiAvailable: boolean): string {
-  return sessionApiAvailable ? `${path}?session=${encodeURIComponent(sessionId)}` : path;
+function billingPath(path: string, sessionId: string, sessionApiAvailable: boolean, workspaceId?: string | null): string {
+  const params: string[] = [];
+  if (sessionApiAvailable) params.push(`session=${encodeURIComponent(sessionId)}`);
+  if (workspaceId) params.push(`workspace=${encodeURIComponent(workspaceId)}`);
+  return params.length ? `${path}?${params.join("&")}` : path;
 }
 
 export function useWorkspaceBilling(
   sessionId: string,
   sessionApiAvailable: boolean,
+  workspaceId?: string | null,
 ): { state: LoadState<{ billing?: WorkspaceBilling }>; reload: () => void } {
-  return useApiJson<{ billing?: WorkspaceBilling }>(billingPath("/api/billing", sessionId, sessionApiAvailable));
+  return useApiJson<{ billing?: WorkspaceBilling }>(billingPath("/api/billing", sessionId, sessionApiAvailable, workspaceId));
 }
 
 /** POST a billing action and return the Stripe-hosted URL to open. Throws with the Worker's message. */
@@ -315,12 +319,12 @@ async function billingRedirect(path: string, body: unknown): Promise<string> {
   return result.url;
 }
 
-export function startWorkspaceTopUp(amountUsd: number, sessionId: string, sessionApiAvailable: boolean): Promise<string> {
-  return billingRedirect(billingPath("/api/billing/checkout", sessionId, sessionApiAvailable), { amountUsd });
+export function startWorkspaceTopUp(amountUsd: number, sessionId: string, sessionApiAvailable: boolean, workspaceId?: string | null): Promise<string> {
+  return billingRedirect(billingPath("/api/billing/checkout", sessionId, sessionApiAvailable, workspaceId), { amountUsd });
 }
 
-export function openWorkspaceBillingPortal(sessionId: string, sessionApiAvailable: boolean): Promise<string> {
-  return billingRedirect(billingPath("/api/billing/portal", sessionId, sessionApiAvailable), {});
+export function openWorkspaceBillingPortal(sessionId: string, sessionApiAvailable: boolean, workspaceId?: string | null): Promise<string> {
+  return billingRedirect(billingPath("/api/billing/portal", sessionId, sessionApiAvailable, workspaceId), {});
 }
 
 // ---------------------------------------------------------------------------

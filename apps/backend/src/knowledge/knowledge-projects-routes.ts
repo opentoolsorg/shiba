@@ -33,7 +33,7 @@ function storeError(error: unknown): Response | null {
 }
 
 
-function canMutateProject(project: KnowledgeProject, userId: string, org: ResolvedOrgAuth): boolean {
+export function canMutateProject(project: KnowledgeProject, userId: string, org: ResolvedOrgAuth): boolean {
   if (!org.workspace) return true;
   if (org.workspace.role === "owner" || org.workspace.role === "admin") return true;
   return Boolean(
@@ -98,6 +98,7 @@ export async function handleKnowledgeProjects(
     if ((body?.resourceKind !== "file" && body?.resourceKind !== "note") || !body.resourceId) {
       return json({ error: "Choose a file or note to add to the project." }, 400);
     }
+    let currentProjectId: string | null = null;
     try {
       if (body.resourceKind === "file") {
         const file = await getFile(env, body.resourceId);
@@ -110,6 +111,7 @@ export async function handleKnowledgeProjects(
           resourceId: file.id,
           resourceKind: "file",
         });
+        currentProjectId = file.projectId;
       } else {
         const note = await getNote(env, body.resourceId);
         if (!note || note.workspaceId !== workspaceId || note.archivedAt)
@@ -121,6 +123,11 @@ export async function handleKnowledgeProjects(
           resourceId: note.id,
           resourceKind: "note",
         });
+        currentProjectId = note.projectId;
+      }
+      if (currentProjectId && currentProjectId !== projectId) {
+        const currentProject = await getProject(env, workspaceId, currentProjectId);
+        if (!currentProject || !canMutateProject(currentProject, userId, org)) return projectMutationForbidden();
       }
       const changed = await assignProjectResource(env, {
         workspaceId,

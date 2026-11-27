@@ -8,6 +8,8 @@ import { enqueueIngestion } from "../knowledge/knowledge-ingestion.js";
 import { filesBucket } from "../knowledge/knowledge-ingestion.js";
 import { createNote, getNote, listNotes, NotesConflictError, NotesStoreError, updateNoteMarkdown } from "./notes-store.js";
 import { handleNoteChat } from "./note-chat.js";
+import { canMutateProject } from "../knowledge/knowledge-projects-routes.js";
+import { getProject } from "../knowledge/knowledge-projects.js";
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: {
   "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
@@ -39,6 +41,13 @@ export async function handleNotes(request: Request, env: Env): Promise<Response 
       const blocked = requireSameOriginBrowserMutation(request);
       if (blocked) return blocked;
       const body = await request.json().catch(() => null) as { title?: string; markdown?: string; projectId?: string | null } | null;
+      if (body?.projectId) {
+        const project = await getProject(env, workspaceId, body.projectId);
+        if (!project) return json({ error: "Project not found." }, 404);
+        if (!canMutateProject(project, userId, org)) {
+          return json({ error: "Only the project creator or a workspace owner/admin can change this project." }, 403);
+        }
+      }
       try {
         const note = await createNote(env, {
           workspaceId, scope, title: body?.title ?? "Untitled", markdown: body?.markdown ?? "", createdBy: userId,

@@ -1,3 +1,4 @@
+import { teamModelMaximumDebitMicroUsd } from "@shiba/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
@@ -78,8 +79,13 @@ describe("private notebook chat", () => {
     expect(unfunded?.status).toBe(402);
     expect(state.generate).not.toHaveBeenCalled();
 
+    const maximumMicroUsd = teamModelMaximumDebitMicroUsd(1024, "@cf/zai-org/glm-4.7-flash");
     sqlite.prepare(`INSERT INTO workspace_billing_topups (id,owner,amount_micro_usd,status,created_at) VALUES (?,?,?,?,?)`)
-      .run("top_note_chat", `team:${teamWorkspace}`, 100_000, "succeeded", 1);
+      .run("top_note_chat", `team:${teamWorkspace}`, maximumMicroUsd, "succeeded", 1);
+    const exact = await handleNotes(request(note.id, "POST", { message: "Hello" }), fundedEnv);
+    expect(exact?.status).toBe(402);
+    expect(state.generate).not.toHaveBeenCalled();
+    sqlite.prepare(`UPDATE workspace_billing_topups SET amount_micro_usd=? WHERE id='top_note_chat'`).run(maximumMicroUsd + 1);
     const funded = await handleNotes(request(note.id, "POST", { message: "Hello" }), fundedEnv);
     expect(funded?.status).toBe(200);
     expect(state.generate).toHaveBeenCalledOnce();

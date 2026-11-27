@@ -76,7 +76,7 @@ export async function handleNoteChat(request: Request, env: Env, userId: string,
   let reservation: NoteChatReservation | null = null;
   if (isTeamWorkspaceId(note.workspaceId)) {
     if (!isWorkspaceBillingEnabled(env)) {
-      return json({ error: "Note chat in team workspaces requires workspace credits. A workspace owner or admin can add credits in Analytics → Workspace credits." }, 403);
+      return json({ error: "Note chat in team workspaces requires workspace credits. A workspace owner or admin can add credits in Settings → Team → Workspace credits." }, 403);
     }
     let maximumMicroUsd: number;
     try {

@@ -32,7 +32,7 @@ async function readNoteBody(id: string, workspaceId: string | null) {
 
 class NoteVersionConflict extends Error {}
 
-export function NotesEditor({ workspaceId = null, onNavigate }: { workspaceId?: string | null; onNavigate?: (view: AppNavView) => void }): JSX.Element {
+export function NotesEditor({ workspaceId = null, workspaceRole, actorId, onNavigate }: { workspaceId?: string | null; workspaceRole?: "owner" | "admin" | "member"; actorId?: string; onNavigate?: (view: AppNavView) => void }): JSX.Element {
   const [scope, setScope] = useState<KnowledgeScope>("personal");
   const [notes, setNotes] = useState<KnowledgeNote[]>([]);
   const notesRef = useRef(notes);
@@ -65,6 +65,13 @@ export function NotesEditor({ workspaceId = null, onNavigate }: { workspaceId?: 
   const latestSave = useRef<() => Promise<boolean>>(async () => false);
   const eventRevision = useRef(0);
   const pendingIdsRef = useRef(new Set<string>());
+  const normalizedActorId = actorId?.trim().toLowerCase();
+  const canWriteNote = useCallback((note: KnowledgeNote) => {
+    if (!workspaceId || !workspaceRole) return true;
+    if (workspaceRole === "owner" || workspaceRole === "admin") return true;
+    return Boolean(normalizedActorId && note.createdBy.trim().toLowerCase() === normalizedActorId);
+  }, [workspaceId, workspaceRole, normalizedActorId]);
+
   const context = `${workspaceId}:${scope}`;
   const contextRef = useRef(context);
   contextRef.current = context;
@@ -152,7 +159,8 @@ export function NotesEditor({ workspaceId = null, onNavigate }: { workspaceId?: 
         if (stopped) return;
         savedBody.current = loadEditorBody(editor, markdown);
         bodyReady.current = true;
-        editor.setEditable(true, false);
+        const loadedNote = notesRef.current.find((note) => note.id === activeId);
+        editor.setEditable(loadedNote ? canWriteNote(loadedNote) : false, false);
         setBodyLoading(false);
       }).catch((cause: unknown) => {
         if (stopped) return;
@@ -160,7 +168,13 @@ export function NotesEditor({ workspaceId = null, onNavigate }: { workspaceId?: 
         setError(cause instanceof Error ? cause.message : "Note body unavailable.");
       });
     return () => { stopped = true; if (saveTimer.current) clearTimeout(saveTimer.current); };
-  }, [activeId, workspaceId, bodyRevision, editor]);
+  }, [activeId, workspaceId, bodyRevision, editor, canWriteNote]);
+
+  useEffect(() => {
+    if (!editor || !bodyReady.current) return;
+    const note = notes.find((item) => item.id === activeId);
+    editor.setEditable(note ? canWriteNote(note) : false, false);
+  }, [editor, notes, activeId, canWriteNote]);
 
   useEffect(() => { setNotes([]); setActiveId(null); setError(null); }, [scope, workspaceId]);
 
@@ -394,7 +408,7 @@ export function NotesEditor({ workspaceId = null, onNavigate }: { workspaceId?: 
             if (!dirty.current) setBodyRevision((value) => value + 1);
             void loadNotes().catch((err: unknown) => setError(err instanceof Error ? err.message : "Notes failed to load."));
           }} />}
-          {activeId && editor ? <NoteDocument editor={editor} notes={notes} title={title} loading={bodyLoading} saveStatus={saveStatus}
+          {activeId && editor ? <NoteDocument editor={editor} notes={notes} title={title} loading={bodyLoading} saveStatus={activeId && notes.find((note) => note.id === activeId && !canWriteNote(note)) ? "Read-only" : saveStatus} readOnly={Boolean(activeId && notes.find((note) => note.id === activeId && !canWriteNote(note)))}
             onTitleChange={(value) => { setTitle(value); markDirty(); }} onSave={async () => { await saveDraft(); }} /> : <div className="flex flex-1 items-center justify-center px-6 py-16 text-center"><div>
               <h1 className="mb-2 text-3xl">notes</h1>
               <p className="mb-4 text-sm text-[var(--knowledge-muted)]">Select a note or create a new one</p>
@@ -407,7 +421,7 @@ export function NotesEditor({ workspaceId = null, onNavigate }: { workspaceId?: 
         </section>
       </div>
       {activeId ? <div className="border-t border-[var(--border-1)] p-3 lg:border-l lg:border-t-0">
-        <NoteChatPanel key={`${workspaceId}:${scope}:${activeId}`} noteId={activeId} notes={notes} scope={scope} workspaceId={workspaceId} disabled={bodyLoading || !editor} getDraftBody={() => (editor ? editorMarkdown(editor).slice(0, 24000) : "")} onAdd={(text) => {
+        <NoteChatPanel key={`${workspaceId}:${scope}:${activeId}`} noteId={activeId} notes={notes} scope={scope} workspaceId={workspaceId} disabled={bodyLoading || !editor || Boolean(activeId && notes.find((note) => note.id === activeId && !canWriteNote(note)))} getDraftBody={() => (editor ? editorMarkdown(editor).slice(0, 24000) : "")} onAdd={(text) => {
           if (!editor || !bodyReady.current) return;
           // Parsed, not inserted as plain text: the serializer escapes literal Markdown characters.
           editor.commands.insertContentAt(editor.state.doc.content.size, parseNoteMarkdown(text).content ?? []);
