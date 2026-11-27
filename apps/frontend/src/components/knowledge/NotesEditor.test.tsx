@@ -193,6 +193,18 @@ describe("NotesEditor", () => {
     expect(screen.queryByRole("button", { name: "Plan" })).toBeNull();
   });
 
+  it("recovers an unsaved draft as a copy when the open note is deleted elsewhere", async () => {
+    render(<NotesEditor workspaceId="ws" workspaceRole="owner" actorId="alice" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Plan" }));
+    await screen.findByRole("textbox", { name: "Note title" });
+    await editBody("Unsaved important draft");
+    act(() => current.options?.onEvent({ id: "evt-del", workspaceId: "ws", kind: "note.deleted", entityId: "note-1", at: 2, payload: {} }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveProperty("value", "Research"));
+    const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
+    expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({ title: "Plan (recovered)" });
+    expect(String(JSON.parse(String(post?.[1]?.body)).markdown)).toContain("Unsaved important draft");
+  });
+
   it("renders the notes list, empty editor prompt, and loading skeleton", async () => {
     render(<NotesEditor />);
     expect(screen.getByRole("status", { name: "Loading notes" })).toBeTruthy();
