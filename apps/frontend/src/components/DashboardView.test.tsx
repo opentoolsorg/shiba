@@ -39,9 +39,9 @@ describe("DashboardView", () => {
     );
 
     expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toBeTruthy();
-    expect(screen.getByText("Workspace")).toBeTruthy();
+    expect(screen.getAllByText("Workspace").length).toBeGreaterThan(0);
     expect(screen.getByText("Insights")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Dashboard" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Workspace" })).toBeTruthy();
     expect(screen.getByText("Connected")).toBeTruthy();
 
     // New task button
@@ -120,6 +120,37 @@ describe("DashboardView", () => {
 
     fireEvent.click(screen.getByText("Optimize database queries").closest("button")!);
     expect(onInspectRun).toHaveBeenCalledWith("run-12345678");
+  });
+
+  it("shows the workspace employee roster and marks employees assigned to active runs", () => {
+    render(
+      <DashboardView
+        runs={[{ ...mockRun, status: "running", customAgentId: "employee-1" }]}
+        pendingApprovals={[]}
+        storedApprovals={[]}
+        agents={[]}
+        employees={[
+          { id: "employee-1", name: "Ava", role: "Engineer", emoji: "🛠️" },
+          { id: "employee-2", name: "Mira", role: "Researcher", emoji: "🔎" },
+        ]}
+        workspaceName="Acme operations"
+        scope="workspace"
+        connectionLabel="Connected"
+        connectionTone="ok"
+        runsError={null}
+        onNavigate={vi.fn()}
+        onNewTask={vi.fn()}
+        onInspectRun={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Acme operations" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "AI employees" })).toBeTruthy();
+    expect(screen.getByText("1/2 assigned to active runs")).toBeTruthy();
+    expect(screen.getByText("Ava")).toBeTruthy();
+    expect(screen.getByText("working")).toBeTruthy();
+    expect(screen.getByText("ready")).toBeTruthy();
+    expect(screen.getByText("2 in roster")).toBeTruthy();
   });
 });
 
