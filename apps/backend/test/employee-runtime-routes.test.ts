@@ -163,6 +163,15 @@ describe("employee runtime routes", () => {
     expect(response?.status).toBe(200);
     expect(calls).toHaveLength(1);
   });
+  it("forwards streaming chat to the streaming runtime endpoint", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const env = runtimeEnv(calls);
+    const agent = await createCustomAgent(env, "self-hosted", "stream-scout", { name: "Scout", instructions: "Answer carefully." });
+    const response = await handleCustomAgents(post(`/${agent.id}/runtime/chat/stream`, { conversationId: "private-thread", message: "stream hello" }), env);
+    expect(response?.status).toBe(200);
+    expect(calls[0]?.url).toBe("https://internal/internal/employee-runtime/chat/stream");
+  });
+
   it("scopes thread memory mutations before forwarding them", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const env = runtimeEnv(calls);
