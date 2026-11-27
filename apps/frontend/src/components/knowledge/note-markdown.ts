@@ -1,259 +1,396 @@
 import type { JSONContent } from "@tiptap/react";
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { gfmFromMarkdown, gfmToMarkdown } from "mdast-util-gfm";
+import { toMarkdown } from "mdast-util-to-markdown";
+import { gfm } from "micromark-extension-gfm";
 
-const delimiters = [["**", "bold"], ["~~", "strike"], ["*", "italic"]] as const;
-const escapablePunctuation = /[!-/:-@\[-\x60{-~]/;
+type MdastNode = {
+  type: string;
+  children?: MdastNode[];
+  value?: string;
+  depth?: number;
+  ordered?: boolean | null;
+  start?: number | null;
+  checked?: boolean | null;
+  spread?: boolean | null;
+  lang?: string | null;
+  url?: string;
+  title?: string | null;
+  alt?: string | null;
+};
 
-function delimiterEnd(text: string, delimiter: string, from: number): number {
-  for (let end = text.indexOf(delimiter, from); end !== -1; end = text.indexOf(delimiter, end + 1)) {
-    let slashes = 0;
-    for (let i = end - 1; text[i] === "\\"; i--) slashes++;
-    if (slashes % 2 === 0) return end;
-  }
-  return -1;
+type Mark = NonNullable<JSONContent["marks"]>[number];
+
+const markdownOptions = {
+  extensions: [gfmToMarkdown()],
+  bullet: "-" as const,
+  emphasis: "*" as const,
+  strong: "*" as const,
+  fences: true,
+  listItemIndent: "one" as const,
+  rule: "-" as const,
+};
+
+function parseMarkdown(mdastMarkdown: string): MdastNode {
+  return fromMarkdown(mdastMarkdown, {
+    extensions: [gfm()],
+    mdastExtensions: [gfmFromMarkdown()],
+  }) as MdastNode;
 }
 
-function inline(text: string, marks: NonNullable<JSONContent["marks"]> = []): JSONContent[] {
+function textNode(value: string, marks: Mark[]): JSONContent {
+  return { type: "text", text: value, ...(marks.length ? { marks } : {}) };
+}
+
+function inlineNodes(nodes: MdastNode[] = [], marks: Mark[] = []): JSONContent[] {
   const result: JSONContent[] = [];
-  let plain = "";
-  const flush = () => {
-    if (plain) result.push({ type: "text", text: plain, ...(marks.length ? { marks } : {}) });
-    plain = "";
-  };
-  for (let i = 0; i < text.length;) {
-    if (text[i] === "\\") {
-      const next = text[i + 1];
-      if (next === "\n") { flush(); result.push({ type: "hardBreak" }); i += 2; continue; }
-      if (next && escapablePunctuation.test(next)) { plain += next; i += 2; continue; }
-    }
-    if (text[i] === "\n") {
-      if (plain.endsWith("  ")) { plain = plain.slice(0, -2); flush(); result.push({ type: "hardBreak" }); }
-      else plain += " ";
-      i++; continue;
-    }
-    const code = /^(`+)([\s\S]*?)\1(?!`)/.exec(text.slice(i));
-    if (code) {
-      flush();
-      const value = (code[2] ?? "").startsWith(" ") && (code[2] ?? "").endsWith(" ") ? (code[2] ?? "").slice(1, -1) : (code[2] ?? "");
-      result.push({ type: "text", text: value, marks: [...marks, { type: "code" }] });
-      i += code[0].length; continue;
-    }
-    if (text.startsWith("***", i)) {
-      const end = delimiterEnd(text, "***", i + 3);
-      if (end > i + 3) {
-        flush(); result.push(...inline(text.slice(i + 3, end), [...marks, { type: "bold" }, { type: "italic" }]));
-        i = end + 3; continue;
+  for (let index = 0; index < nodes.length; index++) {
+    const node = nodes[index] ?? { type: "text", value: "" };
+    if (node.type === "html" && (node.value === "<u>" || node.value === "<mark>")) {
+      const markType = node.value === "<u>" ? "underline" : "highlight";
+      const close = node.value === "<u>" ? "</u>" : "</mark>";
+      let end = index + 1;
+      while (end < nodes.length && !(nodes[end]?.type === "html" && nodes[end]?.value === close))
+        end++;
+      if (end < nodes.length) {
+        result.push(...inlineNodes(nodes.slice(index + 1, end), [...marks, { type: markType }]));
+        index = end;
+        continue;
       }
     }
-    const pair = delimiters.find(([delimiter]) => text.startsWith(delimiter, i) && delimiterEnd(text, delimiter, i + delimiter.length) > i + delimiter.length);
-    if (pair) {
-      const [delimiter, type] = pair;
-      let end = delimiterEnd(text, delimiter, i + delimiter.length);
-      if (delimiter === "**" && text[end + 2] === "*" && text.slice(i + 2, end).includes("*")) end++;
-      flush(); result.push(...inline(text.slice(i + delimiter.length, end), [...marks, { type }]));
-      i = end + delimiter.length; continue;
-    }
-    const htmlMark = ([["<u>", "</u>", "underline"], ["<mark>", "</mark>", "highlight"]] as const).find(([open]) => text.startsWith(open, i));
-    if (htmlMark) {
-      const [open, close, type] = htmlMark;
-      const end = text.indexOf(close, i + open.length);
-      if (end > i + open.length) {
-        flush(); result.push(...inline(text.slice(i + open.length, end), [...marks, { type }]));
-        i = end + close.length; continue;
+    switch (node.type) {
+      case "text":
+        result.push(textNode(node.value ?? "", marks));
+        break;
+      case "inlineCode":
+        result.push({ type: "text", text: node.value ?? "", marks: [...marks, { type: "code" }] });
+        break;
+      case "break":
+        result.push({ type: "hardBreak" });
+        break;
+      case "strong":
+        result.push(...inlineNodes(node.children, [...marks, { type: "bold" }]));
+        break;
+      case "emphasis":
+        result.push(...inlineNodes(node.children, [...marks, { type: "italic" }]));
+        break;
+      case "delete":
+        result.push(...inlineNodes(node.children, [...marks, { type: "strike" }]));
+        break;
+      case "link": {
+        const label = inlineNodes(node.children)
+          .map((child) => child.text ?? "")
+          .join("");
+        result.push(
+          textNode(`[${label}](${node.url ?? ""}${node.title ? ` "${node.title}"` : ""})`, marks),
+        );
+        break;
       }
+      case "image":
+        result.push(
+          textNode(
+            `![${node.alt ?? ""}](${node.url ?? ""}${node.title ? ` "${node.title}"` : ""})`,
+            marks,
+          ),
+        );
+        break;
+      case "html":
+        result.push(textNode(node.value ?? "", marks));
+        break;
+      default:
+        if (node.children) result.push(...inlineNodes(node.children, marks));
+        else if (node.value) result.push(textNode(node.value, marks));
     }
-    plain += text[i]; i++;
   }
-  flush();
   return result;
 }
 
-const listLine = /^( *)([-+*]|\d+\.) +(.*)$/;
-const taskLine = /^( *)- +\[([ xX])\] +(.*)$/;
-
-function leadingSpaces(line: string): number {
-  return line.length - line.trimStart().length;
+function inlineFragment(markdown: string): JSONContent[] {
+  const root = parseMarkdown(markdown);
+  const first = root.children?.[0];
+  return first?.type === "paragraph" ? inlineNodes(first.children) : [];
 }
 
-function parseTaskList(lines: string[], start: number, indent: number): { node: JSONContent; next: number } {
-  const items: JSONContent[] = [];
-  let i = start;
-  while (i < lines.length) {
-    const item = taskLine.exec(lines[i] ?? "");
-    if (!item || (item[1] ?? "").length !== indent) break;
-    const width = item[0].length - (item[3] ?? "").length;
-    const body = [(item[3] ?? "")];
-    const itemContent: JSONContent[] = [];
-    const flushBody = () => {
-      if (!body.length) return;
-      itemContent.push(...(parseNoteMarkdown(body.join("\n")).content ?? []));
-      body.length = 0;
+function alignedHtml(node: MdastNode): JSONContent | null {
+  const value = node.value ?? "";
+  const paragraph = /^<p style="text-align: (left|center|right|justify)">([\s\S]*)<\/p>$/.exec(
+    value,
+  );
+  if (paragraph)
+    return {
+      type: "paragraph",
+      attrs: { textAlign: paragraph[1] },
+      content: inlineFragment(paragraph[2] ?? ""),
     };
-    i++;
-    while (i < lines.length) {
-      const line = lines[i] ?? "";
-      if (!line.trim()) {
-        const following = lines[i + 1] ?? "";
-        if (following.trim() && leadingSpaces(following) > indent) {
-          body.push("");
-          i++;
-          continue;
-        }
+  const heading =
+    /^<h([1-6]) style="text-align: (left|center|right|justify)">([\s\S]*)<\/h\1>$/.exec(value);
+  if (heading)
+    return {
+      type: "heading",
+      attrs: { level: Number.parseInt(heading[1] ?? "1", 10), textAlign: heading[2] },
+      content: inlineFragment(heading[3] ?? ""),
+    };
+  return null;
+}
+
+function ensureEditorItemContent(content: JSONContent[]): JSONContent[] {
+  if (!content.length || content[0]?.type !== "paragraph")
+    return [{ type: "paragraph" }, ...content];
+  return content;
+}
+
+function blockNodes(nodes: MdastNode[] = []): JSONContent[] {
+  const result: JSONContent[] = [];
+  for (const node of nodes) {
+    switch (node.type) {
+      case "paragraph":
+        result.push({ type: "paragraph", content: inlineNodes(node.children) });
+        break;
+      case "heading":
+        result.push({
+          type: "heading",
+          attrs: { level: node.depth ?? 1 },
+          content: inlineNodes(node.children),
+        });
+        break;
+      case "thematicBreak":
+        result.push({ type: "horizontalRule" });
+        break;
+      case "code":
+        result.push({
+          type: "codeBlock",
+          attrs: { language: node.lang ?? null },
+          ...(node.value ? { content: [{ type: "text", text: node.value }] } : {}),
+        });
+        break;
+      case "blockquote":
+        result.push({ type: "blockquote", content: blockNodes(node.children) });
+        break;
+      case "list":
+        result.push(...listNodes(node));
+        break;
+      case "html": {
+        const aligned = alignedHtml(node);
+        result.push(
+          aligned ?? { type: "paragraph", content: [{ type: "text", text: node.value ?? "" }] },
+        );
         break;
       }
-      const lineIndent = leadingSpaces(line);
-      if (lineIndent <= indent) break;
-      const nestedTask = taskLine.exec(line);
-      if (nestedTask) {
-        flushBody();
-        const nested = parseTaskList(lines, i, lineIndent);
-        itemContent.push(nested.node);
-        i = nested.next;
-        continue;
-      }
-      if (lineIndent < width) break;
-      const strip = line.startsWith(" ".repeat(width)) ? width : lineIndent;
-      body.push(line.slice(strip));
-      i++;
+      default:
+        if (node.value)
+          result.push({ type: "paragraph", content: [{ type: "text", text: node.value }] });
     }
-    flushBody();
-    items.push({
-      type: "taskItem",
-      attrs: { checked: (item[2] ?? " ").toLowerCase() === "x" },
-      content: itemContent,
-    });
   }
-  return { node: { type: "taskList", content: items }, next: i };
+  return result;
 }
 
-const startsBlock = (line: string) => /^(#{1,6} |>|```|~~~|(?:[-*_] *){3,}$)/.test(line) || listLine.test(line);
+function listItemContent(item: MdastNode): JSONContent[] {
+  return ensureEditorItemContent(blockNodes(item.children));
+}
 
-/** The supported Markdown subset maps to the note editor schema; inline HTML is limited to safe formatting wrappers. */
-export function parseNoteMarkdown(markdown: string): JSONContent {
-  const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
-  const content: JSONContent[] = [];
-  for (let i = 0; i < lines.length;) {
-    let line = (lines[i] ?? "");
-    if (!line.trim()) { i++; continue; }
-    const fence = /^(`{3,}|~{3,})(.*)$/.exec(line);
-    if (fence) {
-      const body: string[] = [];
-      i++;
-      while (i < lines.length && !(lines[i] ?? "").startsWith((fence[1] ?? ""))) body.push((lines[i++] ?? ""));
-      if (i < lines.length) i++;
-      content.push({ type: "codeBlock", attrs: { language: (fence[2] ?? "").trim() || null }, ...(body.join("\n") ? { content: [{ type: "text", text: body.join("\n") }] } : {}) });
-      continue;
-    }
-    const heading = /^(#{1,6}) +(.*)$/.exec(line);
-    if (heading) { content.push({ type: "heading", attrs: { level: (heading[1] ?? "").length }, content: inline((heading[2] ?? "")) }); i++; continue; }
-    if (/^(?:-\s*){3,}$|^(?:\*\s*){3,}$|^(?:_\s*){3,}$/.test(line)) { content.push({ type: "horizontalRule" }); i++; continue; }
-    if (line.startsWith(">")) {
-      const body: string[] = [];
-      while (i < lines.length && (lines[i] ?? "").startsWith(">")) body.push((lines[i++] ?? "").replace(/^> ?/, ""));
-      content.push({ type: "blockquote", content: parseNoteMarkdown(body.join("\n")).content }); continue;
-    }
-    const alignedOpen = /^<(p|h[1-6]) style="text-align: (?:left|center|right|justify)">/.exec(line);
-    if (alignedOpen) {
-      const closeTag = `</${alignedOpen[1]}>`;
-      let closing = i;
-      while (closing < lines.length && !(lines[closing] ?? "").includes(closeTag)) closing++;
-      if (closing > i && closing < lines.length) {
-        line = lines.slice(i, closing + 1).join("\n");
-        i = closing;
-      }
-    }
-    const alignedParagraph = /^<p style="text-align: (left|center|right|justify)">([\s\S]*)<\/p>$/.exec(line);
-    if (alignedParagraph) {
-      content.push({ type: "paragraph", attrs: { textAlign: alignedParagraph[1] }, content: inline((alignedParagraph[2] ?? "")) });
-      i++; continue;
-    }
-    const alignedHeading = /^<h([1-6]) style="text-align: (left|center|right|justify)">([\s\S]*)<\/h\1>$/.exec(line);
-    if (alignedHeading) {
-      content.push({ type: "heading", attrs: { level: Number.parseInt((alignedHeading[1] ?? "1"), 10), textAlign: alignedHeading[2] }, content: inline((alignedHeading[3] ?? "")) });
-      i++; continue;
-    }
-    const firstTask = taskLine.exec(line);
-    if (firstTask) {
-      const parsed = parseTaskList(lines, i, (firstTask[1] ?? "").length);
-      content.push(parsed.node);
-      i = parsed.next;
-      continue;
-    }
-    const first = listLine.exec(line);
-    if (first) {
-      const ordered = /\d/.test((first[2] ?? ""));
-      const items: JSONContent[] = [];
-      const indent = (first[1] ?? "").length;
-      while (i < lines.length) {
-        const item = listLine.exec((lines[i] ?? ""));
-        if (!item || (item[1] ?? "").length !== indent || /\d/.test((item[2] ?? "")) !== ordered || taskLine.test((lines[i] ?? ""))) break;
-        const body = [(item[3] ?? "")];
-        const width = item[0].length - (item[3] ?? "").length;
-        i++;
-        while (i < lines.length && ((lines[i] ?? "").startsWith(" ".repeat(width)) || (!(lines[i] ?? "").trim() && lines[i + 1]?.startsWith(" ".repeat(width))))) {
-          body.push((lines[i++] ?? "").slice(width));
-        }
-        items.push({ type: "listItem", content: parseNoteMarkdown(body.join("\n")).content });
-      }
-      content.push({ type: ordered ? "orderedList" : "bulletList", ...(ordered ? { attrs: { start: Number.parseInt((first[2] ?? ""), 10) } } : {}), content: items }); continue;
-    }
-    const body = [line]; i++;
-    while (i < lines.length && (lines[i] ?? "").trim() && !startsBlock((lines[i] ?? ""))) body.push((lines[i++] ?? ""));
-    content.push({ type: "paragraph", content: inline(body.join("\n")) });
+function listNodes(list: MdastNode): JSONContent[] {
+  const groups: { task: boolean; items: MdastNode[] }[] = [];
+  for (const item of list.children ?? []) {
+    const task = typeof item.checked === "boolean";
+    const last = groups.at(-1);
+    if (!last || last.task !== task) groups.push({ task, items: [item] });
+    else last.items.push(item);
   }
+  let ordinaryOffset = 0;
+  return groups.map((group) => {
+    if (group.task)
+      return {
+        type: "taskList",
+        content: group.items.map((item) => ({
+          type: "taskItem",
+          attrs: { checked: item.checked === true },
+          content: listItemContent(item),
+        })),
+      };
+    const ordered = list.ordered === true;
+    const start = Number(list.start ?? 1) + ordinaryOffset;
+    ordinaryOffset += group.items.length;
+    return {
+      type: ordered ? "orderedList" : "bulletList",
+      ...(ordered ? { attrs: { start } } : {}),
+      content: group.items.map((item) => ({ type: "listItem", content: listItemContent(item) })),
+    };
+  });
+}
+
+/** Parses GitHub-flavored note Markdown plus the small safe HTML subset used for underline, highlight, and alignment. */
+export function parseNoteMarkdown(markdown: string): JSONContent {
+  const content = blockNodes(parseMarkdown(markdown.replace(/\r\n?/g, "\n")).children);
   return { type: "doc", content: content.length ? content : [{ type: "paragraph" }] };
 }
 
-function renderInline(node: JSONContent): string {
-  if (node.type === "hardBreak") return "  \n";
-  const value = node.text ?? "";
-  if (node.marks?.some((mark) => mark.type === "code")) {
-    const fence = "`".repeat(Math.max(0, ...Array.from(value.matchAll(/`+/g), (match) => match[0].length)) + 1);
-    const pad = value.startsWith("`") || value.endsWith("`") || (value.startsWith(" ") && value.endsWith(" ")) ? " " : "";
-    return `${fence}${pad}${value}${pad}${fence}`;
-  }
-  let text = value.replace(/([\\`*_~[\]#>+-])/g, "\\$1").replace(/^(\d+)\./, "$1\\.");
-  for (const [delimiter, type] of [...delimiters].reverse()) {
-    if (node.marks?.some((mark) => mark.type === type)) text = `${delimiter}${text}${delimiter}`;
-  }
-  if (node.marks?.some((mark) => mark.type === "underline")) text = `<u>${text}</u>`;
-  if (node.marks?.some((mark) => mark.type === "highlight")) text = `<mark>${text}</mark>`;
-  return text;
+function applyMark(nodes: MdastNode[], markType: string): MdastNode[] {
+  if (markType === "bold") return [{ type: "strong", children: nodes }];
+  if (markType === "italic") return [{ type: "emphasis", children: nodes }];
+  if (markType === "strike") return [{ type: "delete", children: nodes }];
+  if (markType === "underline")
+    return [{ type: "html", value: "<u>" }, ...nodes, { type: "html", value: "</u>" }];
+  if (markType === "highlight")
+    return [{ type: "html", value: "<mark>" }, ...nodes, { type: "html", value: "</mark>" }];
+  return nodes;
 }
 
-function renderNode(node: JSONContent): string {
-  const children = node.content ?? [];
-  const text = () => children.map(renderInline).join("");
-  switch (node.type) {
-    case "heading": {
-      const level = Number(node.attrs?.level ?? 1);
-      if (typeof node.attrs?.textAlign === "string") return `<h${level} style="text-align: ${node.attrs.textAlign}">${text()}</h${level}>`;
-      return `${"#".repeat(level)} ${text()}`;
+const markOrder = ["bold", "italic", "strike", "underline", "highlight"];
+
+function inlineSegments(
+  nodes: JSONContent[] = [],
+): { value: string; marks: string[]; code: boolean }[] {
+  const segments: { value: string; marks: string[]; code: boolean }[] = [];
+  for (const node of nodes) {
+    if (node.type === "hardBreak") {
+      segments.push({ value: "\n", marks: [], code: false });
+      continue;
     }
-    case "paragraph":
-      if (typeof node.attrs?.textAlign === "string") return `<p style="text-align: ${node.attrs.textAlign}">${text()}</p>`;
-      return text();
-    case "horizontalRule": return "---";
-    case "codeBlock": {
-      const value = children.map((child) => child.text ?? "").join("");
-      const fence = "`".repeat(Math.max(2, ...Array.from(value.matchAll(/`+/g), (match) => match[0].length)) + 1);
-      return `${fence}${node.attrs?.language ?? ""}\n${value}\n${fence}`;
-    }
-    case "blockquote": return children.map(renderNode).join("\n\n").split("\n").map((line) => `> ${line}`).join("\n");
-    case "taskList": return children.map((item) => {
-      const prefix = `- [${item.attrs?.checked ? "x" : " "}] `;
-      const lines = (item.content ?? []).map(renderNode).join("\n\n").split("\n");
-      return prefix + lines.map((line, lineIndex) => lineIndex ? " ".repeat(prefix.length) + line : line).join("\n");
-    }).join("\n");
-    case "bulletList":
-    case "orderedList": return children.map((item, index) => {
-      const prefix = node.type === "orderedList" ? `${Number(node.attrs?.start ?? 1) + index}. ` : "- ";
-      const lines = (item.content ?? []).map(renderNode).join("\n\n").split("\n");
-      return prefix + lines.map((line, lineIndex) => lineIndex ? " ".repeat(prefix.length) + line : line).join("\n");
-    }).join("\n");
-    default: return children.map(renderNode).join("\n\n");
+    if (node.type !== "text") continue;
+    const marks = node.marks ?? [];
+    const markTypes = markOrder.filter((type) => marks.some((mark) => mark.type === type));
+    const code = marks.some((mark) => mark.type === "code");
+    const value = node.text ?? "";
+    const previous = segments.at(-1);
+    if (
+      previous &&
+      previous.value !== "\n" &&
+      previous.code === code &&
+      previous.marks.join("\0") === markTypes.join("\0")
+    )
+      previous.value += value;
+    else segments.push({ value, marks: code ? [] : markTypes, code });
   }
+  return segments;
+}
+
+function markedMdast(
+  segments: { value: string; marks: string[]; code: boolean }[],
+  depth = 0,
+): MdastNode[] {
+  const mark = markOrder[depth];
+  if (!mark) {
+    return segments.map((segment) =>
+      segment.value === "\n"
+        ? { type: "break" }
+        : segment.code
+          ? { type: "inlineCode", value: segment.value }
+          : { type: "text", value: segment.value },
+    );
+  }
+  const result: MdastNode[] = [];
+  let index = 0;
+  while (index < segments.length) {
+    const hasMark = segments[index]?.marks.includes(mark) === true;
+    let end = index + 1;
+    while (end < segments.length && (segments[end]?.marks.includes(mark) === true) === hasMark)
+      end++;
+    const children = markedMdast(segments.slice(index, end), depth + 1);
+    result.push(...(hasMark ? applyMark(children, mark) : children));
+    index = end;
+  }
+  return result;
+}
+
+function inlineMdast(nodes: JSONContent[] = []): MdastNode[] {
+  return markedMdast(inlineSegments(nodes));
+}
+
+function inlineMarkdown(children: JSONContent[] | undefined): string {
+  return toMarkdown(
+    { type: "root", children: [{ type: "paragraph", children: inlineMdast(children) }] } as never,
+    markdownOptions as never,
+  ).replace(/\n$/, "");
+}
+
+function listItems(node: JSONContent, task: boolean): MdastNode[] {
+  return (node.content ?? []).map((item) => {
+    const children = blockMdast(item.content ?? []);
+    return {
+      type: "listItem",
+      checked: task ? item.attrs?.checked === true : null,
+      spread: children.length > 1,
+      children,
+    };
+  });
+}
+
+function blockMdast(nodes: JSONContent[] = []): MdastNode[] {
+  const result: MdastNode[] = [];
+  for (const node of nodes) {
+    switch (node.type) {
+      case "paragraph": {
+        if (typeof node.attrs?.textAlign === "string") {
+          result.push({
+            type: "html",
+            value: `<p style="text-align: ${node.attrs.textAlign}">${inlineMarkdown(node.content)}</p>`,
+          });
+        } else {
+          result.push({ type: "paragraph", children: inlineMdast(node.content) });
+        }
+        break;
+      }
+      case "heading": {
+        const level = Number(node.attrs?.level ?? 1);
+        if (typeof node.attrs?.textAlign === "string") {
+          result.push({
+            type: "html",
+            value: `<h${level} style="text-align: ${node.attrs.textAlign}">${inlineMarkdown(node.content)}</h${level}>`,
+          });
+        } else {
+          result.push({ type: "heading", depth: level, children: inlineMdast(node.content) });
+        }
+        break;
+      }
+      case "horizontalRule":
+        result.push({ type: "thematicBreak" });
+        break;
+      case "codeBlock":
+        result.push({
+          type: "code",
+          lang: typeof node.attrs?.language === "string" ? node.attrs.language : null,
+          value: (node.content ?? []).map((child) => child.text ?? "").join(""),
+        });
+        break;
+      case "blockquote":
+        result.push({ type: "blockquote", children: blockMdast(node.content ?? []) });
+        break;
+      case "bulletList":
+        result.push({
+          type: "list",
+          ordered: false,
+          spread: false,
+          children: listItems(node, false),
+        });
+        break;
+      case "orderedList":
+        result.push({
+          type: "list",
+          ordered: true,
+          start: Number(node.attrs?.start ?? 1),
+          spread: false,
+          children: listItems(node, false),
+        });
+        break;
+      case "taskList":
+        result.push({
+          type: "list",
+          ordered: false,
+          spread: false,
+          children: listItems(node, true),
+        });
+        break;
+      default:
+        if (node.content) result.push(...blockMdast(node.content));
+    }
+  }
+  return result;
 }
 
 export function serializeNoteMarkdown(doc: JSONContent): string {
-  return `${renderNode(doc)}\n`;
+  const markdown = toMarkdown(
+    { type: "root", children: blockMdast(doc.content ?? []) } as never,
+    markdownOptions as never,
+  );
+  return markdown.endsWith("\n") ? markdown : `${markdown}\n`;
 }
