@@ -163,6 +163,8 @@ describe("requester-only collaboration run approval", () => {
       "child-rejected": "cancelled",
       "child-sibling": "active",
     });
+    expect(await cancelRejectedCollaborationHandoff(f.env, f.scope, HANDOFF, 11)).toBe(true);
+    expect(f.sqlite.prepare("SELECT status FROM collaboration_handoffs WHERE handoff_id='child-sibling'").get()).toMatchObject({ status: "cancelled" });
   });
 
   it("rejects members other than the requester, outsiders, bearer identities and cross-site decisions before RPC", async () => {
