@@ -255,13 +255,19 @@ test("actual native shared UI retains goal, thread, approved output and review a
       .getByLabel("Instructions", { exact: true })
       .fill("Use only supplied fixture facts. Produce the required report for human review.");
     await page.getByLabel("Required deliverables").fill("reports/native-fixture.md");
+    await expect.poll(() => page.getByLabel("Name", { exact: true }).inputValue()).toBe("Native Fixture Researcher");
+    await expect.poll(() => page.getByLabel("Instructions", { exact: true }).inputValue()).toBe("Use only supplied fixture facts. Produce the required report for human review.");
+    const keepCurrentDraft = page.getByRole("button", { name: "Keep current draft", exact: true });
+    if (await keepCurrentDraft.count()) await keepCurrentDraft.click();
+    const createBot = page.getByRole("button", { name: "Create bot", exact: true });
+    await expect.poll(() => createBot.isDisabled()).toBe(false);
     // Saving is asynchronous. Confirm the Worker accepted this exact UI write
     // before polling its read model; otherwise a cold save races expect.poll.
     const createdEmployee = page.waitForResponse((response) =>
       response.url() === `${fixture.origin}/api/custom-agents` &&
       response.request().method() === "POST",
     );
-    await page.getByRole("button", { name: "Create bot", exact: true }).click();
+    await createBot.click();
     const creation = await createdEmployee;
     expect(creation.status()).toBe(201);
     const savedEmployee = await creation.json() as {agent:{id:string;version:number;config:{name:string}}};

@@ -441,8 +441,10 @@ function ScopedCustomAgentsView({
     const template = EMPLOYEE_TEMPLATES.find((item) => item.id === initialTemplateId);
     if (!template) return;
     appliedInitialTemplate.current = initialTemplateId;
-    if (hasDraft(form)) setPendingTemplate(template);
-    else applyTemplate(template);
+    if (form.roleTemplateId !== template.id) {
+      if (hasDraft(form)) setPendingTemplate(template);
+      else applyTemplate(template);
+    }
     onInitialTemplateApplied?.();
   }, [initialTemplateId, editingId, busy, applyTemplate, onInitialTemplateApplied, form]);
 
