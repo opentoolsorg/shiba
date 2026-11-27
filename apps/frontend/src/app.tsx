@@ -4337,7 +4337,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   </div>
                 ) : null}
 
-                <details className="mx-3 mt-3 shrink-0 rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)]/70 px-3 py-2 sm:mx-5 xl:mx-8">
+                <details className={`${runtimeMainEmployee ? "hidden " : ""}mx-3 mt-3 shrink-0 rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)]/70 px-3 py-2 sm:mx-5 xl:mx-8`}>
                   <summary className="cursor-pointer select-none text-xs font-medium text-[var(--muted-foreground-1)]">
                     Task history · {taskHistoryItems.length}
                   </summary>
