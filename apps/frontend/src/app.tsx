@@ -4589,7 +4589,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
                   directoryLoading={customAgentsLoading && Boolean(customAgentId)}
                   workspaceName={teamWorkspace?.name}
                   workspaceId={teamWorkspaceId || undefined}
-                  conversationId={selectedSessionId}
+                  conversationId={botPage === "chat" ? selectedSessionId : undefined}
                   ownerName={orchestratorName ?? undefined}
                   editing={!teamWorkspaceId && !restrictedTeamMember}
                   modelEdit={botModelEdit}

@@ -131,6 +131,24 @@ describe("EmployeeRuntime Durable Object", () => {
     expect(await search.json()).toEqual({ memories: [] });
   });
 
+  it("pages runtime state memories beyond the first hundred", async () => {
+    const { runtime } = fixture();
+    for (let index = 0; index < 105; index += 1) {
+      const response = await runtime.onRequest(new Request("https://do/internal/employee-runtime/memory", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scope: "thread", kind: "fact", conversationId: "default", content: `memory-${String(index).padStart(3, "0")}` }),
+      }));
+      expect(response.status).toBe(201);
+    }
+    const first = await runtime.onRequest(new Request("https://do/internal/employee-runtime/state?conversationId=default&memoryLimit=100"));
+    const firstBody = await first.json() as { memories: Array<{ content: string }> };
+    expect(firstBody.memories).toHaveLength(100);
+    const second = await runtime.onRequest(new Request("https://do/internal/employee-runtime/state?conversationId=default&memoryLimit=100&memoryOffset=100"));
+    const secondBody = await second.json() as { memories: Array<{ content: string }> };
+    expect(secondBody.memories.length).toBeGreaterThan(0);
+    expect(secondBody.memories.some((memory) => firstBody.memories.some((item) => item.content === memory.content))).toBe(false);
+  });
+
   it("accepts encoded internal conversation ids on memory mutations", async () => {
     const { runtime } = fixture();
     const conversationId = `u_${"a".repeat(32)}_${"x".repeat(500)}`;

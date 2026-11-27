@@ -186,10 +186,12 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
 
   private stateResponse(url: URL): Response {
     const conversationId = url.searchParams.get("conversationId")?.trim() || "default";
+    const memoryLimit = Number(url.searchParams.get("memoryLimit") ?? "100");
+    const memoryOffset = Number(url.searchParams.get("memoryOffset") ?? "0");
     const state: EmployeeRuntimeState = {
       conversationId,
       messages: this.store.listMessages(conversationId),
-      memories: this.store.listMemories({ conversationId }),
+      memories: this.store.listMemories({ conversationId, limit: memoryLimit, offset: memoryOffset }),
       executions: this.store.listExecutions(conversationId),
     };
     return json(state);

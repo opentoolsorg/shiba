@@ -90,14 +90,16 @@ function memoryScope(memory: EmployeeRuntimeMemory): string {
   return memory.scope === "employee" ? "Employee" : "Thread";
 }
 
-function BotMemoryPanel({ agentId, workspaceId, conversationId = "default", canEdit }: {
+function BotMemoryPanel({ agentId, workspaceId, conversationId, canEdit }: {
   agentId: string;
   workspaceId?: string;
-  conversationId?: string;
+  conversationId: string;
   canEdit: boolean;
 }) {
   const [memories, setMemories] = useState<EmployeeRuntimeMemory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [olderLoading, setOlderLoading] = useState(false);
+  const [hasOlder, setHasOlder] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -114,12 +116,15 @@ function BotMemoryPanel({ agentId, workspaceId, conversationId = "default", canE
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${runtimePath("/state")}?conversationId=${encodeURIComponent(conversationId)}`, {
+      const response = await fetch(`${runtimePath("/state")}?conversationId=${encodeURIComponent(conversationId)}&memoryLimit=100`, {
         credentials: "same-origin", cache: "no-store", headers: teamWorkspaceHeaders(workspaceId),
       });
       const body = await response.json().catch(() => ({})) as Partial<EmployeeRuntimeState> & { error?: string };
       if (!response.ok || !Array.isArray(body.memories)) throw new Error(body.error ?? `Memory could not be loaded (${response.status}).`);
-      if (request === loadRequest.current) setMemories(body.memories);
+      if (request === loadRequest.current) {
+        setMemories(body.memories);
+        setHasOlder(body.memories.length === 100);
+      }
     } catch (cause) {
       if (request === loadRequest.current) setError(cause instanceof Error ? cause.message : "Memory could not be loaded.");
     } finally {
@@ -131,8 +136,33 @@ function BotMemoryPanel({ agentId, workspaceId, conversationId = "default", canE
     setMemories([]);
     setEditingId(null);
     setNotice(null);
+    setHasOlder(false);
     void load();
   }, [load]);
+
+  const loadOlder = async () => {
+    const request = loadRequest.current;
+    const offset = memories.length;
+    setOlderLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${runtimePath("/state")}?conversationId=${encodeURIComponent(conversationId)}&memoryLimit=100&memoryOffset=${offset}`, {
+        credentials: "same-origin", cache: "no-store", headers: teamWorkspaceHeaders(workspaceId),
+      });
+      const body = await response.json().catch(() => ({})) as Partial<EmployeeRuntimeState> & { error?: string };
+      if (!response.ok || !Array.isArray(body.memories)) throw new Error(body.error ?? `Memory could not be loaded (${response.status}).`);
+      if (request !== loadRequest.current) return;
+      setMemories((current) => {
+        const seen = new Set(current.map((memory) => memory.id));
+        return [...current, ...body.memories!.filter((memory) => !seen.has(memory.id))];
+      });
+      setHasOlder(body.memories.length === 100);
+    } catch (cause) {
+      if (request === loadRequest.current) setError(cause instanceof Error ? cause.message : "Memory could not be loaded.");
+    } finally {
+      if (request === loadRequest.current) setOlderLoading(false);
+    }
+  };
 
   const mutate = async (suffix: string, body: Record<string, unknown>, ok: string) => {
     setBusy(true);
@@ -217,13 +247,18 @@ function BotMemoryPanel({ agentId, workspaceId, conversationId = "default", canE
                 <div className="flex flex-wrap gap-1">
                   <button type="button" disabled={busy} className={`${QUIET_BUTTON} px-2 text-[11px]`} onClick={() => { setEditingId(memory.id); setEditDraft(memory.content); }}>Edit</button>
                   <button type="button" disabled={busy} className={`${QUIET_BUTTON} px-2 text-[11px]`} aria-pressed={memory.essential} onClick={() => void updateMemory(memory, { essential: !memory.essential }, memory.essential ? "Memory is no longer essential." : "Memory marked essential.")}>{memory.essential ? "Unset essential" : "Mark essential"}</button>
-                  <button type="button" disabled={busy} className={`${QUIET_BUTTON} min-h-9 px-2 text-[11px] text-[var(--destructive)]`} onClick={() => void deleteMemory(memory)}>Delete</button>
+                  <button type="button" disabled={busy} className={`${QUIET_BUTTON} px-2 text-[11px] text-[var(--destructive)]`} onClick={() => void deleteMemory(memory)}>Delete</button>
                 </div>
               ) : null}
             </li>
           ))}
         </ul>
       )}
+      {hasOlder ? (
+        <button type="button" disabled={olderLoading || busy} className={`${QUIET_BUTTON} px-3 text-xs`} onClick={() => void loadOlder()}>
+          {olderLoading ? "Loading older memories…" : "Load older memories"}
+        </button>
+      ) : null}
       {canEdit ? (
         <div className="flex flex-col gap-2 rounded-md border border-[var(--border-1)] bg-[var(--card)] p-3">
           <label className="text-[11px] text-[var(--muted-foreground-2)]">
@@ -354,7 +389,7 @@ export function BotDetailsTab(props: BotDetailsTabProps) {
         )}
       </Disclosure>
 
-      {agentId ? (
+      {agentId && conversationId ? (
         <Disclosure
           id={`${generated}-memory`}
           label="Memory"

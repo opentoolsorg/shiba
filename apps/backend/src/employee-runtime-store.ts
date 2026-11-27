@@ -178,15 +178,16 @@ export class EmployeeRuntimeStore {
     return row ? rowToMemory(row) : null;
   }
 
-  listMemories(input: { conversationId?: string; essential?: boolean; limit?: number } = {}): EmployeeRuntimeMemory[] {
+  listMemories(input: { conversationId?: string; essential?: boolean; limit?: number; offset?: number } = {}): EmployeeRuntimeMemory[] {
     const limit = Math.max(1, Math.min(500, Math.floor(input.limit ?? 100)));
+    const offset = Math.max(0, Math.min(10000, Math.floor(input.offset ?? 0)));
     const rows = input.conversationId
       ? this.exec(
-        `SELECT * FROM employee_runtime_memories WHERE ${input.essential ? "essential=1 AND " : ""}(scope='employee' OR conversation_id=?) ORDER BY updated_at DESC LIMIT ?`,
-        cleanId(input.conversationId, "conversationId"), limit,
+        `SELECT * FROM employee_runtime_memories WHERE ${input.essential ? "essential=1 AND " : ""}(scope='employee' OR conversation_id=?) ORDER BY updated_at DESC LIMIT ? OFFSET ?`,
+        cleanId(input.conversationId, "conversationId"), limit, offset,
       )
       : this.exec(
-        `SELECT * FROM employee_runtime_memories WHERE ${input.essential ? "essential=1 AND " : ""}scope='employee' ORDER BY updated_at DESC LIMIT ?`, limit,
+        `SELECT * FROM employee_runtime_memories WHERE ${input.essential ? "essential=1 AND " : ""}scope='employee' ORDER BY updated_at DESC LIMIT ? OFFSET ?`, limit, offset,
       );
     return rows.map(rowToMemory);
   }
