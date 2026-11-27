@@ -305,7 +305,7 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
     );
   }
 
-  private async reviewConversationMemories(body: ChatBody, signal: AbortSignal, summary: string): Promise<void> {
+  private async reviewConversationMemories(body: ChatBody, signal: AbortSignal, summary: string, throughMessageId: string): Promise<void> {
     if (verifyStandinEnabled(this.env) || !this.env.AI) return;
     try {
       const existing = this.store.listMemories({ conversationId: body.conversationId, limit: 100 })
@@ -313,8 +313,7 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
       const seen = new Map<string, string>();
       for (const memory of existing) {
         const key = normalizeAutomaticMemory(memory.content).toLowerCase();
-        if (seen.has(key)) this.store.deleteMemory(memory.id);
-        else seen.set(key, memory.id);
+        if (!seen.has(key)) seen.set(key, memory.id);
       }
       const workersAi = createWorkersAI({ binding: this.env.AI });
       const modelName = body.profile.model ?? this.env.ORCHESTRATOR_MODEL ?? DEFAULT_ORCHESTRATOR_MODEL;
@@ -329,13 +328,14 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
         abortSignal: signal,
       });
       const reviewed = automaticMemoryReviewSchema.parse(result.output);
+      if (!this.store.listMessages(body.conversationId, 500).some((message) => message.id === throughMessageId)) return;
       const keys = new Set([...seen.keys()]);
       for (const memory of reviewed.memories) {
         const content = normalizeAutomaticMemory(memory.content);
         if (content.length < 8 || redactSecrets(content) !== content) continue;
         const key = content.toLowerCase();
         if (keys.has(key)) continue;
-        this.store.createMemory({ conversationId: body.conversationId, scope: "thread", kind: memory.kind, content, essential: false });
+        this.store.createMemory({ conversationId: body.conversationId, scope: "thread", kind: memory.kind, content, essential: false, origin: "automatic" });
         keys.add(key);
       }
     } catch (error) {
@@ -377,7 +377,7 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
       }
       if (summary && this.store.listMessages(body.conversationId, 500).some((message) => message.id === through.id)) {
         this.store.upsertConversationSummary(body.conversationId, summary, through.id, throughIndex + 1);
-        await this.reviewConversationMemories(body, signal, summary);
+        await this.reviewConversationMemories(body, signal, summary, through.id);
       }
     } catch (error) {
       log.warn("employee_runtime_summary_failed", { error: redactSecrets(error instanceof Error ? error.message : String(error)) });

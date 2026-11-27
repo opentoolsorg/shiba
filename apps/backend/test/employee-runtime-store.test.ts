@@ -74,4 +74,31 @@ describe("EmployeeRuntimeStore", () => {
     store.createExecution({ conversationId: "other", mode: "work", inputJson: "{}", now: 2 });
     expect(store.listExecutions("default").map((execution) => execution.id)).toEqual([first.id]);
   });
+
+  it("evicts nonessential memories before essential memories at the storage cap", () => {
+    const store = makeStore();
+    const essential = store.createMemory({ scope: "employee", kind: "fact", content: "must remain", essential: true, now: 1 });
+    for (let index = 0; index < 1000; index += 1) {
+      store.createMemory({ scope: "employee", kind: "fact", content: `ordinary ${index}`, essential: false, now: index + 2 });
+    }
+    expect(store.getMemory(essential.id)).toMatchObject({ content: "must remain", essential: true });
+    expect(store.listMemories({ limit: 500 }).some((memory) => memory.content === "ordinary 0")).toBe(false);
+  });
+
+  it("clears automatic thread memories while preserving manual thread memories", () => {
+    const store = makeStore();
+    const manual = store.createMemory({ scope: "thread", conversationId: "default", kind: "fact", content: "manual fact", essential: true });
+    const automatic = store.createMemory({ scope: "thread", conversationId: "default", kind: "fact", content: "derived fact", essential: false, origin: "automatic" });
+    store.clearConversation("default");
+    expect(store.getMemory(manual.id)).toMatchObject({ content: "manual fact", origin: "manual" });
+    expect(store.getMemory(automatic.id)).toBeNull();
+  });
+
+  it("treats user-edited automatic memories as manual provenance", () => {
+    const store = makeStore();
+    const automatic = store.createMemory({ scope: "thread", conversationId: "default", kind: "fact", content: "derived fact", essential: false, origin: "automatic" });
+    expect(store.updateMemory(automatic.id, { essential: true })).toMatchObject({ origin: "manual", essential: true });
+    store.clearConversation("default");
+    expect(store.getMemory(automatic.id)).toMatchObject({ content: "derived fact", origin: "manual", essential: true });
+  });
 });

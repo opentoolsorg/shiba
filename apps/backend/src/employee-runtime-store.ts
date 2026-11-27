@@ -46,6 +46,7 @@ export const EMPLOYEE_RUNTIME_SCHEMA = [
     kind TEXT NOT NULL CHECK(kind IN ('fact','preference','summary','skill')),
     content TEXT NOT NULL,
     essential INTEGER NOT NULL DEFAULT 0,
+    origin TEXT NOT NULL DEFAULT 'manual',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   )`,
@@ -119,6 +120,8 @@ export class EmployeeRuntimeStore {
     for (const statement of EMPLOYEE_RUNTIME_SCHEMA) this.exec(statement);
     const columns = this.exec(`PRAGMA table_info(employee_runtime_messages)`).map((row) => String(row.name));
     if (!columns.includes("execution_id")) this.exec(`ALTER TABLE employee_runtime_messages ADD COLUMN execution_id TEXT`);
+    const memoryColumns = this.exec(`PRAGMA table_info(employee_runtime_memories)`).map((row) => String(row.name));
+    if (!memoryColumns.includes("origin")) this.exec(`ALTER TABLE employee_runtime_memories ADD COLUMN origin TEXT NOT NULL DEFAULT 'manual'`);
   }
 
   pinProfile(conversationId: string, profile: EmployeeRuntimeProfile, now = Date.now()): void {
@@ -188,21 +191,26 @@ export class EmployeeRuntimeStore {
     this.exec(`DELETE FROM employee_runtime_summaries WHERE conversation_id=?`, clean);
     this.exec(`DELETE FROM employee_runtime_executions WHERE conversation_id=?`, clean);
     this.exec(`DELETE FROM employee_runtime_profiles WHERE conversation_id=?`, clean);
+    const automatic = this.exec(`SELECT id FROM employee_runtime_memories WHERE conversation_id=? AND origin='automatic'`, clean);
+    for (const row of automatic) {
+      this.exec(`DELETE FROM employee_runtime_memories WHERE id=?`, String(row.id));
+      this.exec(`DELETE FROM employee_runtime_memory_fts WHERE memory_id=?`, String(row.id));
+    }
   }
 
-  createMemory(input: EmployeeRuntimeMemoryWrite & { now?: number }): EmployeeRuntimeMemory {
+  createMemory(input: EmployeeRuntimeMemoryWrite & { now?: number; origin?: "manual" | "automatic" }): EmployeeRuntimeMemory {
     if (input.scope === "thread" && !input.conversationId) throw new InputError("Thread memories require conversationId.");
     const now = input.now ?? Date.now();
     const memory: EmployeeRuntimeMemory = {
       id: id("mem"),
       ...(input.conversationId ? { conversationId: cleanId(input.conversationId, "conversationId") } : {}),
       scope: input.scope, kind: input.kind, content: input.content.trim(), essential: input.essential,
-      createdAt: now, updatedAt: now,
+      origin: input.origin ?? "manual", createdAt: now, updatedAt: now,
     };
     this.exec(
-      `INSERT INTO employee_runtime_memories(id,conversation_id,scope,kind,content,essential,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`,
+      `INSERT INTO employee_runtime_memories(id,conversation_id,scope,kind,content,essential,origin,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`,
       memory.id, memory.conversationId ?? null, memory.scope, memory.kind, memory.content,
-      memory.essential ? 1 : 0, memory.createdAt, memory.updatedAt,
+      memory.essential ? 1 : 0, memory.origin ?? "manual", memory.createdAt, memory.updatedAt,
     );
     this.exec(`INSERT INTO employee_runtime_memory_fts(memory_id,content) VALUES(?,?)`, memory.id, memory.content);
     this.pruneMemories();
@@ -216,10 +224,10 @@ export class EmployeeRuntimeStore {
     if (!content || content.length > 8000) throw new InputError("Memory content must be 1-8000 characters.");
     const essential = input.essential ?? current.essential;
     const now = input.now ?? Date.now();
-    this.exec(`UPDATE employee_runtime_memories SET content=?,essential=?,updated_at=? WHERE id=?`, content, essential ? 1 : 0, now, memoryId);
+    this.exec(`UPDATE employee_runtime_memories SET content=?,essential=?,origin='manual',updated_at=? WHERE id=?`, content, essential ? 1 : 0, now, memoryId);
     this.exec(`DELETE FROM employee_runtime_memory_fts WHERE memory_id=?`, memoryId);
     this.exec(`INSERT INTO employee_runtime_memory_fts(memory_id,content) VALUES(?,?)`, memoryId, content);
-    return { ...current, content, essential, updatedAt: now };
+    return { ...current, content, essential, origin: "manual", updatedAt: now };
   }
 
   deleteMemory(memoryId: string): boolean {
@@ -267,8 +275,8 @@ export class EmployeeRuntimeStore {
 
   private pruneMemories(): void {
     const stale = this.exec(
-      `SELECT id FROM employee_runtime_memories WHERE id NOT IN (
-        SELECT id FROM employee_runtime_memories ORDER BY updated_at DESC LIMIT ?
+      `SELECT id FROM employee_runtime_memories WHERE essential=0 AND id NOT IN (
+        SELECT id FROM employee_runtime_memories ORDER BY essential DESC,updated_at DESC LIMIT ?
       )`, MAX_MEMORIES,
     );
     for (const row of stale) {
@@ -385,6 +393,7 @@ function rowToMemory(row: SqlRow): EmployeeRuntimeMemory {
     ...(row.conversation_id != null ? { conversationId: String(row.conversation_id) } : {}),
     scope: row.scope as EmployeeRuntimeMemory["scope"], kind: row.kind as EmployeeRuntimeMemory["kind"],
     content: String(row.content), essential: Number(row.essential) === 1,
+    ...(row.origin === "automatic" ? { origin: "automatic" as const } : { origin: "manual" as const }),
     createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
   };
 }

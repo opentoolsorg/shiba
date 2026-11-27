@@ -80,6 +80,7 @@ export interface EmployeeRuntimeMemory {
   kind: "fact" | "preference" | "summary" | "skill";
   content: string;
   essential: boolean;
+  origin?: "manual" | "automatic";
   createdAt: number;
   updatedAt: number;
 }
