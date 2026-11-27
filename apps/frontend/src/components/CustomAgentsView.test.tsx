@@ -694,6 +694,37 @@ describe("account-scoped employee directory", () => {
     expect(patches).toBe(2);
     expect(avatar).toMatchObject({ kind: "variant" });
   });
+
+  it("shows the employee's active queue oldest-first and cancels board tasks", async () => {
+    const agent: CustomAgentWire = { id: "eng-1", slug: "builder", version: 1, config: { name: "Builder", instructions: "Build.", harness: "opencode" } };
+    stubWorkspaceDirectory([agent]);
+    const boardId = `task_${"a".repeat(24)}`;
+    const handoff = {
+      id: "handoff-1", workspaceId: designWorkspace, roomId: "room-1", roomTitle: "Launch room", title: "Approval handoff",
+      assigneeKind: "agent" as const, assigneeActorId: "agent:eng-1", status: "needs-approval" as const, updatedAt: 300,
+    };
+    const newer = {
+      id: boardId, workspaceId: designWorkspace, roomId: "", roomTitle: "", title: "Second board task",
+      assigneeKind: "agent" as const, assigneeActorId: "agent:eng-1", status: "todo" as const, updatedAt: 200,
+    };
+    const older = {
+      ...newer, id: `task_${"b".repeat(24)}`, title: "First board task", updatedAt: 100,
+    };
+    const done = { ...newer, id: `task_${"c".repeat(24)}`, title: "Finished board task", status: "done" as const, updatedAt: 50 };
+    const onUpdateSharedTask = vi.fn();
+    const onOpenSharedTask = vi.fn();
+    render(<CustomAgentsView workspaceId={designWorkspace} sharedTasks={[newer, handoff, older, done]} onUpdateSharedTask={onUpdateSharedTask} onOpenSharedTask={onOpenSharedTask} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "View profile Builder" }));
+    const queue = await screen.findByRole("region", { name: "Builder task queue" });
+    expect(within(queue).getByText("3 active")).toBeTruthy();
+    expect(within(queue).queryByText("Finished board task")).toBeNull();
+    expect(queue.textContent!.indexOf("First board task")).toBeLessThan(queue.textContent!.indexOf("Second board task"));
+    fireEvent.click(within(queue).getAllByRole("button", { name: "Cancel" })[0]!);
+    expect(onUpdateSharedTask).toHaveBeenCalledWith(older.id, { status: "cancelled" });
+    fireEvent.click(within(queue).getByRole("button", { name: "Approval handoff" }));
+    expect(onOpenSharedTask).toHaveBeenCalledWith(handoff);
+  });
 });
 
 const designWorkspace = `ws_${"c".repeat(24)}`;

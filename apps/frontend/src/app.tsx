@@ -1035,7 +1035,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   }, [sharedRoomScope]);
   const [sharedHandoffId, setSharedHandoffId] = useState<string | undefined>();
   const [sharedEmployeeId, setSharedEmployeeId] = useState<string | undefined>();
-  const sharedWork = useWorkTasks(signedIn ? orchestratorName : null, teamWorkspaceId, signedIn && (mainView === "work" || mainView === "dashboard"));
+  const sharedWork = useWorkTasks(signedIn ? orchestratorName : null, teamWorkspaceId, signedIn && (mainView === "work" || mainView === "dashboard" || mainView === "custom-agents"));
   useEffect(() => { setSharedHandoffId(undefined); setSharedEmployeeId(undefined); }, [teamWorkspaceId, orchestratorName]);
   const projectContexts = useProjectContexts(privateDataEnabled ? orchestratorName : null);
   useEffect(() => setProjectContextId(""), [signedIn, orchestratorName]);
@@ -4792,6 +4792,13 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               threads={visibleWebSessions}
               threadsLoading={!sessionsLoaded}
               threadsUnavailable={sessionsLoaded && !sessionApiAvailable}
+              sharedTasks={teamWorkspaceId ? sharedWork.tasks : []}
+              sharedTasksLoading={Boolean(teamWorkspaceId && sharedWork.loading)}
+              onUpdateSharedTask={teamWorkspaceId ? (id, patch) => { void sharedWork.update(id, patch); } : undefined}
+              onOpenSharedTask={teamWorkspaceId ? (task) => {
+                applyWorkSelection({ view: workViewMode, task: task.id, tab: "steps" }, "push");
+                setMainView("work");
+              } : undefined}
               onOpenToolPolicy={openEmployeeToolPolicy}
               onOpenThread={(id) => { void handleSelectSession(id); }}
             />

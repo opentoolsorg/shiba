@@ -18,6 +18,8 @@ import { AgentAvatar } from "./AgentExperience";
 import type { AgentTemplate, EmployeeAccessLevel } from "@shiba/shared";
 import { PrimaryBotPicker } from "./collab/PrimaryBotPicker";
 import { teamWorkspaceHeaders } from "../team-workspaces-client";
+import type { TeamWorkItem } from "../team-work-items";
+import type { WorkTaskPatch } from "../work-mutations";
 
 const FIELD =
   "bg-[var(--panel)] border border-[var(--border-1)] rounded-[var(--radius-button)] text-[var(--fg)] px-2.5 py-1.5 text-xs focus:outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]/40 placeholder-[var(--muted-foreground-3)]/60 transition-colors w-full";
@@ -31,6 +33,23 @@ const BTN_PRIMARY =
   "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-[var(--radius-button)] border border-[var(--primary)] bg-[var(--primary)] px-4 text-xs font-medium text-[var(--primary-text)] hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-50";
 const STAGE = "flex flex-col gap-4 border-t border-[var(--border-1)] pt-5";
 const ROLE_FILTER_ALL = "all";
+const ACTIVE_QUEUE_STATUSES = new Set<TeamWorkItem["status"]>(["backlog", "todo", "queued", "in-progress", "running", "needs-approval"]);
+
+function actorMatchesEmployee(task: TeamWorkItem, employeeId: string): boolean {
+  const actorId = task.assigneeActorId ?? task.ownerId;
+  const normalized = actorId?.startsWith("agent:") ? actorId.slice("agent:".length) : actorId;
+  return task.assigneeKind === "agent" && normalized === employeeId;
+}
+
+export function employeeQueueTasks(tasks: readonly TeamWorkItem[], employeeId: string): TeamWorkItem[] {
+  return tasks
+    .filter((task) => actorMatchesEmployee(task, employeeId) && ACTIVE_QUEUE_STATUSES.has(task.status))
+    .sort((a, b) => (a.createdAt ?? a.updatedAt) - (b.createdAt ?? b.updatedAt) || a.id.localeCompare(b.id));
+}
+
+function canCancelBoardTask(task: TeamWorkItem): boolean {
+  return task.id.startsWith("task_") && ACTIVE_QUEUE_STATUSES.has(task.status);
+}
 
 /** Every interactive task and scheduled automation requires human approval. */
 const INTERACTIVE_APPROVAL = "Interactive tasks need your approval of the exact task before anything runs.";
@@ -121,6 +140,10 @@ export interface CustomAgentsViewProps {
   draftScope?: string;
   workspaceId?: string;
   actorId?: string;
+  sharedTasks?: readonly TeamWorkItem[];
+  sharedTasksLoading?: boolean;
+  onUpdateSharedTask?: (id: string, patch: WorkTaskPatch) => unknown;
+  onOpenSharedTask?: (task: TeamWorkItem) => void;
   // Receives the employee to preselect after a hire; plain links pass nothing.
   onOpenToolPolicy?: (employeeId?: string) => void;
 }
@@ -150,6 +173,10 @@ function ScopedCustomAgentsView({
   draftScope,
   workspaceId,
   actorId,
+  sharedTasks = [],
+  sharedTasksLoading = false,
+  onUpdateSharedTask,
+  onOpenSharedTask,
   isCurrent,
 }: CustomAgentsViewProps & { isCurrent: () => boolean }): JSX.Element {
   const alive = useRef(true);
@@ -672,6 +699,8 @@ function ScopedCustomAgentsView({
     }
   };
 
+  const selectedQueue = selectedAgent && workspaceId ? employeeQueueTasks(sharedTasks, selectedAgent.id) : [];
+
   return (
     <div className="employee-directory flex h-full min-w-0 flex-1 flex-col overflow-hidden border border-[var(--border-1)] bg-[var(--bg)] text-[var(--fg)]">
       <header className="flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--border-1)] bg-[var(--card)] px-4 py-2">
@@ -782,6 +811,38 @@ function ScopedCustomAgentsView({
                     <h3 className="text-xs font-medium">Instructions</h3>
                     <p className="mt-1 whitespace-pre-wrap break-words text-sm text-[var(--muted-foreground-2)]">{selectedAgent.config.instructions}</p>
                   </div>
+                  {workspaceId ? (
+                    <section aria-label={`${selectedAgent.config.name} task queue`} className="rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--panel)] p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <h3 className="text-xs font-medium text-[var(--fg)]">Task queue</h3>
+                          <p className="mt-0.5 text-[11px] text-[var(--muted-foreground-2)]">Oldest active work first. Approval-gated handoffs stay linked to their room.</p>
+                        </div>
+                        <span className="border border-[var(--line)] px-1.5 font-mono text-[10px] text-[var(--ink-2)]">{selectedQueue.length} active</span>
+                      </div>
+                      {sharedTasksLoading ? <p className="mt-3 text-xs text-[var(--muted-foreground-2)]">Loading queue…</p> : selectedQueue.length === 0 ? (
+                        <p className="mt-3 text-xs text-[var(--muted-foreground-2)]">No active work is assigned to this employee.</p>
+                      ) : (
+                        <ol className="mt-3 flex flex-col gap-2">
+                          {selectedQueue.map((task, index) => (
+                            <li key={task.id} className="flex flex-wrap items-center gap-2 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] p-2 text-xs">
+                              <span className="w-6 text-center font-mono text-[10px] text-[var(--muted-foreground-3)]">{index + 1}</span>
+                              <button type="button" onClick={() => onOpenSharedTask?.(task)} className="min-h-11 min-w-0 flex-1 truncate text-left font-medium text-[var(--fg)] hover:text-[var(--primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">
+                                {task.title}
+                              </button>
+                              <span className="capitalize text-[var(--muted-foreground-2)]">{task.status.replaceAll("-", " ")}</span>
+                              <span className="text-[var(--muted-foreground-3)]">{task.roomTitle || "Board"}</span>
+                              {onUpdateSharedTask && canCancelBoardTask(task) ? (
+                                <button type="button" onClick={() => void onUpdateSharedTask(task.id, { status: "cancelled" })} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--destructive)]/40 px-2 text-[11px] text-[var(--destructive)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">
+                                  Cancel
+                                </button>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ol>
+                      )}
+                    </section>
+                  ) : null}
                   {(() => {
                     const template = EMPLOYEE_TEMPLATES.find((item) => item.id === employeeRole(selectedAgent.slug, selectedAgent.config.roleTemplateId));
                     const policyTools = profilePolicy?.employeeId === selectedAgent.id ? profilePolicy.tools : null;
