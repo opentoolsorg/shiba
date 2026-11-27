@@ -18,9 +18,13 @@ import {
   employeeRuntimeMemoryUpdateSchema,
   employeeRuntimeMemoryWriteSchema,
   employeeRuntimeProfileSchema,
+  employeeRuntimeRoutineDeleteSchema,
+  employeeRuntimeRoutineWriteSchema,
+  EMPLOYEE_RUNTIME_ROUTINE_MAX_PER_EMPLOYEE,
   verifyStandinEnabled,
   type EmployeeRuntimeChatResponse,
   type EmployeeRuntimeProfile,
+  type EmployeeRuntimeRoutine,
   type EmployeeRuntimeState,
   type EmployeeRuntimeStreamEvent,
 } from "@shiba/shared";
@@ -30,6 +34,7 @@ import { InputError, redactSecrets } from "./security.js";
 import { EmployeeRuntimeStore, type SqlRow } from "./employee-runtime-store.js";
 import { createEmployeeRunTools, resolveEmployeeRunToolContext } from "./employee-run-tools.js";
 import { log } from "./obs/log.js";
+import { getCustomAgentById } from "./custom-agents-store.js";
 
 type RuntimeState = { startedAt: number };
 
@@ -41,6 +46,14 @@ const internalRuntimeChatRequestSchema = employeeRuntimeChatRequestSchema.safeEx
 const internalMemoryWriteSchema = employeeRuntimeMemoryWriteSchema.safeExtend({ conversationId: internalConversationIdSchema });
 const internalMemoryUpdateSchema = employeeRuntimeMemoryUpdateSchema.safeExtend({ conversationId: internalConversationIdSchema });
 const internalMemoryDeleteSchema = employeeRuntimeMemoryDeleteSchema.safeExtend({ conversationId: internalConversationIdSchema });
+const internalRoutineWriteSchema = employeeRuntimeRoutineWriteSchema.safeExtend({ conversationId: z.string().trim().min(1).max(600) });
+const internalRoutineDeleteSchema = employeeRuntimeRoutineDeleteSchema.safeExtend({ conversationId: z.string().trim().min(1).max(600) });
+const routinePayloadSchema = z.object({
+  conversationId: z.string().trim().min(1).max(600),
+  name: z.string().trim().min(1).max(100),
+  prompt: z.string().trim().min(1).max(4000),
+  createdAt: z.number().int().positive(),
+}).strict();
 
 const PREFIX = "/internal/employee-runtime";
 const MAX_ESSENTIAL_MEMORIES = 12;
@@ -133,6 +146,9 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
       if (url.pathname === `${PREFIX}/memory/update` && request.method === "POST") return await this.updateMemory(request);
       if (url.pathname === `${PREFIX}/memory/delete` && request.method === "POST") return await this.deleteMemory(request);
       if (url.pathname === `${PREFIX}/memory/search` && request.method === "GET") return this.searchMemory(url);
+      if (url.pathname === `${PREFIX}/routines` && request.method === "GET") return await this.listRoutines(url);
+      if (url.pathname === `${PREFIX}/routines` && request.method === "POST") return await this.createRoutine(request);
+      if (url.pathname === `${PREFIX}/routines/delete` && request.method === "POST") return await this.deleteRoutine(request);
       if (url.pathname === `${PREFIX}/cancel` && request.method === "POST") return await this.cancel(request);
       if (url.pathname === `${PREFIX}/recover` && request.method === "POST") return this.recover(request);
       return json({ error: "Not found." }, { status: 404 });
@@ -160,8 +176,120 @@ export class EmployeeRuntime extends Agent<Env, RuntimeState> {
     for (const execution of this.store.listExecutions(input.conversationId, 500)) {
       if (execution.status === "running") this.active.get(execution.id)?.abort();
     }
+    for (const schedule of await this.listSchedules({ type: "interval" })) {
+      const routine = this.routineFromSchedule(schedule);
+      if (routine?.conversationId === input.conversationId) await this.cancelSchedule(schedule.id);
+    }
     this.store.clearConversation(input.conversationId);
     return json({ ok: true });
+  }
+
+  private routineFromSchedule(schedule: { id: string; callback: string; payload: unknown; type: string; time: number; intervalSeconds?: number }): EmployeeRuntimeRoutine | null {
+    if (schedule.callback !== "runEmployeeRoutine" || schedule.type !== "interval" || !schedule.intervalSeconds) return null;
+    const parsed = routinePayloadSchema.safeParse(schedule.payload);
+    if (!parsed.success) return null;
+    return {
+      id: schedule.id,
+      conversationId: parsed.data.conversationId,
+      name: parsed.data.name,
+      prompt: parsed.data.prompt,
+      intervalSeconds: schedule.intervalSeconds,
+      nextRunAt: schedule.time * 1000,
+      createdAt: parsed.data.createdAt,
+    };
+  }
+
+  private async listRoutines(url: URL): Promise<Response> {
+    const conversationId = z.string().trim().min(1).max(600).parse(url.searchParams.get("conversationId") ?? "");
+    const routines = (await this.listSchedules({ type: "interval" }))
+      .map((schedule) => this.routineFromSchedule(schedule))
+      .filter((routine): routine is EmployeeRuntimeRoutine => routine !== null && routine.conversationId === conversationId)
+      .sort((left, right) => left.createdAt - right.createdAt || left.id.localeCompare(right.id));
+    return json({ routines });
+  }
+
+  private async createRoutine(request: Request): Promise<Response> {
+    const raw = await bodyObject(request);
+    const profile = employeeRuntimeProfileSchema.parse(raw.profile);
+    const routineInput = { ...raw };
+    delete routineInput.profile;
+    const input = internalRoutineWriteSchema.parse(routineInput);
+    const payload = { conversationId: input.conversationId, name: input.name, prompt: input.prompt, createdAt: Date.now() };
+    const existing = (await this.listSchedules({ type: "interval" }))
+      .map((schedule) => ({ schedule, routine: this.routineFromSchedule(schedule) }))
+      .filter((entry): entry is { schedule: typeof entry.schedule; routine: EmployeeRuntimeRoutine } => entry.routine !== null);
+    const duplicate = existing.find((entry) => entry.routine.conversationId === input.conversationId && entry.routine.name === input.name && entry.routine.prompt === input.prompt && entry.routine.intervalSeconds === input.intervalSeconds);
+    if (duplicate) return json({ routine: duplicate.routine, deduplicated: true });
+    if (existing.length >= EMPLOYEE_RUNTIME_ROUTINE_MAX_PER_EMPLOYEE) throw new InputError(`At most ${EMPLOYEE_RUNTIME_ROUTINE_MAX_PER_EMPLOYEE} routines can be active for an employee.`);
+    this.store.pinProfile(input.conversationId, profile);
+    const schedule = await this.scheduleEvery(input.intervalSeconds, "runEmployeeRoutine", payload, { retry: { maxAttempts: 1 } });
+    const routine = this.routineFromSchedule(schedule);
+    if (!routine) throw new Error("Routine schedule was not persisted.");
+    return json({ routine }, { status: 201 });
+  }
+
+  private async deleteRoutine(request: Request): Promise<Response> {
+    const input = internalRoutineDeleteSchema.parse(await bodyObject(request));
+    const schedule = await this.getScheduleById(input.routineId);
+    const routine = schedule ? this.routineFromSchedule(schedule) : null;
+    if (!routine || routine.conversationId !== input.conversationId) return json({ error: "Routine not found." }, { status: 404 });
+    return json({ ok: true, deleted: await this.cancelSchedule(input.routineId) });
+  }
+
+  async runEmployeeRoutine(payload: unknown, schedule?: { id?: unknown }): Promise<void> {
+    const parsed = routinePayloadSchema.safeParse(payload);
+    if (!parsed.success) return;
+    const input = parsed.data;
+    if (!this.env.AGENT_AUDIT || this.store.listExecutions(input.conversationId, 500).some((execution) => execution.status === "running")) return;
+    const pinned = this.store.profile(input.conversationId);
+    if (!pinned) return;
+    const employee = await getCustomAgentById(this.env, pinned.orgId, pinned.employeeId);
+    if (!employee || employee.archivedAt) {
+      if (typeof schedule?.id === "string") await this.cancelSchedule(schedule.id);
+      return;
+    }
+    if (pinned.orgId.startsWith("team:") && !verifyStandinEnabled(this.env)) return;
+    const profile: EmployeeRuntimeProfile = {
+      orgId: pinned.orgId,
+      employeeId: pinned.employeeId,
+      employeeVersion: employee.version,
+      name: employee.config.name,
+      ...(employee.config.title ? { role: employee.config.title } : {}),
+      instructions: employee.config.instructions ?? "",
+      ...(employee.config.model ? { model: employee.config.model } : {}),
+    };
+    const body: ChatBody = { profile, conversationId: input.conversationId, message: `Scheduled routine "${input.name}":
+
+${input.prompt}`, mode: "chat" };
+    if (this.store.listExecutions(input.conversationId, 500).some((execution) => execution.status === "running")) return;
+    this.store.pinProfile(body.conversationId, body.profile);
+    const user = this.store.appendMessage({ conversationId: body.conversationId, role: "user", content: body.message });
+    const execution = this.store.createExecution({
+      conversationId: body.conversationId,
+      mode: body.mode,
+      inputJson: JSON.stringify({ conversationId: body.conversationId, mode: body.mode, employeeVersion: body.profile.employeeVersion, userMessageId: user.id, messageLength: body.message.length, messagePreview: body.message.slice(0, 4000), routine: true, routineId: typeof schedule?.id === "string" ? schedule.id : undefined }),
+    });
+    const controller = new AbortController();
+    this.active.set(execution.id, controller);
+    this.store.updateExecution(execution.id, { checkpoint: "inference" });
+    try {
+      const answer = await this.answer(body, controller.signal, execution.id);
+      const current = this.store.getExecution(execution.id);
+      if (!current || current.status === "cancelled") return;
+      const assistant = this.store.appendMessage({ conversationId: body.conversationId, role: "assistant", content: answer, executionId: execution.id });
+      this.store.updateExecution(execution.id, { status: "completed", checkpoint: "terminal", resultJson: JSON.stringify({ assistantMessageId: assistant.id }) });
+      await this.consolidateConversation(body, controller.signal);
+    } catch (error) {
+      const cancelled = controller.signal.aborted || this.store.getExecution(execution.id)?.status === "cancelled";
+      this.store.updateExecution(execution.id, {
+        status: cancelled ? "cancelled" : "failed",
+        checkpoint: cancelled ? "cancelled" : "inference_failed",
+        error: cancelled ? "Execution cancelled." : redactSecrets(error instanceof Error ? error.message : String(error)),
+      });
+      if (!cancelled) log.warn("employee_runtime_routine_failed", { error: redactSecrets(error instanceof Error ? error.message : String(error)) });
+    } finally {
+      this.active.delete(execution.id);
+    }
   }
 
   private async chat(request: Request): Promise<Response> {

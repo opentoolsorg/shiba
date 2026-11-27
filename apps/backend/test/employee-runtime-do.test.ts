@@ -6,6 +6,15 @@ vi.mock("../src/employee-run-tools.js", async (importOriginal) => ({
   createEmployeeRunTools: vi.fn(() => ({})),
 }));
 
+vi.mock("../src/custom-agents-store.js", () => ({
+  getCustomAgentById: vi.fn(async (_env: unknown, _orgId: string, employeeId: string) => ({
+    id: employeeId,
+    version: 2,
+    archivedAt: null,
+    config: { name: "Riley", instructions: "Be helpful." },
+  })),
+}));
+
 vi.mock("agents", () => ({
   Agent: class {
     initialState = { startedAt: 0 };
@@ -14,6 +23,27 @@ vi.mock("agents", () => ({
     get state(): { startedAt: number } { return this.currentState ?? this.initialState; }
     setState(state: { startedAt: number }): void { this.currentState = state; }
     get sessionAffinity(): string { return "test-employee-runtime"; }
+    private schedules: Array<{ id: string; callback: string; payload: unknown; type: "interval"; time: number; intervalSeconds: number }> = [];
+    private scheduleCounter = 0;
+    async scheduleEvery(intervalSeconds: number, callback: string, payload?: unknown): Promise<{ id: string; callback: string; payload: unknown; type: "interval"; time: number; intervalSeconds: number }> {
+      const duplicate = this.schedules.find((schedule) => schedule.callback === callback && schedule.intervalSeconds === intervalSeconds && JSON.stringify(schedule.payload) === JSON.stringify(payload));
+      if (duplicate) return duplicate;
+      this.scheduleCounter += 1;
+      const schedule = { id: `schedule_${this.scheduleCounter}`, callback, payload, type: "interval" as const, time: Math.floor(Date.now() / 1000) + intervalSeconds, intervalSeconds };
+      this.schedules.push(schedule);
+      return schedule;
+    }
+    async listSchedules(criteria?: { type?: string }): Promise<Array<{ id: string; callback: string; payload: unknown; type: "interval"; time: number; intervalSeconds: number }>> {
+      return this.schedules.filter((schedule) => !criteria?.type || schedule.type === criteria.type);
+    }
+    async getScheduleById(id: string): Promise<{ id: string; callback: string; payload: unknown; type: "interval"; time: number; intervalSeconds: number } | undefined> {
+      return this.schedules.find((schedule) => schedule.id === id);
+    }
+    async cancelSchedule(id: string): Promise<boolean> {
+      const before = this.schedules.length;
+      this.schedules = this.schedules.filter((schedule) => schedule.id !== id);
+      return this.schedules.length !== before;
+    }
   },
 }));
 
@@ -38,6 +68,7 @@ function fixture(envOverrides: Partial<Env> = {}) {
   const env = {
     SHIBA_VERIFY_STANDIN: "1",
     GITHUB_API_BASE: "http://127.0.0.1:9",
+    AGENT_AUDIT: {},
     ...envOverrides,
   } as Env;
   const runtime = new EmployeeRuntime(ctx, env);
@@ -328,6 +359,62 @@ describe("EmployeeRuntime Durable Object", () => {
       body: JSON.stringify({ memoryId: memory.id, conversationId, content: "Updated encoded thread fact" }),
     }));
     expect(update.status).toBe(200);
+  });
+
+  it("creates, deduplicates, lists, and clears actor-scoped routines", async () => {
+    const { runtime } = fixture();
+    const write = () => runtime.onRequest(new Request("https://do/internal/employee-runtime/routines", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ profile, conversationId: "default", name: "Morning check", prompt: "Summarize the plan", intervalSeconds: 300 }),
+    }));
+    const created = await write();
+    expect(created.status).toBe(201);
+    const first = await created.json() as { routine: { id: string } };
+    const duplicate = await write();
+    expect(await duplicate.json()).toMatchObject({ deduplicated: true, routine: { id: first.routine.id } });
+    const list = await runtime.onRequest(new Request("https://do/internal/employee-runtime/routines?conversationId=default"));
+    expect(await list.json()).toMatchObject({ routines: [{ id: first.routine.id, name: "Morning check", intervalSeconds: 300 }] });
+    const clear = await runtime.onRequest(new Request("https://do/internal/employee-runtime/clear", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ conversationId: "default" }),
+    }));
+    expect(clear.status).toBe(200);
+    const empty = await runtime.onRequest(new Request("https://do/internal/employee-runtime/routines?conversationId=default"));
+    expect(await empty.json()).toEqual({ routines: [] });
+  });
+
+  it("runs a routine once without tools and persists the completed turn", async () => {
+    const { runtime } = fixture();
+    const created = await runtime.onRequest(new Request("https://do/internal/employee-runtime/routines", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ profile, conversationId: "default", name: "Morning check", prompt: "Summarize the plan", intervalSeconds: 300 }),
+    }));
+    const { routine } = await created.json() as { routine: { id: string; prompt: string; name: string } };
+    await runtime.runEmployeeRoutine({ conversationId: "default", name: routine.name, prompt: routine.prompt, createdAt: Date.now() }, { id: routine.id });
+    const state = await runtime.onRequest(new Request("https://do/internal/employee-runtime/state?conversationId=default"));
+    const body = await state.json() as { messages: Array<{ role: string; content: string }>; executions: Array<{ status: string }> };
+    expect(body.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+    expect(body.messages[0]?.content).toContain("Scheduled routine");
+    expect(body.messages[1]?.content).toContain("Synthetic employee runtime response");
+    expect(body.executions).toMatchObject([{ status: "completed" }]);
+    expect(vi.mocked(createEmployeeRunTools)).not.toHaveBeenCalled();
+  });
+
+  it("deletes only routines owned by the exact conversation", async () => {
+    const { runtime } = fixture();
+    const created = await runtime.onRequest(new Request("https://do/internal/employee-runtime/routines", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ profile, conversationId: "u_actor_one", name: "Private routine", prompt: "Check privately", intervalSeconds: 300 }),
+    }));
+    const { routine } = await created.json() as { routine: { id: string } };
+    const wrong = await runtime.onRequest(new Request("https://do/internal/employee-runtime/routines/delete", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ conversationId: "u_actor_two", routineId: routine.id }),
+    }));
+    expect(wrong.status).toBe(404);
+    const owned = await runtime.onRequest(new Request("https://do/internal/employee-runtime/routines/delete", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ conversationId: "u_actor_one", routineId: routine.id }),
+    }));
+    expect(owned.status).toBe(200);
+    expect(await owned.json()).toMatchObject({ ok: true, deleted: true });
   });
 
   it("does not update or delete thread memory from another conversation", async () => {

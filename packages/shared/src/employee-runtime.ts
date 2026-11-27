@@ -58,6 +58,35 @@ export const employeeRuntimeMemoryDeleteSchema = z.object({
 });
 export type EmployeeRuntimeMemoryDeleteRequest = z.infer<typeof employeeRuntimeMemoryDeleteSchema>;
 
+
+export const EMPLOYEE_RUNTIME_ROUTINE_MIN_INTERVAL_SECONDS = 300;
+export const EMPLOYEE_RUNTIME_ROUTINE_MAX_INTERVAL_SECONDS = 7 * 24 * 60 * 60;
+export const EMPLOYEE_RUNTIME_ROUTINE_MAX_PER_EMPLOYEE = 5;
+
+export const employeeRuntimeRoutineWriteSchema = z.object({
+  conversationId: z.string().trim().min(1).max(128).default("default"),
+  name: z.string().trim().min(1).max(100),
+  prompt: z.string().trim().min(1).max(4000),
+  intervalSeconds: z.number().int().min(EMPLOYEE_RUNTIME_ROUTINE_MIN_INTERVAL_SECONDS).max(EMPLOYEE_RUNTIME_ROUTINE_MAX_INTERVAL_SECONDS),
+}).strict();
+export type EmployeeRuntimeRoutineWrite = z.infer<typeof employeeRuntimeRoutineWriteSchema>;
+
+export const employeeRuntimeRoutineDeleteSchema = z.object({
+  conversationId: z.string().trim().min(1).max(128).default("default"),
+  routineId: z.string().trim().min(1).max(128),
+}).strict();
+export type EmployeeRuntimeRoutineDeleteRequest = z.infer<typeof employeeRuntimeRoutineDeleteSchema>;
+
+export interface EmployeeRuntimeRoutine {
+  id: string;
+  conversationId: string;
+  name: string;
+  prompt: string;
+  intervalSeconds: number;
+  nextRunAt: number;
+  createdAt: number;
+}
+
 export const employeeRuntimeCancelSchema = z.object({
   executionId: z.string().trim().min(1).max(128),
   conversationId: z.string().trim().min(1).max(128).default("default"),

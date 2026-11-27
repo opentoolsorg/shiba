@@ -254,6 +254,24 @@ describe("employee runtime routes", () => {
     expect(calls[0]?.url).toBe("https://internal/internal/employee-runtime/clear");
   });
 
+  it("scopes routine creation and listing to the actor conversation", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const env = runtimeEnv(calls);
+    const agent = await createCustomAgent(env, "self-hosted", "routine-scout", { name: "Scout", instructions: "Answer carefully." });
+    const created = await handleCustomAgents(post(`/${agent.id}/runtime/routines`, {
+      conversationId: "private-thread", name: "Morning check", prompt: "Summarize the plan", intervalSeconds: 300,
+    }), env);
+    expect(created?.status).toBe(200);
+    expect(calls[0]?.url).toBe("https://internal/internal/employee-runtime/routines");
+    const forwarded = JSON.parse(String(calls[0]?.init?.body)) as { conversationId: string; profile?: unknown };
+    expect(forwarded.conversationId).toMatch(/^u_[a-f0-9]{32}_[A-Za-z0-9_-]+$/);
+    expect(forwarded.conversationId).not.toBe("private-thread");
+    expect(forwarded.profile).toMatchObject({ employeeId: agent.id, name: "Scout" });
+    const listed = await handleCustomAgents(new Request(`https://x/api/custom-agents/${agent.id}/runtime/routines?conversationId=private-thread`), env);
+    expect(listed?.status).toBe(200);
+    expect(new URL(calls[1]!.url).searchParams.get("conversationId")).toBe(forwarded.conversationId);
+  });
+
   it("scopes thread memory mutations before forwarding them", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const env = runtimeEnv(calls);

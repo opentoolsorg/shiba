@@ -7,6 +7,8 @@ import {
   employeeRuntimeMemoryUpdateSchema,
   employeeRuntimeMemoryWriteSchema,
   employeeRuntimeRecoveryRequestSchema,
+  employeeRuntimeRoutineDeleteSchema,
+  employeeRuntimeRoutineWriteSchema,
 } from "@shiba/shared";
 import type { Env } from "./env.js";
 import { getCustomAgentById } from "./custom-agents-store.js";
@@ -155,7 +157,7 @@ export async function handleEmployeeRuntimeRequest(
   if (!agent) return json({ ok: false, error: "not_found" }, { status: 404 });
   if (agent.archivedAt && !["state", "memory-search", "clear"].includes(action)) return json({ ok: false, error: "employee_archived" }, { status: 409 });
   const stub = employeeRuntimeStub(env, orgId, agent.id);
-  const internal = `https://internal/internal/employee-runtime${action === "state" ? "/state" : action === "memory" ? "/memory" : action === "memory-update" ? "/memory/update" : action === "memory-delete" ? "/memory/delete" : action === "memory-search" ? "/memory/search" : action === "cancel" ? "/cancel" : action === "clear" ? "/clear" : action === "recover" ? "/recover" : action === "chat-stream" ? "/chat/stream" : "/chat"}`;
+  const internal = `https://internal/internal/employee-runtime${action === "state" ? "/state" : action === "memory" ? "/memory" : action === "memory-update" ? "/memory/update" : action === "memory-delete" ? "/memory/delete" : action === "memory-search" ? "/memory/search" : action === "cancel" ? "/cancel" : action === "clear" ? "/clear" : action === "recover" ? "/recover" : action === "routines" ? "/routines" : action === "routine-delete" ? "/routines/delete" : action === "chat-stream" ? "/chat/stream" : "/chat"}`;
   const manager = await canManageEmployee(env, auth, agent.id);
   const toolActorId = await runtimeToolActorId(request, env, auth);
   const runtimeModel = agent.config.model;
@@ -181,6 +183,14 @@ export async function handleEmployeeRuntimeRequest(
       if (value) url.searchParams.set(key, value);
     }
     return forwardConversation(await stub.fetch(url), { permissions: { canRecover: manager && !agent.archivedAt } });
+  }
+
+  if (action === "routines" && request.method === "GET") {
+    const incoming = new URL(request.url);
+    const conversationId = incoming.searchParams.get("conversationId") ?? "default";
+    const url = new URL(internal);
+    url.searchParams.set("conversationId", await scopedConversationId(actorIdentity, conversationId));
+    return forwardConversation(await stub.fetch(url));
   }
 
   if (action === "memory-search") {
@@ -215,6 +225,22 @@ export async function handleEmployeeRuntimeRequest(
       body: JSON.stringify({ ...parsed.data, conversationId: storageId, profile, ...(toolActorId ? { toolActorId } : {}) }),
     });
     return action === "chat-stream" ? forwardStreamConversations(streamed) : forwardConversation(streamed);
+  }
+
+  if (action === "routines" || action === "routine-delete") {
+    if (action === "routines" && orgId.startsWith("team:") && !verifyStandinEnabled(env)) {
+      return json({ ok: false, error: "employee_runtime_funding_required" }, { status: 403 });
+    }
+    if (action === "routines" && !manager) return json({ ok: false, error: "employee_routine_manage_required" }, { status: 403 });
+    const schema = action === "routines" ? employeeRuntimeRoutineWriteSchema : employeeRuntimeRoutineDeleteSchema;
+    const parsed = schema.safeParse(body);
+    if (!parsed.success) return json({ ok: false, error: "invalid_body" }, { status: 400 });
+    const storageId = await scopedConversationId(actorIdentity, parsed.data.conversationId);
+    const response = await stub.fetch(internal, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...parsed.data, conversationId: storageId, ...(action === "routines" ? { profile } : {}) }),
+    });
+    return forwardConversation(response);
   }
 
   if (action === "clear") {
