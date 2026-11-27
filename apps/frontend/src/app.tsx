@@ -3106,8 +3106,19 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
 
   const handleStartAgentThread = useCallback(async (profile: CustomAgentWire) => {
     if (teamWorkspaceId) {
-      setSharedRoomId(undefined); setSharedHandoffId(undefined); setSharedEmployeeId(profile.id); setMainView("threads");
-      return null;
+      const created = await teamWorkspaceRequest<{ room: { roomId: string } }>("/api/collaboration/rooms", {
+        method: "POST",
+        headers: teamWorkspaceHeaders(teamWorkspaceId),
+        body: JSON.stringify({ title: `${profile.config.name} conversation`, visibility: "private" }),
+      });
+      await teamWorkspaceRequest(`/api/collaboration/rooms/${encodeURIComponent(created.room.roomId)}/agents`, {
+        method: "POST",
+        headers: teamWorkspaceHeaders(teamWorkspaceId),
+        body: JSON.stringify({ profileId: profile.id, profileVersion: profile.version }),
+      });
+      setSharedRoomId(created.room.roomId); setSharedHandoffId(undefined); setSharedEmployeeId(profile.id); setMainView("threads");
+      roomRoute.onRoomChange(created.room.roomId);
+      return created.room.roomId;
     }
     if (taskCreationBlocker) throw new Error(taskCreationBlocker);
     const creationScope = activeSurfaceScopeRef.current;
@@ -3138,7 +3149,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
     } finally {
       threadCreationPending.current = false;
     }
-  }, [applyThreadProfile, orchestratorName, refreshCustomAgents, teamWorkspaceId, taskCreationBlocker, pushThreadUrl]);
+  }, [applyThreadProfile, orchestratorName, refreshCustomAgents, roomRoute.onRoomChange, teamWorkspaceId, taskCreationBlocker, pushThreadUrl]);
 
   const startSidebarAgentThread = async (profile?: CustomAgentWire) => {
     const creationScope = activeSurfaceScopeRef.current;
