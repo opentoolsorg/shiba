@@ -69,8 +69,7 @@ describe("marketing landing page", () => {
     expect(heading).toBe("Build an AI workforce you actually own.");
     expect(markup).toContain('id="dashboard"');
     expect(markup).toContain('id="employees"');
-    expect(markup).toContain("Shiba app · customizable robot employee avatars · Agents workspace");
-    expect(markup).toContain("Your next great teammate.");
+    expect(markup).toContain('aria-label="Shiba dashboard workspace with robot employee avatars and template catalog"');
     expect(markup).not.toContain("manga-panel");
     expect(markup).toContain('prefers-color-scheme: dark');
     expect(markup).toContain("theme-toggle-btn");

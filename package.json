@@ -43,6 +43,7 @@
     "bootstrap": "node scripts/setup.mjs",
     "shiba": "node scripts/shiba.mjs",
     "test": "node apps/backend/scripts/check-migrations.mjs && turbo run test --concurrency=2",
+    "test:serial": "node apps/backend/scripts/check-migrations.mjs && turbo run test --concurrency=1",
     "test:personal-daemon": "node --test scripts/personal-cli-auth.test.mjs scripts/personal-daemon.test.mjs",
     "test:acceptance": "node apps/backend/test/acceptance/run.mjs",
     "test:built": "cd apps/backend && SHIBA_TEST_BUILT_MARKETING=1 pnpm test test/marketing-pages.test.ts test/marketing-seo.test.ts",

@@ -137,7 +137,7 @@ await page.getByLabel('Harness',{exact:true}).fill(config.harness);
 await page.getByLabel('Coding model',{exact:true}).fill(config.codingModel);
 await page.getByRole('combobox',{name:/^Model connection/}).selectOption('');
 await page.getByLabel('Default repository',{exact:true}).fill(repoUrl);
-const [created]=await Promise.all([page.waitForResponse(response=>new URL(response.url()).pathname==='/api/custom-agents'&&response.request().method()==='POST'),page.getByRole('button',{name:'Create bot',exact:true}).click()]);assert.equal(created.status(),201,await created.text());const profile=(await created.json()).agent;
+const [created,sessionCreated]=await Promise.all([page.waitForResponse(response=>new URL(response.url()).pathname==='/api/custom-agents'&&response.request().method()==='POST'),page.waitForResponse(response=>new URL(response.url()).pathname==='/api/sessions'&&response.request().method()==='POST'),page.getByRole('button',{name:'Create bot',exact:true}).click()]);assert.equal(created.status(),201,await created.text());assert.equal(sessionCreated.status(),201,await sessionCreated.text());const profile=(await created.json()).agent;
 assert.equal(profile.config.harness,config.harness);assert.equal(profile.version,1);
 if(marketing){
   assert.deepEqual(profile.config.expectedDeliverables,marketingFiles.map(file=>file.path));
@@ -147,7 +147,6 @@ if(marketing){
 }
 passed('Create bot through the real directory UI');
 await page.screenshot({path:artifactDir+'/bot-created.png',fullPage:true});
-const [sessionCreated]=await Promise.all([page.waitForResponse(response=>new URL(response.url()).pathname==='/api/sessions'&&response.request().method()==='POST'),page.getByRole('button',{name:'Launch bot '+config.name,exact:true}).click()]);assert.equal(sessionCreated.status(),201,await sessionCreated.text());
 const session=(await sessionCreated.json()).session;assert.equal(session.metadata.customAgentId,profile.id);
 const sessionQuery='?session='+encodeURIComponent(session.id);
 async function assertThreadProfile(){
@@ -160,7 +159,7 @@ async function assertThreadProfile(){
 }
 await openAppView(page, "Chats");
 await assertThreadProfile();
-passed('Launch bot opens a real bound conversation');
+passed('Creating a bot opens a real bound conversation');
 async function reopenThread(){
   await openAppView(page, "Chats");
   await openEmployeeThread(page,config.name,session.name);

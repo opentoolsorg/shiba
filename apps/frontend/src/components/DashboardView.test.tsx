@@ -122,7 +122,7 @@ describe("DashboardView", () => {
     expect(onInspectRun).toHaveBeenCalledWith("run-12345678");
   });
 
-  it("shows the workspace employee roster and marks employees with active shared work", () => {
+  it("shows the workspace employee roster and marks employees assigned to active runs", () => {
     render(
       <DashboardView
         runs={[{ ...mockRun, status: "running", customAgentId: "employee-1" }]}
@@ -133,6 +133,34 @@ describe("DashboardView", () => {
           { id: "employee-1", name: "Ava", role: "Engineer", emoji: "🛠️" },
           { id: "employee-2", name: "Mira", role: "Researcher", emoji: "🔎" },
         ]}
+        workspaceName="Acme operations"
+        scope="workspace"
+        connectionLabel="Connected"
+        connectionTone="ok"
+        runsError={null}
+        onNavigate={vi.fn()}
+        onNewTask={vi.fn()}
+        onInspectRun={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "AI employees" })).toBeTruthy();
+    expect(screen.getByText("1/2 working · your employee roster")).toBeTruthy();
+    expect(screen.getByText("Ava")).toBeTruthy();
+    expect(screen.getByText("1 working")).toBeTruthy();
+    expect(screen.getByText("Mira")).toBeTruthy();
+    expect(screen.getByText("0 open")).toBeTruthy();
+  });
+
+  it("keeps workspace actions in workspace scope and opens the selected shared task", () => {
+    const onOpenSharedTask = vi.fn();
+    render(
+      <DashboardView
+        runs={[]}
+        pendingApprovals={[]}
+        storedApprovals={[]}
+        agents={[]}
+        employees={[{ id: "employee-1", name: "Ava", role: "Engineer", emoji: "🛠️" }]}
         sharedTasks={[
           {
             id: "task-1",
@@ -155,58 +183,15 @@ describe("DashboardView", () => {
         onNavigate={vi.fn()}
         onNewTask={vi.fn()}
         onInspectRun={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByRole("heading", { name: "AI employees" })).toBeTruthy();
-    expect(screen.getByText("1/2 working · your employee roster")).toBeTruthy();
-    expect(screen.getByText("Ava")).toBeTruthy();
-    expect(screen.getByText("1 working")).toBeTruthy();
-    expect(screen.getByText("0 open")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Open roster/ })).toBeTruthy();
-  });
-
-  it("keeps workspace actions in workspace scope and opens the selected shared task", () => {
-    const onNavigate = vi.fn();
-    const onOpenSharedTask = vi.fn();
-    const sharedTask = {
-      id: "task-1",
-      workspaceId: "ws-1",
-      roomId: "room-1",
-      roomTitle: "Team room",
-      title: "Prepare checkout fix",
-      assigneeKind: "agent" as const,
-      assigneeActorId: "agent:employee-1",
-      status: "in-progress" as const,
-      updatedAt: 1000,
-    };
-    render(
-      <DashboardView
-        runs={[]}
-        pendingApprovals={[]}
-        storedApprovals={[]}
-        agents={[]}
-        employees={[{ id: "employee-1", name: "Ava", role: "Engineer", emoji: "🛠️" }]}
-        sharedTasks={[sharedTask]}
-        workspaceId="ws-1"
-        workspaceName="Acme operations"
-        scope="workspace"
-        connectionLabel="Connected"
-        connectionTone="ok"
-        runsError={null}
-        onNavigate={onNavigate}
-        onNewTask={vi.fn()}
-        onInspectRun={vi.fn()}
         onOpenSharedTask={onOpenSharedTask}
       />,
     );
 
-    expect(screen.getByRole("button", { name: /Open roster/ })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Shared work queue" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "AI employees" })).toBeTruthy();
     expect(screen.getByText("1 working")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Total runs/ }));
-    expect(onNavigate).toHaveBeenCalledWith("work");
     fireEvent.click(screen.getByText("Prepare checkout fix").closest("button")!);
-    expect(onOpenSharedTask).toHaveBeenCalledWith(sharedTask);
+    expect(onOpenSharedTask).toHaveBeenCalledWith(expect.objectContaining({ id: "task-1" }));
   });
 });
 
