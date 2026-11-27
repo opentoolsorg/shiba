@@ -34,7 +34,7 @@ export interface TeamWorkItemDto {
   id: string; workspaceId: string; roomId: string; roomTitle: string; title: string;
   assigneeUserId?: string; assigneeActorId?: string; assigneeKind: "human" | "agent"; assigneeName?: string;
   status: "queued" | "needs-approval" | "running" | "completed" | "blocked" | "cancelled" | "unknown" | TeamWorkTaskStatus;
-  updatedAt: number; runId?: string; approvalRequired?: boolean; viewerCanApprove: boolean; resultAvailable?: boolean;
+  updatedAt: number; createdAt?: number; runId?: string; approvalRequired?: boolean; viewerCanApprove: boolean; resultAvailable?: boolean;
   priority?: TeamWorkTaskPriority; ownerId?: string; reviewerId?: string; startDate?: string; endDate?: string; parentId?: string;
   blocked?: boolean; objective?: string; waitingOn?: string[]; context?: string[]; doneWhen?: string[];
   activity?: TeamWorkActivityEntry[]; archived?: boolean;
@@ -111,7 +111,7 @@ async function project(request: Request, env: Env, scope: CollaborationScope, ca
     id: handoff.handoffId, workspaceId: scope.workspaceId, roomId: room.roomId, roomTitle: room.title, title: handoff.taskId,
     assigneeUserId: recipient.userId, assigneeActorId: recipient.actorId, assigneeKind: recipient.actorKind,
     assigneeName: recipient.displayName, status: handoff.status === "cancelled" ? "cancelled" : recipient.actorKind === "human" ? "queued" : "unknown",
-    updatedAt: handoff.cancelledAt ?? handoff.createdAt, viewerCanApprove: false,
+    updatedAt: handoff.cancelledAt ?? handoff.createdAt, createdAt: handoff.createdAt, viewerCanApprove: false,
   };
   if (handoff.status === "cancelled") return item;
   if (!await isCollaborationContextCurrent(env, handoff.handoffId)) return { ...item, status: "blocked", resultAvailable: false };
@@ -162,7 +162,7 @@ function storedItem(task: TeamWorkTask): TeamWorkItemDto {
     id: task.taskId, workspaceId: task.workspaceId, roomId: "", roomTitle: "", title: task.title,
     assigneeKind: owner?.startsWith("agent:") ? "agent" : "human", assigneeActorId: owner,
     assigneeUserId: owner?.startsWith("human:") ? owner.slice("human:".length) : undefined,
-    status: task.status, updatedAt: task.updatedAt, viewerCanApprove: false, priority: task.priority, ownerId: owner,
+    status: task.status, updatedAt: task.updatedAt, createdAt: task.createdAt, viewerCanApprove: false, priority: task.priority, ownerId: owner,
     reviewerId: task.reviewerId ?? undefined, startDate: task.startDate ?? undefined, endDate: task.endDate ?? undefined,
     parentId: task.parentId ?? undefined, blocked: task.blocked, objective: task.objective ?? undefined,
     waitingOn: task.waitingOn, context: task.context, doneWhen: task.doneWhen, activity: task.activity, archived: task.archived,
