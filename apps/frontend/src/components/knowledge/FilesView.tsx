@@ -157,7 +157,13 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
               {folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
             </select>
           </label>
-          <button type="button" title="Search files" aria-label="Search files" aria-expanded={searchOpen} onClick={() => setSearchOpen((open) => !open)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-1)] bg-[var(--card)] text-[var(--muted-foreground-2)] transition-colors hover:bg-[var(--card-hover)] hover:text-[var(--fg)]">
+          <button type="button" title="Search files" aria-label="Search files" aria-expanded={searchOpen} onClick={() => {
+            if (searchOpen) {
+              setSearchHits(null);
+              setQuery("");
+            }
+            setSearchOpen(!searchOpen);
+          }} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-1)] bg-[var(--card)] text-[var(--muted-foreground-2)] transition-colors hover:bg-[var(--card-hover)] hover:text-[var(--fg)]">
             <Search size={14} />
           </button>
           <button type="button" title="Create folder" aria-label="Create folder" aria-expanded={createOpen} onClick={() => setCreateOpen((open) => !open)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-1)] bg-[var(--card)] text-[var(--muted-foreground-2)] transition-colors hover:bg-[var(--card-hover)] hover:text-[var(--fg)]">
@@ -195,7 +201,7 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
             </form> : null}
           </section> : null}
 
-          {searchHits ? (
+          {searchOpen && searchHits ? (
             <section aria-label="Knowledge search results" aria-live="polite" className="mb-4 overflow-hidden rounded-xl border border-[var(--border-1)] bg-[var(--card)] shadow-xs">
               <header className="flex items-center justify-between border-b border-[var(--border-1)] px-3 py-2 text-xs text-[var(--muted-foreground-2)]">
                 <span>Matches for <span className="font-medium text-[var(--fg)]">{query.trim()}</span></span>

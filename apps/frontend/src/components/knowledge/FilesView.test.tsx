@@ -86,6 +86,29 @@ describe("FilesView", () => {
     expect(lists).toBe(2);
   });
 
+
+  it("dismisses search results when the search control is closed", async () => {
+    const api = vi.fn(async (input: string) => {
+      const url = new URL(input, "http://localhost");
+      if (url.pathname === "/api/files/folders") return Response.json({ folders: [] });
+      if (url.pathname === "/api/files") return Response.json({ files: [] });
+      if (url.pathname === "/api/knowledge/search") return Response.json({
+        hits: [{ chunkId: "chunk-1", sourceKind: "file", sourceId: "file-1", sourceName: "notes.md", scope: "personal", ordinal: 0, text: "needle passage", score: 1, rank: 1 }],
+      });
+      return Response.json({}, { status: 404 });
+    });
+    vi.stubGlobal("fetch", api);
+    render(<FilesView />);
+    fireEvent.click(screen.getByRole("button", { name: "Search files" }));
+    fireEvent.change(screen.getByLabelText("Search files and notes"), { target: { value: "needle" } });
+    fireEvent.submit(screen.getByRole("search", { name: "Search knowledge" }));
+    await waitFor(() => expect(api.mock.calls.some(([url]) => String(url).includes("/api/knowledge/search"))).toBe(true));
+    await screen.findByText("notes.md");
+    fireEvent.click(screen.getByRole("button", { name: "Search files" }));
+    await waitFor(() => expect(screen.queryByText("notes.md")).toBeNull());
+    expect(screen.queryByRole("search", { name: "Search knowledge" })).toBeNull();
+  });
+
   it("links to memory sources only when navigation is wired, without saving anything", async () => {
     const api = mockApi();
     const onNavigate = vi.fn();
