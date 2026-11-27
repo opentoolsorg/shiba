@@ -14,7 +14,7 @@ import { WorkBoardView } from "./WorkBoardView";
 import { WorkDetailModal } from "./WorkDetailModal";
 import { WorkHeader, type WorkHeaderViewMode } from "./WorkHeader";
 import { WorkLeftPanel, type WorkLeftPanelProps, type WorkScope } from "./WorkLeftPanel";
-import { WorkListFooter, WorkListView, workListGroup } from "./WorkListView";
+import { WORK_LIST_GROUPS, WorkListFooter, WorkListView, WorkStatusIcon, workListGroup, type WorkListGroup } from "./WorkListView";
 import { type OrganizationEmployee, type OrganizationUser, WorkOrganizationView } from "./WorkOrganizationView";
 import { WorkPeek, type WorkPeekProps } from "./WorkPeek";
 import { WorkQuickAdd } from "./WorkQuickAdd";
@@ -184,6 +184,15 @@ function workStatus(task: WorkTask, approvalStatus: "needs-approval" | "waiting-
   return "completed";
 }
 
+
+function personalListGroup(task: WorkTask): WorkListGroup {
+  if (task.group === "done") return "done";
+  if (task.group === "needs-approval" || task.group === "pr-open" || task.group === "attention") return "in_review";
+  if (task.group === "running") return "in_progress";
+  if (task.group === "ready" || task.group === "queued") return "todo";
+  return "backlog";
+}
+
 export function WorkView(props: WorkViewProps): JSX.Element {
   const { view: controlledView, onViewChange } = props;
   // Read browser state after hydration so the first client paint matches the server.
@@ -324,7 +333,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
 
   const q = filterQuery.trim().toLowerCase();
   const filteredTasks = tasks.filter((t) => !q || `${t.title} ${t.repo} ${t.stateLabel}`.toLowerCase().includes(q));
-  const openCount = tasks.filter((t) => t.group === "needs-approval" || t.group === "queued" || t.group === "running" || t.group === "pr-open").length;
+  const openCount = tasks.filter((t) => t.group === "needs-approval" || t.group === "queued" || t.group === "running" || t.group === "pr-open" || t.group === "attention").length;
   const selectedTask = tasks.find((task) => task.id === props.selection.task && (!props.selection.taskKind || task.kind === props.selection.taskKind));
   // A decided approval leaves the pending queue, but its receipt stays
   // addressable — resolved only from the authorized decided list, never guessed.
@@ -410,7 +419,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
     return filteredTasks.map((t) => ({
       id: personalTaskKey(t),
       title: t.title,
-      status: workStatus(t, "needs-approval"),
+      status: t.group === "attention" ? "attention" : workStatus(t, "needs-approval"),
       updatedAt: t.updatedAt,
       repoName: t.repo,
     }));
@@ -429,7 +438,6 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
   }, [filteredTasks]);
 
   const taskRow = (task: WorkTask) => {
-    const dotClass = STATUS_GROUPS.find((g) => g.id === task.group)!.dotClass;
     return (
       <div key={`${task.kind}-${task.id}`} className="border-b border-zinc-100 dark:border-zinc-800 last:border-b-0">
         <div className="flex items-center gap-3">
@@ -439,7 +447,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
             aria-haspopup="dialog"
             className="grid min-h-11 min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded px-3 py-2 text-left hover:bg-[var(--card-hover)] focus-visible:outline-2 focus-visible:outline-[var(--ring)] sm:flex"
           >
-            <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${dotClass}`} />
+            <WorkStatusIcon group={personalListGroup(task)} className="size-4 shrink-0" />
             <span className="min-w-0 flex-1 text-[13px] text-[var(--fg)] [overflow-wrap:anywhere]">{task.title}</span>
             <span className="col-start-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 sm:justify-end">
               {task.routine ? <span title={`Routine: ${task.routine.name}`} className="rounded border border-[var(--border-1)] px-2 py-0.5 text-[11px]">Routine · {routineCadence(task.routine.schedule, task.routine.timezone)}</span> : null}
@@ -549,16 +557,16 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
             </div>
           ) : (
             <div className="flex flex-col gap-4">
-              {STATUS_GROUPS.map((group) => {
-                const grouped = filteredTasks.filter((t) => t.group === group.id);
+              {WORK_LIST_GROUPS.map((group) => {
+                const grouped = filteredTasks.filter((t) => personalListGroup(t) === group.id);
                 return (
-                  <section key={group.id} aria-label={`${group.name} - ${grouped.length}`}>
-                    <ViewGroup title={group.name} count={grouped.length} dotClass={group.dotClass}>
+                  <section key={group.id} aria-label={`${group.label} - ${grouped.length}`}>
+                    <ViewGroup title={group.label} count={grouped.length}>
                       {grouped.length ? (
                         grouped.map(taskRow)
                       ) : (
                         <p className="px-3 py-3 text-xs text-[var(--muted-foreground-3)]">
-                          {group.id === "needs-approval" ? "Nothing waiting" : `No tasks in ${group.name}`}
+                          {group.id === "in_review" ? "Nothing waiting" : `No tasks in ${group.label}`}
                         </p>
                       )}
                     </ViewGroup>

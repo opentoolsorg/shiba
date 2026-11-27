@@ -78,13 +78,13 @@ describe("WorkView", () => {
       { ...base, runId: "archived", task: "Archived", archivedAt: 1 },
       ...(["error", "aborted", "cancelled", "unknown"] as const).map((status) => ({ ...base, runId: status, task: `Unsuccessful ${status}`, status })),
     ]} sessions={[{ id: "archived", title: "Archived session", status: "completed", repoName: "infra", updatedAt: 1 }]} />);
-    expect(within(screen.getByRole("region", { name: "PR linked - 1" })).getByText("Published")).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: "Completed - 1" })).getByText("Requested only")).toBeTruthy();
-    const attention = screen.getByRole("region", { name: "Needs attention - 4" });
-    expect(within(attention).getAllByRole("button")).toHaveLength(4);
+    const review = screen.getByRole("region", { name: "In review - 5" });
+    expect(within(review).getByText("Published")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Done - 1" })).getByText("Requested only")).toBeTruthy();
+    expect(within(review).getAllByRole("button")).toHaveLength(5);
     expect(screen.queryByText("Archived")).toBeNull();
     expect(screen.queryByText("Archived session")).toBeNull();
-    expect(screen.getByText("1 open")).toBeTruthy();
+    expect(screen.getByText("5 open")).toBeTruthy();
   });
 
   it("passes approval kind from every view without inventing repository metadata", () => {
@@ -107,12 +107,12 @@ describe("WorkView", () => {
     expect(screen.getByText("Personal")).toBeTruthy();
     expect(screen.getByText("Work")).toBeTruthy();
     expect(screen.getByText(/3 open/)).toBeTruthy();
-    const running = screen.getByRole("region", { name: "Running - 1" });
-    expect(running.querySelector("summary")?.textContent).toBe("Running1 item");
-    const done = screen.getByRole("region", { name: "Completed - 1" });
-    expect(done.querySelector("summary")?.textContent).toBe("Completed1 item");
-    const attention = screen.getByRole("region", { name: "Needs attention - 0" });
-    expect(attention.querySelector("summary")?.textContent).toBe("Needs attention0 items");
+    const running = screen.getByRole("region", { name: "In progress - 1" });
+    expect(running.querySelector("summary")?.textContent).toBe("In progress1 item");
+    const done = screen.getByRole("region", { name: "Done - 1" });
+    expect(done.querySelector("summary")?.textContent).toBe("Done1 item");
+    const review = screen.getByRole("region", { name: "In review - 2" });
+    expect(review.querySelector("summary")?.textContent).toBe("In review2 items");
   });
 
   it("switches between List, Board, and Timeline views", () => {
@@ -255,8 +255,8 @@ describe("WorkView", () => {
     render(<WorkView runs={[...mockRuns, failed]} />);
     fireEvent.click(screen.getByRole("button", { name: "Board" }));
     expect(screen.getByTestId("board-column-done").textContent).not.toContain("Broken migration");
-    expect(screen.getByTestId("board-column-pr_open").textContent).toContain("Fix flaky checkout test");
-    expect(screen.getByTestId("board-column-attention").textContent).toContain("Broken migration");
+    expect(screen.getByTestId("board-column-in_review").textContent).toContain("Fix flaky checkout test");
+    expect(screen.getByTestId("board-column-in_review").textContent).toContain("Broken migration");
   });
 
   it("keeps cancelled and PR-open labels distinct in the Timeline", () => {
@@ -273,9 +273,9 @@ describe("WorkView", () => {
     const onReviewApproval = vi.fn();
     const sessions = [{ id: "s-np", title: "Connect a provider", repoName: "", status: "needs-provider", updatedAt: 5 }];
     render(<WorkView sessions={sessions} onReviewApproval={onReviewApproval} />);
-    const waiting = screen.getByRole("region", { name: /^Needs attention - 1$/ });
+    const waiting = screen.getByRole("region", { name: /^In review - 1$/ });
     expect(waiting.textContent).toContain("Connect a provider");
-    expect(screen.getByRole("region", { name: /^Completed - 0$/ }).textContent).not.toContain("Connect a provider");
+    expect(screen.getByRole("region", { name: /^Done - 0$/ }).textContent).not.toContain("Connect a provider");
     expect(screen.queryByRole("button", { name: /^Review/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Board" }));
     expect(screen.queryByRole("button", { name: /^Review/ })).toBeNull();

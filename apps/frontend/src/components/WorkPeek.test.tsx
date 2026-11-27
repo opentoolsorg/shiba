@@ -90,16 +90,13 @@ describe("Work inspector", () => {
         ]}
       />,
     );
-    expect(
-      within(screen.getByRole("region", { name: "Queued - 1" })).getByText(run.task),
-    ).toBeTruthy();
-    expect(
-      within(screen.getByRole("region", { name: "Ready - 1" })).getByText("Ready thread"),
-    ).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Running - 0" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Completed - 0" })).toBeTruthy();
+    const todo = screen.getByRole("region", { name: "Todo - 2" });
+    expect(within(todo).getByText(run.task)).toBeTruthy();
+    expect(within(todo).getByText("Ready thread")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "In progress - 0" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Done - 0" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Board" }));
-    expect(screen.getByTestId("board-column-queued").textContent).toContain(run.task);
+    expect(screen.getByTestId("board-column-todo").textContent).toContain(run.task);
     expect(screen.getByTestId("board-column-todo").textContent).toContain("Ready thread");
     expect(screen.queryByRole("combobox")).toBeNull();
   });

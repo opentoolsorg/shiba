@@ -92,16 +92,6 @@ export function deriveKanbanColumn(status: string): KanbanColumnId {
   }
 }
 
-const EXECUTION_COLUMNS: readonly { id: KanbanColumnId; label: string; icon: WorkListGroup }[] = [
-  { id: "todo", label: "Ready", icon: "backlog" },
-  { id: "needs_approval", label: "Needs approval", icon: "in_review" },
-  { id: "queued", label: "Queued", icon: "todo" },
-  { id: "in_progress", label: "Running", icon: "in_progress" },
-  { id: "pr_open", label: "PR linked", icon: "in_review" },
-  { id: "attention", label: "Needs attention", icon: "backlog" },
-  { id: "done", label: "Completed", icon: "done" },
-];
-
 /** Maps any task/run status onto the five board columns, matching the List view's groups. */
 /** Hyphenated status as stored on TeamWorkItem; column ids stay underscored internally. */
 export type BoardWireStatus = "backlog" | "todo" | "in-progress" | "in-review" | "done";
@@ -118,6 +108,12 @@ export function boardColumn(status: string): WorkListGroup {
     case "pending_approval":
     case "waiting_approval":
     case "needs_provider":
+    case "attention":
+    case "error":
+    case "failed":
+    case "aborted":
+    case "rejected":
+    case "expired":
       return "in_review";
     default:
       return workListGroup(status);
@@ -196,7 +192,7 @@ export function WorkBoardView({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overColumn, setOverColumn] = useState<WorkListGroup | null>(null);
   const normalized = tasks.map(normalizeBoardTask);
-  const columns = execution ? EXECUTION_COLUMNS : WORK_LIST_GROUPS.map((column) => ({ ...column, icon: column.id }));
+  const columns = WORK_LIST_GROUPS.map((column) => ({ ...column, icon: column.id }));
   const movable = execution ? undefined : onMove;
 
   const move = (id: string, to: WorkListGroup) => {
@@ -231,7 +227,7 @@ export function WorkBoardView({
     >
       <div className="flex min-h-0 min-w-0 max-w-full flex-1 snap-x snap-mandatory gap-3 overflow-x-auto p-4">
         {columns.map((col) => {
-          const colTasks = normalized.filter((t) => (execution ? deriveKanbanColumn(t.status) : boardColumn(t.status)) === col.id);
+          const colTasks = normalized.filter((t) => boardColumn(t.status) === col.id);
           const isOver = overColumn === col.id;
           return (
             <section

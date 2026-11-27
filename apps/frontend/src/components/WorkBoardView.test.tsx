@@ -40,9 +40,9 @@ describe("WorkBoardView", () => {
     const text = (id: string) => screen.getByTestId(`board-column-${id}`).textContent ?? "";
     expect(text("backlog")).toContain("Triage later");
     expect(text("todo")).toContain("Setup database");
-    expect(text("todo")).toContain("Connection timed out");
+    expect(text("in_review")).toContain("Connection timed out");
     expect(screen.getByRole("region", { name: "Todo" }).querySelector("h3")?.textContent).toBe(
-      "Todo2",
+      "Todo1",
     );
     expect(text("in_progress")).toContain("Build chat UI");
     expect(text("in_review")).toContain("Deploy to staging");
@@ -249,6 +249,9 @@ describe("boardColumn", () => {
       "needs-provider",
       "pr-open",
       "in_review",
+      "attention",
+      "error",
+      "failed",
     ]) {
       expect(boardColumn(s)).toBe("in_review");
     }
