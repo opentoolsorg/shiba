@@ -409,7 +409,6 @@ function ScopedCustomAgentsView({
     if (!isActive() || !onStartThread || startingThread.current) return;
     startingThread.current = true;
     setStartingAgentId(agent.id);
-    setNotice(null);
     try {
       await onStartThread(agent);
     } catch (error) {
@@ -651,7 +650,7 @@ function ScopedCustomAgentsView({
         });
         const created = !editingId;
         setNotice({ tone: "ok", text: editingId ? "Bot updated." : "Bot created." });
-        setCreatedAgentForToolSetup(created && !workspaceId && !onStartThread ? saved : null);
+        setCreatedAgentForToolSetup(created && !workspaceId ? saved : null);
         resetForm(created);
         refresh();
         if (created && onStartThread) await startThread(saved);

@@ -180,7 +180,7 @@ describe("role drafts in the Bots directory", () => {
         },
       },
     });
-    expect(launch).not.toHaveBeenCalled();
+    expect(launch).toHaveBeenCalledOnce();
     expect(server.request.mock.calls.every(([url]) => url === "/api/custom-agents")).toBe(true);
   });
 

@@ -175,6 +175,7 @@ describe("DashboardView", () => {
             updatedAt: 1000,
           },
         ]}
+        workspaceId="ws-1"
         workspaceName="Acme operations"
         scope="workspace"
         connectionLabel="Connected"
@@ -192,7 +193,7 @@ describe("DashboardView", () => {
     expect(screen.getByText("Manage people")).toBeTruthy();
     expect(screen.getByText("working")).toBeTruthy();
     fireEvent.click(screen.getByText("Prepare checkout fix").closest("button")!);
-    expect(onOpenSharedTask).toHaveBeenCalledWith("task-1");
+    expect(onOpenSharedTask).toHaveBeenCalledWith(expect.objectContaining({ id: "task-1" }));
   });
 });
 

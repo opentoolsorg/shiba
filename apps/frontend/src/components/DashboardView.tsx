@@ -129,10 +129,13 @@ export function DashboardView({
   const employeeRows = useMemo(() => employees.map((employee) => {
     const actorId = `agent:${employee.id}`;
     const assigned = openSharedTasks.filter((task) => task.assigneeActorId === actorId || task.assigneeName === employee.name);
+    const activeRuns = runs.filter((run) => run.customAgentId === employee.id && ["running", "pending", "queued"].includes(run.status)).length;
     const needsViewer = assigned.filter(teamWorkNeedsViewer).length;
-    const working = assigned.filter((task) => ["in-progress", "running", "queued"].includes(task.status)).length;
+    const working = assigned.filter((task) => ["in-progress", "running", "queued"].includes(task.status)).length + activeRuns;
     return { employee, assigned, needsViewer, working, status: working ? "working" as const : needsViewer ? "needs-approval" as const : "idle" as const };
-  }), [employees, openSharedTasks]);
+  }), [employees, openSharedTasks, runs]);
+  const workingEmployeeCount = employeeRows.filter((row) => row.working > 0).length;
+  const dashboardTitle = scope === "workspace" ? workspaceName ?? "Workspace" : "Dashboard";
   const visibleSharedTasks = openSharedTasks.slice(0, 6);
   const nextStep =
     approvalCount > 0
@@ -208,8 +211,8 @@ export function DashboardView({
         <div className="shiba-dashboard-body">
           <section className="shiba-dashboard-heading" aria-labelledby="dashboard-title">
             <div className="min-w-0">
-              <p className="shiba-overview-eyebrow">Workspace overview</p>
-              <h1 id="dashboard-title">Dashboard</h1>
+              <p className="shiba-overview-eyebrow">{scope === "workspace" ? "Employee workspace" : "Workspace overview"}</p>
+              <h1 id="dashboard-title">{dashboardTitle}</h1>
               <p className="shiba-overview-description">
                 Your work, decisions, and agents. One place to see what happens next.
               </p>
@@ -371,6 +374,7 @@ export function DashboardView({
           ) : null}
 
           <div className="shiba-overview-columns">
+            {scope !== "workspace" ? (
             <section className="shiba-overview-panel" aria-labelledby="dashboard-recent-title">
               <header className="shiba-overview-section-header">
                 <div>
@@ -448,6 +452,7 @@ export function DashboardView({
                 </span>
               </footer>
             </section>
+            ) : null}
 
             <div className="flex min-w-0 flex-col gap-4">
               <section className="shiba-overview-panel" aria-labelledby="dashboard-approvals-title">
@@ -513,7 +518,7 @@ export function DashboardView({
                   <div>
                     <h2 id="dashboard-agents-title">AI employees</h2>
                     <p>
-                      {employees.length ? `${employeeRows.filter((row) => row.working > 0).length}/${employees.length} working · your employee roster` : `${liveAgents}/${agents.length} MCP principals live`}
+                      {employees.length ? `${workingEmployeeCount}/${employees.length} assigned to active runs` : `${liveAgents}/${agents.length} MCP principals live`}
                     </p>
                   </div>
                 </header>
@@ -533,7 +538,7 @@ export function DashboardView({
                             <span className="block truncate text-[11px] text-[var(--muted-foreground-2)]">{employee.role}</span>
                           </span>
                           <span className="text-right text-[11px] text-[var(--muted-foreground-2)]">
-                            {working ? `${working} working` : needsViewer ? `${needsViewer} review` : `${assigned.length} open`}
+                            {working ? "working" : needsViewer ? "needs review" : "ready"}
                           </span>
                         </button>
                       </li>
@@ -541,6 +546,12 @@ export function DashboardView({
                   </ul>
                 )}
                 <div className="shiba-overview-panel-footer">
+                  <span>{employees.length ? `${employees.length} in roster` : `${agents.length} principals`}</span>
+                  {scope === "workspace" ? (
+                    <button type="button" onClick={() => onNavigate("team")} className="shiba-overview-link">
+                      Manage people <ArrowRight className="size-3.5" aria-hidden="true" />
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => onNavigate("custom-agents")}
