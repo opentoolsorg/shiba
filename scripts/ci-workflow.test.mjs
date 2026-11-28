@@ -29,6 +29,10 @@ test("core lanes require build:validate on pull requests but still run on main",
   }
 });
 
+test("the dependency consistency check runs in the fast validation lane", () => {
+  assert.match(jobBody("biome-knip"), /run: pnpm check:deps/);
+});
+
 test("expensive lanes stop early when a cheaper prerequisite fails", () => {
   assert.match(jobBody("check"), /^ {4}needs: biome-knip$/m);
   assert.match(jobBody("verify-shiba"), /^ {4}needs: check$/m);
