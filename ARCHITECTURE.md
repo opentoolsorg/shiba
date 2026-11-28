@@ -66,6 +66,7 @@ the area you are changing.
   - [Coordination state](docs/architecture/durable-objects.md#coordination-state)
   - [Shared domain state](docs/architecture/durable-objects.md#shared-domain-state)
 - [Security and authority model](docs/architecture/security-model.md)
+- [Channel acceptance matrix](docs/architecture/channel-acceptance.md)
 - [Employee work lifecycle](docs/architecture/request-lifecycle.md)
 - [Browser use](docs/architecture/browser.md)
 - [Computer use](docs/architecture/computer-use.md)
