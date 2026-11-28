@@ -39,6 +39,7 @@ import {
 } from "./run-deliverables.js";
 import { ScopedExecRefusal, scopedExec } from "./exec-allowlist.js";
 import { captureLiveDiff } from "./live-diff.js";
+import { runComputerCredentialIssue } from "./run-computer-credentials.js";
 import {
   captureCheckpoint,
   checkpointRef,
@@ -301,6 +302,10 @@ export class SandboxRuntimeAdapter implements RuntimeAdapter {
     throwIfAborted(opts?.signal);
     const approvedInput = opts?.approvedInput ?? input;
     const computer = input.computer === true;
+    if (computer) {
+      const issue = runComputerCredentialIssue(input.harness ?? this.harness.name, input);
+      if (issue) return failureResult(issue, 0, "", opts?.signals ?? []);
+    }
     if (computer !== (approvedInput.computer === true) || (computer && (input.runtime !== "sandbox" ||
         input.sandboxProvider !== "cloudflare" || input.orgId?.startsWith("team:") || input.envSealed || opts?.env))) {
       return failureResult("A desktop requires a private Cloudflare sandbox without run environment variables.", 0, "", opts?.signals ?? []);

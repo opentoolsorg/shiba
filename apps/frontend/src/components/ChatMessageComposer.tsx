@@ -26,11 +26,12 @@ export function ChatMessageComposer({
   onToggleLookup,
   createChoice,
   onCreateChange,
+  computerRunId,
   children,
 }: {
   value: string;
   onChange: (value: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>, options?: { computerRunId?: string }) => void;
   onStop: () => void;
   onRetry: () => void;
   busy: boolean;
@@ -49,6 +50,7 @@ export function ChatMessageComposer({
   onToggleLookup?: (id: ChatLookupId) => void;
   createChoice?: ChatCreateChoice;
   onCreateChange?: (choice?: ChatCreateChoice) => void;
+  computerRunId?: string;
   children?: ReactNode;
 }): JSX.Element {
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -73,7 +75,13 @@ export function ChatMessageComposer({
         id="chat-message-composer"
         data-testid="chat-composer"
         aria-label="Chat composer"
-        onSubmit={onSubmit}
+        onSubmit={(event) => {
+          const checkbox = event.currentTarget.elements.namedItem("useComputer");
+          if (computerRunId && checkbox instanceof HTMLInputElement && checkbox.checked) {
+            checkbox.checked = false;
+            onSubmit(event, { computerRunId });
+          } else onSubmit(event);
+        }}
         className="w-full [container-type:inline-size] rounded-2xl border border-[var(--border-1)] bg-[var(--card)] shadow-[var(--sh-composer)] flex flex-col p-3 sm:p-4 gap-2.5 relative group focus-within:border-[var(--ring)] transition-colors"
       >
         <label htmlFor="chat-message" className="sr-only">Message {agentName}</label>
@@ -209,6 +217,12 @@ export function ChatMessageComposer({
           </div>
         </div>
         {children}
+        {computerRunId ? (
+          <label key={computerRunId} className="flex min-h-11 items-center gap-2 border-t border-[var(--line)] pt-2 text-xs text-[var(--ink)]">
+            <input type="checkbox" name="useComputer" disabled={busy || streaming} />
+            Use this run’s cloud computer for this message
+          </label>
+        ) : null}
         {onPrepareWork ? (
           <aside aria-label="Turn this draft into work" className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--line)] pt-3 text-xs text-[var(--ink-2)]">
             <p className="min-w-0 flex-1 basis-48">Ready to delegate? Review this draft’s target, employee and instructions in Work. Execution requires human approval.</p>
