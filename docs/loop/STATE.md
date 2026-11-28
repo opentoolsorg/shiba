@@ -80,10 +80,11 @@ Done:
 - Notes iterations 1-6: collapsed/panel typography, gutters, serif empty state, 6px sidebar radius, bottom-right formatting shell, Overlay action set, deletion affordance, and custom task rows now match objective Overlay measurements. Markdown round-trips underline/highlight/tasks/alignment, including nested tasks and hard breaks; realtime deletion recovers unsaved drafts as copies. Evidence: `/home/ubuntu/shiba-ui-parity-artifacts/notes-iter6-editor.png` plus iter4/iter5 comparisons; frontend typecheck and focused Markdown/Notes tests pass. Independent iter6 verification passed; the unexpected right alignment was TipTap `Mod-Shift-r` colliding with browser hard reload, not parser inheritance, and is fixed.
 - Projects/navigation iterations 1-3: rail width, icon scale, panel width/radius/spacing, Projects controls/cards, and responsive stacking now closely match the closest Overlay shell/card measurements; picker overlap/overflow is eliminated at 1280px. Evidence: `/home/ubuntu/shiba-ui-parity-artifacts/projects-nav-iter3-evidence.png`; frontend typecheck and 41 focused tests pass.
 - Files mutation parity iteration: select mode, bulk archive, row/card move-to-folder menus, and row/card archive controls implemented against Cloudflare/D1 PATCH/DELETE file routes; backend store tests and 9 focused Files UI tests pass.
+- Shell parity iteration: desktop rail/context/main now form Overlay-style full-height adjacent surfaces (`0/60/332px` x positions, no gaps, flat main surface); secondary panel header, 32px nav rows, rail footer controls, and Projects header metrics match the measured Overlay shell. Evidence: `/home/ubuntu/shiba-ui-parity-artifacts/shell-parity-iter2-evidence.png`; independent browser measurements pass and 181 focused frontend tests pass.
 
 Next queue:
 1. Verify the new Files select/move/delete interactions in the Devin browser.
-2. Continue closing structural shell differences where Shiba product contracts allow: full-height adjacent sidebars, flattened main surface, exact navigation glyphs/product labels.
+2. Continue closing remaining visual/product differences where Shiba product contracts allow: exact navigation glyphs/product labels and surface-specific spacing beyond the shell.
 3. Finish strict merge validation against current `main`, then drive PR CI/review green without merging.
 
 Triage additions:
