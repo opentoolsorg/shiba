@@ -18,7 +18,8 @@
 import type { Env } from "./env.js";
 import type { ApprovalKind } from "./pending-approvals.js";
 import { redactSecrets } from "./security.js";
-import { slackTransport } from "./channels/slack/index.js";
+import { slackChannel, slackTransport } from "./channels/slack/index.js";
+import type { ChannelPublicationCardInput, ChannelPublicationResult } from "./ports/channel/index.js";
 import { buildSlackThreadName, parseSlackCommandScope, parseSlackThreadName, slackApprovalOrchestratorName } from "./slack-thread.js";
 import { answerSlackUiBlock, type SlackUiPayload } from "./slack-ui-blocks.js";
 import { log } from "./obs/log.js";
@@ -250,6 +251,39 @@ export function buildApprovalBlocks(input: ApprovalCardInput): unknown[] {
       ],
     },
   ];
+}
+
+/**
+ * Post a publication approval to Slack's legacy thread or slash-command destination.
+ * `unrouted` means the legacy caller fallback applies; it is not a delivery failure.
+ */
+export async function postSlackPublicationApproval(
+  env: Env,
+  input: ChannelPublicationCardInput,
+): Promise<ChannelPublicationResult> {
+  const slack = parseSlackThreadName(input.ownerId);
+  const commandScope = parseSlackCommandScope(input.threadKey);
+  const channel = slack?.channelId ?? commandScope?.channelId;
+  const adapter = channel ? slackChannel.createAdapter(env) : null;
+  if (!channel || !adapter) return { status: "unrouted" };
+  const card: ApprovalCardInput = {
+    threadKey: input.threadKey,
+    approvalId: input.approvalId,
+    repoUrl: input.repoUrl,
+    task: input.task,
+    kind: "pr_publish",
+    publishPullRequest: true,
+    ...(input.canvasUrl ? { canvasUrl: input.canvasUrl } : {}),
+    ...(input.liveCanvas ? { liveCanvas: true } : {}),
+  };
+  await adapter.post({
+    placeId: channel,
+    ...(slack ? { threadId: slack.threadTs } : {}),
+    text: input.text,
+    native: { blocks: buildApprovalBlocks(card) },
+    persona: "reviewer",
+  });
+  return { status: "posted" };
 }
 
 export interface EmployeeToolApprovalPointer {

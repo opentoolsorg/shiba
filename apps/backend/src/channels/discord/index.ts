@@ -6,7 +6,7 @@
  * outside the window. Every outbound message carries an empty
  * allowed_mentions so echoed text never pings anyone.
  */
-import { buildChatThreadName } from "@shiba/shared";
+import { buildChatThreadName, buildDecisionData, parseChatThreadName } from "@shiba/shared";
 import type { Env } from "../../env.js";
 import { reactionGlyph } from "../emoji.js";
 import {
@@ -166,6 +166,37 @@ export function createDiscordAdapter(input: { botToken: string; fetch?: typeof f
     },
     mentions: discordMentions,
   };
+}
+
+export function decisionButtons(approvalId: string): unknown[] {
+  return [{
+    type: 1,
+    components: [
+      { type: 2, style: 3, label: "Approve", custom_id: buildDecisionData(true, approvalId) },
+      { type: 2, style: 4, label: "Reject", custom_id: buildDecisionData(false, approvalId) },
+    ],
+  }];
+}
+
+/** Post the second publication approval into the originating Discord channel. */
+export async function postDiscordPublicationApproval(
+  env: Env,
+  threadKey: string,
+  text: string,
+  approvalId: string,
+  deps: { adapter?: ReturnType<typeof createDiscordAdapter> } = {},
+): Promise<boolean> {
+  const chat = parseChatThreadName(threadKey);
+  if (chat?.platform !== "discord") return false;
+  const botToken = env.DISCORD_BOT_TOKEN?.trim();
+  const adapter = deps.adapter ?? (botToken ? createDiscordAdapter({ botToken }) : null);
+  if (!adapter) return false;
+  await adapter.post({
+    placeId: chat.conversationId,
+    text: text.slice(0, 1900),
+    native: { components: decisionButtons(approvalId) },
+  });
+  return true;
 }
 
 interface DiscordInteraction {

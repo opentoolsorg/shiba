@@ -1,11 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { discordChannel } from "../src/channels/discord/index.js";
 import { createSlackAdapter, slackChannel } from "../src/channels/slack/index.js";
 import { createTeamsTransport, teamsChannel } from "../src/channels/teams/index.js";
 import { telegramChannel } from "../src/channels/telegram/index.js";
 import type { Env } from "../src/env.js";
 import { runChannelContractSuite } from "../src/ports/channel/contract-suite.js";
-import { channelForConversationKey, getChannel, listChannels } from "../src/ports/channel/registry.js";
+import {
+  channelForConversationKey,
+  channelPublicationFor,
+  getChannel,
+  listChannels,
+  postChannelPublicationApproval,
+  resolveChannelPublication,
+} from "../src/ports/channel/registry.js";
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 const bytes = () => new Response(new Uint8Array([104, 105]), { headers: { "content-type": "text/plain" } });
@@ -326,6 +333,102 @@ describe("channel registry", () => {
     expect(channelForConversationKey("discord:1")).toBe(discordChannel);
     expect(channelForConversationKey("web:abc")).toBeNull();
     expect(channelForConversationKey("constructor:x")).toBeNull();
+  });
+
+  it("declares publication approval cards only for Slack, Teams, and Discord", () => {
+    expect(channelPublicationFor("slack")?.capabilities.has("publicationApprovalCard")).toBe(true);
+    expect(channelPublicationFor("teams")?.capabilities.has("publicationApprovalCard")).toBe(true);
+    expect(channelPublicationFor("discord")?.capabilities.has("publicationApprovalCard")).toBe(true);
+    expect(channelPublicationFor("telegram")).toBeNull();
+    expect(channelPublicationFor("email")).toBeNull();
+  });
+
+  it("routes publication cards to their owning channel and fails unsupported channels closed", () => {
+    for (const [threadKey, channel] of [
+      ["slack:T1:C1:1.2", "slack"],
+      [`teams:${TEAMS_CONVERSATION}`, "teams"],
+      ["discord:123456", "discord"],
+      ["default", "slack"],
+    ] as const) {
+      const resolved = resolveChannelPublication(threadKey);
+      expect(resolved.status).toBe("supported");
+      if (resolved.status === "supported") expect(resolved.publication.channel).toBe(channel);
+    }
+    for (const [threadKey, channel] of [
+      ["telegram:-100", "telegram"],
+      ["email:inbox-1", "email"],
+      ["web:session-1", "web"],
+      ["web:devin:session-1", "web"],
+    ] as const) {
+      expect(resolveChannelPublication(threadKey)).toMatchObject({ status: "unsupported", channel });
+    }
+  });
+
+  it("does not fall back to another channel when publication is unsupported", async () => {
+    const result = await postChannelPublicationApproval({} as Env, {
+      ownerId: "default",
+      threadKey: "telegram:-100",
+      approvalId: "pr-publish:run-1",
+      repoUrl: "https://github.com/o/r",
+      task: "publish it",
+      text: "Approval requested",
+    });
+    expect(result).toEqual({
+      status: "unsupported",
+      channel: "telegram",
+      reason: "telegram does not support publication approval cards.",
+    });
+  });
+
+  it("keeps Slack's unrouted legacy outcome explicit for the caller fallback", async () => {
+    const result = await postChannelPublicationApproval({ SLACK_BOT_TOKEN: "x" } as Env, {
+      ownerId: "default",
+      threadKey: "default",
+      approvalId: "pr-publish:run-1",
+      repoUrl: "https://github.com/o/r",
+      task: "publish it",
+      text: "Approval requested",
+    });
+    expect(result).toEqual({ status: "unrouted" });
+  });
+
+  it("posts the Slack publication card to the owning thread with reviewer persona and buttons", async () => {
+    const calls: { url: string; body: string }[] = [];
+    vi.stubGlobal("fetch", (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), body: typeof init?.body === "string" ? init.body : "" });
+      return json({ ok: true, channel: "C1", ts: "1700000000.000200" });
+    }) as typeof fetch);
+    try {
+      const result = await postChannelPublicationApproval({ SLACK_BOT_TOKEN: "x" } as Env, {
+        ownerId: "slack:T1:C1:1700000000.000100",
+        threadKey: "slack:T1:C1:1700000000.000100",
+        approvalId: "pr-publish:run-1",
+        repoUrl: "https://github.com/o/r",
+        task: "publish it",
+        text: "Approval requested\nExternal Action: Push this frozen snapshot and publish its pull request.",
+        canvasUrl: "https://shiba.example/app/canvas",
+        liveCanvas: true,
+      });
+      expect(result).toEqual({ status: "posted" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe("https://slack.com/api/chat.postMessage");
+    const body = JSON.parse(calls[0]!.body) as {
+      channel: string; thread_ts: string; text: string; username: string; icon_emoji: string; blocks: unknown[];
+    };
+    expect(body).toMatchObject({
+      channel: "C1",
+      thread_ts: "1700000000.000100",
+      text: "Approval requested\nExternal Action: Push this frozen snapshot and publish its pull request.",
+      username: "Shiba Reviewer",
+      icon_emoji: ":eyes:",
+    });
+    const encodedBlocks = JSON.stringify(body.blocks);
+    expect(encodedBlocks).toContain("Push this frozen snapshot and publish its pull request.");
+    expect(encodedBlocks).toContain("https://shiba.example/app/canvas");
+    expect(encodedBlocks).toContain("pr-publish:run-1");
   });
 });
 

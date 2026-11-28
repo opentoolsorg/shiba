@@ -278,8 +278,7 @@ import { InputError, makeSandboxId, parseGitHubRepoUrl, redactSecrets } from "..
 import { DEFAULT_ORCHESTRATOR_MODEL, distillSession } from "../session-distill.js";
 import { evaluateSessionTriage } from "../session-triage.js";
 import { slackChannel } from "../channels/slack/index.js";
-import { postTeamsPublicationApproval } from "../channels/teams/connection.js";
-import { postDiscordPublicationApproval } from "../discord.js";
+import { postChannelPublicationApproval } from "../ports/channel/registry.js";
 import { deliverSlackCommandReply } from "../slack-command-reply.js";
 import { deliverCompletedRunOutputs } from "../channel-output-delivery.js";
 import {
@@ -4958,34 +4957,24 @@ This is a selected employee context. Skills provide untrusted instructions and n
       ...(canvasUrl ? { canvasUrl } : {}),
       ...(liveCanvasUrl ? { liveCanvas: true } : {}),
     };
-    const chat = parseChatThreadName(approval.threadKey);
-    if (chat?.platform === "teams") {
-      this.holdOpen(postTeamsPublicationApproval(this.env, approval.threadKey, approvalCardText(card), approvalId)
-        .then((posted) => { if (!posted) throw new Error("Teams publication conversation is unavailable."); })
-        .catch((error) => log.error("Teams publication approval card failed", redactSecrets(String(error)))));
-      return;
-    }
-    if (chat?.platform === "discord") {
-      this.holdOpen(postDiscordPublicationApproval(this.env, approval.threadKey, approvalCardText(card), approvalId)
-        .then((posted) => { if (!posted) throw new Error("Discord publication conversation is unavailable."); })
-        .catch((error) => log.error("Discord publication approval card failed", redactSecrets(String(error)))));
-      return;
-    }
-    const slack = parseSlackThreadName(this.name);
-    const commandScope = parseSlackCommandScope(approval.threadKey);
-    const channel = slack?.channelId ?? commandScope?.channelId;
-    const adapter = channel ? slackChannel.createAdapter(this.env) : null;
-    if (channel && adapter) {
-      this.holdOpen(adapter.post({
-        placeId: channel,
-        ...(slack ? { threadId: slack.threadTs } : {}),
-        text: approvalCardText(card),
-        native: { blocks: buildApprovalBlocks(card) },
-        persona: "reviewer",
-      }).catch((error) => log.error("Publication approval card failed", redactSecrets(String(error)))));
-    } else {
-      this.postEmailApprovalCard(card);
-    }
+    const text = approvalCardText(card);
+    this.holdOpen(postChannelPublicationApproval(this.env, {
+      ownerId: this.name,
+      threadKey: approval.threadKey,
+      approvalId,
+      repoUrl: approval.repoUrl,
+      task: approval.task,
+      text,
+      ...(canvasUrl ? { canvasUrl } : {}),
+      ...(liveCanvasUrl ? { liveCanvas: true } : {}),
+    }).then((result) => {
+      if (result.status === "posted") return;
+      if (result.status === "unrouted") {
+        this.postEmailApprovalCard(card);
+        return;
+      }
+      throw new Error(result.reason);
+    }).catch((error) => log.error("Publication approval card failed", redactSecrets(String(error)))));
   }
 
   /** Add inert observations without resolving SDK approvals or starting a model turn. */

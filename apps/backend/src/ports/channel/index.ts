@@ -29,6 +29,38 @@ export const CHANNEL_CAPABILITIES = [
 
 export type ChannelCapability = (typeof CHANNEL_CAPABILITIES)[number];
 
+/** Publication cards are optional channel behavior, separate from generic message posting. */
+export const CHANNEL_PUBLICATION_CAPABILITIES = ["publicationApprovalCard"] as const;
+
+export type ChannelPublicationCapability = (typeof CHANNEL_PUBLICATION_CAPABILITIES)[number];
+
+/** The channel-neutral fields a publication approval card needs. */
+export interface ChannelPublicationCardInput {
+  /** Orchestrator conversation that owns the approval; Slack's legacy thread routing uses it. */
+  ownerId: string;
+  threadKey: string;
+  approvalId: string;
+  repoUrl: string;
+  task: string;
+  /** Plain-text rendering shared by the current Slack, Teams, and Discord cards. */
+  text: string;
+  canvasUrl?: string;
+  liveCanvas?: boolean;
+}
+
+export type ChannelPublicationResult =
+  | { status: "posted" }
+  | { status: "unavailable"; reason: string }
+  /** Slack's legacy dashboard/command path has no thread destination and uses the caller's fallback. */
+  | { status: "unrouted" }
+  | { status: "unsupported"; channel: string; reason: string };
+
+export interface ChannelPublication {
+  readonly channel: ChannelId;
+  readonly capabilities: ReadonlySet<ChannelPublicationCapability>;
+  postApprovalCard(env: Env, input: ChannelPublicationCardInput): Promise<ChannelPublicationResult>;
+}
+
 /** Where a posted message lives: the place (channel/chat) and its platform id. */
 export interface ChannelMessageRef {
   placeId: string;
