@@ -158,6 +158,10 @@ function slackFixture(scopes: string | null = "chat:write,app_mentions:read,file
     if (url.origin === "https://slack.com" && url.pathname === "/api/conversations.replies") {
       return json({ ok: true, messages: [] });
     }
+    // The reply gate classifies the channel before posting; these threads are internal.
+    if (url.origin === "https://slack.com" && url.pathname === "/api/conversations.info") {
+      return json({ ok: true, channel: { id: url.searchParams.get("channel"), is_ext_shared: false } });
+    }
     if (url.origin === "https://slack.com" && (url.pathname === "/api/chat.postMessage" || url.pathname === "/api/chat.update")) {
       expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${BOT_TOKEN}`);
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;

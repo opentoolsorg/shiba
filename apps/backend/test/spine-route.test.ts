@@ -84,6 +84,21 @@ const resolveBody = (approvalId: string, approved = true) =>
     body: JSON.stringify({ threadKey: "default", approvalId, approved, decidedBy: "reviewer@example.test" }),
   });
 
+/**
+ * The reply gate reads a channel's audience before posting. This fixture thread
+ * lives in an internal channel; anything else falls through to the real fetch.
+ */
+export function stubInternalSlackChannel(): void {
+  const real = globalThis.fetch;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.startsWith("https://slack.com/api/conversations.info")) {
+      return Response.json({ ok: true, channel: { id: new URL(url).searchParams.get("channel"), is_ext_shared: false } });
+    }
+    return real(input, init);
+  }));
+}
+
 /** Let a fire-and-forget waitUntil chain settle (microtask drain). */
 async function flush() {
   for (let i = 0; i < 20; i += 1) await Promise.resolve();
@@ -94,6 +109,7 @@ beforeEach(() => {
   mocks.destroy.mockResolvedValue(undefined);
   mocks.execute.mockResolvedValue("ok");
   mocks.postSlackMessageWithReceipt.mockResolvedValue(receipt);
+  stubInternalSlackChannel();
 });
 
 describe("GET /api/spine", () => {
