@@ -461,7 +461,7 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
                     file.createdBy?.trim().toLowerCase() === appPreviewOwner &&
                     file.workspaceId === "self-hosted" && file.archivedAt === null && file.mime === "application/json" &&
                     /^file_[a-f0-9]{24}$/.test(file.id) && file.name.endsWith(".app-preview.json");
-                  return <li key={file.id} className="mb-4 break-inside-avoid overflow-hidden rounded-xl border border-[var(--border-1)] bg-[var(--card)] shadow-xs transition-shadow hover:shadow-md">
+                  return <li key={file.id} className="group mb-4 break-inside-avoid overflow-hidden rounded-xl border border-[var(--border-1)] bg-[var(--card)] shadow-xs transition-shadow hover:shadow-md">
                     <div className="relative flex h-28 items-center justify-center bg-[var(--panel)]">
                       {selectMode ? <input type="checkbox" aria-label={`Select ${file.name}`} checked={selectedIds.has(file.id)} onChange={() => toggleFileSelected(file.id)} className="absolute left-2.5 top-2.5 z-10 size-4 accent-[var(--accent)]" /> : <div className={`absolute right-2 top-2 z-10 flex items-center gap-0.5 rounded-md bg-[var(--card)]/90 p-0.5 shadow-xs ${REVEAL_ON_HOVER}`}>{moveControls(file)}{deleteControl(file)}</div>}
                       <span className={`inline-flex size-16 items-center justify-center rounded-lg shadow-xs ${iconFrameFor(file)}`}>{iconFor(file, 36)}</span>
