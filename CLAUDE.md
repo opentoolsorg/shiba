@@ -13,7 +13,10 @@ as the current architecture by default.
 
 ## Validation gate
 
-Run the required gate for the change before opening or merging a PR:
+Use risk-proportionate validation. Run the narrowest useful local checks for
+the files you change, leave broad lanes to CI, and state what remains
+unverified. Run the full local gate before merging cross-cutting runtime,
+deployment, credential, approval, or release work:
 
 ```bash
 pnpm typecheck && pnpm lint && pnpm lint:imports && pnpm test && pnpm build && pnpm test:built

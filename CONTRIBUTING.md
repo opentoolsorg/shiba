@@ -5,7 +5,10 @@ Thank you for helping build Shiba, an **open-source, self-hostable** workspace f
 ## Before you open a PR
 
 1. Read the [product contract](docs/product/ai-employees.md) and the [security and authority model](docs/architecture/security-model.md), especially **no credentials in containers** and **human approval before execution**.
-2. Run the repository gate from the root:
+2. Run risk-proportionate validation. Use the narrowest useful local checks
+   while iterating, leave broad lanes to CI, and state what remains unverified.
+   Before merging cross-cutting runtime, deployment, credential, approval, or
+   release work, run the full repository gate from the root:
 
    ```sh
    pnpm install

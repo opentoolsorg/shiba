@@ -43,6 +43,27 @@ Keep durable knowledge in the canonical document that owns it. Do not add prompt
 transcripts, agent session logs, temporary design exports, or one-off review
 scratch files as repository context.
 
+## Living docs ownership
+
+Read the owning document before work in a new area, and update it in the same
+commit as the behavior change. Keep entries short: decisions, contracts, and
+reasons, not narratives. If a doc becomes stale, fix it when you notice.
+
+| Document | Owns |
+| --- | --- |
+| `docs/product/ai-employees.md` | Product contract, employee/workspace goals, acceptance boundaries |
+| `ARCHITECTURE.md` | Architecture roles, spine, and topic index |
+| `docs/architecture/` | Security, lifecycle, browser, computer use, harness, and change rules |
+| `design.md` | Visual system and design tokens |
+| `docs/SOURCE-LAYOUT.md` | Backend source-file domain ownership |
+| `CONTRIBUTING.md` | Validation labels, contributor gate, and QA handoff |
+| `docs/DEPLOY.md` | Deployment, bindings, secrets, and preview operations |
+| `README.md` | Public quickstart, repository shape, and honest status |
+| `apps/web/src/content/docs/` | Public operator and product documentation |
+
+When you add a durable living document, add its ownership row here. Point-in-time
+plans, audits, and evidence do not belong in this table.
+
 ## Non-negotiable
 
 A change that breaks one of these rules is wrong even if existing tests pass.
@@ -88,8 +109,13 @@ Locked by `apps/backend/test/tradeoff-contracts.test.ts`.
   package boundary.
 - Update the canonical docs affected by behavior you change. Do not update a
   historical plan or audit to describe new behavior.
-- Keep validation cost-conscious: run focused checks while iterating, then the
-  required gate for the change before opening or merging a PR.
+- Keep validation risk-proportionate: run the narrowest useful local checks,
+  leave broad lanes to CI, and state what remains unverified. Use the full local
+  gate for cross-cutting runtime, deployment, credential, approval, or release
+  work, not for every docs or test-only edit.
+- Name the surfaces a behavior change touches and check the affected consumers
+  and reverse actions where they exist: approve/reject, connect/disconnect,
+  pause/resume, publish/unpublish, or their closest equivalents.
 - Shiba CI is label-gated. Use `build:validate` for core validation, add
   `verify:shiba` only for browser-validation work, and use `ci:deferred` only
   when browser validation is intentionally deferred. Never make expensive lanes
