@@ -133,6 +133,21 @@ describe("repository publication snapshot", { timeout: 30_000 }, () => {
     expect(result.files).toEqual([{ path: "draft.txt", content, encoding: "utf8" }]);
   });
 
+  it("keeps a chunked named workbook out of the incidental file budget", async () => {
+    const { root, ops } = fixture();
+    const baseline = await captureCheckpoint(ops, root, "budget", 0);
+    const content = Buffer.alloc(800_000);
+    content.set([0x50, 0x4b, 0x03, 0x04]);
+    writeFileSync(join(root, "sales.xlsx"), content);
+    writeFileSync(join(root, "draft.txt"), "Accompanying notes.");
+    const settled = await captureCheckpoint(ops, root, "budget", 1);
+    const result = await collectRepositoryChanges(ops, root, baseline, settled, { expectedDeliverables: ["sales.xlsx"] });
+    expect(result.files).toEqual([
+      { path: "sales.xlsx", encoding: "base64", content: content.toString("base64") },
+      { path: "draft.txt", encoding: "utf8", content: "Accompanying notes." },
+    ]);
+  });
+
   it("preserves renames as an immutable new blob and deletion of the original path", async () => {
     const { root, ops, git } = fixture();
     const baseline = await captureCheckpoint(ops, root, "rename", 0);

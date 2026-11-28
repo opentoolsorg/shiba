@@ -1273,6 +1273,7 @@ function ScopedCustomAgentsView({
               <label className="flex flex-col gap-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--muted-foreground-2)]">
                 Instructions
                 <textarea
+                  aria-label="Instructions"
                   value={form.instructions}
                   onChange={(e) => setForm((f) => ({ ...f, instructions: e.target.value }))}
                   placeholder="Finds evidence and challenges assumptions."

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { SlackInstallationSnapshot } from "@shiba/shared";
-import { channelMediaFiles, channelOutputAdapter, channelOutputDestination, channelOutputsEnabled, claimChannelOutput, deliverChannelOutputs, outputDashboardUrl } from "./channel-output-delivery.js";
+import { channelMediaPages, channelOutputAdapter, channelOutputDestination, channelOutputsEnabled, claimChannelOutput, deliverChannelOutputs, outputDashboardUrl } from "./channel-output-delivery.js";
 import type { Env } from "./env.js";
 import { createSlackAdapter } from "./channels/slack/index.js";
 import { activeSlackInstallationForTeam, readSlackInstallationCredential } from "./slack-installations-store.js";
@@ -97,9 +97,19 @@ export async function requestSlackMedia(
       }
       return true;
     }
-    if (!input.owner || !(await videoCapabilityForUser(env, input.owner.userId)).enabled) {
-      await adapter.post({ ...target, text: "To generate video in Slack, link this Slack user to your Shiba workspace and connect your Google key in Settings → Providers." });
-      return true;
+    if (input.kind === "video") {
+      // Video is paid and billed to a linked Shiba account, so name the exact missing
+      // prerequisite instead of a combined message the requester cannot act on.
+      const capability = input.owner ? await videoCapabilityForUser(env, input.owner.userId) : null;
+      const blocked = !input.installation
+        ? "Video in Slack needs the workspace-owner Slack installation, so the request can be billed to your linked Shiba account. Ask an admin to connect it in Settings → Integrations → Slack."
+        : !input.owner ? "To generate video in Slack, link your Slack user to a Shiba account in Settings → Integrations → Slack, then send the request again."
+          : !capability?.enabled ? capability?.reason ?? "Connect a Google API key in Settings → Providers to generate videos."
+            : undefined;
+      if (blocked) {
+        await adapter.post({ ...target, text: blocked });
+        return true;
+      }
     }
     const stored = await env.ATTACHMENTS.put(approvalKey(input.id), JSON.stringify({ ...input, createdAt: Date.now() }), {
       onlyIf: { etagDoesNotMatch: "*" },
@@ -107,9 +117,9 @@ export async function requestSlackMedia(
     if (stored) {
       await adapter.post({
         ...target,
-        text: "Video generation uses your connected Google account. Confirm to generate and attach an eight-second video to this thread.",
+        text: "Video generation uses your connected Google account. Only the person who asked, if they are on this installation's approver list, can confirm it here.",
         native: { blocks: [
-          { type: "section", text: { type: "plain_text", text: `Generate and attach an eight-second video? This uses your connected Google account and may incur a charge.\n\nPrompt: ${input.prompt}` } },
+          { type: "section", text: { type: "plain_text", text: `Generate and attach an eight-second video? This uses your connected Google account and may incur a charge. Only the requester, if they are also an approver, can confirm.\n\nPrompt: ${input.prompt}` } },
           { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "Generate video" }, style: "primary", action_id: SLACK_VIDEO_APPROVE_ACTION, value: input.id }] },
         ] },
       });
@@ -132,7 +142,7 @@ export async function confirmSlackVideo(env: Env, input: { id: string; threadNam
       intent.slackUserId !== input.slackUserId || createdAt > Date.now() || Date.now() - createdAt > VIDEO_APPROVAL_TTL ||
       intent.installation?.id !== installation.id || intent.installation.generation !== installation.generation) return false;
   if (!intent.owner || !await ownerStillLinked(env, intent, installation) || !(await videoCapabilityForUser(env, intent.owner.userId)).enabled) return false;
-  if (!await claimChannelOutput(env.ATTACHMENTS, ["slack-media-start", intent.threadName, intent.id])) return true;
+  if (!await claimChannelOutput(env.ATTACHMENTS, ["slack-media-start", intent.threadName, intent.id])) return false;
   await env.SLACK_MEDIA_WORKFLOW.create({ id: intent.id, params: intent });
   await env.ATTACHMENTS.put(approvalKey(intent.id), JSON.stringify({ state: "queued" }));
   return true;
@@ -141,7 +151,7 @@ export async function confirmSlackVideo(env: Env, input: { id: string; threadNam
 export type SlackMediaResult =
   | { ok: false }
   | { ok: true; userId: string; workspaceId: string }
-  | { ok: true; key: string; bytes: number; path: string };
+  | { ok: true; key: string; bytes: number; path: string; sha256: string };
 
 export async function generateSlackMedia(env: Env, raw: SlackMediaWorkflowInput): Promise<SlackMediaResult> {
   const parsed = mediaInputSchema.safeParse(raw);
@@ -159,8 +169,8 @@ export async function generateSlackMedia(env: Env, raw: SlackMediaWorkflowInput)
   const result = await generateImage(env, { prompt: input.prompt, runId, ...owner });
   if (!result.ok) return { ok: false };
   if (owner) return { ok: true, ...owner };
-  if (!result.key || !result.bytes) return { ok: false };
-  return { ok: true, key: result.key, path: result.key.endsWith(".png") ? "Generated image.png" : "Generated image.jpg", bytes: result.bytes };
+  if (!result.key || !result.bytes || !result.sha256) return { ok: false };
+  return { ok: true, key: result.key, path: result.key.endsWith(".png") ? "Generated image.png" : "Generated image.jpg", bytes: result.bytes, sha256: result.sha256 };
 }
 
 export async function postSlackMediaResult(env: Env, input: SlackMediaWorkflowInput, result: SlackMediaResult): Promise<void> {
@@ -169,16 +179,21 @@ export async function postSlackMediaResult(env: Env, input: SlackMediaWorkflowIn
   if (!lane || (input.installation && !await ownerStillLinked(env, input, lane.installation))) return;
   const { adapter, dest } = lane;
   const runId = runIdFor(input.id);
-  const files = result.ok
-    ? "userId" in result ? await channelMediaFiles(env, runId, result.userId, result.workspaceId)
-      : [{ id: result.key, path: result.path, bytes: result.bytes, kind: "outputs" as const, read: async () => await (env.FILES ?? env.ARTIFACTS)?.get(result.key) ?? null }]
-    : [];
-  if (files.length) {
+  if (result.ok && "key" in result) {
+    const files = [{ id: result.key, path: result.path, bytes: result.bytes, sha256: result.sha256, kind: "outputs" as const, read: async () => await (env.FILES ?? env.ARTIFACTS)?.get(result.key) ?? null }];
     await deliverChannelOutputs(env, { threadName: input.threadName, sourceId: runId, files }, async () => adapter);
-  } else {
-    if (env.ATTACHMENTS && await claimChannelOutput(env.ATTACHMENTS, ["slack-media-failed", input.threadName, input.id])) {
-      const retryNote = input.kind === "video" ? " Check your provider account before retrying; it may have charged for the job." : "";
-      await adapter.post({ placeId: dest.placeId, threadId: dest.threadId, text: `Shiba could not finish or find the generated ${input.kind}.${retryNote} Open in Shiba: ${outputDashboardUrl(env, "outputs")}` });
+    return;
+  }
+  if (result.ok) {
+    let found = false;
+    for await (const files of channelMediaPages(env, runId, result.userId, result.workspaceId)) {
+      await deliverChannelOutputs(env, { threadName: input.threadName, sourceId: runId, files }, async () => adapter);
+      found ||= files.length > 0;
     }
+    if (found) return;
+  }
+  if (env.ATTACHMENTS && await claimChannelOutput(env.ATTACHMENTS, ["slack-media-failed", input.threadName, input.id])) {
+    const retryNote = input.kind === "video" ? " Check your provider account before retrying; it may have charged for the job." : "";
+    await adapter.post({ placeId: dest.placeId, threadId: dest.threadId, text: `Shiba could not finish or find the generated ${input.kind}.${retryNote} Open in Shiba: ${outputDashboardUrl(env, "outputs")}` });
   }
 }
