@@ -220,6 +220,10 @@ describe("IntegrationsView native catalog", () => {
     await screen.findByTestId("integration-catalog-row-github");
     const githubRow = screen.getByTestId("integration-catalog-row-github");
     expect(githubRow.textContent).toMatch(/Configured/);
+    fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "microsoft teams" } });
+    const teamsRow = await screen.findByTestId("integration-catalog-row-microsoft-teams");
+    expect(teamsRow.textContent).toContain("Implemented product path");
+    expect(teamsRow.textContent).not.toContain("Reference integration");
     fireEvent.change(screen.getByLabelText("Search integrations"), { target: { value: "hubspot" } });
     const hubspotRow = await screen.findByTestId("integration-catalog-row-hubspot");
     expect(hubspotRow.textContent).toMatch(/Available|Catalog/i);

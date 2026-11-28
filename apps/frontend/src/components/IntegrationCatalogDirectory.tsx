@@ -230,7 +230,7 @@ function IntegrationSection({
                       ) : null}
                     </div>
                     <p className="mt-2 break-words text-xs leading-relaxed text-[var(--muted-foreground-2)]">{row.description}</p>
-                    <p className="mt-2 text-[10px] font-mono uppercase tracking-wide text-[var(--muted-foreground-2)]">{row.providerItem ? "Provider listing" : "Reference integration"}</p>
+                    <p className="mt-2 text-[10px] font-mono uppercase tracking-wide text-[var(--muted-foreground-2)]">{row.providerItem ? "Provider listing" : entry?.status === "live" ? "Implemented product path" : "Reference integration"}</p>
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border-1)] pt-3">
