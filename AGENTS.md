@@ -1,8 +1,24 @@
-# Agent guide
+# Repository guidance
 
 Read this file before editing Shiba. Then read the nearest `AGENTS.md` for the
 directory you are changing. Nested guides add local rules; they do not replace
-the load-bearing rules here.
+the non-negotiable rules here.
+
+## Working style
+
+Be concise. Keep going when the next step does not need the developer. Stop and
+ask only when blocked, before destructive actions, or before changing anything
+outside the repository.
+
+For work with more than a few steps, keep a checklist where the developer can
+see it. For an audit or migration that divides into independent areas, give each
+area focused attention and check the evidence before accepting the result. Mark
+claims you could not confirm and say where you looked.
+
+The rules under **Non-negotiable** protect users, credentials, released
+contracts, and the approval boundary. Change them only on an explicit developer
+decision. Other rules are defaults: follow the developer's preference and say
+which default you set aside.
 
 ## Use the right context
 
@@ -27,7 +43,7 @@ Keep durable knowledge in the canonical document that owns it. Do not add prompt
 transcripts, agent session logs, temporary design exports, or one-off review
 scratch files as repository context.
 
-## Load-bearing rules
+## Non-negotiable
 
 A change that breaks one of these rules is wrong even if existing tests pass.
 
@@ -78,6 +94,11 @@ Locked by `apps/backend/test/tradeoff-contracts.test.ts`.
   `verify:shiba` only for browser-validation work, and use `ci:deferred` only
   when browser validation is intentionally deferred. Never make expensive lanes
   run automatically on every PR.
+- Before marking a PR ready, leave a QA handoff on the PR: exact tested head
+  SHA, selected labels and lanes, commands or flows exercised, evidence, and
+  limitations. New commits supersede earlier QA. Docs-only, test-only, and CI
+  metadata changes may state why browser QA was not needed. Never include
+  credentials, private bypass links, or cookies.
 
 ## UI polish
 

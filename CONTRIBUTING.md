@@ -55,6 +55,20 @@ Pull requests do not spend CI runner minutes when opened or updated. A maintaine
 
 Branch protection should require only `all-checks-pass`. That gate fails if core validation is missing, if a selected lane fails, or if browser verification was neither run with `verify:shiba` nor consciously deferred with `ci:deferred`.
 
+## QA handoff
+
+Before marking a PR ready, add or update one `QA handoff` PR comment with:
+
+- the exact tested head SHA,
+- the validation labels and lanes used,
+- commands or user flows exercised,
+- sanitized evidence or a reason browser QA was not needed,
+- limitations and anything still untested.
+
+A new commit supersedes earlier QA. Repeat the affected checks on the new head
+and update the handoff. Never include credentials, private bypass links,
+cookies, or access tokens in the comment or evidence.
+
 ## Docs and claims
 
 - Write behavior from **source** (`apps/backend/src/`, `wrangler.jsonc`, `env.ts`), not stale README prose.

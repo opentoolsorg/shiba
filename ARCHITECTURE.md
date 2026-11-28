@@ -51,6 +51,9 @@ target, and external publication requires its own exact approval.
 
 ## Architecture notes
 
+The notes are one file per topic. Use the index below and open only the note for
+the area you are changing.
+
 - [Repository structure](docs/architecture/structure.md)
   - [The one-paragraph version](docs/architecture/structure.md#the-one-paragraph-version)
   - [Domain model](docs/architecture/structure.md#domain-model)
