@@ -24,7 +24,6 @@ import {
   BarChartIcon,
   BellIcon,
   BlocksIcon,
-  BookBookmarkIcon,
   BookOpen01Icon,
   BoxIcon,
   Brain01Icon,
@@ -281,7 +280,6 @@ export const ArrowLeft = defineIcon("ArrowLeft", ArrowLeft01Icon);
 export const ArrowRight = defineIcon("ArrowRight", ArrowRight01Icon);
 export const BarChart3 = defineIcon("BarChart3", BarChartIcon);
 export const Blocks = defineIcon("Blocks", BlocksIcon);
-export const BookMarked = defineIcon("BookMarked", BookBookmarkIcon);
 export const Bot = defineIcon("Bot", RobotIcon);
 export const Box = defineIcon("Box", BoxIcon);
 export const CalendarDays = defineIcon("CalendarDays", Calendar03Icon);
