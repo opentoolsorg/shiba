@@ -381,7 +381,7 @@ function settingsSectionFromSearch(search: string): string {
 /** Views that render their own MainCard, so the shell must not add a second one. */
 const SELF_CARDED_VIEWS: readonly string[] = ["dashboard", "activity", "analytics", "diff", "approvals", "automations", "providers", "spaces", "integrations"];
 /** Views that work inside a team workspace; every other view is personal-only. */
-const TEAM_WORKSPACE_VIEWS: readonly string[] = ["dashboard", "team", "work", "threads", "collaboration", "custom-agents", "skills", "providers", "integrations", "settings"];
+const TEAM_WORKSPACE_VIEWS: readonly string[] = ["dashboard", "team", "work", "threads", "collaboration", "custom-agents", "skills", "providers", "integrations", "files", "notes", "projects", "settings"];
 
 // Room/run links retain precedence over a view selector, including legacy /app links.
 function viewFromUrl(): AppNavView | null {
@@ -4768,11 +4768,11 @@ function employeeConversationRoomTitle(name: string): string {
               onNavigate={openView}
             />
           ) : mainView === "files" ? (
-            <FilesView appPreviewOwner={privateDataEnabled && authMode === "access" ? orchestratorName?.trim().toLowerCase() : undefined} onNavigate={(view) => { if (view === "memory") setMemoryView("sources"); openView(view); }} />
+            <FilesView key={teamWorkspaceId || "personal"} workspaceId={teamWorkspaceId || null} appPreviewOwner={privateDataEnabled && authMode === "access" ? orchestratorName?.trim().toLowerCase() : undefined} onNavigate={(view) => { if (view === "memory") setMemoryView("sources"); openView(view); }} />
           ) : mainView === "notes" ? (
-            <NotesEditor workspaceId={teamWorkspaceId || null} onNavigate={(view) => { if (view === "memory") setMemoryView("sources"); openView(view); }} />
+            <NotesEditor workspaceId={teamWorkspaceId || null} workspaceRole={teamWorkspace?.membership.role} actorId={orchestratorName?.trim().toLowerCase()} onNavigate={(view) => { if (view === "memory") setMemoryView("sources"); openView(view); }} />
           ) : mainView === "projects" ? (
-            <ProjectsView onNavigate={openView} />
+            <ProjectsView key={teamWorkspaceId || "personal"} workspaceId={teamWorkspaceId || null} workspaceRole={teamWorkspace?.membership.role} actorId={orchestratorName?.trim().toLowerCase()} onNavigate={openView} />
           ) : mainView === "outputs" ? (
             <OutputsView onNavigate={openView} onOpenEvidence={(runId) => {
               applyWorkSelection({ view: "board", task: runId, taskKind: "run", tab: "steps" }, "push");

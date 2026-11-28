@@ -6,11 +6,11 @@ type UploadResponse = {
   part?: { partNumber?: unknown; etag?: unknown };
 };
 
-async function postUpload(url: string, body: BodyInit, contentType: string): Promise<UploadResponse> {
+async function postUpload(url: string, body: BodyInit, contentType: string, extraHeaders?: Record<string, string>): Promise<UploadResponse> {
   const response = await fetch(url, {
     method: "POST",
     credentials: "same-origin",
-    headers: { "Content-Type": contentType },
+    headers: { ...extraHeaders, "Content-Type": contentType },
     body,
   });
   const result = await response.json().catch(() => null) as UploadResponse | null;
@@ -26,12 +26,13 @@ export async function uploadFile(file: File, options: {
   scope: KnowledgeScope;
   folderId: string | null;
   onProgress?: (partsDone: number, totalParts: number) => void;
+  headers?: Record<string, string>;
 }): Promise<void> {
   const url = `/api/files/uploads?${new URLSearchParams({ scope: options.scope })}`;
   const begin = await postUpload(url, JSON.stringify({
     action: "begin", name: file.name, mime: file.type || "application/octet-stream",
     scope: options.scope, folderId: options.folderId,
-  }), "application/json");
+  }), "application/json", options.headers);
   const sessionId = begin.session?.sessionId;
   const partSize = begin.session?.partSize;
   if (typeof sessionId !== "string" || !sessionId || typeof partSize !== "number"
@@ -45,12 +46,12 @@ export async function uploadFile(file: File, options: {
   for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
     const query = new URLSearchParams({ scope: options.scope, sessionId, partNumber: String(partNumber) });
     const result = await postUpload(`/api/files/uploads?${query}`,
-      file.slice((partNumber - 1) * partSize, partNumber * partSize), "application/octet-stream");
+      file.slice((partNumber - 1) * partSize, partNumber * partSize), "application/octet-stream", options.headers);
     if (result.part?.partNumber !== partNumber || typeof result.part.etag !== "string" || !result.part.etag) {
       throw new Error(`Invalid upload response for part ${partNumber}.`);
     }
     parts.push({ partNumber, etag: result.part.etag });
     options.onProgress?.(partNumber, totalParts);
   }
-  await postUpload(url, JSON.stringify({ action: "complete", sessionId, parts }), "application/json");
+  await postUpload(url, JSON.stringify({ action: "complete", sessionId, parts }), "application/json", options.headers);
 }

@@ -247,7 +247,7 @@ export function AppNavRail({
       className={
         sheet
           ? "shiba-navigation-sheet"
-          : "shiba-app-rail hidden lg:flex w-[72px] shrink-0 flex-col items-center py-3 h-full"
+          : "shiba-app-rail hidden lg:flex w-[60px] shrink-0 flex-col items-center px-2.5 py-1.5 h-full"
       }
       onFocusCapture={() => {
         restoreToggleFocus.current = true;
@@ -257,7 +257,7 @@ export function AppNavRail({
           restoreToggleFocus.current = false;
       }}
     >
-      <div className="flex w-full shrink-0 items-center justify-center gap-2 pb-3">
+      <div className="flex w-full shrink-0 items-center justify-center gap-2">
         <a
           href={pathForView("work")}
           onClick={(event) => {
@@ -275,7 +275,7 @@ export function AppNavRail({
           aria-label="Shiba Home"
           className="shiba-shell-icon"
         >
-          <ShibaMark className="size-7" decorative />
+          <ShibaMark className="size-[22px]" decorative />
         </a>
         {sheet ? (
           <>
@@ -309,7 +309,7 @@ export function AppNavRail({
                 aria-current={activeArea.id === area.id ? "page" : undefined}
                 className={sheet ? "shiba-area-heading" : "shiba-app-rail-button shiba-area-button"}
               >
-                <Icon className="size-5 shrink-0" strokeWidth={1.8} aria-hidden="true" />
+                <Icon className="size-4 shrink-0" strokeWidth={1.8} aria-hidden="true" />
                 <span className={sheet ? "" : "shiba-app-rail-label"}>{area.label}</span>
                 {area.id === "work" && pendingApprovalCount > 0 ? (
                   <span
@@ -435,8 +435,8 @@ export function AppNavRail({
       <div
         className={
           sheet
-            ? "flex shrink-0 items-center justify-between border-t border-[var(--border-1)] pt-2"
-            : "flex shrink-0 flex-col items-center gap-1 pt-2"
+            ? "shiba-rail-footer flex shrink-0 items-center justify-between border-t border-[var(--border-1)] pt-2"
+            : "shiba-rail-footer flex shrink-0 flex-col items-center gap-1 pt-2"
         }
       >
         {!sheet && onToggleCollapse ? (
@@ -452,7 +452,7 @@ export function AppNavRail({
               onToggleCollapse();
             }}
           >
-            <PanelLeft className="size-5" />
+            <PanelLeft className="size-4" />
           </button>
         ) : null}
         {onOpenSearch ? (
@@ -465,7 +465,7 @@ export function AppNavRail({
               if (sheet) onClose?.();
             }}
           >
-            <Search className="size-5" />
+            <Search className="size-4" />
           </button>
         ) : null}
         {onToggleTheme ? (
@@ -475,7 +475,7 @@ export function AppNavRail({
             aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
             onClick={onToggleTheme}
           >
-            {theme === "dark" ? <Sun className="size-5" /> : <Moon className="size-5" />}
+            {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
           </button>
         ) : null}
         {onOpenShortcuts ? (
@@ -488,7 +488,7 @@ export function AppNavRail({
               if (sheet) onClose?.();
             }}
           >
-            <HelpCircle className="size-5" />
+            <HelpCircle className="size-4" />
           </button>
         ) : null}
         <div ref={accountRef} className="relative">
@@ -500,7 +500,7 @@ export function AppNavRail({
             aria-expanded={accountOpen}
             onClick={() => setAccountOpen(!accountOpen)}
           >
-            <ShibaMark className="size-6" decorative />
+            <ShibaMark className="size-5" decorative />
           </button>
           {accountOpen ? (
             <div

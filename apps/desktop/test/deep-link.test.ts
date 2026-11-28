@@ -3,13 +3,16 @@ import { parseDeepLink } from "../src/deep-link.js";
 import { githubPullRequestUrl } from "../src/pull-request.js";
 
 describe("parseDeepLink", () => {
-  it("opens a dashboard view", () => {
+  it("opens dashboard views", () => {
     expect(parseDeepLink("shiba://open/diff")).toEqual({ kind: "view", view: "diff" });
     expect(parseDeepLink("shiba://open/tasks")).toEqual({ kind: "view", view: "tasks" });
+    expect(parseDeepLink("shiba://open/memory")).toEqual({ kind: "view", view: "memory" });
+    expect(parseDeepLink("shiba://open/projects")).toEqual({ kind: "view", view: "projects" });
+    expect(parseDeepLink("shiba://open/settings")).toEqual({ kind: "view", view: "settings" });
   });
 
   it("rejects unknown views and other schemes", () => {
-    expect(parseDeepLink("shiba://open/settings")).toBeNull();
+    expect(parseDeepLink("shiba://open/not-a-view")).toBeNull();
     expect(parseDeepLink("https://app.tryshiba.dev/app/")).toBeNull();
   });
 

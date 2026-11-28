@@ -232,6 +232,27 @@ export async function clearPendingSpend(db: D1Database, subject: string, runId: 
   await db.prepare("DELETE FROM workspace_billing_pending WHERE subject=? AND run_id=?").bind(subject, runId).run();
 }
 
+/**
+ * Atomically holds a bounded in-flight cost only when settled credits cover
+ * all run debits, refunds and unexpired holds with headroom left over. The
+ * strict comparison keeps a discretionary chat hold from zeroing the balance
+ * and cancelling already running tasks before the hold settles. D1 executes
+ * this as one write, so concurrent requests cannot all pass a balance check
+ * before spending.
+ */
+export async function reserveWorkspaceCredit(db: D1Database, input: { subject: string; runId: string; amountMicroUsd: number; now?: number }): Promise<boolean> {
+  const now = input.now ?? Date.now();
+  if (!Number.isSafeInteger(input.amountMicroUsd) || input.amountMicroUsd <= 0) throw new Error("Invalid credit reservation.");
+  const result = await db.prepare(`INSERT OR IGNORE INTO workspace_billing_pending (subject, run_id, amount_micro_usd, updated_at)
+    SELECT ?,?,?,?
+    WHERE COALESCE((SELECT SUM(amount_micro_usd) FROM workspace_billing_topups WHERE owner=? AND status='succeeded'),0)
+      - COALESCE((SELECT SUM(amount_micro_usd) FROM workspace_billing_debits WHERE subject=?),0)
+      - COALESCE((SELECT SUM(amount_micro_usd) FROM workspace_billing_pending WHERE subject=? AND updated_at>=?),0) > ?`)
+    .bind(input.subject, input.runId, input.amountMicroUsd, now,
+      input.subject, input.subject, input.subject, now - PENDING_TTL_MS, input.amountMicroUsd).run();
+  return result.meta.changes === 1;
+}
+
 export async function debitedMicroUsd(db: D1Database, subject: string): Promise<number> {
   const row = await db.prepare("SELECT COALESCE(SUM(amount_micro_usd), 0) AS total FROM workspace_billing_debits WHERE subject=? AND kind='run'").bind(subject).first<{ total: number }>();
   return row?.total ?? 0;

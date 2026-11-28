@@ -42,6 +42,25 @@ export async function listNotes(env: Env, workspaceId: string, scope: KnowledgeS
   return rows.results.map((row) => noteDto(row as Record<string, unknown>));
 }
 
+export async function listProjectNotes(env: Env, workspaceId: string, viewer: string, projectId: string): Promise<KnowledgeNote[]> {
+  const rows = await env.AGENT_AUDIT.prepare(
+    `SELECT * FROM notes WHERE workspace_id=? AND project_id=? AND archived_at IS NULL
+       AND (scope='workspace' OR created_by=?)
+     ORDER BY updated_at DESC`,
+  ).bind(workspaceId, projectId, viewer).all();
+  return rows.results.map((row) => noteDto(row as Record<string, unknown>));
+}
+
+export async function countProjectNotes(env: Env, workspaceId: string, viewer: string): Promise<Map<string, number>> {
+  const rows = await env.AGENT_AUDIT.prepare(
+    `SELECT project_id, COUNT(*) AS count FROM notes
+     WHERE workspace_id=? AND project_id IS NOT NULL AND archived_at IS NULL
+       AND (scope='workspace' OR created_by=?)
+     GROUP BY project_id`,
+  ).bind(workspaceId, viewer).all<{ project_id: string; count: number }>();
+  return new Map(rows.results.map((row) => [String(row.project_id), Number(row.count)]));
+}
+
 export async function getNote(env: Env, noteId: string): Promise<(KnowledgeNote & { r2Key: string }) | null> {
   const row = await env.AGENT_AUDIT.prepare(`SELECT * FROM notes WHERE id=?`).bind(noteId).first();
   if (!row) return null;
@@ -77,7 +96,7 @@ export async function updateNoteMarkdown(
   input: { markdown: string; expectedVersion: number; title?: string },
 ): Promise<KnowledgeNote & { r2Key: string }> {
   const current = await getNote(env, noteId);
-  if (!current) throw new NotesStoreError("Note not found.", 404);
+  if (!current || current.archivedAt) throw new NotesStoreError("Note not found.", 404);
   if (current.version !== input.expectedVersion) throw new NotesConflictError();
   const now = Date.now();
   const nextVersion = current.version + 1;
@@ -87,11 +106,25 @@ export async function updateNoteMarkdown(
   const bucket = filesBucket(env);
   const r2Key = `notes/${current.workspaceId}/${current.scope}/${noteId}/v${nextVersion}.md`;
   await bucket.put(r2Key, bytes, { httpMetadata: { contentType: "text/markdown" } });
-  await env.AGENT_AUDIT.prepare(
+  const write = await env.AGENT_AUDIT.prepare(
     `UPDATE notes SET title=?, r2_key=?, sha256=?, version=?, updated_at=?, ingestion_state='pending', ingestion_error=NULL
-     WHERE id=? AND version=?`,
+     WHERE id=? AND version=? AND archived_at IS NULL`,
   ).bind(input.title?.trim() || current.title, r2Key, sha256, nextVersion, now, noteId, current.version).run();
+  if (write.meta.changes !== 1) {
+    const latest = await getNote(env, noteId);
+    if (latest?.archivedAt) throw new NotesStoreError("Note not found.", 404);
+    throw new NotesConflictError();
+  }
   const note = await getNote(env, noteId);
   if (!note) throw new NotesStoreError("Note missing after update.", 500);
   return note;
+}
+export async function archiveNote(env: Env, noteId: string): Promise<KnowledgeNote> {
+  const current = await getNote(env, noteId);
+  if (!current) throw new NotesStoreError("Note not found.", 404);
+  const now = Date.now();
+  await env.AGENT_AUDIT.prepare(
+    `UPDATE notes SET archived_at=?, updated_at=? WHERE id=? AND archived_at IS NULL`,
+  ).bind(now, now, noteId).run();
+  return { ...current, archivedAt: now, updatedAt: now };
 }

@@ -3,12 +3,12 @@ import type { Env } from "../env.js";
 import { requireSameOriginBrowserMutation, resolveRequestIdentity } from "../request-auth.js";
 import { resolveOrgForApiRequest } from "../org-request-auth.js";
 import { InputError } from "../security.js";
-import { assertKnowledgeRead, KnowledgeAccessError } from "../knowledge/knowledge-access.js";
+import { assertKnowledgeRead, assertKnowledgeWrite, KnowledgeAccessError } from "../knowledge/knowledge-access.js";
 import { enqueueIngestion } from "../knowledge/knowledge-ingestion.js";
 import { filesBucket } from "../knowledge/knowledge-ingestion.js";
 import { GENERATED_DOCUMENT_PREFIX } from "../tools/document-gen.js";
 import {
-  createFolder, FilesStoreError, getFile, listFiles, listFolders, retryFileIngestion,
+  archiveFile, createFolder, FilesStoreError, getFile, listFiles, listFolders, retryFileIngestion, updateFileDetails,
 } from "./files-store.js";
 import {
   completeMultipartUpload, createMultipartUploadSession, uploadPart,
@@ -31,7 +31,7 @@ function workspaceFromRequest(request: Request, env: Env): Promise<{ workspaceId
     const { userId, authorized } = await resolveRequestIdentity(request, env);
     if (!authorized) return json({ error: "Authentication required." }, 401);
     if (!userId) return json({ error: "Authentication required." }, 401);
-    const org = await resolveOrgForApiRequest(request, env);
+    const org = await resolveOrgForApiRequest(request, env, { allowMemberWrite: true });
     if (org instanceof Response) return org;
     const workspaceId = org.workspace?.workspaceId ?? org.orgId.replace(/^team:/, "");
     return { workspaceId, userId };
@@ -130,7 +130,7 @@ export async function handleFiles(request: Request, env: Env): Promise<Response 
   const fileId = fileMatch[1]!;
   const suffix = fileMatch[2];
   const file = await getFile(env, fileId);
-  if (!file || file.workspaceId !== workspaceId) return json({ error: "File not found." }, 404);
+  if (!file || file.workspaceId !== workspaceId || file.archivedAt) return json({ error: "File not found." }, 404);
   try {
     await assertKnowledgeRead(env, userId, {
       workspaceId: file.workspaceId, scope: file.scope, createdBy: file.createdBy, resourceId: file.id, resourceKind: "file",
@@ -144,6 +144,13 @@ export async function handleFiles(request: Request, env: Env): Promise<Response 
     const blocked = requireSameOriginBrowserMutation(request);
     if (blocked) return blocked;
     try {
+      await assertKnowledgeWrite(env, userId, {
+        workspaceId: file.workspaceId,
+        scope: file.scope,
+        createdBy: file.createdBy,
+        resourceId: file.id,
+        resourceKind: "file",
+      });
       const updated = await retryFileIngestion(env, fileId, userId);
       const storage = await env.AGENT_AUDIT.prepare(`SELECT r2_key, mime FROM files WHERE id=?`)
         .bind(fileId).first<{ r2_key: string; mime: string }>();
@@ -204,6 +211,51 @@ export async function handleFiles(request: Request, env: Env): Promise<Response 
         "Cache-Control": "private, no-store",
       },
     });
+  }
+
+  if (!suffix && request.method === "PATCH") {
+    const blocked = requireSameOriginBrowserMutation(request);
+    if (blocked) return blocked;
+    const body = await request.json().catch(() => null) as { name?: string; folderId?: string | null } | null;
+    try {
+      await assertKnowledgeWrite(env, userId, {
+        workspaceId: file.workspaceId,
+        scope: file.scope,
+        createdBy: file.createdBy,
+        resourceId: file.id,
+        resourceKind: "file",
+      });
+      const updated = await updateFileDetails(env, fileId, {
+        ...(body && Object.hasOwn(body, "name") ? { name: body.name } : {}),
+        ...(body && Object.hasOwn(body, "folderId") ? { folderId: body.folderId ?? null } : {}),
+      });
+      return json({ file: updated });
+    } catch (error) {
+      if (error instanceof FilesStoreError || error instanceof KnowledgeAccessError) {
+        return json({ error: error.message }, error.status);
+      }
+      throw error;
+    }
+  }
+
+  if (!suffix && request.method === "DELETE") {
+    const blocked = requireSameOriginBrowserMutation(request);
+    if (blocked) return blocked;
+    try {
+      await assertKnowledgeWrite(env, userId, {
+        workspaceId: file.workspaceId,
+        scope: file.scope,
+        createdBy: file.createdBy,
+        resourceId: file.id,
+        resourceKind: "file",
+      });
+      return json({ file: await archiveFile(env, fileId) });
+    } catch (error) {
+      if (error instanceof FilesStoreError || error instanceof KnowledgeAccessError) {
+        return json({ error: error.message }, error.status);
+      }
+      throw error;
+    }
   }
 
   if (!suffix && request.method === "GET") return json({ file });

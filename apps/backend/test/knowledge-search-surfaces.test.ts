@@ -70,6 +70,49 @@ describe("knowledge search hardening", () => {
     expect(keywordOnly).toHaveLength(1);
   });
 
+  it("indexes searchable text inside note raw-text fallback markup", async () => {
+    const f = await fixture();
+    await f.add(
+      "note-roundtrip.md",
+      "workspace",
+      "<span data-shiba-raw>visit https\\://example.com now</span>\n\n<code data-shiba-raw>open https\\://example.com&#10;then dev\\@example.com</code>\n",
+    );
+    for (const query of ["visit", "example", "then", "dev"]) {
+      const hits = await hybridKnowledgeSearch(f.env, BEN, f.workspaceId, query, 5);
+      expect(hits.map((hit) => hit.sourceName)).toContain("note-roundtrip.md");
+    }
+    for (const markupOnlyQuery of ["raw", "shiba", "span", "code"]) {
+      const hits = await hybridKnowledgeSearch(f.env, BEN, f.workspaceId, markupOnlyQuery, 5);
+      expect(hits.map((hit) => hit.sourceName)).not.toContain("note-roundtrip.md");
+    }
+  });
+
+  it("indexes aligned markup and preserves searchable line boundaries", async () => {
+    const f = await fixture();
+    await f.add(
+      "aligned-boundaries.md",
+      "workspace",
+      '<p style="text-align: right">aligned-falcon **bold-text**</p>\n\nfirst<br>second\n\n```js\nfenced-alpha\n```\nomega\n',
+    );
+    for (const query of ["aligned", "falcon", "bold", "first", "second", "fenced", "alpha", "omega"]) {
+      const hits = await hybridKnowledgeSearch(f.env, BEN, f.workspaceId, query, 5);
+      expect(hits.map((hit) => hit.sourceName)).toContain("aligned-boundaries.md");
+    }
+  });
+
+  it("indexes literal HTML examples inside fenced markdown code", async () => {
+    const f = await fixture();
+    await f.add(
+      "html-example.md",
+      "workspace",
+      "```html\n<!-- falcon-comment -->\n<span data-shiba-raw>falcon-span</span>\n```\n",
+    );
+    for (const query of ["falcon", "comment", "span"]) {
+      const hits = await hybridKnowledgeSearch(f.env, BEN, f.workspaceId, query, 5);
+      expect(hits.map((hit) => hit.sourceName)).toContain("html-example.md");
+    }
+  });
+
   it("keeps semantic-only matches and still hides another user's personal source", async () => {
     const f = await fixture({ semantic: true });
     await f.add("ada-private.md", "personal", "Salary bands for the design team.");

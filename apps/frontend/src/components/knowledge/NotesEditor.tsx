@@ -1,11 +1,11 @@
 import { useEditor } from "@tiptap/react";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import StarterKit from "@tiptap/starter-kit";
-import Placeholder from "@tiptap/extension-placeholder";
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { knowledgeNoteSchema, type KnowledgeNote, type KnowledgeScope } from "@shiba/shared";
 import type { AppNavView } from "../AppNavRail";
 import { LoadErrorState } from "../LoadErrorState";
+import { Plus, Trash2 } from "lucide-react";
+import { consumeNewNoteIntent } from "./new-note-intent";
 import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 import { toast } from "sonner";
 import { useWorkspaceEvents } from "../../state/workspace-events";
@@ -13,6 +13,7 @@ import { optimisticMutation } from "../../state/optimistic";
 import { patchNotes } from "../../state/note-events";
 import { NoteChatPanel } from "./NoteChatPanel";
 import { NoteDocument } from "./NoteDocument";
+import { noteEditorExtensions } from "./note-editor-extensions";
 import { parseNoteMarkdown, serializeNoteMarkdown } from "./note-markdown";
 
 function editorMarkdown(editor: NonNullable<ReturnType<typeof useEditor>>): string {
@@ -32,7 +33,7 @@ async function readNoteBody(id: string, workspaceId: string | null) {
 
 class NoteVersionConflict extends Error {}
 
-export function NotesEditor({ workspaceId = null, onNavigate }: { workspaceId?: string | null; onNavigate?: (view: AppNavView) => void }): JSX.Element {
+export function NotesEditor({ workspaceId = null, workspaceRole, actorId, onNavigate }: { workspaceId?: string | null; workspaceRole?: "owner" | "admin" | "member"; actorId?: string; onNavigate?: (view: AppNavView) => void }): JSX.Element {
   const [scope, setScope] = useState<KnowledgeScope>("personal");
   const [notes, setNotes] = useState<KnowledgeNote[]>([]);
   const notesRef = useRef(notes);
@@ -50,6 +51,7 @@ export function NotesEditor({ workspaceId = null, onNavigate }: { workspaceId?: 
   const [creating, setCreating] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const [openingMemory, setOpeningMemory] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState("Saved");
   const [error, setError] = useState<string | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
@@ -65,12 +67,19 @@ export function NotesEditor({ workspaceId = null, onNavigate }: { workspaceId?: 
   const latestSave = useRef<() => Promise<boolean>>(async () => false);
   const eventRevision = useRef(0);
   const pendingIdsRef = useRef(new Set<string>());
+  const normalizedActorId = actorId?.trim().toLowerCase();
+  const canWriteNote = useCallback((note: KnowledgeNote) => {
+    if (!workspaceId || !workspaceRole) return true;
+    if (workspaceRole === "owner" || workspaceRole === "admin") return true;
+    return Boolean(normalizedActorId && note.createdBy.trim().toLowerCase() === normalizedActorId);
+  }, [workspaceId, workspaceRole, normalizedActorId]);
+
   const context = `${workspaceId}:${scope}`;
   const contextRef = useRef(context);
   contextRef.current = context;
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editor = useEditor({
-    extensions: [StarterKit, Placeholder.configure({ placeholder: "Write something, or press '/' for commands…" })],
+    extensions: noteEditorExtensions(),
     content: "<p></p>",
     editable: false,
     onUpdate: () => { if (bodyReady.current) markDirty(); },
@@ -115,7 +124,29 @@ export function NotesEditor({ workspaceId = null, onNavigate }: { workspaceId?: 
       if (!workspaceId || !event.kind.startsWith("note.")) return;
       eventRevision.current++;
       if (pendingIdsRef.current.has(event.entityId)) return;
+      const remainingAfterDelete = event.kind === "note.deleted" ? notesRef.current.filter((note) => note.id !== event.entityId) : [];
       setNotes((current) => patchNotes(current, event, workspaceId, scope));
+      if (event.kind === "note.deleted" && event.entityId === activeIdRef.current) {
+        const recovery = dirty.current && editor ? { title: titleRef.current.trim() || "Untitled", markdown: editorMarkdown(editor) } : null;
+        dirty.current = false;
+        conflicted.current = false;
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        const next = remainingAfterDelete[0];
+        if (next) selectNote(next);
+        else {
+          bodyReady.current = false;
+          savedBody.current = null;
+          setActiveId(null);
+          setTitle("Untitled");
+        }
+        if (recovery) {
+          void createNote({ title: `${recovery.title} (recovered)`, markdown: recovery.markdown }).then((note) => {
+            if (note) toast.info("The note was deleted. Your unsaved draft was recovered as a copy.");
+          });
+        } else {
+          toast.info("The open note was deleted.");
+        }
+      }
       if (event.entityId === activeIdRef.current && !dirty.current && event.kind === "note.updated") {
         const parsed = knowledgeNoteSchema.safeParse(event.payload?.note);
         const note = parsed.success ? parsed.data : undefined;
@@ -152,7 +183,8 @@ export function NotesEditor({ workspaceId = null, onNavigate }: { workspaceId?: 
         if (stopped) return;
         savedBody.current = loadEditorBody(editor, markdown);
         bodyReady.current = true;
-        editor.setEditable(true, false);
+        const loadedNote = notesRef.current.find((note) => note.id === activeId);
+        editor.setEditable(loadedNote ? canWriteNote(loadedNote) : false, false);
         setBodyLoading(false);
       }).catch((cause: unknown) => {
         if (stopped) return;
@@ -160,7 +192,13 @@ export function NotesEditor({ workspaceId = null, onNavigate }: { workspaceId?: 
         setError(cause instanceof Error ? cause.message : "Note body unavailable.");
       });
     return () => { stopped = true; if (saveTimer.current) clearTimeout(saveTimer.current); };
-  }, [activeId, workspaceId, bodyRevision, editor]);
+  }, [activeId, workspaceId, bodyRevision, editor, canWriteNote]);
+
+  useEffect(() => {
+    if (!editor || !bodyReady.current) return;
+    const note = notes.find((item) => item.id === activeId);
+    editor.setEditable(note ? canWriteNote(note) : false, false);
+  }, [editor, notes, activeId, canWriteNote]);
 
   useEffect(() => { setNotes([]); setActiveId(null); setError(null); }, [scope, workspaceId]);
 
@@ -320,6 +358,46 @@ export function NotesEditor({ workspaceId = null, onNavigate }: { workspaceId?: 
     finally { setCreating(false); }
   }
 
+  async function deleteNote(note: KnowledgeNote) {
+    if (note.id.startsWith("pending:") || !canWriteNote(note)) return;
+    const previousNotes = notesRef.current;
+    const remaining = previousNotes.filter((item) => item.id !== note.id);
+    setNotes(remaining);
+    if (activeIdRef.current === note.id) {
+      dirty.current = false;
+      conflicted.current = false;
+      const next = remaining[0];
+      if (next) selectNote(next);
+      else {
+        setActiveId(null);
+        setTitle("Untitled");
+      }
+    }
+    try {
+      const response = await fetch(`/api/notes/${encodeURIComponent(note.id)}`, {
+        method: "DELETE", credentials: "same-origin", headers: teamWorkspaceHeaders(workspaceId ?? undefined),
+      });
+      if (!response.ok) throw new Error("Delete note failed.");
+    } catch {
+      if (contextRef.current === context) setNotes(previousNotes);
+      toast.error("Note could not be deleted.");
+    }
+  }
+
+  const newNoteRef = useRef(newNote);
+  newNoteRef.current = newNote;
+  const queuedNoteScope = useRef<"personal" | "workspace" | null>(null);
+  useEffect(() => {
+    const consumedScope = consumeNewNoteIntent();
+    if (consumedScope) queuedNoteScope.current = consumedScope;
+    if (queuedNoteScope.current && queuedNoteScope.current !== scope) setScope(queuedNoteScope.current);
+  }, []);
+  useEffect(() => {
+    if (!queuedNoteScope.current || queuedNoteScope.current !== scope) return;
+    queuedNoteScope.current = null;
+    void newNoteRef.current();
+  }, [scope]);
+
   async function recoverConflict(action: "copy" | "reload") {
     const id = activeIdRef.current;
     if (!editor || !id || !conflicted.current || recovering) return;
@@ -366,7 +444,7 @@ export function NotesEditor({ workspaceId = null, onNavigate }: { workspaceId?: 
       <div data-testid="notes-workspace" className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--card)] text-[var(--fg)] md:flex-row">
         <aside data-testid="secondary-panel" aria-label="Notes" className="flex w-full shrink-0 flex-col border-b border-[var(--border-1)] bg-[var(--sidebar-surface)] md:w-52 md:border-b-0 md:border-r">
           <div className="flex min-h-16 items-center gap-2 border-b border-[var(--border-1)] px-3">
-            <button type="button" disabled={creating} className="flex-1 rounded-xl border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-left text-xs disabled:opacity-50" onClick={() => void newNote()}>+ New note</button>
+            <button type="button" disabled={creating} className="flex flex-1 items-center gap-2 rounded-xl border border-[var(--border-1)] bg-[var(--card)] px-3 py-2 text-left text-xs disabled:opacity-50" onClick={() => void newNote()}><Plus size={13} /> New note</button>
           </div>
           <label className="px-3 py-2 text-xs text-[var(--knowledge-muted)]">Scope
             <select aria-label="Scope" className="ml-2 rounded-xl border border-[var(--border-1)] bg-[var(--card)] p-1" value={scope} onChange={(event) => {
@@ -376,12 +454,13 @@ export function NotesEditor({ workspaceId = null, onNavigate }: { workspaceId?: 
             }}><option value="personal">Personal</option><option value="workspace">Workspace</option></select>
           </label>
           <div className="max-h-48 overflow-y-auto p-2 md:max-h-none md:flex-1">
-            {loading && !notes.length ? <div role="status" aria-label="Loading notes" className="space-y-2 p-2">{[0, 1, 2].map((i) => <div key={i} className="h-6 rounded-md bg-[var(--surface-subtle)] motion-safe:animate-pulse" />)}</div> : notes.length ? <ul className="space-y-0.5">{notes.map((note) => <li key={note.id} className={pendingIds.has(note.id) ? "opacity-60" : undefined} aria-busy={pendingIds.has(note.id)}>
-              <button type="button" disabled={note.id.startsWith("pending:")} aria-current={activeId === note.id ? "page" : undefined} onClick={() => void openNote(note)} className={`w-full truncate rounded-md px-2.5 py-1.5 text-left text-xs ${activeId === note.id ? "bg-[var(--surface-subtle)] text-[var(--fg)]" : "text-[var(--knowledge-muted)] hover:bg-[var(--surface-subtle)]"}`}>{note.title || "Untitled"}</button>
+            {loading && !notes.length ? <div role="status" aria-label="Loading notes" className="space-y-2 p-2">{[0, 1, 2].map((i) => <div key={i} className="h-6 rounded-md bg-[var(--surface-subtle)] motion-safe:animate-pulse" />)}</div> : notes.length ? <ul className="space-y-0.5">{notes.map((note) => <li key={note.id} className={`group flex items-center justify-between rounded-[6px] transition-colors ${pendingIds.has(note.id) ? "opacity-60" : ""} ${activeId === note.id ? "bg-[var(--surface-subtle)] text-[var(--fg)]" : "text-[var(--knowledge-muted)] hover:bg-[var(--surface-subtle)] hover:text-[var(--fg)]"}`} aria-busy={pendingIds.has(note.id)}>
+              <button type="button" disabled={note.id.startsWith("pending:")} aria-current={activeId === note.id ? "page" : undefined} onClick={() => void openNote(note)} className="min-w-0 flex-1 truncate rounded-l-[6px] px-2.5 py-1.5 text-left text-xs">{note.title || "Untitled"}</button>
+              {canWriteNote(note) ? <button type="button" aria-label={`Delete ${note.title || "Untitled"}`} title="Delete note" disabled={note.id.startsWith("pending:")} onClick={(event) => { event.stopPropagation(); void deleteNote(note); }} className="mr-1 rounded-sm p-1 opacity-0 transition-opacity hover:bg-[var(--border-1)] focus:opacity-100 group-hover:opacity-100 disabled:opacity-0"><Trash2 size={11} /></button> : null}
             </li>)}</ul> : <p className="p-2 text-xs text-[var(--knowledge-muted)]">No notes yet</p>}
           </div>
         </aside>
-        <section data-testid="note-editor" aria-label="Note editor" className="flex min-h-[28rem] min-w-0 flex-1 flex-col">
+        <section data-testid="note-editor" aria-label="Note editor" className="relative flex min-h-[28rem] min-w-0 flex-1 flex-col">
           {saveStatus === "Version conflict" && <div className="border-b border-[var(--border-1)] px-5 py-2 text-sm">
             <p role="alert">This note changed elsewhere. Your draft is still here.</p>
             <div className="flex flex-wrap gap-2">
@@ -394,20 +473,21 @@ export function NotesEditor({ workspaceId = null, onNavigate }: { workspaceId?: 
             if (!dirty.current) setBodyRevision((value) => value + 1);
             void loadNotes().catch((err: unknown) => setError(err instanceof Error ? err.message : "Notes failed to load."));
           }} />}
-          {activeId && editor ? <NoteDocument editor={editor} notes={notes} title={title} loading={bodyLoading} saveStatus={saveStatus}
+          {activeId && editor ? <NoteDocument editor={editor} notes={notes} title={title} loading={bodyLoading} saveStatus={activeId && notes.find((note) => note.id === activeId && !canWriteNote(note)) ? "Read-only" : saveStatus} readOnly={Boolean(activeId && notes.find((note) => note.id === activeId && !canWriteNote(note)))}
+            chatOpen={chatOpen} onToggleChat={() => setChatOpen((open) => !open)}
             onTitleChange={(value) => { setTitle(value); markDirty(); }} onSave={async () => { await saveDraft(); }} /> : <div className="flex flex-1 items-center justify-center px-6 py-16 text-center"><div>
-              <h1 className="mb-2 text-3xl">notes</h1>
+              <h1 className="mb-2 text-3xl font-normal" style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}>notes</h1>
               <p className="mb-4 text-sm text-[var(--knowledge-muted)]">Select a note or create a new one</p>
-              <button type="button" disabled={creating} onClick={() => void newNote()} className="rounded-xl border border-[var(--border-1)] px-3 py-2 text-sm">+ New Note</button>
+              <button type="button" disabled={creating} onClick={() => void newNote()} className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-1)] px-3 py-2 text-sm"><Plus size={14} /> New Note</button>
             </div></div>}
-          {onNavigate && <p className="border-t border-[var(--border-1)] px-5 py-2 text-xs text-[var(--knowledge-muted)]">
+          {onNavigate && <p className="sr-only">
             Notes are not memory until you add them as a source.{" "}
             <button type="button" disabled={openingMemory} className="min-h-11 font-medium text-[var(--fg)] underline underline-offset-2 disabled:opacity-50" onClick={() => void openMemory()}>Save reviewed text as a memory source</button>
           </p>}
         </section>
       </div>
-      {activeId ? <div className="border-t border-[var(--border-1)] p-3 lg:border-l lg:border-t-0">
-        <NoteChatPanel key={`${workspaceId}:${scope}:${activeId}`} noteId={activeId} notes={notes} scope={scope} workspaceId={workspaceId} disabled={bodyLoading || !editor} getDraftBody={() => (editor ? editorMarkdown(editor).slice(0, 24000) : "")} onAdd={(text) => {
+      {activeId ? <div hidden={!chatOpen} className={chatOpen ? "border-t border-[var(--border-1)] p-3 lg:border-l lg:border-t-0" : "hidden"}>
+        <NoteChatPanel key={`${workspaceId}:${scope}:${activeId}`} noteId={activeId} notes={notes} scope={scope} workspaceId={workspaceId} disabled={bodyLoading || !editor || Boolean(activeId && notes.find((note) => note.id === activeId && !canWriteNote(note)))} getDraftBody={() => (editor ? editorMarkdown(editor).slice(0, 24000) : "")} onAdd={(text) => {
           if (!editor || !bodyReady.current) return;
           // Parsed, not inserted as plain text: the serializer escapes literal Markdown characters.
           editor.commands.insertContentAt(editor.state.doc.content.size, parseNoteMarkdown(text).content ?? []);

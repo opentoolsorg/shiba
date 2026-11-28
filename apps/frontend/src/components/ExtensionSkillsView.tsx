@@ -471,6 +471,7 @@ function SkillDialog({
   const [actionBusy, setActionBusy] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
+  const closeTimerRef = useRef<number | undefined>(undefined);
   const closeRef = useRef(onClose); closeRef.current = onClose;
   const archived = skill?.archivedAt !== undefined;
   const scope = archived ? skill?.archivedFromScope ?? skill?.scope ?? "personal" : skill?.scope ?? "personal";
@@ -479,6 +480,10 @@ function SkillDialog({
   const canArchive = skill?.permissions?.canArchive ?? true;
   const canRestore = skill?.permissions?.canRestore ?? true;
   const canDelete = skill?.permissions?.canDelete ?? true;
+
+  useEffect(() => () => {
+    if (closeTimerRef.current !== undefined) window.clearTimeout(closeTimerRef.current);
+  }, []);
 
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
@@ -513,7 +518,10 @@ function SkillDialog({
     try {
       await onSave(values);
       setSaved(true);
-      window.setTimeout(onClose, 250);
+      closeTimerRef.current = window.setTimeout(() => {
+        closeTimerRef.current = undefined;
+        onClose();
+      }, 250);
     } catch {
       // The error is handled by mutation state
     } finally {

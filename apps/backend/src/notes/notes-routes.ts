@@ -3,17 +3,19 @@ import { publishWorkspaceEvent } from "../platform/workspace-events-do.js";
 import type { Env } from "../env.js";
 import { requireSameOriginBrowserMutation, resolveRequestIdentity } from "../request-auth.js";
 import { resolveOrgForApiRequest } from "../org-request-auth.js";
-import { assertKnowledgeRead, KnowledgeAccessError } from "../knowledge/knowledge-access.js";
+import { assertKnowledgeRead, assertKnowledgeWrite, KnowledgeAccessError } from "../knowledge/knowledge-access.js";
 import { enqueueIngestion } from "../knowledge/knowledge-ingestion.js";
 import { filesBucket } from "../knowledge/knowledge-ingestion.js";
-import { createNote, getNote, listNotes, NotesConflictError, NotesStoreError, updateNoteMarkdown } from "./notes-store.js";
+import { archiveNote, createNote, getNote, listNotes, NotesConflictError, NotesStoreError, updateNoteMarkdown } from "./notes-store.js";
 import { handleNoteChat } from "./note-chat.js";
+import { canMutateProject } from "../knowledge/knowledge-projects-routes.js";
+import { getProject } from "../knowledge/knowledge-projects.js";
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: {
   "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
 } });
 
-async function publishNote(env: Env, kind: "note.created" | "note.updated", note: KnowledgeNote): Promise<void> {
+async function publishNote(env: Env, kind: "note.created" | "note.updated" | "note.deleted", note: KnowledgeNote): Promise<void> {
   // Parse the public DTO to exclude storage keys and any future internal fields.
   await publishWorkspaceEvent(env, note.workspaceId, {
     kind, entityId: note.id, payload: { note: knowledgeNoteSchema.parse(note) },
@@ -28,7 +30,7 @@ export async function handleNotes(request: Request, env: Env): Promise<Response 
   const { userId, authorized } = await resolveRequestIdentity(request, env);
   if (!authorized) return json({ error: "Authentication required." }, 401);
   if (!userId) return json({ error: "Authentication required." }, 401);
-  const org = await resolveOrgForApiRequest(request, env);
+  const org = await resolveOrgForApiRequest(request, env, { allowMemberWrite: true });
   if (org instanceof Response) return org;
   const workspaceId = org.workspace?.workspaceId ?? org.orgId.replace(/^team:/, "");
   const scope: KnowledgeScope = url.searchParams.get("scope") === "workspace" ? "workspace" : "personal";
@@ -39,6 +41,13 @@ export async function handleNotes(request: Request, env: Env): Promise<Response 
       const blocked = requireSameOriginBrowserMutation(request);
       if (blocked) return blocked;
       const body = await request.json().catch(() => null) as { title?: string; markdown?: string; projectId?: string | null } | null;
+      if (body?.projectId) {
+        const project = await getProject(env, workspaceId, body.projectId);
+        if (!project) return json({ error: "Project not found." }, 404);
+        if (!canMutateProject(project, userId, org)) {
+          return json({ error: "Only the project creator or a workspace owner/admin can change this project." }, 403);
+        }
+      }
       try {
         const note = await createNote(env, {
           workspaceId, scope, title: body?.title ?? "Untitled", markdown: body?.markdown ?? "", createdBy: userId,
@@ -85,6 +94,18 @@ export async function handleNotes(request: Request, env: Env): Promise<Response 
   if (!match[2] && request.method === "PATCH") {
     const blocked = requireSameOriginBrowserMutation(request);
     if (blocked) return blocked;
+    try {
+      await assertKnowledgeWrite(env, userId, {
+        workspaceId: note.workspaceId,
+        scope: note.scope,
+        createdBy: note.createdBy,
+        resourceId: note.id,
+        resourceKind: "note",
+      });
+    } catch (error) {
+      if (error instanceof KnowledgeAccessError) return json({ error: error.message }, error.status);
+      throw error;
+    }
     const body = await request.json().catch(() => null) as {
       markdown?: string; title?: string; expectedVersion?: number;
     } | null;
@@ -102,6 +123,27 @@ export async function handleNotes(request: Request, env: Env): Promise<Response 
       return json({ note: updated, jobId });
     } catch (error) {
       if (error instanceof NotesConflictError) return json({ error: error.message }, 409);
+      if (error instanceof NotesStoreError) return json({ error: error.message }, error.status);
+      throw error;
+    }
+  }
+
+  if (!match[2] && request.method === "DELETE") {
+    const blocked = requireSameOriginBrowserMutation(request);
+    if (blocked) return blocked;
+    try {
+      await assertKnowledgeWrite(env, userId, {
+        workspaceId: note.workspaceId,
+        scope: note.scope,
+        createdBy: note.createdBy,
+        resourceId: note.id,
+        resourceKind: "note",
+      });
+      const archived = await archiveNote(env, noteId);
+      await publishNote(env, "note.deleted", archived);
+      return json({ note: archived });
+    } catch (error) {
+      if (error instanceof KnowledgeAccessError) return json({ error: error.message }, error.status);
       if (error instanceof NotesStoreError) return json({ error: error.message }, error.status);
       throw error;
     }
