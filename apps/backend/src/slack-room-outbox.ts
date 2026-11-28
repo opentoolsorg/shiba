@@ -5,7 +5,7 @@ import {
   type CollaborationScope,
 } from "./collaboration-store.js";
 import type { Env } from "./env.js";
-import { isApprover, parseApproverAllowlist } from "./slack-approval.js";
+import { isApprover, parseApproverAllowlist } from "./slack-approvers.js";
 import { postSlackMessageWithReceipt, SlackPostRejectedError, verifySlackBotInstallation } from "./slack.js";
 
 export interface SlackRoomOutboxDeps {

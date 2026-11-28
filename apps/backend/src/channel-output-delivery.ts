@@ -3,6 +3,7 @@ import { createChannelAdapter } from "./ports/channel/registry.js";
 import type { ChannelAdapter, ChannelMessageRef } from "./ports/channel/index.js";
 import type { Env } from "./env.js";
 import { deliverableStorageKey } from "./run-deliverables.js";
+import { slackChannelAudience } from "./slack-reply-review.js";
 import { verifySlackBotInstallation } from "./slack.js";
 import { parseSlackThreadName } from "./slack-thread.js";
 
@@ -38,6 +39,12 @@ export async function channelOutputAdapter(env: Env, destination: OutputDestinat
     if (!token) return null;
     const installation = await verifySlackBotInstallation(token);
     if (installation.teamId !== destination.teamId) return null;
+    // A channel shared outside the workspace gets reviewed replies, never an
+    // automatic attachment: a file has no reviewed-send path yet, so it stays in
+    // Shiba and its per-file receipt stays open. An unclassifiable channel keeps
+    // its previous behavior, because a missing scope must not silently stop
+    // delivering files this install already delivers.
+    if (await slackChannelAudience(token, destination.placeId) === "external") return null;
     canUpload = installation.scopes?.includes("files:write") ?? true;
   }
   const adapter = createChannelAdapter(env, destination.channel);

@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-export const SLACK_BOT_SCOPES = ["chat:write", "app_mentions:read", "commands", "chat:write.customize", "channels:history", "groups:history", "im:history", "mpim:history", "files:write"] as const;
+// channels:read, groups:read, users:read and im:write let a reply decide whether
+// its channel is shared outside the workspace, and hold it in a reviewer's DM
+// when it is. Without them Shiba posts nothing to a channel it cannot classify.
+export const SLACK_BOT_SCOPES = ["chat:write", "app_mentions:read", "commands", "chat:write.customize", "channels:history", "groups:history", "im:history", "mpim:history", "files:write", "channels:read", "groups:read", "users:read", "im:write"] as const;
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 export const slackInstallationStartSchema = z.strictObject({ requestId: z.string().uuid(),

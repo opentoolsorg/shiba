@@ -34,6 +34,13 @@ oauth_config:
       # thread. Remove it for a text-only app; Shiba keeps replying and names the
       # missing permission instead. Granting it requires an admin reinstall.
       - files:write
+      # Replies to channels shared outside the workspace are held for one
+      # authorized reviewer. These four scopes classify the channel and deliver
+      # that review in the reviewer's DM; without them Shiba posts nothing there.
+      - channels:read
+      - groups:read
+      - users:read
+      - im:write
 settings:
   event_subscriptions:
     request_url: https://YOUR-WORKER.workers.dev/api/slack/events

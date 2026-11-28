@@ -145,8 +145,10 @@ describe("notifyEmployeeToolApprovalInChat", () => {
     { label: "gmail_read", accountId: undefined, action: "gmail_read" },
     { label: "integrations.*", accountId: undefined, action: "integrations.execute" },
   ])("posts only dashboard Tool policy guidance for private $label approvals", async ({ accountId, action }) => {
-    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      Response.json({ ok: true, channel: "C1", ts: "1758217392.000200" }),
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+      String(input).includes("conversations.info")
+        ? Response.json({ ok: true, channel: { id: "C1", is_ext_shared: false } })
+        : Response.json({ ok: true, channel: "C1", ts: "1758217392.000200" }),
     );
     try {
       await notifyEmployeeToolApprovalInChat({ SLACK_BOT_TOKEN: "fixture" } as import("../src/env.js").Env, {
@@ -158,8 +160,9 @@ describe("notifyEmployeeToolApprovalInChat", () => {
         executionContextId: "slack:T1:C1:1758217392.000100",
         orgId: "self-hosted",
       });
-      expect(fetch).toHaveBeenCalledOnce();
-      const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+      const posts = fetch.mock.calls.filter(([input]) => String(input).endsWith("/api/chat.postMessage"));
+      expect(posts).toHaveLength(1);
+      const body = JSON.parse(String(posts[0]?.[1]?.body));
       expect(body).toMatchObject({
         channel: "C1",
         thread_ts: "1758217392.000100",
@@ -173,8 +176,10 @@ describe("notifyEmployeeToolApprovalInChat", () => {
   });
 
   it("still posts the full approval card for a non-private approval", async () => {
-    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      Response.json({ ok: true, channel: "C1", ts: "1758217392.000200" }),
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+      String(input).includes("conversations.info")
+        ? Response.json({ ok: true, channel: { id: "C1", is_ext_shared: false } })
+        : Response.json({ ok: true, channel: "C1", ts: "1758217392.000200" }),
     );
     try {
       await notifyEmployeeToolApprovalInChat({ SLACK_BOT_TOKEN: "fixture" } as import("../src/env.js").Env, {
@@ -185,7 +190,9 @@ describe("notifyEmployeeToolApprovalInChat", () => {
         executionContextId: "slack:T1:C1:1758217392.000100",
         orgId: "self-hosted",
       });
-      const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+      const posts = fetch.mock.calls.filter(([input]) => String(input).endsWith("/api/chat.postMessage"));
+      expect(posts).toHaveLength(1);
+      const body = JSON.parse(String(posts[0]?.[1]?.body));
       expect(Array.isArray(body.blocks)).toBe(true);
       expect(body.text).toContain("Employee action approval");
     } finally {

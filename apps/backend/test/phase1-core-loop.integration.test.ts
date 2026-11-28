@@ -344,6 +344,9 @@ it("runs the operator-provisioned Slack mention and command journeys through the
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     if (url.origin === "https://slack.com" && url.pathname === "/api/conversations.replies") return Response.json({ ok: true, messages: [] });
+    if (url.origin === "https://slack.com" && url.pathname === "/api/conversations.info") {
+      return Response.json({ ok: true, channel: { id: url.searchParams.get("channel"), is_ext_shared: false } });
+    }
     if (url.origin === "https://slack.com" && url.pathname === "/api/chat.postMessage") {
       expect(new Headers(init?.headers).get("authorization")).toBe("Bearer fixture-bot");
       const post = JSON.parse(String(init?.body));
