@@ -922,14 +922,10 @@ function PersonalIntegrationsView({
       </div>
       ) : (
         <>
-          <IntegrationsSetupCard />
-          {failed ? (
-            <div className="border-b border-[var(--border-1)] px-4 py-2 lg:px-8">
-              <LoadErrorState message={failed.message} onRetry={reloadAll} />
-            </div>
-          ) : null}
           <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-8">
             <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+              <IntegrationsSetupCard />
+              {failed ? <LoadErrorState message={failed.message} onRetry={reloadAll} /> : null}
               <section aria-labelledby="connection-management-heading" className="rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)] p-4 shadow-[var(--sh-card)] sm:p-5">
                 <h2 id="connection-management-heading" className="text-base font-semibold text-[var(--fg)]">Connection management</h2>
                 <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-[var(--muted-foreground-2)]">
