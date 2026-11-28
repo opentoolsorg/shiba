@@ -11,12 +11,8 @@ import {
   AiSparklesIcon,
   Alert02Icon,
   AlertCircleIcon,
-  TextUnderlineIcon,
-  TextAlignCenterIcon,
-  HighlighterIcon,
-  CheckListIcon,
-  AlignRightIcon,
   AlignLeftIcon,
+  AlignRightIcon,
   AppWindowIcon,
   ArchiveIcon,
   ArrowLeft01Icon,
@@ -37,6 +33,7 @@ import {
   Calendar03Icon,
   Cancel01Icon,
   ChartNoAxesColumnIcon,
+  CheckListIcon,
   CheckmarkCircle02Icon,
   CheckmarkSquare01Icon,
   ChevronDownIcon,
@@ -50,9 +47,9 @@ import {
   ComputerTerminal01Icon,
   ContainerIcon,
   Copy01Icon,
-  CursorRectangleSelectionIcon,
   CornerLeftUpIcon,
   CpuIcon,
+  CursorRectangleSelectionIcon,
   DashboardSpeed01Icon,
   DashboardSquare01Icon,
   DashedLineCircleIcon,
@@ -66,6 +63,7 @@ import {
   FileSpreadsheetIcon,
   FileTextIcon,
   FlaskConicalIcon,
+  Folder01Icon,
   FolderGit2Icon,
   FolderMoveToIcon,
   FolderPlusIcon,
@@ -77,8 +75,10 @@ import {
   Heading01Icon,
   Heading02Icon,
   HelpCircleIcon,
+  HighlighterIcon,
   HistoryIcon,
   Home01Icon,
+  Image02Icon,
   InboxIcon,
   KanbanIcon,
   Key01Icon,
@@ -131,10 +131,12 @@ import {
   SquareChartGanttIcon,
   StickyNote01Icon,
   Sun03Icon,
+  TextAlignCenterIcon,
   TextBoldIcon,
   TextFontIcon,
   TextItalicIcon,
   TextStrikethroughIcon,
+  TextUnderlineIcon,
   Tick02Icon,
   TickDouble02Icon,
   ToggleLeftIcon,
@@ -205,6 +207,7 @@ export const Eye = defineIcon("Eye", ViewIcon);
 export const FileArchive = defineIcon("FileArchive", FileArchiveIcon);
 export const FileSpreadsheet = defineIcon("FileSpreadsheet", FileSpreadsheetIcon);
 export const FileText = defineIcon("FileText", FileTextIcon);
+export const Folder = defineIcon("Folder", Folder01Icon);
 export const FlaskConical = defineIcon("FlaskConical", FlaskConicalIcon);
 export const FolderGit2 = defineIcon("FolderGit2", FolderGit2Icon);
 export const FolderPlus = defineIcon("FolderPlus", FolderPlusIcon);
@@ -216,6 +219,7 @@ export const Heading1 = defineIcon("Heading1", Heading01Icon);
 export const Heading2 = defineIcon("Heading2", Heading02Icon);
 export const Highlighter = defineIcon("Highlighter", HighlighterIcon);
 export const History = defineIcon("History", HistoryIcon);
+export const Images = defineIcon("Images", Image02Icon);
 export const Italic = defineIcon("Italic", TextItalicIcon);
 export const KeyRound = defineIcon("KeyRound", KeyRoundIcon);
 export const Laptop = defineIcon("Laptop", LaptopIcon);
