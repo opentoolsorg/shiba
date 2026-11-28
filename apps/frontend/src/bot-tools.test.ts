@@ -71,7 +71,7 @@ describe("tool rows", () => {
     expect(rows.find((row) => row.id === "web_search")?.state).toBe("unavailable");
   });
 
-  it("keeps Overlay's group order, then Shiba's own run and email groups", () => {
+  it("keeps the primary group order, then Shiba's own run and email groups", () => {
     const ids = botToolRows({ policy: policy(), policyError: null, webSearchReady: true }).map((row) => row.id);
     expect(ids).toEqual(["integrations", "mcp", "web_search", "memory", "knowledge", "files", "notes", "skills", "runs", "email"]);
   });

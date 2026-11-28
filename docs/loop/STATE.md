@@ -68,29 +68,26 @@ Method: five pairs from `shiba-ai-employee-reference-plan.md`; verdicts logged t
   NEW run gets a new index/version — the reviewer must re-decide; the old
   decision stays on the old revision (correct: "approve that revision").
 
-## Overlay UI parity loop (active)
+## Workspace UI refinement loop (active)
 
-Goal: Shiba web UI matches Overlay's workspace surfaces as closely as existing Shiba product contracts allow: icons, layout, padding, margins, hierarchy, neatness, and visual cleanliness verified in the Devin computer at desktop width. Evidence required: side-by-side reference/current screenshots plus fresh typecheck and focused tests.
+Goal: Shiba web UI keeps a coherent native workspace shell: icons, layout, padding, margins, hierarchy, neatness, and visual cleanliness verified in the Devin computer at desktop width. Evidence required: current screenshots plus fresh typecheck and focused tests.
 
 Done:
 - Review blockers fixed and pushed in 7f694f82 and c365b6ed.
-- Files iteration 1 overhauled the dense legacy surface into a full-height Overlay-style screen; independent browser check found header/title/toolbar/row-density mismatches.
-- Files iteration 2 matched Overlay objective metrics for header height/padding/border, title typography, first-row gap, row padding/radius, and filename typography. Evidence: `/home/ubuntu/shiba-ui-parity-artifacts/comparison-list-overlay-vs-shiba-iter2.png`; typecheck passed and 15/15 Files tests passed.
-- Files iterations 3-6: search/create/upload now use compact Overlay-style controls; PDF asset renders; cards use wide masonry columns and type-framed icons; row height/pitch measured exactly `44.75px/46.75px`, matching Overlay. Evidence: `/home/ubuntu/shiba-ui-parity-artifacts/comparison-list-overlay-vs-shiba-iter6.png`; typecheck passed and 16/16 Files tests passed.
-- Notes iterations 1-6: collapsed/panel typography, gutters, serif empty state, 6px sidebar radius, bottom-right formatting shell, Overlay action set, deletion affordance, and custom task rows now match objective Overlay measurements. Markdown round-trips underline/highlight/tasks/alignment, including nested tasks and hard breaks; realtime deletion recovers unsaved drafts as copies. Evidence: `/home/ubuntu/shiba-ui-parity-artifacts/notes-iter6-editor.png` plus iter4/iter5 comparisons; frontend typecheck and focused Markdown/Notes tests pass. Independent iter6 verification passed; the unexpected right alignment was TipTap `Mod-Shift-r` colliding with browser hard reload, not parser inheritance, and is fixed.
-- Projects/navigation iterations 1-3: rail width, icon scale, panel width/radius/spacing, Projects controls/cards, and responsive stacking now closely match the closest Overlay shell/card measurements; picker overlap/overflow is eliminated at 1280px. Evidence: `/home/ubuntu/shiba-ui-parity-artifacts/projects-nav-iter3-evidence.png`; frontend typecheck and 41 focused tests pass.
-- Files mutation parity iteration: select mode, bulk archive, row/card move-to-folder menus, and row/card archive controls implemented against Cloudflare/D1 PATCH/DELETE file routes; backend store tests and 9 focused Files UI tests pass.
-- Shell parity iteration: desktop rail/context/main now form Overlay-style full-height adjacent surfaces (`0/60/332px` x positions, no gaps, flat main surface); secondary panel shell, 34px nav rows, rail/footer controls, and Projects header metrics match Overlay’s current `DoubleSidebar` measurements. Evidence: `/home/ubuntu/shiba-ui-parity-artifacts/shell-parity-iter3-evidence.png`; independent browser measurements pass, Projects/Files/Notes visual smoke passes, Knowledge destination rows render matching leading 16px icons, and focused frontend tests pass.
-- Files detail-view iteration: files now open in an Overlay-style detail viewer with back/close navigation, metadata, authenticated download links, rendered Markdown/text/CSV source, sandboxed generated-page preview detection, PDF/image/audio/video media viewers, and a safe download fallback for unsupported formats. Query-string deep links use `?file=<id>`. Verification: frontend typecheck, Biome check, and 13/13 FilesView tests pass.
+- Files iterations overhauled the dense legacy surface into a full-height workspace screen; header/title/toolbar density, row metrics, compact search/create/upload controls, PDF/type icons, wide masonry cards, select mode, bulk archive, and move/delete controls were implemented and verified.
+- Notes iterations aligned collapsed/panel typography, gutters, serif empty state, sidebar row radius, bottom-right formatting shell, expanded editor actions, deletion affordance, and custom task rows. Markdown round-trips underline/highlight/tasks/alignment, including nested tasks and hard breaks; realtime deletion recovers unsaved drafts as copies. The TipTap `Mod-Shift-r` hard-reload collision is fixed.
+- Projects/navigation iterations aligned rail width, icon scale, panel width/radius/spacing, Projects controls/cards, and responsive stacking; picker overlap/overflow is eliminated at 1280px.
+- Shell iteration made desktop rail/context/main full-height adjacent surfaces with no gaps or floating main card; secondary panel shell, 34px nav rows, rail/footer controls, Knowledge destination icons, and Projects header metrics were verified.
+- Files detail-view iteration: files now open in a detail viewer with back/close navigation, metadata, authenticated download links, rendered Markdown/text/CSV source, sandboxed generated-page preview detection, PDF/image/audio/video media viewers, safe download fallback, query-string deep links, and inline rename. Verification: frontend typecheck and 13/13 FilesView tests pass; browser evidence is attached to PR #390.
 
 Next queue:
-1. Land file-detail viewer slice in PR #390, then continue files parity: editable text/markdown source with versioned Worker writes, nested folder tree/browser + breadcrumbs, memories/outputs unified knowledge tabs, richer note/file creation and move/rename dialogs.
-2. Chat/work parity: compare Overlay `chat-parity` fixture against Shiba threads/work composer, then implement verified vertical slices without changing Shiba labels.
-3. Extensions/automations parity: compare Overlay `/app/tools` and `/app/automations` capability grouping, connector states, and automation creation/run history with Shiba's existing panels.
-4. Desktop parity: install and test on the user's Mac after local-machine approval; cloud web retest remains tied to `pal265354@gmail.com`.
+1. Land the file-detail viewer slice in PR #390, then continue files depth: editable text/markdown source with versioned Worker writes, nested folder tree/browser + breadcrumbs, memories/outputs unified knowledge tabs, richer note/file creation and move/rename dialogs.
+2. Chat/work depth: compare thread/work composer behavior against the desired product contract, then implement verified vertical slices without changing Shiba labels.
+3. Extensions/automations depth: align capability grouping, connector states, automation creation, and run history with Shiba's product contract.
+4. Desktop proof: install and test on the user's Mac after local-machine approval; cloud web retest remains tied to `pal265354@gmail.com`.
 
-Remaining parity matrix (audited after PR #390): Shiba already has broad product surfaces for agents/chat/work/files/notes/outputs/projects/extensions/automations/settings, but Overlay parity is incomplete in interaction depth rather than shell presence. Highest-value verified gaps are file source editing, folder tree navigation, unified knowledge tabs and route state, chat parity harness behavior, extension connector grouping, automation run history, and desktop install proof.
+Remaining depth matrix (audited after PR #390): Shiba already has broad product surfaces for agents/chat/work/files/notes/outputs/projects/extensions/automations/settings, but interaction depth is incomplete. Highest-value verified gaps are file source editing, folder tree navigation, unified knowledge tabs and route state, chat behavior coverage, extension connector grouping, automation run history, and desktop install proof.
 
 Triage additions:
-- Full Overlay parity beyond visual shell may require product scope decisions; no deployment or merge is authorized.
+- No deployment or merge is authorized.
 - Hover validation is limited in the Devin browser because it reports `hover:false` and `pointer:fine:false`.

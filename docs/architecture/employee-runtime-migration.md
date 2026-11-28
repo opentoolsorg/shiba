@@ -24,34 +24,26 @@ every subsystem.
 | Frontend | Custom employee profiles, roster/workspace surfaces, approvals, work views, files, memories, skills, and integrations exist in the dashboard. | Creation no longer forces a harness, but operation still exposes coding/repository concepts to non-technical users. There is no single employee-centric runtime surface for chat, work, memory, files, tools, schedules, and history. |
 | Deployment state | Durable Objects coordinate live state. D1 owns shared records. R2 owns bytes. Vectorize owns embeddings. Queues and Workflows carry asynchronous control. | This ownership model is sound. The migration must not mirror all of D1 into the employee object. It needs a stricter split between durable domain state and live execution coordination. |
 
-## Overlay benchmark, November 27, 2026
+## Product benchmark consequences, November 27, 2026
 
-Overlay is a useful product benchmark, not code to copy. Its current open and
-recently merged pull requests show which employee-platform patterns are being
-treated as production-critical:
+External workspace products validate these production-critical directions without
+changing Shiba's architecture or trust boundary:
 
-| Overlay pattern | Evidence | Shiba migration consequence |
-|---|---|---|
-| Onboarding ends in the agent conversation while the first task runs in Work. | [overlay-web#605](https://github.com/LayerNorm/overlay-web/pull/605) | Shiba onboarding should hand the user to the employee thread instead of making Work the home surface. |
-| The product shell presents a chief agent orchestrating specialist employees, with clickable app-like previews and clear Personal/Workspace scopes. | [overlay-web#633](https://github.com/LayerNorm/overlay-web/pull/633) | Shiba's dashboard and marketing should explain the runtime as an employee workspace, not as a repository-run console. |
-| Workspace agents may use workspace providers only; personal keys are not accidentally spent by shared employees, and provider settings are scoped by mode. | [overlay-web#629](https://github.com/LayerNorm/overlay-web/pull/629) | This is the correct direction for funded team inference: provider authority must be workspace-owned and server-enforced, not borrowed from a member. |
-| Owners can inspect and cap spend per person while automation and agent spend still count against the initiating member. | [overlay-web#626](https://github.com/LayerNorm/overlay-web/pull/626) | Runtime scheduling, routines, and Work execution need per-member/workspace budget accounting before team inference can safely open. |
-| Live connect cards appear inside agent threads when a needed app is not connected. | [overlay-web#579](https://github.com/LayerNorm/overlay-web/pull/579) | Tool failure should become an actionable employee-thread surface, not a hidden settings error. |
-| Computer tools are becoming real file tools: partial reads, grep/glob, conflict-checked edits, atomic multi-file patches, and interactive terminal input. | [overlay-web#597](https://github.com/LayerNorm/overlay-web/pull/597), [#598](https://github.com/LayerNorm/overlay-web/pull/598), [#600](https://github.com/LayerNorm/overlay-web/pull/600), [#601](https://github.com/LayerNorm/overlay-web/pull/601) | Shiba's unified tool phase should expose governed file/terminal capabilities through one execution-boundary contract rather than separate coding-run shortcuts. |
-| Stream admission and stream writers are kept on one conversation rule. | [overlay-web#583](https://github.com/LayerNorm/overlay-web/pull/583) | Employee runtime streams need one durable conversation writer before resumable streaming and shared threads can be trusted. |
-| Stored tool values are compacted once rather than repeatedly during save stages. | [overlay-web#631](https://github.com/LayerNorm/overlay-web/pull/631) | Tool evidence needs bounded durable representations designed for recovery, not unbounded transcript growth. |
-| Tool scoping includes ownership, output scope, move/archive lifecycle, and memory backfill. | [overlay-web#632](https://github.com/LayerNorm/overlay-web/pull/632) | Shiba's employee tool registry must treat tools as governed workspace resources with lifecycle and output permissions. |
-| Paid third-party APIs are exposed as governed data/API tools rather than uncontrolled model-side fetch access. | [overlay-web#630](https://github.com/LayerNorm/overlay-web/pull/630) | External API execution belongs in the same approval, credential, audit, and spend boundary as other employee tools. |
+- Onboarding should hand the user to the employee thread instead of making Work the home surface.
+- The dashboard should explain the runtime as an employee workspace, not as a repository-run console.
+- Workspace employees should use workspace-owned provider authority; member keys must not be spent accidentally.
+- Runtime scheduling and Work execution need per-member/workspace budget accounting before shared team inference opens.
+- Missing app connections should become actionable employee-thread surfaces, not hidden settings errors.
+- Governed file, terminal, browser, and paid data/API tools should share the approval, credential, audit, and spend boundary.
+- Employee runtime streams need one durable conversation writer, resumable cursors, bounded evidence, and idempotent delegation receipts.
 
-Immediate implementation order from this benchmark: onboarding/thread-first
-creation, workspace-owned provider authority with spend caps, resumable
-single-writer streams, inline connection recovery, then governed
-file/terminal/data tools. These slices precede any attempt to make shared
-team-runtime inference automatic.
+Immediate implementation order: onboarding/thread-first creation, workspace-owned
+provider authority with spend caps, resumable single-writer streams, inline
+connection recovery, then governed file/terminal/data tools.
 
 ## Coding-agent network benchmark, November 28, 2026
 
-`reason-machines/reason-network` and Overlay's agent-host packages reinforce
+`reason-machines/reason-network` and outbound execution-host implementations reinforce
 the same boundary from the execution side:
 
 | Pattern | Shiba migration consequence |
@@ -59,10 +51,10 @@ the same boundary from the execution side:
 | Reason Network keeps a team directory of live coding sessions with person, machine, agent kind, repo, branch, busy/idle state, and current activity. | Employee presence must be runtime/workspace metadata, not a repository run. Collaboration should address employees and live conversations rather than broadcast to anonymous coding sessions. |
 | Reason Network binds stable session names to conversation identity, preserves offline names and queued mail, uses idempotency keys, and reports queued/accepted/handed-off/replied receipts. | Shiba delegation needs durable conversation identity, exactly-once handoff semantics, idempotency keys, and inspectable delivery receipts before agents can safely coordinate other agents. |
 | Reason Network separates human approval popups from ordinary agent messages. | Approval must remain a first-class execution-boundary object; it cannot become prompt text or a chat message another agent can imitate. |
-| Overlay Agent Host is outbound-only, signs host requests, persists command outcomes, stream cursors, and unacknowledged events in SQLite, and scopes local file/terminal/browser tools to approved roots. | Shiba local execution providers should use outbound enrollment, signed control-plane requests, SQLite-backed restart-safe cursors, and explicit workspace/root grants. Credentials remain outside the execution environment. |
-| Overlay pins coding adapters such as Claude Code and Codex as removable host adapters rather than employee identity. | This confirms the Shiba direction: OpenCode/Claude/Codex are optional execution providers behind the runtime contract. |
+| A production agent host is outbound-only, signs host requests, persists command outcomes, stream cursors, and unacknowledged events in SQLite, and scopes local file/terminal/browser tools to approved roots. | Shiba local execution providers should use outbound enrollment, signed control-plane requests, SQLite-backed restart-safe cursors, and explicit workspace/root grants. Credentials remain outside the execution environment. |
+| Coding adapters such as Claude Code and Codex should remain removable host adapters rather than employee identity. | This confirms the Shiba direction: OpenCode/Claude/Codex are optional execution providers behind the runtime contract. |
 
-These references do not replace Shiba's Cloudflare trust boundary. They add
+These benchmarks do not replace Shiba's Cloudflare trust boundary. They add
 two concrete requirements to the remaining migration: resumable/cursor-based
 execution transport and receipted, idempotent employee-to-employee delegation.
 
@@ -74,8 +66,8 @@ viewer credentials or restarts execution, and read/use permissions are separate
 treating a preview URL as a bearer capability: D1 should store execution-scoped
 preview metadata, the viewer route should check the current actor/workspace on
 every access, and any shareable preview should be a separate explicit grant with
-expiry and revocation. This is also consistent with OpenBot/Overlay's machine
-execution model: the execution host is outbound-only, while control-plane
+expiry and revocation. This is also consistent with outbound machine
+execution models: the execution host is outbound-only, while control-plane
 authorization decides who may inspect its live outputs.
 
 ## Target ownership

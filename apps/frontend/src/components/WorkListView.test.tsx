@@ -109,13 +109,13 @@ describe("WorkListView", () => {
     renderList({
       tasks: [
         task("meta", "Launch plan", "needs-approval", {
-          roomTitle: "Overlay migration",
+          roomTitle: "Runtime migration",
           endDate: "2026-11-29",
         }),
       ],
     });
     expect(screen.getByText("Ready for review")).toBeTruthy();
-    expect(screen.getByText("Overlay migration")).toBeTruthy();
+    expect(screen.getByText("Runtime migration")).toBeTruthy();
     expect(screen.getByText(/Nov 29/)).toBeTruthy();
   });
 
