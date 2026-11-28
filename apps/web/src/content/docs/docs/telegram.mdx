@@ -19,6 +19,14 @@ Send the bot a repository URL and a clear request:
 
 In a group, you can address the bot as `/shiba@YourBot`. If the chat has a default repository, you can omit the URL. Use `/help` to see the command format.
 
+For a file-only report, hire the **Sales report** employee in Shiba, then send the request where the resulting files may be shared:
+
+```text
+/shiba employee:sales-report Compare first-quarter sales in USD: January 900, February 1200, March 1100.
+```
+
+Without a repository or chat repository mapping, this employee uses an artifact workspace. Check `report.pdf` and `sales.xlsx` on its approval card. With channel file delivery enabled, both files are attached to the requesting chat or forum topic after the approved run completes.
+
 ## Review the approval
 
 Check the full task and repository in the reply. Choose **Approve** to allow that request or **Reject** to stop it. A changed request needs a new review.

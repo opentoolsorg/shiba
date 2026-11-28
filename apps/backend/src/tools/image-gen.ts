@@ -8,6 +8,7 @@ export interface GeneratedImageResult {
   key?: string;
   url?: string | null;
   bytes?: number;
+  sha256?: string;
   error?: string;
   artifactId?: string;
   downloadPath?: string;
@@ -41,6 +42,8 @@ export async function generateImage(
     const mime = binary[0] === 137 && binary[1] === 80 && binary[2] === 78 && binary[3] === 71 ? "image/png" : model.mime;
     const extension = mime === "image/png" ? "png" : "jpg";
     const key = owned ? `files/${encodeURIComponent(input.workspaceId!)}/${crypto.randomUUID()}.${extension}` : `outputs/${encodeURIComponent(input.runId)}/generated-${crypto.randomUUID()}.${extension}`;
+    const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(binary));
+    const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
     await bucket.put(key, binary, {
       httpMetadata: { contentType: mime },
       customMetadata: { kind: "output", runId: input.runId },
@@ -48,13 +51,11 @@ export async function generateImage(
     try {
       if (owned) {
         const storeEnv = env as Env;
-        const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(binary));
-        const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
         const file = await insertFileRecord(storeEnv, { workspaceId: input.workspaceId!, scope: "personal", name: `Generated image.${extension}`, mime, size: binary.byteLength, r2Key: key, sha256, createdBy: input.userId!, ingestionState: "done" });
         await insertMediaGeneration(storeEnv, file.id, input.workspaceId!, input.userId!, { kind: "image", mode: "text-to-image", model: model.id, prompt, aspectRatio, ...(model.supportsDimensions ? dimensions : {}), sourceIds: [], runId: input.runId });
         return { ok: true, artifactId: file.id, downloadPath: `/api/files/${file.id}/download`, key, url: null, bytes: binary.byteLength };
       }
-      return { ok: true, key, url: null, bytes: binary.byteLength };
+      return { ok: true, key, url: null, bytes: binary.byteLength, sha256 };
     } catch (error) {
       await env.AGENT_AUDIT!.prepare("DELETE FROM media_generations WHERE file_id IN (SELECT id FROM files WHERE r2_key=? AND created_by=?)").bind(key, input.userId).run();
       await env.AGENT_AUDIT!.prepare("DELETE FROM files WHERE r2_key=? AND created_by=?").bind(key, input.userId).run();

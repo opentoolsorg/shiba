@@ -77,13 +77,14 @@ Done:
 - Files iteration 1 overhauled the dense legacy surface into a full-height Overlay-style screen; independent browser check found header/title/toolbar/row-density mismatches.
 - Files iteration 2 matched Overlay objective metrics for header height/padding/border, title typography, first-row gap, row padding/radius, and filename typography. Evidence: `/home/ubuntu/shiba-ui-parity-artifacts/comparison-list-overlay-vs-shiba-iter2.png`; typecheck passed and 15/15 Files tests passed.
 - Files iterations 3-6: search/create/upload now use compact Overlay-style controls; PDF asset renders; cards use wide masonry columns and type-framed icons; row height/pitch measured exactly `44.75px/46.75px`, matching Overlay. Evidence: `/home/ubuntu/shiba-ui-parity-artifacts/comparison-list-overlay-vs-shiba-iter6.png`; typecheck passed and 16/16 Files tests passed.
-- Notes iterations 1-6: collapsed/panel typography, gutters, serif empty state, 6px sidebar radius, bottom-right formatting shell, Overlay action set, deletion affordance, and custom task rows now match objective Overlay measurements. Markdown round-trips underline/highlight/tasks/alignment, including nested tasks and hard breaks; realtime deletion recovers unsaved drafts as copies. Evidence: `/home/ubuntu/shiba-ui-parity-artifacts/notes-iter6-editor.png` plus iter4/iter5 comparisons; frontend typecheck and focused Markdown/Notes tests pass.
+- Notes iterations 1-6: collapsed/panel typography, gutters, serif empty state, 6px sidebar radius, bottom-right formatting shell, Overlay action set, deletion affordance, and custom task rows now match objective Overlay measurements. Markdown round-trips underline/highlight/tasks/alignment, including nested tasks and hard breaks; realtime deletion recovers unsaved drafts as copies. Evidence: `/home/ubuntu/shiba-ui-parity-artifacts/notes-iter6-editor.png` plus iter4/iter5 comparisons; frontend typecheck and focused Markdown/Notes tests pass. Independent iter6 verification passed; the unexpected right alignment was TipTap `Mod-Shift-r` colliding with browser hard reload, not parser inheritance, and is fixed.
+- Projects/navigation iterations 1-3: rail width, icon scale, panel width/radius/spacing, Projects controls/cards, and responsive stacking now closely match the closest Overlay shell/card measurements; picker overlap/overflow is eliminated at 1280px. Evidence: `/home/ubuntu/shiba-ui-parity-artifacts/projects-nav-iter3-evidence.png`; frontend typecheck and 41 focused tests pass.
+- Files mutation parity iteration: select mode, bulk archive, row/card move-to-folder menus, and row/card archive controls implemented against Cloudflare/D1 PATCH/DELETE file routes; backend store tests and 9 focused Files UI tests pass.
 
 Next queue:
-1. Finish Notes iter6 independent verification after the active review-fix revision: mixed bullet persistence, aligned hard-break persistence, deletion cleanup, chat-open regression, checked-state styling.
-2. Resolve the unexpected nested-task alignment inheritance seen in partial iter6 evidence if it reproduces on the final revision.
-3. Decide and implement the backend/product scope for Overlay-style Files select mode, row actions, move, and delete; current Shiba Files contracts do not expose those mutations.
-4. Repeat the visual loop for projects and navigation/sidebar.
+1. Verify the new Files select/move/delete interactions in the Devin browser.
+2. Continue closing structural shell differences where Shiba product contracts allow: full-height adjacent sidebars, flattened main surface, exact navigation glyphs/product labels.
+3. Finish strict merge validation against current `main`, then drive PR CI/review green without merging.
 
 Triage additions:
 - Full Overlay parity beyond visual shell may require product scope decisions; no deployment or merge is authorized.

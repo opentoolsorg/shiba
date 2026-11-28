@@ -88,19 +88,21 @@ describe("native bot-workspace Slack installation",()=>{
     expect(sent).toHaveBeenCalledOnce();
     expect(JSON.parse(String(sent.mock.calls[0]?.[1]?.body))).toMatchObject({ channel: "C123", thread_ts: "123.456" });
 
-    const confirm = async (user: string, channel: string, thread: string) => handleMultiInstallationSlackCallback(
+    const confirm = async (user: string, channel: string, thread: string, eventId = "EvVideo") => handleMultiInstallationSlackCallback(
       await f.signed(new URLSearchParams({
         payload: JSON.stringify({
           type: "block_actions", api_app_id: "A123", team: { id: "T123" }, channel: { id: channel }, user: { id: user },
-          message: { thread_ts: thread }, actions: [{ action_id: "shiba_approve_video", value: "EvVideo" }],
+          message: { thread_ts: thread }, actions: [{ action_id: "shiba_approve_video", value: eventId }],
         }),
       }).toString(), "/api/slack/interact"), f.env);
     await confirm("U2", "C123", "123.456");
     await confirm("U1", "COTHER", "123.456");
     await confirm("U1", "C123", "987.654");
     expect(create).not.toHaveBeenCalled();
-    await confirm("U1", "C123", "123.456");
-    await confirm("U1", "C123", "123.456");
+    const success = await confirm("U1", "C123", "123.456");
+    expect(await success?.json()).toMatchObject({ text: "Video generation queued in this thread." });
+    const replay = await confirm("U1", "C123", "123.456");
+    expect(await replay?.json()).not.toMatchObject({ text: "Video generation queued in this thread." });
     await handleMultiInstallationSlackCallback(await f.signed(event), f.env);
     expect(sent).toHaveBeenCalledOnce();
     expect(create).toHaveBeenCalledExactlyOnceWith({
@@ -109,6 +111,14 @@ describe("native bot-workspace Slack installation",()=>{
         installation: { id: install.id, generation: install.generation }, owner: { userId: OWNER, workspaceId: f.workspaceId },
       },
     });
+    const uncertain = { ...event, event_id: "EvUncertain" };
+    await handleMultiInstallationSlackCallback(await f.signed(uncertain), f.env);
+    create.mockRejectedValueOnce(new Error("workflow service unreachable"));
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await confirm("U1", "C123", "123.456", "EvUncertain");
+      expect(await response?.json()).toMatchObject({ text: expect.stringContaining("could not be started") });
+    }
+    expect(create).toHaveBeenCalledTimes(2);
   });
   it("requires explicit PKCE consent and activation; stores only encrypted bound secrets and never returns a token",async()=>{
     const f=await fixture(),authorize=await f.begin();

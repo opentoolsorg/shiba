@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildEmployeeDecisionData, parseEmployeeDecisionData } from "@shiba/shared";
 import {
   chatEmployeeQueueExtras,
   decideChatEmployeeToolApproval,
+  notifyEmployeeToolApprovalInChat,
   resolveChatEmployeeFromText,
   stripChatEmployeeToken,
 } from "../src/chat-employee.js";
@@ -138,7 +139,102 @@ describe("employee decision pointers", () => {
   });
 });
 
+describe("notifyEmployeeToolApprovalInChat", () => {
+  it.each([
+    { label: "account-bound", accountId: "account-fixture", action: "send_email" },
+    { label: "gmail_read", accountId: undefined, action: "gmail_read" },
+    { label: "integrations.*", accountId: undefined, action: "integrations.execute" },
+  ])("posts only dashboard Tool policy guidance for private $label approvals", async ({ accountId, action }) => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ ok: true, channel: "C1", ts: "1758217392.000200" }),
+    );
+    try {
+      await notifyEmployeeToolApprovalInChat({ SLACK_BOT_TOKEN: "fixture" } as import("../src/env.js").Env, {
+        approvalId: "eap-fixture",
+        employeeId: "employee-fixture",
+        action,
+        ...(accountId ? { accountId } : {}),
+        payload: { messageIds: ["fixture-private-message"] },
+        executionContextId: "slack:T1:C1:1758217392.000100",
+        orgId: "self-hosted",
+      });
+      expect(fetch).toHaveBeenCalledOnce();
+      const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+      expect(body).toMatchObject({
+        channel: "C1",
+        thread_ts: "1758217392.000100",
+        text: "A private employee tool call needs approval. The connected account owner can review it in the dashboard under Tool policy.",
+      });
+      expect(body).not.toHaveProperty("blocks");
+      expect(JSON.stringify(body)).not.toMatch(/fixture-private-message|eap-fixture|employee-fixture/);
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  it("still posts the full approval card for a non-private approval", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ ok: true, channel: "C1", ts: "1758217392.000200" }),
+    );
+    try {
+      await notifyEmployeeToolApprovalInChat({ SLACK_BOT_TOKEN: "fixture" } as import("../src/env.js").Env, {
+        approvalId: "eap-fixture",
+        employeeId: "employee-fixture",
+        action: "send_email",
+        payload: { subject: "Hi" },
+        executionContextId: "slack:T1:C1:1758217392.000100",
+        orgId: "self-hosted",
+      });
+      const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+      expect(Array.isArray(body.blocks)).toBe(true);
+      expect(body.text).toContain("Employee action approval");
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+});
+
 describe("decideChatEmployeeToolApproval", () => {
+  it.each([
+    { label: "account-bound", accountId: "account-fixture", action: "send_email" },
+    { label: "gmail_read", accountId: undefined, action: "gmail_read" },
+    { label: "integrations.*", accountId: undefined, action: "integrations.search_actions" },
+  ])("refuses Slack decisions for private $label approvals and leaves them pending", async ({ accountId, action }) => {
+    const { database, sqlite } = customAgentD1();
+    const env = { AGENT_AUDIT: database } as const;
+    const agent = await createCustomAgent(env, "self-hosted", "reader", {
+      name: "Reader",
+      instructions: "Read.",
+      harness: "opencode",
+    });
+    const pending = await requestEmployeeActionApproval(env, {
+      orgId: "self-hosted",
+      employeeId: agent.id,
+      employeeVersion: agent.version,
+      actorId: "owner@example.test",
+      connectionId: "conn-1",
+      connectionGeneration: 1,
+      capability: { kind: "mcp", id: `mcp:shiba:${action}` },
+      action,
+      ...(accountId ? { accountId } : {}),
+      argumentDigest: "abc",
+      payload: { messageIds: ["fixture-private-message"] },
+      policyVersion: "employee-policy-current",
+      expiresAt: Date.now() + 60_000,
+      executionContextId: "slack:T1:C1:1758217392.000100",
+    });
+    for (const approved of [true, false]) {
+      expect(await decideChatEmployeeToolApproval(env as import("../src/env.js").Env, {
+        orgId: "self-hosted",
+        threadKey: "slack:T1:C1:1758217392.000100",
+        approvalId: pending.approvalId,
+        approved,
+        decidedBy: "slack:U1",
+      })).toEqual({ ok: false, error: "Only the connected account owner can decide this approval in the dashboard under Tool policy." });
+    }
+    expect(sqlite.prepare("SELECT status FROM employee_tool_approvals WHERE approval_id = ?").get(pending.approvalId)).toMatchObject({ status: "pending" });
+  });
+
   it.each([true, false])("records a chat decision (%s) and refuses replay or reversal", async (approvedDecision) => {
     const { database } = customAgentD1();
     const env = { AGENT_AUDIT: database } as const;

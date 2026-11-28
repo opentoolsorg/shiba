@@ -180,7 +180,7 @@ describe("role drafts in the Bots directory", () => {
         },
       },
     });
-    expect(launch).toHaveBeenCalledOnce();
+    expect(launch).toHaveBeenCalledWith(expect.objectContaining({ slug: template.slug, config: expect.objectContaining({ name: editedName }) }));
     expect(server.request.mock.calls.every(([url]) => url === "/api/custom-agents")).toBe(true);
   });
 

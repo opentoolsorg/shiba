@@ -21,7 +21,9 @@ export interface CustomAgentRunOverrides {
 
 /** One canonical instruction envelope for queued runs and source-bound approvals. */
 export function composeCustomAgentTask(task: string, instructions?: string): string {
-  return instructions ? `${instructions}\n\n---\n\n${task}` : task;
+  if (!instructions) return task;
+  const prefix = `${instructions}\n\n---\n\n`;
+  return task.startsWith(prefix) ? task : `${prefix}${task}`;
 }
 
 export async function resolveCustomAgentForRun(

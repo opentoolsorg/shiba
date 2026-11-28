@@ -47,7 +47,7 @@ import { handleMultiInstallationSlackCallback } from "../slack-installations-rou
 import { handleSharedComputers } from "../shared-computer-routes.js";
 import { handleOrgSandboxSettings } from "../org-sandbox-routes.js";
 import { handleOrgModelKeys } from "../org-model-keys-routes.js";
-import { handleMeta } from "../meta-routes.js";
+import { metaResponse } from "./metadata.js";
 import { handleRuns } from "../runs-routes.js";
 import { handleSwarm } from "../swarm-routes.js";
 import { handleDenRoutes } from "../den-routes.js";
@@ -271,10 +271,7 @@ export const handlers = {
     }
     return null;
   },
-  async metaResponse(context: RequestContext): Promise<Response | null> {
-    const { request, env } = context;
-    return handleMeta(request, env);
-  },
+  metaResponse,
   async workspaceEventsResponse(context: RequestContext): Promise<Response | null> {
     const { request, env } = context;
     return (await import("../platform/workspace-events-routes.js")).handleWorkspaceEvents(
