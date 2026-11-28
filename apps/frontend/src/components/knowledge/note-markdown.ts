@@ -103,6 +103,19 @@ function inlineNodes(
   const result: JSONContent[] = [];
   for (let index = 0; index < nodes.length; index++) {
     const node = nodes[index] ?? { type: "text", value: "" };
+    const encodedCode =
+      node.type === "html" ? /^<code data-shiba-text="([^"]*)">$/.exec(node.value ?? "") : null;
+    if (encodedCode) {
+      try {
+        result.push(
+          textNode(decodeURIComponent(encodedCode[1] ?? ""), [...marks, { type: "code" }]),
+        );
+        if (nodes[index + 1]?.type === "html" && nodes[index + 1]?.value === "</code>") index++;
+        continue;
+      } catch {
+        // malformed copied HTML falls through as literal text
+      }
+    }
     const htmlMark = node.type === "html" ? inlineHtmlMarks[node.value ?? ""] : undefined;
     if (htmlMark) {
       const [markType, close] = htmlMark;
@@ -458,9 +471,10 @@ function markedMdast(segments: InlineSegment[], depth = 0): MdastNode[] {
       if (segment.code) {
         if (!segment.value.includes("\n")) return [{ type: "inlineCode", value: segment.value }];
         return [
-          { type: "html", value: "<code>" },
-          ...newlineFallbackNodes(segment.value),
-          { type: "html", value: "</code>" },
+          {
+            type: "html",
+            value: `<code data-shiba-text="${encodeURIComponent(segment.value)}"></code>`,
+          },
         ];
       }
       if (segment.value.includes("\n")) return newlineFallbackNodes(segment.value);

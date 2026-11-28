@@ -413,4 +413,22 @@ describe("note Markdown", () => {
       expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
     }
   });
+  it("does not autolink URLs or emails inside multiline inline code", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "open https://example.com\nthen dev@example.com",
+              marks: [{ type: "code" }],
+            },
+          ],
+        },
+      ],
+    };
+    expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
+  });
 });
