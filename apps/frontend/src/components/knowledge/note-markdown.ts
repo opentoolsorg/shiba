@@ -580,7 +580,9 @@ function newlineFallbackNodes(value: string): MdastNode[] {
 }
 
 function needsEncodedTextNodes(value: string): boolean {
-  return value.includes("\n") || /[^\u0000-\uffff]/u.test(value);
+  if (value.includes("\n")) return true;
+  for (const char of value) if ((char.codePointAt(0) ?? 0) > 0xffff) return true;
+  return false;
 }
 
 function inlineMarkdown(children: JSONContent[] | undefined): string {
