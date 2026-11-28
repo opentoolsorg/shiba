@@ -29,6 +29,9 @@
     "effect": "4.0.0",
     "fflate": "0.8.3",
     "jose": "6.2.12",
+    "mdast-util-from-markdown": "2.0.3",
+    "mdast-util-gfm": "3.1.0",
+    "micromark-extension-gfm": "3.0.0",
     "postal-mime": "2.7.6",
     "workers-ai-provider": "4.0.0",
     "zod": "4.6.7"

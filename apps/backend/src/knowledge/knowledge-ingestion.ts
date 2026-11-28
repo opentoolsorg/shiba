@@ -1,4 +1,7 @@
 import type { IngestQueueMessage, KnowledgeScope } from "@shiba/shared";
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { gfmFromMarkdown } from "mdast-util-gfm";
+import { gfm } from "micromark-extension-gfm";
 import type { Env } from "../env.js";
 import { randomHex } from "../mailbox-store.js";
 import { enqueue } from "../platform/queues.js";
@@ -15,27 +18,48 @@ export function filesBucket(env: Env): R2Bucket {
 }
 
 
+type MarkdownNode = {
+  type: string;
+  value?: string;
+  alt?: string;
+  children?: MarkdownNode[];
+};
+
+function decodedLegacyPayload(value: string): string | null {
+  const encoded = /^<(?:span|code) data-shiba-text="([^"]*)">$/.exec(value);
+  if (!encoded) return null;
+  try {
+    return decodeURIComponent(encoded[1] ?? "");
+  } catch {
+    return " ";
+  }
+}
+
+function markdownNodeText(node: MarkdownNode): string {
+  if (node.type === "text" || node.type === "inlineCode" || node.type === "code") return node.value ?? "";
+  if (node.type === "break") return "\n";
+  if (node.type === "image" || node.type === "imageReference") return node.alt ?? "";
+  if (node.type === "html") return decodedLegacyPayload(node.value ?? "") ?? "";
+  const children = (node.children ?? []).map((child) => markdownNodeText(child)).join("");
+  if (
+    node.type === "root" ||
+    node.type === "paragraph" ||
+    node.type === "heading" ||
+    node.type === "blockquote" ||
+    node.type === "list" ||
+    node.type === "listItem" ||
+    node.type === "table" ||
+    node.type === "tableRow" ||
+    node.type === "tableCell"
+  )
+    return `${children}\n`;
+  return children;
+}
+
 function markdownSearchText(text: string): string {
-  return text
-    .replace(/<(span|code) data-shiba-text="([^"]*)"><\/\1>/g, (_match, _tag, encoded: string) => {
-      try {
-        return decodeURIComponent(encoded);
-      } catch {
-        return " ";
-      }
-    })
-    .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/<\/?(?:span|code|u|mark|del|p|h[1-6])(?:\s[^>]*)?>/g, " ")
-    .replace(/<br\s*\/?>/g, " ")
-    .replace(/&#(x?[0-9a-f]+);/gi, (match, value: string) => {
-      const codePoint = Number.parseInt(value, value.toLowerCase().startsWith("x") ? 16 : 10);
-      if (!Number.isFinite(codePoint) || codePoint < 0 || codePoint > 0x10ffff) return match;
-      try {
-        return String.fromCodePoint(codePoint);
-      } catch {
-        return match;
-      }
-    });
+  return markdownNodeText(
+    fromMarkdown(text, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] }) as MarkdownNode,
+  );
 }
 
 export async function extractText(bytes: Uint8Array, mime: string, env: Env): Promise<string> {

@@ -87,6 +87,19 @@ describe("knowledge search hardening", () => {
     }
   });
 
+  it("indexes literal HTML examples inside fenced markdown code", async () => {
+    const f = await fixture();
+    await f.add(
+      "html-example.md",
+      "workspace",
+      "```html\n<!-- falcon-comment -->\n<span data-shiba-raw>falcon-span</span>\n```\n",
+    );
+    for (const query of ["falcon", "comment", "span"]) {
+      const hits = await hybridKnowledgeSearch(f.env, BEN, f.workspaceId, query, 5);
+      expect(hits.map((hit) => hit.sourceName)).toContain("html-example.md");
+    }
+  });
+
   it("keeps semantic-only matches and still hides another user's personal source", async () => {
     const f = await fixture({ semantic: true });
     await f.add("ada-private.md", "personal", "Salary bands for the design team.");

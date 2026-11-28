@@ -157,6 +157,15 @@ importers:
       jose:
         specifier: 6.2.12
         version: 6.2.12
+      mdast-util-from-markdown:
+        specifier: 2.0.3
+        version: 2.0.3
+      mdast-util-gfm:
+        specifier: 3.1.0
+        version: 3.1.0
+      micromark-extension-gfm:
+        specifier: 3.0.0
+        version: 3.0.0
       postal-mime:
         specifier: 2.7.6
         version: 2.7.6
