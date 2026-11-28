@@ -9,6 +9,15 @@
  * A reply by email never decides anything: a bare "approve" gets a refusal
  * and any other reply is just another request that needs its own approval.
  *
+ * Publication linkage matches the other chat lanes: the run is queued with
+ * publishPullRequest, so when its changes are ready a second immutable
+ * pr_publish approval gates the pull request. Email thread keys are not
+ * chat conversations, so that second card follows the orchestrator's
+ * email fallback — the authenticated dashboard Approvals list always, the
+ * Slack approvals channel when configured. The email channel itself never
+ * renders a decision affordance: an emailed "approve" for publication is
+ * refused exactly like one for the run.
+ *
  * Senders outside the allowlist, unauthenticated mail, and automated mail
  * get no reply, so the lane cannot be used to bounce mail at third parties.
  */
@@ -134,7 +143,7 @@ export async function handleEmailTaskRequest(
       task: parsed.task,
       userId: message.authorId,
       customAgentId: employee,
-      publishPullRequest: false,
+      publishPullRequest: true,
     },
     deps.resolveOrchestrator,
   );
@@ -172,6 +181,7 @@ export async function handleEmailTaskRequest(
       `Approval: ${queued.approvalId}`,
       ...(approvalsUrl ? [`Open Shiba Approvals: ${approvalsUrl}`] : []),
       "",
+      "If the approved work produces repository changes, publishing them as a pull request requires a separate approval in the Shiba dashboard or Slack.",
       "Replying to this email cannot approve or reject the request.",
     ].join("\n"),
   );

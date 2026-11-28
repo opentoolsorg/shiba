@@ -234,7 +234,7 @@ describe("email task lane", () => {
       source: "email",
       user_id: "alice@example.com",
       customAgentId: "engineering",
-      publishPullRequest: false,
+      publishPullRequest: true,
     });
     expect(h.posts).toHaveLength(1);
     expect(h.posts[0]).toMatchObject({
@@ -244,6 +244,9 @@ describe("email task lane", () => {
     });
     expect(h.posts[0]!.text).toContain(`Approval: ${APPROVAL_ID}`);
     expect(h.posts[0]!.text).toContain("Open Shiba Approvals: https://shiba.example/approvals/");
+    expect(h.posts[0]!.text).toContain(
+      "publishing them as a pull request requires a separate approval in the Shiba dashboard or Slack.",
+    );
     expect(h.posts[0]!.text).toContain(
       "Replying to this email cannot approve or reject the request.",
     );
