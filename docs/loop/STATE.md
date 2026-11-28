@@ -84,9 +84,12 @@ Done:
 - Files detail-view iteration: files now open in an Overlay-style detail viewer with back/close navigation, metadata, authenticated download links, rendered Markdown/text/CSV source, sandboxed generated-page preview detection, PDF/image/audio/video media viewers, and a safe download fallback for unsupported formats. Query-string deep links use `?file=<id>`. Verification: frontend typecheck, Biome check, and 13/13 FilesView tests pass.
 
 Next queue:
-1. Verify the new Files select/move/delete interactions in the Devin browser.
-2. Continue closing remaining visual/product differences where Shiba product contracts allow: exact navigation glyphs/product labels and surface-specific spacing beyond the shell.
-3. Finish strict merge validation against current `main`, then drive PR CI/review green without merging.
+1. Land file-detail viewer slice in PR #390, then continue files parity: editable text/markdown source with versioned Worker writes, nested folder tree/browser + breadcrumbs, memories/outputs unified knowledge tabs, richer note/file creation and move/rename dialogs.
+2. Chat/work parity: compare Overlay `chat-parity` fixture against Shiba threads/work composer, then implement verified vertical slices without changing Shiba labels.
+3. Extensions/automations parity: compare Overlay `/app/tools` and `/app/automations` capability grouping, connector states, and automation creation/run history with Shiba's existing panels.
+4. Desktop parity: install and test on the user's Mac after local-machine approval; cloud web retest remains tied to `pal265354@gmail.com`.
+
+Remaining parity matrix (audited after PR #390): Shiba already has broad product surfaces for agents/chat/work/files/notes/outputs/projects/extensions/automations/settings, but Overlay parity is incomplete in interaction depth rather than shell presence. Highest-value verified gaps are file source editing, folder tree navigation, unified knowledge tabs and route state, chat parity harness behavior, extension connector grouping, automation run history, and desktop install proof.
 
 Triage additions:
 - Full Overlay parity beyond visual shell may require product scope decisions; no deployment or merge is authorized.
