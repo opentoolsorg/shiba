@@ -2,11 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearSeenTelegramUpdates,
   handleTelegramWebhook,
+  postTelegramPublicationApproval,
+  TELEGRAM_CALLBACK_DATA_LIMIT_BYTES,
   TELEGRAM_SECRET_HEADER,
   TELEGRAM_WEBHOOK_PATH,
+  telegramDecisionData,
   type TelegramDeps,
 } from "../src/telegram.js";
 import type { OrchestratorStub } from "../src/chat-lane.js";
+import type { ChannelAdapter, ChannelPostInput } from "../src/ports/channel/index.js";
 import { createCustomAgent } from "../src/custom-agents-store.js";
 import { customAgentD1 } from "./fixtures/custom-agent-d1.js";
 
@@ -209,9 +213,10 @@ describe("handleTelegramWebhook messages", () => {
       threadKey: `telegram:${CHAT_ID}`,
       source: "telegram",
       user_id: "42",
+      publishPullRequest: true,
     });
     const card = calls.find((c) => c.body.reply_markup !== undefined);
-    expect(card?.body.text).toBe(`Approval requested\nRepo: ${REPO}\nTask: fix the login bug\napproval ${APPROVAL_ID}`);
+    expect(card?.body.text).toBe(`Approval requested\nRepo: ${REPO}\nTask: fix the login bug\nPublication requested. A separate approval is required after the changes are ready.\napproval ${APPROVAL_ID}`);
     const keyboard = (card!.body.reply_markup as { inline_keyboard: { text: string; callback_data: string }[][] }).inline_keyboard;
     expect(keyboard[0]!.map((b) => b.callback_data)).toEqual([
       `approve:${APPROVAL_ID}`,
@@ -277,6 +282,70 @@ describe("handleTelegramWebhook messages", () => {
   });
 });
 
+describe("postTelegramPublicationApproval", () => {
+  function capturePosts() {
+    const posts: ChannelPostInput[] = [];
+    const adapter = {
+      post: vi.fn(async (input: ChannelPostInput) => {
+        posts.push(input);
+        return {
+          placeId: input.placeId,
+          messageId: `publication-message-${posts.length}`,
+          ...(input.threadId ? { threadId: input.threadId } : {}),
+        };
+      }),
+    } as unknown as ChannelAdapter;
+    return { posts, adapter };
+  }
+
+  it("posts compact publication buttons inside Telegram's callback budget to the source topic", async () => {
+    const approvalId = `pr-publish:agent-tool:${APPROVAL_ID}`;
+    const { posts, adapter } = capturePosts();
+    const posted = await postTelegramPublicationApproval(
+      env(),
+      `telegram:${CHAT_ID}:71`,
+      "External Action: Publish the frozen snapshot.",
+      approvalId,
+      { adapter },
+    );
+    expect(posted).toBe(true);
+    expect(posts[0]).toMatchObject({
+      placeId: String(CHAT_ID),
+      threadId: "71",
+      text: "External Action: Publish the frozen snapshot.",
+    });
+    const keyboard = (posts[0]?.native?.reply_markup as { inline_keyboard: { callback_data: string }[][] }).inline_keyboard;
+    const callbackData = keyboard[0]!.map((button) => button.callback_data);
+    expect(callbackData).toEqual([`a:${approvalId}`, `r:${approvalId}`]);
+    for (const data of callbackData) {
+      expect(new TextEncoder().encode(data).byteLength).toBeLessThanOrEqual(TELEGRAM_CALLBACK_DATA_LIMIT_BYTES);
+    }
+  });
+
+  it("uses the legacy spelling when an initial approval already fits", () => {
+    expect(telegramDecisionData(true, APPROVAL_ID)).toBe(`approve:${APPROVAL_ID}`);
+    expect(telegramDecisionData(false, APPROVAL_ID)).toBe(`reject:${APPROVAL_ID}`);
+  });
+
+  it("fails closed with an explicit no-button notice when even the compact pointer cannot fit", async () => {
+    const approvalId = `pr-publish:agent-tool:${APPROVAL_ID}${"x".repeat(20)}`;
+    const { posts, adapter } = capturePosts();
+    const posted = await postTelegramPublicationApproval(
+      env(),
+      `telegram:${CHAT_ID}`,
+      "External Action: Publish the frozen snapshot.",
+      approvalId,
+      { adapter },
+    );
+    expect(posted).toBe(true);
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.native).toBeUndefined();
+    expect(posts[0]?.text).toContain("Telegram cannot carry this exact approval pointer in a button");
+    expect(posts[0]?.text).toContain("No Telegram approval action was enabled");
+    expect(posts[0]?.text.length).toBeLessThanOrEqual(4000);
+  });
+});
+
 describe("handleTelegramWebhook callbacks", () => {
   beforeEach(() => {
     clearSeenTelegramUpdates();
@@ -303,6 +372,25 @@ describe("handleTelegramWebhook callbacks", () => {
     const edit = calls.find((c) => c.method === "editMessageText");
     expect(edit?.body.text).toContain("Approved by @alice — run starting.");
     expect(edit?.body).not.toHaveProperty("reply_markup");
+  });
+
+  it("resolves a compact publication callback to the full approval pointer", async () => {
+    const approvalId = `pr-publish:agent-tool:${APPROVAL_ID}`;
+    const { deps, approvalBodies } = makeDeps();
+    const response = await handleTelegramWebhook(
+      webhookRequest(callbackUpdate(`a:${approvalId}`)),
+      env({ TELEGRAM_APPROVERS: "42" }),
+      undefined,
+      deps,
+    );
+    expect(response?.status).toBe(200);
+    expect(approvalBodies[0]).toEqual({
+      threadKey: `telegram:${CHAT_ID}`,
+      approvalId,
+      approved: true,
+      decidedBy: "telegram:42",
+      source: "telegram",
+    });
   });
 
   it("rejects a pending run for a listed approver", async () => {

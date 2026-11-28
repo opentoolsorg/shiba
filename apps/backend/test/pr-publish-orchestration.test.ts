@@ -163,6 +163,46 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("orchestrator external publication approval", () => {
+  it("posts a Telegram publication approval with compact bounded buttons into the source topic", async () => {
+    const sourceApprovalId = crypto.randomUUID();
+    const approvalId = `pr-publish:agent-tool:${sourceApprovalId}`;
+    const threadKey = "telegram:-100123:71";
+    const approval: PendingApproval = {
+      threadKey,
+      approvalId,
+      repoUrl: REPO,
+      task: "Publish pull request: fix the source.",
+      baseBranch: "main",
+      publishPullRequest: false,
+      kind: "pr_publish",
+      payload: { runId: `agent-tool:${sourceApprovalId}` },
+      status: "pending",
+      createdAt: Date.now(),
+    };
+    const context = host({ runs: [], pendingApprovals: [approval] });
+    context.instance.env.TELEGRAM_BOT_TOKEN = "telegram-test-token";
+    const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), body: JSON.parse(String(init?.body)) as Record<string, unknown> });
+      return Response.json({ ok: true, result: { message_id: 88 } });
+    });
+    try {
+      (context.instance as unknown as { postPublicationCard(id: string): void }).postPublicationCard(approvalId);
+      await drainHeldWork(context.held);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("https://api.telegram.org/bottelegram-test-token/sendMessage");
+    expect(calls[0]?.body).toMatchObject({ chat_id: -100123, message_thread_id: 71 });
+    expect(String(calls[0]?.body.text)).toContain("External Action: Push this frozen snapshot and publish its pull request.");
+    const keyboard = (calls[0]?.body.reply_markup as { inline_keyboard: Array<Array<{ callback_data: string }>> }).inline_keyboard;
+    expect(keyboard[0]?.map((button) => button.callback_data)).toEqual([`a:${approvalId}`, `r:${approvalId}`]);
+    for (const button of keyboard[0] ?? []) {
+      expect(new TextEncoder().encode(button.callback_data).byteLength).toBeLessThanOrEqual(64);
+    }
+  });
+
   it("adds one inert body-free observation without resolving the SDK approval tool part", async () => {
     const pendingPart = { type: "dynamic-tool" as const, toolName: "delegate_coding_task", toolCallId: "unresolved-tool", state: "approval-requested" as const, input: {}, approval: { id: "sdk-approval" } };
     const context = await completeRun(undefined, async (instance) => {

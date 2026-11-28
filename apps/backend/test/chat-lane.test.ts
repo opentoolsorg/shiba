@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   buildChatThreadName,
+  buildCompactDecisionData,
   buildDecisionData,
   parseChatThreadName,
   parseDecisionData,
@@ -177,7 +178,13 @@ describe("buildDecisionData / parseDecisionData", () => {
     });
   });
 
-  it("stays inside Telegram's 64-byte callback_data limit", () => {
+  it("round-trips the compact Telegram spelling", () => {
+    const approvalId = `pr-publish:agent-tool:${APPROVAL_ID}`;
+    expect(parseDecisionData(buildCompactDecisionData(true, approvalId))).toEqual({ approved: true, approvalId });
+    expect(parseDecisionData(buildCompactDecisionData(false, approvalId))).toEqual({ approved: false, approvalId });
+  });
+
+  it("keeps initial run approvals inside Telegram's 64-byte callback_data limit", () => {
     expect(buildDecisionData(true, crypto.randomUUID()).length).toBeLessThanOrEqual(64);
   });
 
