@@ -14,9 +14,9 @@
  * custom_id is a pointer: only DISCORD_APPROVERS may press it, and the
  * orchestrator honors it only while the approval is still pending.
  */
-import { buildChatThreadName, buildDecisionData, parseChatThreadName, parseDecisionData, parseEmployeeDecisionData } from "@shiba/shared";
+import { buildChatThreadName, parseDecisionData, parseEmployeeDecisionData } from "@shiba/shared";
 import { seenDelivery } from "./automations-stub.js";
-import { createDiscordAdapter, DISCORD_INTERACTION, discordTransport } from "./channels/discord/index.js";
+import { decisionButtons, DISCORD_INTERACTION, discordTransport } from "./channels/discord/index.js";
 import {
   CARD_TASK_LIMIT,
   chatApprovalText,
@@ -42,7 +42,7 @@ import { redactSecrets } from "./security.js";
 import { isApprover, parseApproverAllowlist, type ExecutionContextLike } from "./slack-approval.js";
 import { log } from "./obs/log.js";
 
-export { DISCORD_REPLAY_WINDOW_SECONDS, verifyDiscordRequest } from "./channels/discord/index.js";
+export { decisionButtons, DISCORD_REPLAY_WINDOW_SECONDS, postDiscordPublicationApproval, verifyDiscordRequest } from "./channels/discord/index.js";
 
 export const DISCORD_INTERACTIONS_PATH = "/api/discord/interactions";
 export const DISCORD_COMMAND = DISCORD_COMMAND_NAME;
@@ -158,28 +158,6 @@ export function discordTaskFollowUps(task: string): string[] {
   return chatTaskChunks(task, CARD_TASK_LIMIT, 1900);
 }
 
-
-/** Post the second publication approval into the originating Discord channel. */
-export async function postDiscordPublicationApproval(
-  env: Env,
-  threadKey: string,
-  text: string,
-  approvalId: string,
-  deps: { adapter?: ReturnType<typeof createDiscordAdapter> } = {},
-): Promise<boolean> {
-  const chat = parseChatThreadName(threadKey);
-  if (chat?.platform !== "discord") return false;
-  const botToken = env.DISCORD_BOT_TOKEN?.trim();
-  const adapter = deps.adapter ?? (botToken ? createDiscordAdapter({ botToken }) : null);
-  if (!adapter) return false;
-  await adapter.post({
-    placeId: chat.conversationId,
-    text: text.slice(0, 1900),
-    native: { components: decisionButtons(approvalId) },
-  });
-  return true;
-}
-
 export interface DiscordDeps {
   /** Interaction webhook call (edit the reply, post a follow-up); defaults to discord.com. */
   send?: (method: "PATCH" | "POST", path: string, body: Record<string, unknown>) => Promise<void>;
@@ -189,16 +167,6 @@ export interface DiscordDeps {
 
 function ephemeral(content: string): Response {
   return Response.json({ type: 4, data: { content, flags: EPHEMERAL, allowed_mentions: NO_MENTIONS } });
-}
-
-export function decisionButtons(approvalId: string): unknown[] {
-  return [{
-    type: 1,
-    components: [
-      { type: 2, style: 3, label: "Approve", custom_id: buildDecisionData(true, approvalId) },
-      { type: 2, style: 4, label: "Reject", custom_id: buildDecisionData(false, approvalId) },
-    ],
-  }];
 }
 
 /**
