@@ -26,7 +26,7 @@ export function AppAreaNavigation() {
   const area = areaForView(shell.activeView);
   return (
     <nav aria-label={`${area.label} destinations`} className="shiba-area-navigation">
-      <p className="flex h-16 min-h-16 items-center px-2 text-lg font-medium lowercase tracking-tight text-[var(--fg)]">
+      <p className="flex h-12 min-h-12 items-center pl-3 pr-1.5 text-[15px] font-semibold capitalize tracking-tight text-[var(--fg)]">
         {area.label}
       </p>
       {area.views.map((view) => (
