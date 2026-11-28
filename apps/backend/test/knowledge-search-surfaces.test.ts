@@ -87,6 +87,19 @@ describe("knowledge search hardening", () => {
     }
   });
 
+  it("indexes aligned markup and preserves searchable line boundaries", async () => {
+    const f = await fixture();
+    await f.add(
+      "aligned-boundaries.md",
+      "workspace",
+      '<p style="text-align: right">aligned-falcon **bold-text**</p>\n\nfirst<br>second\n\n```js\nfenced-alpha\n```\nomega\n',
+    );
+    for (const query of ["aligned", "falcon", "bold", "first", "second", "fenced", "alpha", "omega"]) {
+      const hits = await hybridKnowledgeSearch(f.env, BEN, f.workspaceId, query, 5);
+      expect(hits.map((hit) => hit.sourceName)).toContain("aligned-boundaries.md");
+    }
+  });
+
   it("indexes literal HTML examples inside fenced markdown code", async () => {
     const f = await fixture();
     await f.add(

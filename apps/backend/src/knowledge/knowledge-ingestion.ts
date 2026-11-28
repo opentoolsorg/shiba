@@ -35,11 +35,20 @@ function decodedLegacyPayload(value: string): string | null {
   }
 }
 
+function generatedHtmlText(value: string): string {
+  const legacy = decodedLegacyPayload(value);
+  if (legacy !== null) return legacy;
+  if (/^<br\s*\/?>$/.test(value)) return "\n";
+  const aligned = /^<(p|h[1-6]) style="text-align: [^"]+">([\s\S]*)<\/\1>$/.exec(value);
+  return aligned ? markdownSearchText(aligned[2] ?? "") : "";
+}
+
 function markdownNodeText(node: MarkdownNode): string {
-  if (node.type === "text" || node.type === "inlineCode" || node.type === "code") return node.value ?? "";
+  if (node.type === "text" || node.type === "inlineCode") return node.value ?? "";
+  if (node.type === "code") return `${node.value ?? ""}\n`;
   if (node.type === "break") return "\n";
   if (node.type === "image" || node.type === "imageReference") return node.alt ?? "";
-  if (node.type === "html") return decodedLegacyPayload(node.value ?? "") ?? "";
+  if (node.type === "html") return generatedHtmlText(node.value ?? "");
   const children = (node.children ?? []).map((child) => markdownNodeText(child)).join("");
   if (
     node.type === "root" ||
