@@ -1,26 +1,34 @@
-# shiba
+# Shiba
 
-Shiba is a self-hosted, approval-first workspace for AI employees. Start with the [product contract](docs/product/ai-employees.md) and [architecture](ARCHITECTURE.md). See `PLAN.md` for dated implementation plans, `VERIFICATION.md` for evidence, and `VERIFICATION_PLAN.md` for open gaps and how to check them.
+Read and follow [`AGENTS.md`](AGENTS.md) first. It is the canonical agent and
+contributor contract for this repository. The nested `AGENTS.md` nearest to the
+files you edit applies next.
+
+For product or architecture work, start with the
+[product contract](docs/product/ai-employees.md) and
+[architecture map](ARCHITECTURE.md). Treat `PLAN.md`, `VERIFICATION.md`,
+`ROADMAP.md`, and `docs/verification/` as dated records. Open only the section
+needed for a task id, acceptance question, or historical claim; do not use them
+as the current architecture by default.
+
+## Validation gate
+
+Use risk-proportionate validation. Run the narrowest useful local checks for
+the files you change, leave broad lanes to CI, and state what remains
+unverified. Run the full local gate before merging cross-cutting runtime,
+deployment, credential, approval, or release work:
 
 ```bash
-# Gate — always required:
 pnpm typecheck && pnpm lint && pnpm lint:imports && pnpm test && pnpm build && pnpm test:built
-pnpm check:ci                    # the CI biome-knip job: agent context budgets, Biome lint, and the exact Knip baseline
-pnpm env:load && pnpm env:scan   # varlock: validate .env against .env.schema; scan for leaked secrets
-# Second tier — only where a Docker daemon is running:
+pnpm check:ci
+pnpm env:load && pnpm env:scan
+```
+
+Run the Wrangler dry run only where a Docker daemon is available:
+
+```bash
 npx wrangler deploy --dry-run --config apps/backend/wrangler.jsonc
 ```
 
-## Agent skills
-
-### Issue tracker
-
-Tasks are `T<n>` sections in `PLAN.md`; state lives in its §2.0 table, evidence in `VERIFICATION.md`. See `apps/web/docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Default five-role vocabulary, recorded as a `Status:` word in the §2.0 table. See `apps/web/docs/agents/triage-labels.md`.
-
-### Domain docs
-
-See the [domain guide](apps/web/docs/agents/domain.md) for the glossary, ADRs, and standing constraints retained from the original coding spine.
+Shiba CI is label-gated. Follow the label rules in `AGENTS.md` and
+`CONTRIBUTING.md`; do not opt every PR into expensive validation by default.

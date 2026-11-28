@@ -1,5 +1,7 @@
 # `apps/frontend`
 
+Root `AGENTS.md` applies first; this file adds local rules.
+
 The React dashboard (Vite + TanStack Router, served by the Worker at `/app`).
 It renders; it does not call provider APIs — the Worker proxies everything,
 so no credential reaches this bundle.

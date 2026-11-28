@@ -210,5 +210,5 @@ wrangler applies only the entries after it.
 ## Related docs
 
 - Operator guide: `apps/web/src/content/docs/docs/self-hosting.md`
-- Alchemy review notes: `ALCHEMY-REVIEW.md`
+- Alchemy review notes: `docs/audits/ALCHEMY-REVIEW.md`
 - Architecture: `ARCHITECTURE.md`

@@ -1,5 +1,7 @@
 # `packages/shared`
 
+Root `AGENTS.md` applies first; this file adds local rules.
+
 Browser-safe wire contracts: run event types, Zod schemas, MCP and tool
 payload shapes, `SHARED_COMPUTER_LIMITS`. Everything here is a contract that
 backend, frontend, and the sandbox image already implement — a change is paid
