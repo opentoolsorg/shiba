@@ -450,4 +450,19 @@ describe("note Markdown", () => {
       expect(parseNoteMarkdown(saved)).toEqual(doc);
     }
   });
+  it("preserves non-BMP text adjacent to raw fallback markup", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "sound 😀" },
+            { type: "text", text: "https://example.com", marks: [{ type: "bold" }] },
+          ],
+        },
+      ],
+    };
+    expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
+  });
 });

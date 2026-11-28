@@ -532,7 +532,7 @@ function markedMdast(segments: InlineSegment[], depth = 0): MdastNode[] {
         return rawTextNodes("code", segment.value);
       }
       if (autolinkLikeText.test(segment.value)) return rawTextNodes("span", segment.value);
-      if (segment.value.includes("\n")) return newlineFallbackNodes(segment.value);
+      if (needsEncodedTextNodes(segment.value)) return newlineFallbackNodes(segment.value);
       return [{ type: "text", value: segment.value }];
     });
   }
@@ -563,17 +563,24 @@ function inlineMdast(nodes: JSONContent[] = []): MdastNode[] {
 function newlineFallbackNodes(value: string): MdastNode[] {
   const nodes: MdastNode[] = [];
   let spaces = "";
+  const flush = () => {
+    if (!spaces) return;
+    nodes.push({ type: "text", value: spaces });
+    spaces = "";
+  };
   for (const char of value) {
-    if (char === "\n") {
-      if (spaces) {
-        nodes.push({ type: "text", value: spaces });
-        spaces = "";
-      }
-      nodes.push({ type: "html", value: "&#10;" });
+    const codePoint = char.codePointAt(0) ?? 0;
+    if (char === "\n" || codePoint > 0xffff) {
+      flush();
+      nodes.push({ type: "html", value: `&#${char === "\n" ? 10 : codePoint};` });
     } else spaces += char;
   }
-  if (spaces) nodes.push({ type: "text", value: spaces });
+  flush();
   return nodes;
+}
+
+function needsEncodedTextNodes(value: string): boolean {
+  return value.includes("\n") || /[^\u0000-\uffff]/u.test(value);
 }
 
 function inlineMarkdown(children: JSONContent[] | undefined): string {
