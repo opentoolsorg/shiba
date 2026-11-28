@@ -16,7 +16,7 @@ function fixture(row: { name: string; mime: string; r2_key: string }) {
   const request = (suffix: string, userId: string | null = owner) => new Request(`https://shiba.test/api/files/${artifactId}/${suffix}`, {
     headers: userId ? { "CF-Access-Authenticated-User-Email": userId } : {},
   });
-  return { env, get, request };
+  return { env, get, request, stored };
 }
 const generatedPage = { name: "Launch “v2”.html", mime: "text/html", r2_key: "generated-documents/self-hosted/a.html" };
 
@@ -41,6 +41,14 @@ describe("generated page preview", () => {
     ["a generated report", { name: "Brief.md", mime: "text/markdown", r2_key: "generated-documents/self-hosted/a.md" }],
   ])("refuses to preview %s", async (_label, row) => {
     const { env, get, request } = fixture(row);
+    expect((await handleFiles(request("preview"), env))?.status).toBe(404);
+    expect(get).not.toHaveBeenCalled();
+  });
+
+
+  it("does not reopen an archived generated page", async () => {
+    const { env, get, request, stored } = fixture(generatedPage);
+    (stored as { archived_at: number | null }).archived_at = 200;
     expect((await handleFiles(request("preview"), env))?.status).toBe(404);
     expect(get).not.toHaveBeenCalled();
   });

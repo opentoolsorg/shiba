@@ -130,7 +130,7 @@ export async function handleFiles(request: Request, env: Env): Promise<Response 
   const fileId = fileMatch[1]!;
   const suffix = fileMatch[2];
   const file = await getFile(env, fileId);
-  if (!file || file.workspaceId !== workspaceId) return json({ error: "File not found." }, 404);
+  if (!file || file.workspaceId !== workspaceId || file.archivedAt) return json({ error: "File not found." }, 404);
   try {
     await assertKnowledgeRead(env, userId, {
       workspaceId: file.workspaceId, scope: file.scope, createdBy: file.createdBy, resourceId: file.id, resourceKind: "file",
