@@ -95,6 +95,34 @@ const inlineHtmlMarks: Record<string, [string, string]> = {
   "<code>": ["code", "</code>"],
 };
 
+const inlineRawTextTags: Record<string, [string | null, string]> = {
+  "<span data-shiba-raw>": [null, "</span>"],
+  "<code data-shiba-raw>": ["code", "</code>"],
+};
+
+function stripGeneratedInlineMarks(nodes: JSONContent[], baseMarks: Mark[]): JSONContent[] {
+  const allowed = new Set(normalizeMarks(baseMarks).map((mark) => JSON.stringify(mark)));
+  const result: JSONContent[] = [];
+  for (const node of nodes) {
+    if (node.type !== "text") {
+      result.push(node);
+      continue;
+    }
+    const kept = (node.marks ?? []).filter((mark) => allowed.has(JSON.stringify(mark)));
+    const copy = { ...node };
+    if (kept.length) copy.marks = kept;
+    else delete copy.marks;
+    const previous = result.at(-1);
+    if (
+      previous?.type === "text" &&
+      JSON.stringify(previous.marks ?? null) === JSON.stringify(copy.marks ?? null)
+    )
+      previous.text = `${previous.text ?? ""}${copy.text ?? ""}`;
+    else result.push(copy);
+  }
+  return result;
+}
+
 function inlineNodes(
   nodes: MdastNode[] = [],
   marks: Mark[] = [],
@@ -103,6 +131,24 @@ function inlineNodes(
   const result: JSONContent[] = [];
   for (let index = 0; index < nodes.length; index++) {
     const node = nodes[index] ?? { type: "text", value: "" };
+    const rawTextTag = node.type === "html" ? inlineRawTextTags[node.value ?? ""] : undefined;
+    if (rawTextTag) {
+      const [markType, close] = rawTextTag;
+      let end = index + 1;
+      while (end < nodes.length && !(nodes[end]?.type === "html" && nodes[end]?.value === close))
+        end++;
+      if (end < nodes.length) {
+        const rawMarks = markType ? [...marks, { type: markType }] : marks;
+        result.push(
+          ...stripGeneratedInlineMarks(
+            inlineNodes(nodes.slice(index + 1, end), rawMarks, references),
+            rawMarks,
+          ),
+        );
+        index = end;
+        continue;
+      }
+    }
     const encodedInline =
       node.type === "html"
         ? /^<(span|code) data-shiba-text="([^"]*)">$/.exec(node.value ?? "")
@@ -468,11 +514,12 @@ function segmentMarkKey(segment: InlineSegment, mark: string): string | null {
 
 const autolinkLikeText = /(?:https?:\/\/|www\.|[\w.+-]+@[\w-]+\.)/i;
 
-function encodedTextNode(tag: "span" | "code", value: string): MdastNode {
-  return {
-    type: "html",
-    value: `<${tag} data-shiba-text="${encodeURIComponent(value)}"></${tag}>`,
-  };
+function rawTextNodes(tag: "span" | "code", value: string): MdastNode[] {
+  return [
+    { type: "html", value: `<${tag} data-shiba-raw>` },
+    ...newlineFallbackNodes(value),
+    { type: "html", value: `</${tag}>` },
+  ];
 }
 
 function markedMdast(segments: InlineSegment[], depth = 0): MdastNode[] {
@@ -482,9 +529,9 @@ function markedMdast(segments: InlineSegment[], depth = 0): MdastNode[] {
       if (segment.hardBreak) return [{ type: "html", value: "<br>" }];
       if (segment.code) {
         if (!segment.value.includes("\n")) return [{ type: "inlineCode", value: segment.value }];
-        return [encodedTextNode("code", segment.value)];
+        return rawTextNodes("code", segment.value);
       }
-      if (autolinkLikeText.test(segment.value)) return [encodedTextNode("span", segment.value)];
+      if (autolinkLikeText.test(segment.value)) return rawTextNodes("span", segment.value);
       if (segment.value.includes("\n")) return newlineFallbackNodes(segment.value);
       return [{ type: "text", value: segment.value }];
     });

@@ -429,7 +429,11 @@ describe("note Markdown", () => {
         },
       ],
     };
-    expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
+    const saved = serializeNoteMarkdown(doc);
+    expect(saved).toContain("example.com");
+    expect(saved).toContain("dev");
+    expect(saved).not.toContain("%");
+    expect(parseNoteMarkdown(saved)).toEqual(doc);
   });
   it("does not add autolinks to unlinked URLs or emails", () => {
     for (const content of [
@@ -441,7 +445,9 @@ describe("note Markdown", () => {
       ],
     ]) {
       const doc = { type: "doc", content: [{ type: "paragraph", content }] };
-      expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
+      const saved = serializeNoteMarkdown(doc);
+      expect(saved).not.toContain("data-shiba-text");
+      expect(parseNoteMarkdown(saved)).toEqual(doc);
     }
   });
 });
