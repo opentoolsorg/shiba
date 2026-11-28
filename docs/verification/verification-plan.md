@@ -78,7 +78,7 @@ Follow `apps/web/src/content/docs/docs/readiness.md` steps as written. For each 
 | Cold start | Time from approve to first progress event, from `wrangler tail` timestamps. If >90 s, raise `portReadyTimeoutMS` |
 | Hibernation | Leave one dashboard tab open 1 h; DO duration in the billing panel should stay near zero. If it climbs continuously, `agents` is not hibernating and §8's DO bill is real |
 
-Record every result, pass or fail, with date and versions in `VERIFICATION.md`. Replace "270/270" with the real count.
+Record every result, pass or fail, with date and versions in `docs/verification/verification.md`. Replace "270/270" with the real count.
 
 ### Stage D — P3 Slack, needs a real workspace, ~1 h
 

@@ -2,7 +2,7 @@
 
 **Status:** local prototype. Automated unit coverage is green; **live macOS acceptance** below is still required before calling Desktop “accepted” on a real deployment.
 
-**Related:** `DESKTOP-PLAN.md` §7, `VERIFICATION.md` (2026-10-08 desktop summary), evidence under `apps/web/docs/evidence/desktop/`.
+**Related:** `docs/plans/desktop.md` §7, `docs/verification/verification.md` (2026-10-08 desktop summary), evidence under `apps/web/docs/evidence/desktop/`.
 
 ---
 
@@ -54,14 +54,14 @@ VERIFY_DESKTOP=1 node .cursor/skills/verify-shiba/scripts/drive-local-runtime.mj
 1. Worker: `SHIBA_LOCAL_RUNTIME=1`, `LocalDispatch` bound, `PAIRING_SECRET` or `LOCAL_ADAPTER_TOKEN` set.
 2. **Access-fronted deploys:** bypass policy on `<host>/api/local/*` (alchemy `MachineBypass` or manual equivalent). Without it, pairing gets HTML login pages, not JSON.
 3. **Better-auth deploys:** `BETTER_AUTH_URL` must match the Shiba URL configured in the desktop app.
-4. Dev loop (no Access): `wrangler dev --port 8788` with `SHIBA_LOCAL_RUNTIME=1` in `.dev.vars`; use `--local-upstream localhost:8788 --enable-containers=false` when custom domain routes break loopback auth (see `DESKTOP-PLAN.md` §7 notes).
+4. Dev loop (no Access): `wrangler dev --port 8788` with `SHIBA_LOCAL_RUNTIME=1` in `.dev.vars`; use `--local-upstream localhost:8788 --enable-containers=false` when custom domain routes break loopback auth (see `docs/plans/desktop.md` §7 notes).
 5. Pair **one** computer for acceptance ( `/claim` is oldest-first with no machine filter when multiple daemons exist).
 
 ---
 
 ## Manual acceptance (macOS + real deployment)
 
-Record a dated pass/fail in `VERIFICATION.md` when complete. Do **not** claim this from Linux CI alone.
+Record a dated pass/fail in `docs/verification/verification.md` when complete. Do **not** claim this from Linux CI alone.
 
 | # | Action | Pass when |
 | --- | --- | --- |
@@ -73,7 +73,7 @@ Record a dated pass/fail in `VERIFICATION.md` when complete. Do **not** claim th
 | 6 | Start CLI daemon while app daemon runs | Second process exits **75** (lock) |
 | 7 | Quit during busy run | Confirm dialog; run fails **daemon stopped** quickly; no orphaned harness (`pgrep`) |
 | 8 | DevTools: `typeof require` → `"undefined"`; navigate to `https://example.com` | Opens in system browser; app stays on Shiba |
-| 9 | `npx @electron/fuses read --app …/Shiba.app` | Matches D8 list in `DESKTOP-PLAN.md` |
+| 9 | `npx @electron/fuses read --app …/Shiba.app` | Matches D8 list in `docs/plans/desktop.md` |
 | 10 | Grep `main.log` + `daemon.log` for adapter token material | No hits |
 
 ---

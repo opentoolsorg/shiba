@@ -3,7 +3,7 @@ title: Implementation status reference
 description: The dated engineering inventory and live-verification gaps for developers and installation owners.
 ---
 
-This page is the short version of the repo file `ROADMAP.md` (2026-10-19). It is dated coding-spine/platform evidence, not the complete AI employee workspace status. “In code” means a path and tests exist. “Live” means a dated entry in `VERIFICATION.md` from a real account, container, model, and GitHub. The current product target is the shared AI employee workspace described in the architecture guide.
+This page is the short version of the repo file `docs/plans/roadmap.md` (2026-10-19). It is dated coding-spine/platform evidence, not the complete AI employee workspace status. “In code” means a path and tests exist. “Live” means a dated entry in `docs/verification/verification.md` from a real account, container, model, and GitHub. The current product target is the shared AI employee workspace described in the architecture guide.
 
 ## In the tree
 

@@ -125,7 +125,7 @@ different place.
 
 `security.md` is explicit that these boundaries have unit coverage and that you
 should not treat that as proof of a cloud deployment. The unit tests use fakes.
-`VERIFICATION.md` lists the live cloud run as not attempted.
+`docs/verification/verification.md` lists the live cloud run as not attempted.
 
 Two things are deliberately absent from this post. There is no measured price or
 end-to-end cloud usage to report, and there is no latency comparison between

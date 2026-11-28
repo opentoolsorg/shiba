@@ -12,7 +12,7 @@ summary: A run is stopped mid-flight, and the record it leaves behind is an erro
 This is a build log entry, told as a story. A coding run is queued, it starts,
 and it does not finish. What matters is what the record looks like afterwards.
 
-Sources: `spec/GOAL.md`, `PLAN.md`, `VERIFICATION.md`, and
+Sources: `spec/GOAL.md`, `docs/plans/plan.md`, `docs/verification/verification.md`, and
 `apps/web/src/content/docs/docs/troubleshooting.md`. Shiba is a local
 prototype, and this post describes required and unit-tested behaviour rather
 than a verified live cloud run.
@@ -43,7 +43,7 @@ the TypeScript build and unit tests still have to pass.
 
 ## The envelope
 
-`PLAN.md` describes the structured result a run returns. Error envelopes must
+`docs/plans/plan.md` describes the structured result a run returns. Error envelopes must
 report `error`. A malformed result, or an absent one, is `error` too. The plan's
 word for the failure mode is never silent success.
 
@@ -58,7 +58,7 @@ envelope is the source of truth.
 
 ## What the failure message carries
 
-`PLAN.md` requires failure messages to include the real error and the real exit
+`docs/plans/plan.md` requires failure messages to include the real error and the real exit
 code, passed through `safeText` and `redactSecrets` before they leave the
 runtime. Redaction is not optional formatting; it is what allows a real error to
 be reported at all.
@@ -74,10 +74,10 @@ limit is documented rather than discovered.
 
 ## The record-keeping rule
 
-`PLAN.md` also sets the standard for the build log itself. Record the date, the
+`docs/plans/plan.md` also sets the standard for the build log itself. Record the date, the
 versions, and every failure. A failing task reports its real exit code.
 
-`VERIFICATION.md` is written to that standard, which is why it contains awkward
+`docs/verification/verification.md` is written to that standard, which is why it contains awkward
 lines. A live cloud run is listed as not attempted. The one local end-to-end
 exercise with OpenCode on 2026-09-19 returned a 401, so model inference was not
 verified. Claude Code and Codex have not run live. `troubleshooting.md` adds

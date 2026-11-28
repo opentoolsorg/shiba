@@ -61,4 +61,4 @@ For practical workflows, see [Files and revisions](/docs/artifacts/) and [Contex
 
 ## Verify your own usage
 
-The dated [`VERIFICATION.md`](/docs/readiness/#evidence-status-2026-09-24) does not provide measured end-to-end cloud usage or a validated price per task. Clearing history does not stop running resources. Cancellation requests best-effort cleanup; confirm the task and resource state in your installation and check actual provider charges.
+The dated [`docs/verification/verification.md`](/docs/readiness/#evidence-status-2026-09-24) does not provide measured end-to-end cloud usage or a validated price per task. Clearing history does not stop running resources. Cancellation requests best-effort cleanup; confirm the task and resource state in your installation and check actual provider charges.

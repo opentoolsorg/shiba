@@ -503,7 +503,7 @@ Approvals become one module, `apps/backend/src/approvals/` (service, policy, rep
 
 **Decision: both, with a clear boundary.** One deployment serves one buyer organization, which is the security boundary. Inside it there are 1..n **workspaces**, which are the authorization and data-scoping boundary.
 
-- **Not hosted multi-tenant SaaS.** The container pool, egress proxy and vault key are shared per deployment. That's acceptable between teams of one company and not acceptable between strangers. Keep `ARCHITECTURE-AS-BUILT.md`'s "single-tenant" wording, but redefine it as "single *organization*". Make that edit in M12.
+- **Not hosted multi-tenant SaaS.** The container pool, egress proxy and vault key are shared per deployment. That's acceptable between teams of one company and not acceptable between strangers. Keep `docs/architecture/as-built.md`'s "single-tenant" wording, but redefine it as "single *organization*". Make that edit in M12.
 - **Data model changes either way:**
   - `workspace_id` on every D1 table holding user data, added as `NOT NULL DEFAULT 'ws_default'`. SQLite `ALTER TABLE ADD COLUMN` with a constant default doesn't rewrite the table.
   - Every DO that holds per-workspace state is keyed by workspace.
@@ -707,7 +707,7 @@ Rollback before step 6 means turning the flag off. After step 6, rollback means 
 ### Phase 0: Guardrails (no behavior change)
 
 **M00: Baseline re-check and ADR files.** Launch
-- **Files:** `apps/web/docs/adr/0001…0016-*.md`, `ARCHITECTURE-AS-BUILT.md` (orchestrator LOC, the tenancy wording)
+- **Files:** `apps/web/docs/adr/0001…0016-*.md`, `docs/architecture/as-built.md` (orchestrator LOC, the tenancy wording)
 - **Size:** about 800 lines, docs only
 - **Depends on:** nothing
 - **Acceptance:** the docs check in CI passes. Every file path in this proposal exists at the target commit, or a note says where it moved.
@@ -833,7 +833,7 @@ Rollback before step 6 means turning the flag off. After step 6, rollback means 
   - `migrations/0062_workspaces.sql` (`workspaces`, `workspace_members`, `identities`, seeded with `ws_default`)
   - `apps/backend/src/workspaces/`
   - backfill: every existing user becomes a member of `ws_default`, with the role decided by Q3
-  - `ARCHITECTURE-AS-BUILT.md` gets the tenancy wording
+  - `docs/architecture/as-built.md` gets the tenancy wording
 - **Size:** about 1,100 lines
 - **Depends on:** M09c
 - **Acceptance:** on the preview, `/api/me` returns `workspaces:[ws_default]`. An admin can create a second workspace and invite a member. A non-member gets 403 on the second workspace's routes.
@@ -1128,7 +1128,7 @@ If that's too many, the first scope to cut is M23 and M24 *for lists other than 
 | Q8 | Is full-text search across threads needed at launch? | No. Search titles in the D1 projection. Add D1 FTS5 on a message projection later. |
 | Q9 | Should Slack and Teams presence be mirrored into web presence? | No. Show only web and desktop presence. |
 | Q10 | Retention defaults for events, audit and memory, and do buyers need legal hold? | Events and audit kept forever / 400 days. Memory per section 10. Legal hold not at launch. |
-| Q11 | Commit to `effect` or remove it? (`EFFECT-REVIEW.md` exists) | Remove it. No new usage from today, and the 7 files are converted in M36. |
+| Q11 | Commit to `effect` or remove it? (`docs/audits/EFFECT-REVIEW.md` exists) | Remove it. No new usage from today, and the 7 files are converted in M36. |
 | Q12 | How many concurrent containers can the buyer's Cloudflare plan run? Is 5 a platform limit or our choice? | Make it a configured value (`SHIBA_MAX_CONTAINERS`, default 5) and document the plan limits. |
 | Q13 | Does the desktop app always load the remote SPA, or does it bundle one? | Load the deployment's SPA. Native code is only for the tray, notifications and LocalDispatch. |
 | Q14 | Can we run a prod D1 export for the rehearsal (it holds customer data), and where may it live? | Default to the dogfood export. A prod export is opt-in per migration with maintainer approval: an encrypted CI artifact with 24h expiry. |

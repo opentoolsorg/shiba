@@ -5,7 +5,10 @@ Thank you for helping build Shiba, an **open-source, self-hostable** workspace f
 ## Before you open a PR
 
 1. Read the [product contract](docs/product/ai-employees.md) and the [security and authority model](docs/architecture/security-model.md), especially **no credentials in containers** and **human approval before execution**.
-2. Run the repository gate from the root:
+2. Run risk-proportionate validation. Use the narrowest useful local checks
+   while iterating, leave broad lanes to CI, and state what remains unverified.
+   Before merging cross-cutting runtime, deployment, credential, approval, or
+   release work, run the full repository gate from the root:
 
    ```sh
    pnpm install
@@ -55,10 +58,24 @@ Pull requests do not spend CI runner minutes when opened or updated. A maintaine
 
 Branch protection should require only `all-checks-pass`. That gate fails if core validation is missing, if a selected lane fails, or if browser verification was neither run with `verify:shiba` nor consciously deferred with `ci:deferred`.
 
+## QA handoff
+
+Before marking a PR ready, add or update one `QA handoff` PR comment with:
+
+- the exact tested head SHA,
+- the validation labels and lanes used,
+- commands or user flows exercised,
+- sanitized evidence or a reason browser QA was not needed,
+- limitations and anything still untested.
+
+A new commit supersedes earlier QA. Repeat the affected checks on the new head
+and update the handoff. Never include credentials, private bypass links,
+cookies, or access tokens in the comment or evidence.
+
 ## Docs and claims
 
 - Write behavior from **source** (`apps/backend/src/`, `wrangler.jsonc`, `env.ts`), not stale README prose.
-- Distinguish **unit tests**, **local `wrangler dev`**, and **cloud-live** evidence; cite dated entries in **`VERIFICATION.md`**.
+- Distinguish **unit tests**, **local `wrangler dev`**, and **cloud-live** evidence; cite dated entries in **`docs/verification/verification.md`**.
 - Do not claim production readiness without verify-shiba or equivalent live evidence.
 
 Extended contributor guide: [https://tryshiba.dev/docs/contributing/](https://tryshiba.dev/docs/contributing/) (source: `apps/web/src/content/docs/docs/contributing.md`).

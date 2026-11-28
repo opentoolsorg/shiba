@@ -2,7 +2,7 @@
 
 Refreshed 2026-11-25 from the current branch. This document explains how the
 backend actually carries work end to end. It supersedes the September coding-
-spine assessment. Read `ARCHITECTURE-AS-BUILT.md` for measured counts and
+spine assessment. Read `docs/architecture/as-built.md` for measured counts and
 `ARCHITECTURE.md` for the employee-platform target.
 
 ## 1. End-to-end runtime path

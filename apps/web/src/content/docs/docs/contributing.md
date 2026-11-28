@@ -38,7 +38,7 @@ frontmatter, descriptive headings, and links using the `/docs/` base.
 Starlight supplies navigation and search; avoid duplicating its interface.
 Source: `apps/web/astro.config.mjs`.
 
-Write technical claims from `apps/backend/src/`, `apps/backend/wrangler.jsonc`, `apps/backend/Dockerfile`, and installed configuration rather than copying README assumptions. Cite relevant source files or symbols. When source and the product contract differ, label **Current behavior (as implemented)** and **Product target** explicitly. Distinguish implementation, unit tests (often fake-backed), local end-to-end exercises, and successful cloud-live evidence; cite the dated `VERIFICATION.md` entry. Its 2026-09-24 summary has no cloud end-to-end run. The 2026-09-19 local OpenCode run ended with a 401 provider response, not successful inference.
+Write technical claims from `apps/backend/src/`, `apps/backend/wrangler.jsonc`, `apps/backend/Dockerfile`, and installed configuration rather than copying README assumptions. Cite relevant source files or symbols. When source and the product contract differ, label **Current behavior (as implemented)** and **Product target** explicitly. Distinguish implementation, unit tests (often fake-backed), local end-to-end exercises, and successful cloud-live evidence; cite the dated `docs/verification/verification.md` entry. Its 2026-09-24 summary has no cloud end-to-end run. The 2026-09-19 local OpenCode run ended with a 401 provider response, not successful inference.
 
 The combined build builds the dashboard and documentation, merges
 `apps/frontend/dist/client` then `apps/web/dist` into `public/` (the second

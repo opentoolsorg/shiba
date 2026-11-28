@@ -64,7 +64,7 @@ drift one, and the expensive one.
 Someone submits a task. The orchestrator drafts a delegation plan. Then the run
 halts in a pending state, waiting.
 
-`VERIFICATION.md` describes what the local path does at that point. A local
+`docs/verification/verification.md` describes what the local path does at that point. A local
 approval creates an `approvalId` and persists a pending approval in the
 `default` orchestrator Durable Object. A signed Slack approval resolves exactly
 once. Only then is the child and container dispatched.
@@ -105,11 +105,11 @@ live.
 
 ## The parts that cannot skip it
 
-Automations do not get a private door. `VERIFICATION.md` states that
+Automations do not get a private door. `docs/verification/verification.md` states that
 quality-gate cards queue through the same `POST /api/runs` approval path, with no
 bypass, because a human still approves before a container starts.
 
-Configuration problems surface at the same point. `VERIFICATION.md` records
+Configuration problems surface at the same point. `docs/verification/verification.md` records
 that harness and model mismatches fail on the approval card, never inside a
 container the human already approved. Approval preflights the concurrency cap,
 the token, and the URL before it consumes the run pointer, so a rejected
@@ -118,7 +118,7 @@ preflight stays retryable with a `409`.
 ## Limits of this account
 
 These are code-level and unit-tested behaviours, not deployment proof.
-`VERIFICATION.md` lists a live cloud run as not attempted, and `claude-code.mdx`
+`docs/verification/verification.md` lists a live cloud run as not attempted, and `claude-code.mdx`
 is explicit that its harness tests do not prove the CLIs can complete a task end
 to end. Security requirements in `spec/GOAL.md` are written as things the system
 must do, including no claim of full multi-tenant isolation.

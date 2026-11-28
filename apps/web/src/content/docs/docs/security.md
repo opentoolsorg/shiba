@@ -13,7 +13,7 @@ Signature-authenticated Slack/GitHub routes, automation webhooks, bearer-token M
 
 Authentication is only the first layer. Invited team membership is not deployment-operator authority. Provider setup, fleet administration, and deployment MCP configuration have separate restrictions. Room access, employee capabilities, account/resource grants, and action approval also remain separate. See [Permissions and roles](/docs/permissions/).
 
-These are implementation and test claims, not proof that a deployed hostname has the intended policy. `VERIFICATION.md` records a dated forged-header 401 check but no cloud end-to-end coding run. Validate your actual hostname and account roles.
+These are implementation and test claims, not proof that a deployed hostname has the intended policy. `docs/verification/verification.md` records a dated forged-header 401 check but no cloud end-to-end coding run. Validate your actual hostname and account roles.
 
 ## The credential boundary
 

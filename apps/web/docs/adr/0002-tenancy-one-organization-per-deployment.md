@@ -2,7 +2,7 @@
 
 ## Context
 
-`ARCHITECTURE-AS-BUILT.md` §10 records "Single-tenant by contract" as a known
+`docs/architecture/as-built.md` §10 records "Single-tenant by contract" as a known
 gap. The north star needs teams — a buyer's teammates sharing one deployment —
 and `spec/GOAL.md` remains the product contract the decision must fit.
 
@@ -34,7 +34,7 @@ metadata lookup). There is no hostile-tenant isolation, and the docs say so.
 
 ## Consequences
 
-- `ARCHITECTURE-AS-BUILT.md` "single-tenant" wording is redefined as "single
+- `docs/architecture/as-built.md` "single-tenant" wording is redefined as "single
   *organization*"; the data-model changes land through the migration plan
   (`docs/proposals/target-architecture-2026-11.md` §13, step M12+).
 - Doing this before launch is cheap; retrofitting after customers have data is

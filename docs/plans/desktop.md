@@ -1,14 +1,14 @@
 # Shiba Desktop: detailed plan
 
 **Revision:** 2026-10-08 (detailed, rev 2). Status: proposal. Once accepted it
-goes into `PLAN.md` as §21 / Phase P11 with tasks **T59–T66** and rows in the
+goes into `docs/plans/plan.md` as §21 / Phase P11 with tasks **T59–T66** and rows in the
 §2.0 table. `DESKTOP-BUILD-PROMPT.md` is the agent prompt that builds it.
 
 **Platform:** macOS only (arm64 + x64) for v1.
 **Backend integration:** every desktop↔Worker flow is in §11.
 **Builds on:** T51 local runtime, T52–T55 Remote Access & Daemon Fleet.
 **Standing constraints:** `spec/GOAL.md`, `ARCHITECTURE.md` §5 (security
-model), the P9 prohibitions in `PLAN.md` §19.5.
+model), the P9 prohibitions in `docs/plans/plan.md` §19.5.
 
 **Framework decision (2026-10-08):** Electron. The alternatives considered:
 - Tauri 2 needs Rust plus a Node sidecar for the daemon, and renders with
@@ -243,7 +243,7 @@ only from the bundled `setup.html` frame.
   (Electron, Tauri 2, GPUI, gpuix, with one line on why each lost),
   **Decision**, **Consequences** (bundle size and RAM accepted; TypeScript
   everywhere; daemon reused unchanged).
-- Append `PLAN.md` §21 Phase P11 (a short pointer to this file plus D1–D8) and
+- Append `docs/plans/plan.md` §21 Phase P11 (a short pointer to this file plus D1–D8) and
   the T59 row in the §2.0 status table (the rev 11 table at `PLAN.md:56`; three
   `### 2.0` headings exist). Each later task adds its own row when its state changes,
   because the tracker treats a task with no row as open. Append only; don't
@@ -279,7 +279,7 @@ only from the bundled `setup.html` frame.
      tokens from `app.userAgentFallback` and retry.
   4. If it's still blocked, the documented fallback is Access one-time PIN or
      the GitHub IdP.
-  5. Record the outcome in `VERIFICATION.md`.
+  5. Record the outcome in `docs/verification/verification.md`.
 - Dev loop:
   1. In `apps/backend/.dev.vars`, set `SHIBA_LOCAL_RUNTIME=1` and
      `LOCAL_ADAPTER_TOKEN` (or `PAIRING_SECRET`). Without them the probe gets
@@ -419,7 +419,7 @@ behavior is unchanged except for exit code 75 and the graceful stop.
 - **Credential spike.** Run one local `claude-code` run and one `codex` run on a
   machine that has only subscription logins (no API-key env vars). Each run's
   `HOME` is fresh (`:300`), so file-based logins may be invisible. Record the
-  result in `VERIFICATION.md`. If they fail, open a T51 follow-up in `PLAN.md`
+  result in `docs/verification/verification.md`. If they fail, open a T51 follow-up in `docs/plans/plan.md`
   (for example, pass `CODEX_HOME` / `CLAUDE_CONFIG_DIR` through to the real
   dirs). It's a security-relevant choice for a human, so don't fix it here.
 - Sleep and wake: `powerMonitor` `suspend` pauses the approvals poller.
@@ -561,7 +561,7 @@ behavior is unchanged except for exit code 75 and the graceful stop.
   It runs locally on macOS via `pnpm --filter @shiba/desktop test:e2e` and
   isn't part of `pnpm test`.
 - Run the manual acceptance in §7 against a real deployment and record a dated
-  entry in `VERIFICATION.md`. Until that entry exists, the status stays
+  entry in `docs/verification/verification.md`. Until that entry exists, the status stays
   "local prototype".
 - Docs: add a "Desktop app" section to
   `apps/web/src/content/docs/docs/remote-access.md` covering install,
@@ -600,7 +600,7 @@ then `pnpm check:ci`.
 
 ---
 
-## 7. Manual acceptance (dated entry in `VERIFICATION.md`)
+## 7. Manual acceptance (dated entry in `docs/verification/verification.md`)
 
 The deployment needs:
 - `SHIBA_LOCAL_RUNTIME=1`

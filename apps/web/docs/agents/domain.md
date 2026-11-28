@@ -1,43 +1,47 @@
-# Domain Docs
+# Domain docs
 
-How the engineering skills should consume this repo's domain documentation when exploring the codebase.
+How engineering skills should consume this repo's domain documentation.
 
-## Before exploring, read these
+## Read before exploring
 
-- **AI employees in a shared workspace**: read the [product contract](../../../../docs/product/ai-employees.md) for current goals and acceptance criteria.
-- **`CONTEXT.md`** at the repo root (single-context layout).
-- **`apps/web/docs/adr/`**: read ADRs that touch the area you're about to work in.
-- **[Security and authority model](../../../../docs/architecture/security-model.md)**: required approval precedes execution, credentials stay out of sandboxes, and publication needs separate approval.
+- [Root agent guide](../../../../AGENTS.md): canonical rules, validation cost
+  posture, and instructions for using dated records.
+- [Product contract](../../../../docs/product/ai-employees.md): current goals
+  and acceptance criteria.
+- [Architecture map](../../../../ARCHITECTURE.md): role names, system spine,
+  and links to topic notes.
+- [Security and authority model](../../../../docs/architecture/security-model.md):
+  approval precedes execution, credentials stay out of sandboxes, and
+  publication needs separate approval.
+- `apps/web/docs/adr/`: read only the ADRs that touch the area you are changing.
 
-If `CONTEXT.md` or `apps/web/docs/adr/` don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill creates them lazily when terms or decisions actually get resolved.
+`docs/plans/plan.md`, `docs/verification/verification.md`, and `docs/plans/roadmap.md` are dated records. Open only the
+section needed for a task id, acceptance question, or historical claim.
 
 ## Standing constraints
 
-The [original coding-spine goal](../../../../spec/GOAL.md) is historical, not the current product contract. These constraints still apply:
+The [original coding-spine goal](../../../../spec/GOAL.md) is historical, not
+the current product contract. These constraints still apply:
 
-- Each self-hosted installation is single-tenant and account-owned. Shared workspaces do not imply multi-tenant deployment isolation.
+- Each self-hosted installation is single-tenant and account-owned. Shared
+  workspaces do not imply multi-tenant deployment isolation.
 - Do not invent prices when documenting costs.
-- Pass structured, validated inputs across the execution-child boundary; do not scrape prose to infer the repository or approved scope.
+- Pass structured, validated inputs across the execution-child boundary. Do not
+  scrape prose to infer the repository or approved scope.
 
-## File structure
+## Use the architecture vocabulary
 
-```
-/
-├── CONTEXT.md
-├── apps/web/docs/adr/
-│   └── 0001-<slug>.md
-├── docs/product/ai-employees.md
-└── src/
-```
+When output names a domain concept, use the term defined in the
+[architecture map](../../../../ARCHITECTURE.md). Use **Employee Runtime**,
+**Room/Coding Orchestrator**, and **Run Execution Agent** for architecture
+roles. Use `EmployeeRuntime`, `CodingOrchestrator`, and `OpenCodeAgent` only
+when referring to the current implementation bindings.
 
-## Use the glossary's vocabulary
+If a needed concept is missing, either the output is inventing project language
+or the architecture has a real gap. Surface that gap instead of coining a term
+silently.
 
-When your output names a domain concept (issue title, refactor proposal, hypothesis, test name), use the term as defined in `CONTEXT.md` or the [architecture](../../../../ARCHITECTURE.md). Use *Employee Orchestrator* and *Run Execution Agent* for the roles, and `CodingOrchestrator` and `OpenCodeAgent` when referring to the implementation.
+## Flag conflicts
 
-If the concept you need isn't in the glossary yet, either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for `/domain-modeling`).
-
-## Flag ADR conflicts
-
-If your output contradicts the product contract, an existing ADR, or a standing constraint above, surface it explicitly rather than silently overriding:
-
-> _Contradicts the single-tenant deployment constraint, but worth reopening because…_
+If output contradicts the product contract, an existing ADR, or a standing
+constraint, surface the conflict explicitly rather than silently overriding it.

@@ -54,7 +54,7 @@ Fix: add `LOADER: Cloudflare.WorkerLoader("LOADER")` to `env` in `alchemy.run.ts
 
 **C4 — `REQUIRE_ACCESS` without `ACCESS_AUD` fails *open* to a forged identity header (verified defect, conditional on the warned-against misconfiguration).**
 
-Live stages always bind `REQUIRE_ACCESS: "1"` (line 286) but `ACCESS_AUD` only when `accessEnabled` (line 294, gated on `ACCESS_EMAILS` + `WORKERS_SUBDOMAIN`). `withVerifiedAccessIdentity` (`access-jwt.ts:36`) returns the request untouched when `ACCESS_AUD` is unset, and `getUserId` (`request-auth.ts:27-33`) then trusts a client-sent `CF-Access-Authenticated-User-Email` header verbatim. `isAccessConfigured` (`request-auth.ts:23-25`) is true via `REQUIRE_ACCESS`, so `isAuthenticated` (`request-auth.ts:86`) passes on the forged header — one `curl -H 'CF-Access-Authenticated-User-Email: x@y.z'` reaches the dashboard/API. The warning block (lines 101-110) and README:98 claim this state "fails closed"; it fails open to forgery. `VERIFICATION.md`'s "forged Access identity headers get 401 (verified live)" was tested *with* `ACCESS_AUD` bound — the JWT path works; the unbound path does not.
+Live stages always bind `REQUIRE_ACCESS: "1"` (line 286) but `ACCESS_AUD` only when `accessEnabled` (line 294, gated on `ACCESS_EMAILS` + `WORKERS_SUBDOMAIN`). `withVerifiedAccessIdentity` (`access-jwt.ts:36`) returns the request untouched when `ACCESS_AUD` is unset, and `getUserId` (`request-auth.ts:27-33`) then trusts a client-sent `CF-Access-Authenticated-User-Email` header verbatim. `isAccessConfigured` (`request-auth.ts:23-25`) is true via `REQUIRE_ACCESS`, so `isAuthenticated` (`request-auth.ts:86`) passes on the forged header — one `curl -H 'CF-Access-Authenticated-User-Email: x@y.z'` reaches the dashboard/API. The warning block (lines 101-110) and README:98 claim this state "fails closed"; it fails open to forgery. `docs/verification/verification.md`'s "forged Access identity headers get 401 (verified live)" was tested *with* `ACCESS_AUD` bound — the JWT path works; the unbound path does not.
 
 Fix: strip `CF-Access-Authenticated-User-Email` at ingress whenever `ACCESS_AUD` is unset and `REQUIRE_ACCESS` is set (or unconditionally strip it on deployed hosts and let better-auth own the non-Access identity lane).
 
@@ -145,7 +145,7 @@ PLAN.md is unusually honest — its status table matches the tree far better tha
 - **Effort total stale**: `PLAN.md:21` "~55h" covers P0–P6 only; the plan now runs to P11. Status banners are also rev-stale by design: TL;DR carries "Rev 4 status"/"Rev 9 status" rows (lines 23-24) in a rev-12 document, and `### 2.0` is reused three times (lines 56, 112, 132 for revs 11/8/7).
 - **`"no AGENTS.md exists in this repo"`** (`PLAN.md:58`, rev-11 note): `AGENTS.md` exists at root today (1016 bytes).
 - **§17.5 T33 "Screenshot is the genuinely missing half"** (`PLAN.md:897-901`): `screenshot.ts` + `captureRunPreview` shipped (`agents/opencode-agent.ts:334,421`, `screenshots-routes.ts`), and §2.0's own rev-11 note says the screenshot half merged (PRs #22/#23) — §17.5 was never updated.
-- **References: `spec/GOAL.md (stale as of rev 2 — T17)`** (`PLAN.md` References block): GOAL.md was amended (items 12-15 cover Slack/automations/desktop; "This supersedes the earlier no-monorepo line").
+- **References: `spec/GOAL.md (stale as of rev 2 — T17)`** (`docs/plans/plan.md` References block): GOAL.md was amended (items 12-15 cover Slack/automations/desktop; "This supersedes the earlier no-monorepo line").
 - **§20.2 "pin `openai/gpt-5.6-sol`" vs the shipped pin**: the body records the correction and the 2026-10-09 swap to `gpt-6-sol` — internally consistent, but the earlier sentence is easy to misread; the actual pinned id is `openai/gpt-6-sol` (`wrangler.jsonc:52`, `alchemy.run.ts:292-293`).
 - **`deployment.md` URL** `https://shiba.<sub>.workers.dev/app/` — wrong worker name and `workers.dev` is disabled.
 - **`configuration.md` `ORCHESTRATOR_MODEL` row** claims `@cf/meta/llama-3.1-8b-instruct`; shipped default is `@cf/zai-org/glm-4.7-flash`.
@@ -165,8 +165,8 @@ PLAN.md is unusually honest — its status table matches the tree far better tha
 | T27 | GOAL.md reconciled | ✅ | `spec/GOAL.md` now blesses the monorepo + Slack + automations + desktop |
 | T29 | OAuth MCP | ✅ files | `oauth-mcp.ts` full AS; `/oauth/*` + `/.well-known/*` routes in `index.ts` |
 | T25 | deploy button + prerequisites | ⚠️ overstated | No `deploy.workers.cloudflare.com` badge anywhere in `README.md` (only Site/Docs/License badges, lines 3-5). Either add it or correct the row |
-| T28 | audit clean | ⚠️ partially verifiable | `VERIFICATION_PLAN.md` + `audit/` screenshots exist; "clean" is a dated claim I can't independently re-run read-only |
-| T10 | live acceptance run | ✅ honestly reported **open** | `PLAN.md:147`, `VERIFICATION.md` — blocked on cloud deploy + AI Gateway credential; not claimed done |
+| T28 | audit clean | ⚠️ partially verifiable | `docs/verification/verification-plan.md` + `audit/` screenshots exist; "clean" is a dated claim I can't independently re-run read-only |
+| T10 | live acceptance run | ✅ honestly reported **open** | `PLAN.md:147`, `docs/verification/verification.md` — blocked on cloud deploy + AI Gateway credential; not claimed done |
 
 ## B1–B12 current reality
 
@@ -177,7 +177,7 @@ PLAN.md is unusually honest — its status table matches the tree far better tha
 | B3 | dead `CODING_MODEL` | **Fixed** — `google/gemini-3.5-flash-lite` + `assertLiveCodingModel` startup check (`index.ts:204`) + `RETIRED_MODELS` (`roles.ts:141`) |
 | B4 | `WORKER_ORIGIN` throw | **Fixed** — zero references remain; `provider-gateway.ts` persists only as a utils module (`DUMMY_PROVIDER_KEY`, header sanitizers — imported by tests; `provider-exports.test.ts` asserts `forwardProviderRequest` is gone) |
 | B5 | open egress | **Fixed** — `override allowedHosts` (`sandbox.ts:38`) + per-run narrowing via `allowedHostsFor` |
-| B6 | token to all of github.com | **Fixed** — `approveRepoScope` per-repo forwarder; cross-repo refusal tested per `VERIFICATION.md` |
+| B6 | token to all of github.com | **Fixed** — `approveRepoScope` per-repo forwarder; cross-repo refusal tested per `docs/verification/verification.md` |
 | B7 | unauthenticated API/WS | **Fixed** — `isAuthorizedRequest` gate + verified-JWT identity rebuild + better-auth; **residual**: REQUIRE_ACCESS-without-ACCESS_AUD is forgeable (finding C4) |
 | B8 | any output ⇒ `completed` | **Fixed** — `verifyRunOutcome` + `harness.verify` gate + `testEvidence` (T43/T46) |
 | B9 | `sleepAfter="10m"`, never destroyed | **Mostly fixed** — `sleepAfter = "1m"` (`sandbox.ts:25`); `destroyManagedContainer` + `leakedContainers` retry path (`agents/orchestrator.ts` ~2326-2378). Idle tail now ~1m, not 10m |
