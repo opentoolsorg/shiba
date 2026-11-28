@@ -145,7 +145,7 @@ export async function dispatchEmployeeTool(input: EmployeeToolDispatchInput): Pr
     if (matchingRules.length !== 1) return { allowed: false, reason: "unsupported_action" };
     const rule = matchingRules[0]!;
     const resourceArgument = rule.resourceArgument;
-    const resourceValue = resourceArgument ? input.args[resourceArgument] :
+    const resourceValue = resourceArgument ? input.args[resourceArgument] : input.args.resourceId ??
       (rule.resourceRequired !== true && input.connection.allowedResources.length === 1 ? input.connection.allowedResources[0] : undefined);
     const resourceValues = Array.isArray(resourceValue) ? resourceValue : resourceValue === undefined ? [] : [resourceValue];
     if (resourceValues.some((value) => typeof value !== "string" || !value.trim() || value.length > 200) || resourceValues.length > 100) {
