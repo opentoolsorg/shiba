@@ -8,12 +8,11 @@ import { type JSX, useCallback, useEffect, useMemo, useState } from "react";
 import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 import type { AppNavView } from "../AppNavRail";
 import { LoadErrorState } from "../LoadErrorState";
-import { MainCard } from "../ui/ContextPanel";
 
 const inputClass =
-  "min-h-11 flex-1 border border-[var(--border-1)] bg-[var(--card)] px-3 text-sm text-[var(--fg)]";
+  "h-9 min-h-9 min-w-0 flex-1 rounded-[6px] border border-[var(--border-1)] bg-[var(--card)] px-3 text-sm text-[var(--fg)] outline-none transition-shadow focus-visible:border-[var(--border-3)] focus-visible:ring-[3px] focus-visible:ring-[var(--ring)]/20";
 const buttonClass =
-  "min-h-11 border border-[var(--border-1)] bg-[var(--panel)] px-3 text-sm text-[var(--fg)]";
+  "h-9 min-h-9 shrink-0 rounded-[8px] border border-[var(--border-1)] bg-[var(--panel)] px-4 text-sm text-[var(--fg)] transition-colors hover:bg-[var(--card-hover)] disabled:opacity-50";
 
 async function readJson<T>(response: Response, fallback: string): Promise<T> {
   const body = (await response.json().catch(() => ({}))) as T & { error?: string };
@@ -194,16 +193,16 @@ export function ProjectsView({
     Boolean(project?.createdBy && project.createdBy.trim().toLowerCase() === normalizedActorId);
 
   return (
-    <div className="p-4">
-      <MainCard>
-        <header className="mb-4">
-          <h1 className="text-lg font-medium">Projects</h1>
-          <p className="text-sm text-[var(--muted-foreground-2)]">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <header className="flex min-h-16 shrink-0 flex-col justify-center border-b border-[var(--border-1)] px-6 py-1.5">
+          <h1 className="text-sm leading-5 font-medium">Projects</h1>
+          <p className="mt-0.5 text-xs leading-5 text-[var(--muted-foreground-2)]">
             Group files and notes into focused workspaces. Deleting a project keeps every file and
             note.
           </p>
-        </header>
-        <div className="mb-4 flex gap-2">
+      </header>
+      <div className="mx-auto w-full max-w-5xl flex-1 overflow-y-auto px-6 py-6">
+        <div className="mb-4 flex max-w-xl gap-2">
           <input
             className={inputClass}
             value={name}
@@ -222,7 +221,7 @@ export function ProjectsView({
         </div>
         {error ? <LoadErrorState message={error} onRetry={() => void load()} /> : null}
         {loaded && !projects.length && !error ? (
-          <div className="border border-dashed border-[var(--border-1)] px-4 py-8 text-center text-sm">
+          <div className="rounded-[8px] border border-dashed border-[var(--border-1)] px-4 py-8 text-center text-sm">
             <h2 className="font-medium">No projects yet</h2>
             <p className="mt-1 text-[var(--muted-foreground-2)]">
               Name your first project above. A created project appears in this list.
@@ -231,16 +230,16 @@ export function ProjectsView({
         ) : null}
         {projects.length ? (
           <div className="grid gap-4 lg:grid-cols-[16rem_1fr]">
-            <aside aria-label="Project list" className="border border-[var(--border-1)]">
+            <aside aria-label="Project list" className="space-y-2">
               {projects.map((item) => (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => setSelectedId(item.id)}
-                  className={`flex min-h-11 w-full items-center justify-between border-b border-[var(--border-1)] px-3 text-left text-sm last:border-b-0 ${item.id === selectedId ? "bg-[var(--panel)] font-medium" : "bg-transparent"}`}
+                  className={`flex min-h-12 w-full items-center justify-between rounded-[8px] border px-4 text-left text-sm transition-colors ${item.id === selectedId ? "border-[var(--border-2)] bg-[var(--panel)] font-medium" : "border-[var(--border-1)] bg-[var(--card)] hover:bg-[var(--card-hover)]"}`}
                 >
                   <span className="truncate">{item.name}</span>
-                  <span className="ml-2 shrink-0 text-xs text-[var(--muted-foreground-2)]">
+                  <span className="ml-2 shrink-0 rounded-[6px] bg-[var(--surface-subtle)] px-2 py-1 text-xs leading-none text-[var(--muted-foreground-2)]">
                     {(item.fileCount ?? 0) + (item.noteCount ?? 0)}
                   </span>
                 </button>
@@ -248,7 +247,7 @@ export function ProjectsView({
             </aside>
             <section
               aria-label="Project detail"
-              className="min-w-0 border border-[var(--border-1)] p-3"
+              className="min-w-0 rounded-[8px] border border-[var(--border-1)] p-4"
             >
               {project ? (
                 <>
@@ -317,8 +316,8 @@ export function ProjectsView({
                       Only the project creator or a workspace owner/admin can change this project.
                     </p>
                   ) : null}
-                  <div className="grid gap-4 xl:grid-cols-2">
-                    <section aria-label="Project files">
+                  <div className="grid gap-4 2xl:grid-cols-2">
+                    <section aria-label="Project files" className="rounded-[8px] border border-[var(--border-1)] p-4">
                       <h2 className="mb-2 font-medium">
                         Files{" "}
                         <span className="text-xs text-[var(--muted-foreground-2)]">
@@ -373,7 +372,7 @@ export function ProjectsView({
                         ) : null}
                       </ul>
                     </section>
-                    <section aria-label="Project notes">
+                    <section aria-label="Project notes" className="rounded-[8px] border border-[var(--border-1)] p-4">
                       <h2 className="mb-2 font-medium">
                         Notes{" "}
                         <span className="text-xs text-[var(--muted-foreground-2)]">
@@ -455,7 +454,7 @@ export function ProjectsView({
             </button>
           </p>
         ) : null}
-      </MainCard>
+      </div>
     </div>
   );
 }
