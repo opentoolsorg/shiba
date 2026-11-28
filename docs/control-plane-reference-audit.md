@@ -8,9 +8,9 @@ Use the current Shiba-owned documents instead:
 
 1. [`../ARCHITECTURE.md`](../ARCHITECTURE.md) — living employee-platform
    architecture.
-2. [`../ARCHITECTURE-AS-BUILT.md`](../ARCHITECTURE-AS-BUILT.md) — measured
+2. [`architecture/as-built.md`](architecture/as-built.md) — measured
    implementation snapshot.
-3. [`../INFRA-AUTH-HARNESS-MONOREPO.md`](../INFRA-AUTH-HARNESS-MONOREPO.md) —
+3. [`architecture/runtime.md`](architecture/runtime.md) —
    end-to-end runtime, auth, harness, and monorepo flow.
 4. [`architecture/durable-objects.md`](architecture/durable-objects.md) — state
    ownership.

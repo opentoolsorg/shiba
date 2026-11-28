@@ -54,7 +54,7 @@ models such as `xai/grok-4`; Claude Code takes `anthropic/*`, for example
 and `xai/*`; Devin takes `devin/*`.
 
 An unsupported pairing is refused while preparing the approval, before
-execution, with a message naming what the harness does support. `VERIFICATION.md`
+execution, with a message naming what the harness does support. `docs/verification/verification.md`
 records where that refusal lands: on the approval card, never inside a container
 the human already approved.
 

@@ -2,8 +2,8 @@
 
 > **Current direction, 2026-11-25:** Shiba is an AI employee workspace, not only
 > a coding agent. The canonical product contract is
-> [`docs/product/ai-employees.md`](docs/product/ai-employees.md), and the living
-> system architecture is [`ARCHITECTURE.md`](ARCHITECTURE.md). The detailed
+> [`docs/product/ai-employees.md`](../product/ai-employees.md), and the living
+> system architecture is [`ARCHITECTURE.md`](../../ARCHITECTURE.md). The detailed
 > phases below are a historical `T<n>` tracker for the coding-agent spine,
 > harnesses, automations, remote access, and reliability work. They remain useful
 > implementation evidence, but they are not the current product boundary by
@@ -166,7 +166,7 @@ Baseline: **1187 tests passing across 74 files** (count drifts per rev — treat
 | Grok harness | **Done.** Headless print-mode harness (streaming-json) pinned to the `api.x.ai` forwarder via `GROK_MODELS_BASE_URL`. The shared ACP transport was tried and dropped; Cursor stays a remote executor — its token exchange can't hold the dummy-key invariant. |
 | Connected agent accounts (dashboard) | **Not pursued.** Per-user credential storage conflicts with GOAL.md's credential contract — needs a deliberate spec amendment before any `harness-accounts` work. |
 | T27 spec/monorepo reconcile | **Done (2026-09-27).** Option (a): `spec/GOAL.md` accepts the pnpm+turbo monorepo and enumerates the formerly-forbidden primitives now in use — D1 `AGENT_AUDIT`, KV `AGENT_TOKENS`, R2 `ATTACHMENTS`, Vectorize `MEMORY_VECTORS` — each justified; Queues/Workflows/Hono remain forbidden. |
-| T28 VERIFICATION_PLAN re-audit | **Done (2026-09-27).** G1–G11 re-checked in place: all resolve, including G10 (assets tracked under `apps/web/public/`) and G11 (legacy theme CSS deleted; per-app postcss/tailwind configs are legitimate). Per-row evidence in `VERIFICATION_PLAN.md` §1. |
+| T28 VERIFICATION_PLAN re-audit | **Done (2026-09-27).** G1–G11 re-checked in place: all resolve, including G10 (assets tracked under `apps/web/public/`) and G11 (legacy theme CSS deleted; per-app postcss/tailwind configs are legitimate). Per-row evidence in `docs/verification/verification-plan.md` §1. |
 
 ### 2.0 Status as of rev 7 (2026-09-19)
 
@@ -460,7 +460,7 @@ Add `parseAgentResult` beside `formatAgentResult`, reusing `codingTaskResultSche
 
 ### T10 · First live acceptance run
 
-Follow `readiness.md`'s existing 9-step checklist verbatim on a throwaway repo. It is well written — do not rewrite it. Record results in `VERIFICATION.md` with date, versions, and every failure.
+Follow `readiness.md`'s existing 9-step checklist verbatim on a throwaway repo. It is well written — do not rewrite it. Record results in `docs/verification/verification.md` with date, versions, and every failure.
 
 Minimum bar: deploy succeeds · dashboard behind Access, unauthenticated refused · reject → **no container starts** (verify in container metrics, not the UI) · approve → phases stream → diff matches reality · a failing task reports its real exit code · cancel mid-run stops the container · a PR lands with a deleted file shown as deleted.
 
@@ -822,7 +822,7 @@ T5–T8 are independent of each other. Within P3, T12 gates everything; T13/T14 
 
 **P1** — `allowedHosts` set, non-listed host refused by test · out-of-scope repo returns 403 with no auth header · unauthenticated `/api/runs` → 401 while `/api/slack/*` stays open · an `error` envelope never reads `completed`
 
-**P2 — the one that matters** — `VERIFICATION.md` records a dated live run: submit → approve → clone/code/collect → diff matches reality · rejection provably starts no container (container metrics, not the UI) · a failing task reports its real exit code · a PR shows a deleted file as deleted · **peak memory measured**, `basic` vs `standard-1` decided on data
+**P2 — the one that matters** — `docs/verification/verification.md` records a dated live run: submit → approve → clone/code/collect → diff matches reality · rejection provably starts no container (container metrics, not the UI) · a failing task reports its real exit code · a PR shows a deleted file as deleted · **peak memory measured**, `basic` vs `standard-1` decided on data
 
 **P3 — verified live in a real workspace** — Request URL verification succeeds *with Access enabled* · `@shiba fix this` posts a card in-thread · the card shows the exact arguments that will execute · a non-`SLACK_APPROVERS` user clicking Approve is refused and **no container starts** · an approver's click runs it and progress updates in-thread · PR link lands in the same thread · a second click on a resolved card starts nothing · a forced retry (duplicate `event_id`) produces **one** run · a 20-message burst produces **one** run · `aside` never reaches context · a pasted token appears in no Slack message or task input
 
@@ -859,7 +859,7 @@ T5–T8 are independent of each other. Within P3, T12 gates everything; T13/T14 
 | Users need machines bigger than `standard-4` | Platform ceiling. No workaround on Cloudflare. This is the honest limit of the whole approach. |
 | A self-hosted review tool adds "fix" to "review" | A peer lands directly on this product with a year's head start. Dropping the review agent (§4) widens the gap on that flank; the answer is shipping P3 and P5, where closed SaaS agents cannot follow. |
 
-**Standing risk:** mocked tests cannot establish any of this works in the cloud. 111 green tests and a clean dry run are necessary, not sufficient. Until T10 and the P3–P5 acceptance lists are dated in `VERIFICATION.md`, the honest status stays "local prototype" — exactly as `readiness.md` already says.
+**Standing risk:** mocked tests cannot establish any of this works in the cloud. 111 green tests and a clean dry run are necessary, not sufficient. Until T10 and the P3–P5 acceptance lists are dated in `docs/verification/verification.md`, the honest status stays "local prototype" — exactly as `readiness.md` already says.
 
 ---
 
@@ -902,7 +902,7 @@ Two honest options — pick one explicitly, do not leave it implicit:
 
 **T27 gates T28–T36.** Every task below is written against the monorepo layout; amending the spec first stops the next reader from re-litigating it.
 
-**T28 · Confirm G10/G11 are closed, then re-audit `VERIFICATION_PLAN.md`.** `VERIFICATION_PLAN.md:26-27` records G10 (all landing images gitignored) and G11 (duplicate configs) as open, but both are now **fixed** in the tree — `.gitignore:3-6` negates `public/` and `apps/web/public/**`, and `git ls-tree -r HEAD -- apps/web/public/assets` returns 22 tracked files. The findings are stale, not the code.
+**T28 · Confirm G10/G11 are closed, then re-audit `docs/verification/verification-plan.md`.** `VERIFICATION_PLAN.md:26-27` records G10 (all landing images gitignored) and G11 (duplicate configs) as open, but both are now **fixed** in the tree — `.gitignore:3-6` negates `public/` and `apps/web/public/**`, and `git ls-tree -r HEAD -- apps/web/public/assets` returns 22 tracked files. The findings are stale, not the code.
 
 So T28 is not a fix, it is a **re-audit**: walk the whole G1–G11 table, re-run each check, and mark resolved ones resolved with the command that proves it. That table has already misled one reader (§4 records the Slack precedent, where a stale cut survived a full rev). **Do not add features on top of an audit nobody has re-run.**
 
@@ -971,7 +971,7 @@ not code:
 | Webhook ingest | **Done** — HMAC-SHA256 verified, dedupe *after* verification, 503 when unconfigured | `index.ts:881-905` |
 | Projects v2 board sync | **Done** — best-effort, `waitUntil`, never delays the terminal transition | `github-project.ts` |
 
-**T37 · Record the GitHub acceptance run.** One dated run, in `VERIFICATION.md`:
+**T37 · Record the GitHub acceptance run.** One dated run, in `docs/verification/verification.md`:
 submit → approve → scoped clone → harness exec → diff matches the real working
 tree → PR opens on the real repo → board sync lands. The diff-matching and
 PR-opening steps are the two that only a live run can prove; everything above
@@ -995,7 +995,7 @@ same account-side prerequisites as T10. They are not blocked on more code.
 
 **T35 · Registration, per-user repos, ownership.** §4 cut multi-tenancy citing `GOAL.md`: *"Each installation is single-tenant and account-owned."* The reference agent supports 10 users self-hosted and sells licensing above that. `waitlist-do.ts` gives a partial user model to build on.
 
-**This is a spec change, not a feature.** It reverses an explicit §4 cut and a `GOAL.md` line, and it is the item most likely to be *cut again* by a future reader. Whatever the decision, it belongs in `PLAN.md` §4 and `GOAL.md` **before** code — the same lesson §4 already records about Slack.
+**This is a spec change, not a feature.** It reverses an explicit §4 cut and a `GOAL.md` line, and it is the item most likely to be *cut again* by a future reader. Whatever the decision, it belongs in `docs/plans/plan.md` §4 and `GOAL.md` **before** code — the same lesson §4 already records about Slack.
 
 ### 17.8 W6 — Teams lane (~4h) · *lowest value, do last or not at all*
 
@@ -1029,7 +1029,7 @@ credential path costs. T37–T39 exist because the GitHub path is *structurally
 complete but unproven in the cloud*, so the remaining work there is evidence,
 not code.
 
-**Standing constraint, unchanged:** W1–W6 are all *in front of* the same wall as everything else. Until T10's dated live acceptance is in `VERIFICATION.md`, none of this is proven in the cloud. **A wave does not ship because its unit tests pass** — that is the §16 standing risk, and it is why W0 exists before W1.
+**Standing constraint, unchanged:** W1–W6 are all *in front of* the same wall as everything else. Until T10's dated live acceptance is in `docs/verification/verification.md`, none of this is proven in the cloud. **A wave does not ship because its unit tests pass** — that is the §16 standing risk, and it is why W0 exists before W1.
 
 ### 17.10 Success criteria
 
@@ -1236,7 +1236,7 @@ New `harness/claude-subscription.ts`, registered in `harness/index.ts` — **sep
 
 **Multi-account:** separate accounts = separate instances, separate config dirs, isolated conversation state. A run may only resume against the account it started on: continuation key `claude:home:<resolvedConfigDir>` (the reference implementation's derivation) is part of the run record, and the **T40 decider** enforces resume-against-same-key — not the UI. Account identity never appears in argv.
 
-**Documentation is part of the feature:** amend `PLAN.md` §3 — replace the blanket prohibition with the narrowed design + its three constraints, keeping the original reasoning visible (do not delete it; it is why the design is this narrow); fix the `claude-code.ts` docstring ("deliberately not supported" → scoped to the API-key harness, pointing at the new one); add the harness to the `spec/GOAL.md` and `ARCHITECTURE.md` catalogs noting the AI-Gateway bypass; write a user-facing note stating the operator's own Anthropic terms apply, the token is a deployment secret, and revoking it stops runs mid-flight — in the product's voice, no implementation detail.
+**Documentation is part of the feature:** amend `docs/plans/plan.md` §3 — replace the blanket prohibition with the narrowed design + its three constraints, keeping the original reasoning visible (do not delete it; it is why the design is this narrow); fix the `claude-code.ts` docstring ("deliberately not supported" → scoped to the API-key harness, pointing at the new one); add the harness to the `spec/GOAL.md` and `ARCHITECTURE.md` catalogs noting the AI-Gateway bypass; write a user-facing note stating the operator's own Anthropic terms apply, the token is a deployment secret, and revoking it stops runs mid-flight — in the product's voice, no implementation detail.
 
 **Definition of done (all provable by test):** with the ack var absent the harness is unlisted/unselectable and every existing gate is byte-identical; with it present and a valid token a run completes and opens a PR; with an invalid token `verify` fails with the real reason and no run starts; signing out mid-run stops in-flight runs *before* clearing metadata; the token appears in no log line, UI response, argv, or sandbox file; a resumed run refuses to cross accounts.
 
@@ -1456,7 +1456,7 @@ before the provider cutoff on purpose. `roles-e2e.test.ts` parses the real `wran
 every model's provider is supported by its harness, and the resolution path is the same one
 `delegate.execute` takes at intake.
 
-**Not proven:** a live model call. `VERIFICATION.md` records the furthest-ever run dying at an
+**Not proven:** a live model call. `docs/verification/verification.md` records the furthest-ever run dying at an
 **AI Gateway 401** — a credential/account gap, not a code gap. Role routing does not change that:
 the pins are validated before dispatch, and the model call still needs a working gateway
 credential or a BYO provider key on the `default` gateway. **No live end-to-end run is claimed
@@ -1468,7 +1468,7 @@ is still swapped at egress); no model id pinned that was not verified against a 
 
 ## 21. Phase P11 — Shiba Desktop (T59–T66)
 
-**Status: planned.** The full plan is `DESKTOP-PLAN.md` (decisions A1–A9, tasks §5, backend flows §11,
+**Status: planned.** The full plan is `docs/plans/desktop.md` (decisions A1–A9, tasks §5, backend flows §11,
 manual acceptance §7); the framework choice is `apps/web/docs/adr/0001-desktop-shell-electron.md`.
 macOS-only Electron shell that loads `<origin>/app/` and supervises `scripts/shiba-local-daemon.mjs`.
 

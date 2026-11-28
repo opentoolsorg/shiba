@@ -15,7 +15,7 @@ How engineering skills should consume this repo's domain documentation.
   publication needs separate approval.
 - `apps/web/docs/adr/`: read only the ADRs that touch the area you are changing.
 
-`PLAN.md`, `VERIFICATION.md`, and `ROADMAP.md` are dated records. Open only the
+`docs/plans/plan.md`, `docs/verification/verification.md`, and `docs/plans/roadmap.md` are dated records. Open only the
 section needed for a task id, acceptance question, or historical claim.
 
 ## Standing constraints

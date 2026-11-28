@@ -21,7 +21,7 @@ The September snapshot below is retained as historical evidence. Its deployment 
 
 ## Evidence status (2026-09-24)
 
-**Implemented** describes code present; **unit-tested** describes mocked/component tests; **locally exercised** describes the dated `wrangler dev` run below. None of these means cloud-live. The September 24 checks in [`VERIFICATION.md`](https://github.com/opentoolsorg/shiba/blob/main/VERIFICATION.md) report typecheck, lint, 995 tests, build, and frontend smoke passing. The Worker/container dry run was blocked because Docker was unavailable; the Worker/assets-only dry run passed with container rollout disabled. Alchemy planning reached the expected missing-Cloudflare-OAuth error. No cloud deployment or cloud end-to-end run is recorded.
+**Implemented** describes code present; **unit-tested** describes mocked/component tests; **locally exercised** describes the dated `wrangler dev` run below. None of these means cloud-live. The September 24 checks in [`docs/verification/verification.md`](https://github.com/opentoolsorg/shiba/blob/main/VERIFICATION.md) report typecheck, lint, 995 tests, build, and frontend smoke passing. The Worker/container dry run was blocked because Docker was unavailable; the Worker/assets-only dry run passed with container rollout disabled. Alchemy planning reached the expected missing-Cloudflare-OAuth error. No cloud deployment or cloud end-to-end run is recorded.
 
 ### Implemented and unit-tested
 
@@ -33,7 +33,7 @@ The 2026-09-19 `wrangler dev` run exercised queue → signed Slack approval → 
 
 ### Cloud-live
 
-**No cloud end-to-end run was recorded in this September snapshot.** Do not describe the product as production-ready or claim cloud-live container execution, model inference, PR publication, or billing behavior. That snapshot reported deployment blocked pending Docker-capable validation and Cloudflare OAuth/profile setup. `VERIFICATION.md` is the dated source of truth for later status.
+**No cloud end-to-end run was recorded in this September snapshot.** Do not describe the product as production-ready or claim cloud-live container execution, model inference, PR publication, or billing behavior. That snapshot reported deployment blocked pending Docker-capable validation and Cloudflare OAuth/profile setup. `docs/verification/verification.md` is the dated source of truth for later status.
 
 ## Remaining gaps
 

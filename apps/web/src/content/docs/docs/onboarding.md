@@ -3,7 +3,7 @@ title: Onboarding and setup
 description: Prepare a local checkout and understand what has—and has not—been verified for live use.
 ---
 
-This guide describes the current repository setup, not a completed cloud acceptance run. See the latest dated record in `VERIFICATION.md`: local checks pass, but cloud deployment is pending. On 2026-09-19, OpenCode was exercised with local `wrangler dev` and OrbStack; the model request returned 401, so inference was not verified. No cloud live run is recorded. Treat all harnesses and deployment instructions below as implementation/setup guidance, not proof of production readiness. See [Readiness](/docs/readiness/).
+This guide describes the current repository setup, not a completed cloud acceptance run. See the latest dated record in `docs/verification/verification.md`: local checks pass, but cloud deployment is pending. On 2026-09-19, OpenCode was exercised with local `wrangler dev` and OrbStack; the model request returned 401, so inference was not verified. No cloud live run is recorded. Treat all harnesses and deployment instructions below as implementation/setup guidance, not proof of production readiness. See [Readiness](/docs/readiness/).
 
 ## First value: receive mail with a cloud agent
 
@@ -38,7 +38,7 @@ AI Gateway access must be configured for the selected account-owned gateway. Pro
 
 ## First validation
 
-Before using real repositories, complete the [readiness checklist](/docs/readiness/) and use an isolated public test repository. Start with a diff-only task and publishing disabled. Inspect the approved task, run result, and diff, then run the target repository's checks yourself. A completed cloud acceptance run exists only when a dated result is added to `VERIFICATION.md`.
+Before using real repositories, complete the [readiness checklist](/docs/readiness/) and use an isolated public test repository. Start with a diff-only task and publishing disabled. Inspect the approved task, run result, and diff, then run the target repository's checks yourself. A completed cloud acceptance run exists only when a dated result is added to `docs/verification/verification.md`.
 
 ### Evidence levels
 

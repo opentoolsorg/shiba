@@ -1,292 +1,250 @@
-# Shiba — AI employees for the work behind your company
+<div align="center">
 
-[![Site](https://img.shields.io/badge/Site-tryshiba.dev-0B9F95?style=flat-square&logo=cloudflare&logoColor=white)](https://tryshiba.dev/)
-[![Documentation](https://img.shields.io/badge/Docs-tryshiba.dev%2Fdocs-teal?style=flat-square)](https://tryshiba.dev/docs/)
-[![Dashboard](https://img.shields.io/badge/Dashboard-app.tryshiba.dev-0B9F95?style=flat-square&logo=cloudflare&logoColor=white)](https://app.tryshiba.dev/app/)
-[![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg?style=flat-square)](LICENSE)
+# Shiba
 
-## Sponsors
+**Approval-first AI employees for the work behind your company.**  
+Hire coding, marketing, research, and operations teammates that plan, ask before acting, and return reviewable work.
 
-[![AgentDesk](https://img.shields.io/badge/AgentDesk-white-label%20AI%20voice%20agent%20platform-0B9F95?style=flat-square&logo=cloudflare&logoColor=white)](https://github.com/princepal9120/agentdesk)
-[![Awesome Solo Founder OSS](https://img.shields.io/badge/Awesome%20Solo%20Founder%20OSS-Curated%20OSS%20stack%20for%20solo%20founders-teal?style=flat-square)](https://github.com/princepal9120/awesome-solo-founder-oss)
+<p>
+<a href="https://tryshiba.dev/"><b>Website</b></a> ·
+<a href="https://tryshiba.dev/docs/"><b>Docs</b></a> ·
+<a href="https://app.tryshiba.dev/app/"><b>Dashboard</b></a> ·
+<a href="#local-quickstart"><b>Run locally</b></a>
+</p>
 
-Shiba is an open-source workspace for AI employees doing the work behind a company: engineering, design, marketing, sales, operations, finance, research, and revenue planning.
+<sub>Open source · self-hosted · AGPL-3.0-only</sub>
 
-Describe a task, review the proposed work, and approve the request. Shiba returns files and changes for you to inspect: a code fix, campaign draft, account brief, operating checklist, or draft budget using figures you supply. Choose an artifact workspace for reviewable files without GitHub, a repository task for an existing codebase, or employee tools and supplied context for permitted app work. Workspace execution requires approval; pull request publication requires a separate approval of the completed changes.
+</div>
 
-The software is free to self-host. You pay for hosting and model usage through your chosen providers. Start with [your first task](https://tryshiba.dev/docs/getting-started/) or the [self-hosting guide](https://tryshiba.dev/docs/self-hosting/).
+<br>
 
-**Status: deployed prototype, not production-ready.** No live end-to-end cloud run is claimed. Two hosts exist: `tryshiba.dev` is the Cloudflare Pages site (landing `/`, docs `/docs/` — static only), and `app.tryshiba.dev` is the deployed Worker (dashboard `/app/` plus the API) behind Cloudflare Access with `workers.dev` disabled. The Worker deploy proves the stack provisions and serves; it does not establish a live coding run. `VERIFICATION.md` records passing local typecheck, lint, tests, and build checks; the backend remains a prototype until a dated run meets the P2 acceptance bar in `PLAN.md` §15: submit → approve → clone/code/collect with a diff that matches reality, rejection starting no container, honest failure exit codes, PRs with deletions shown as deleted, and peak memory measured.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/live-agents-dark.webp">
+  <img src="docs/readme/live-agents-light.webp" alt="Shiba Agents workspace with personal and workspace agents, template catalog, and hire actions" width="100%">
+</picture>
 
-**Static site (landing, docs):** [https://tryshiba.dev/](https://tryshiba.dev/)
+## What it is
 
-- **Landing Page:** [https://tryshiba.dev/](https://tryshiba.dev/)
-- **Documentation:** [https://tryshiba.dev/docs/](https://tryshiba.dev/docs/)
-- **Tasks Dashboard + API:** [https://app.tryshiba.dev/app/](https://app.tryshiba.dev/app/) — the Worker host, gated by Cloudflare Access. `/app` and `/dashboard` on tryshiba.dev redirect here; `app.tryshiba.dev` is the only public Worker host.
+Shiba is an open-source workspace for AI employees doing company work: engineering, design, marketing, sales, operations, finance, research, and revenue planning.
 
-Provider traffic is intercepted at the Sandbox egress boundary and forwarded through the account owner's AI Gateway binding — there is no provider callback route (the dead callback path was deleted; the forwarder and its route no longer exist).
+Describe the outcome, review the exact proposed work, and approve it before execution. Shiba returns durable output you can inspect: a code change, campaign draft, account brief, operating checklist, research table, or budget draft using figures you supply. Publication to GitHub, Slack, email, or another external system requires separate authority.
 
-## Repository layout
+The software is free to self-host. You pay for hosting and model usage through the providers you choose. Start with [your first task](https://tryshiba.dev/docs/getting-started/) or the [self-hosting guide](https://tryshiba.dev/docs/self-hosting/).
 
-The pnpm monorepo contains a React dashboard, an Astro/Starlight docs site, and a Cloudflare Worker backend for approved tasks.
+**Status: deployed prototype, not production-ready.** No live end-to-end cloud run is claimed. `tryshiba.dev` serves the static landing/docs site; `app.tryshiba.dev` serves the Worker dashboard and API behind Cloudflare Access. The Worker deploy proves provisioning and serving, not a live coding run. `docs/verification/verification.md` records local typecheck, lint, test, and build evidence; the backend remains a prototype until a dated run meets the P2 acceptance bar in `docs/plans/plan.md` §15. Slack's P3 acceptance bar is also still unverified against a real workspace.
 
-~~~text
-.
-├── package.json            # private root: scripts + toolchain devDeps
-├── pnpm-workspace.yaml     # workspaces: apps/*
-├── turbo.json              # turbo tasks: build/test/lint/typecheck/dev
-├── alchemy.run.ts          # the ONE stack — declares the Worker + assets + DOs
-└── apps/
-    ├── backend/
-    │   ├── package.json    # @shiba/backend
-    │   ├── wrangler.jsonc  # worker config + DO migrations + bindings
-    │   ├── Dockerfile      # pinned harness image (cloudflare/sandbox base)
-    │   ├── .dev.vars.example
-    │   ├── src/            # Worker + Durable Objects + harness adapters
-    │   └── test/           # vitest suite
-    ├── frontend/
-    │   ├── package.json    # @shiba/frontend
-    │   ├── src/            # dashboard SPA
-    │   └── vite.config.ts  # root=apps/frontend/, outDir=../../public
-    └── web/
-        ├── package.json    # @shiba/web (Astro + Starlight)
-        ├── public/         # static assets copied into public/
-        └── src/            # docs content + landing page
-~~~
+## Contents
 
-## How the UI is built and served
+- [What employees can do](#what-employees-can-do)
+- [Product tour](#product-tour)
+- [How work flows](#how-work-flows)
+- [Chat channels](#chat-channels)
+- [Workspace credits](#workspace-credits)
+- [Local quickstart](#local-quickstart)
+- [Deploy](#deploy)
+- [Architecture and safety](#architecture-and-safety)
+- [Configuration and models](#configuration-and-models)
+- [Honest implementation status](#honest-implementation-status)
+- [Repository layout](#repository-layout)
 
-`pnpm build` produces two asset trees:
+## What employees can do
 
-1. **`app-public/`** — dashboard-only bundle for the Worker (`apps/backend/wrangler.jsonc` `assets.directory`: `../../app-public`; `alchemy.run.ts`: `./app-public`). Vite writes `apps/frontend/dist/client`; `scripts/assemble-public.mjs` copies it into `app-public/` (marketing `_redirects` and `blog/` are stripped so the Worker does not serve the Pages site).
-2. **`public/`** — combined site for Cloudflare Pages: Vite client output plus Astro (`apps/web/dist`) merged by `assemble-public.mjs` (landing `/`, docs `/docs/`, favicons from `apps/web/public/`).
+| | |
+| --- | --- |
+| **Plan before work** | A goal becomes a scoped plan with required access, deliverables, verification, cost limits, and open questions. |
+| **Ask before acting** | No sandbox or employee task starts before human approval. Publication and external effects use separate approval. |
+| **Work in bounded runtimes** | Repository tasks run in isolated sandboxes; approved local work can use a paired machine without widening authority. |
+| **Return reviewable output** | Required files, reports, diffs, source references, and verification evidence survive refresh and restart. |
+| **Collaborate in a workspace** | People and bots can share a room, assign work, and keep parent/child progress visible without merging identities or permissions. |
+| **Meet people where they work** | Slack, Discord, Microsoft Teams, Telegram, email, MCP clients, and the dashboard can enter the same approval-first system with different capability levels. |
+| **Use the AI you choose** | API-key, subscription, local-daemon, and ACP harness lanes are explicit; credentials stay outside execution containers. |
+| **Meter usage** | Optional prepaid workspace credits debit settled run cost through an append-only ledger. |
 
-At runtime the Worker serves **`app-public/`** via the `ASSETS` binding with `not_found_handling: "404-page"`. The dashboard calls same-origin `/api/*` on that host — no cross-stack wiring. Self-host steps: [docs/self-hosting](apps/web/src/content/docs/docs/self-hosting.md).
+## Product tour
+
+<table>
+<tr>
+<td width="62%"><img src="docs/readme/live-conversation.webp" alt="Shiba direct conversation with a drafted task and Review as work action"></td>
+<td width="38%"><img src="docs/readme/live-exact-approval.webp" alt="Shiba exact frozen approval showing workspace, requester, repository, runtime, provider, execution scope, expiry, and approve or reject actions"></td>
+</tr>
+<tr>
+<td><sub><b>Work starts as a draft.</b> A conversation can become reviewed work only after the person chooses it.</sub></td>
+<td><sub><b>Exact approval.</b> The reviewer sees the frozen task, target, runtime, provider, scope, expiry, and cost authority before deciding.</sub></td>
+</tr>
+</table>
+
+[Watch the 25-second approval-flow tour](docs/readme/shiba-product-tour.mp4). The capture uses the repository-supported local mock boundary, so it demonstrates the product flow without claiming live model or GitHub execution.
+
+## How work flows
+
+```text
+Person or channel
+  -> authenticated workspace ingress
+  -> goal or task intake
+  -> exact frozen human approval
+  -> bounded execution lane
+     repository sandbox, artifact workspace, employee app action,
+     paired local machine, browser/computer session, or automation
+  -> durable deliverables, provenance, and verification
+  -> human review
+  -> separately approved publication or external effect
+```
+
+A model response is not completion. Shiba records the plan, authority, runtime, output references, verification result, and remaining gaps so a refresh, retry, or handoff does not rewrite what happened.
+
+## Chat channels
+
+| Surface | Current behavior | Main gap before parity |
+| --- | --- | --- |
+| Slack | `/shiba`, `@shiba`, signed events/interactions, approval cards, thread continuity, progress/outcome replies, optional result files, and room mirroring. | No P3 live workspace verification is claimed. |
+| Discord | `/shiba`, signed interactions, approval buttons, channel progress and outcome replies. | Narrower continuation, file-delivery, and room-integration behavior than Slack. |
+| Microsoft Teams | Mention or direct-message intake, signed Bot Framework activities, Adaptive Card approval, and outcome replies. | No publication approval in Teams; reactions, history, uploads, and lookups are limited by the current adapter. |
+| Dashboard | Full workspace, employees, approvals, runs, artifacts, integrations, automations, credits, and review surfaces. | Live end-to-end cloud execution remains unverified. |
+
+Slack details: `/shiba <github-repo-url> <task>` uses `POST /api/slack/command`; mentions use `POST /api/slack/events`. Both HMAC-verify, queue a durable pending approval, and post a Block Kit card. `SLACK_APPROVERS` unset means nobody can approve from Slack. That is deliberate: a valid Slack signature authenticates Slack, not the human who clicked.
+
+Detailed setup lives in [Slack](apps/web/src/content/docs/docs/slack.mdx), [Discord](apps/web/src/content/docs/docs/discord.mdx), and [Microsoft Teams setup](apps/web/src/content/docs/docs/teams-setup.md).
+
+## Workspace credits
+
+Current implementation: an installation can enable prepaid workspace credits through Stripe. Credits pay for computer time and models the deployment pays for; a person's own provider key, plan subscription, or paired computer is not charged as deployment model spend. Runs stop at zero unless the owner explicitly exempts user-funded lanes.
+
+The roadmap adds a Viktor-style plan layer on top of that ledger: starter credits, shared workspace plan credits, rollover rules, on-demand top-ups, per-user or per-run spend caps, and enterprise billing controls. Those plan features are **not implemented yet**; the current shipped surface is prepaid top-ups and balance enforcement. See [the product roadmap](docs/plans/roadmap.md).
 
 ## Local quickstart
 
-Requirements: Node.js **22.13.0+**, pnpm **10.0.0+**, and a **running Docker engine** for Sandbox containers.
+Requirements: Node.js **22.13.0+**, pnpm **10.0.0+**, and a running Docker engine for sandbox containers.
 
-### Run Shiba locally (Worker + dashboard + OAuth loopback)
-
-~~~sh
+```sh
 pnpm install
 cp apps/backend/.dev.vars.example apps/backend/.dev.vars   # if missing
 pnpm dev
-~~~
+```
 
-- **`pnpm dev`** starts **wrangler** on **http://127.0.0.1:8788**, OAuth loopback listeners (`127.0.0.1:51121` Antigravity, `127.0.0.1:56121` xAI — they POST callbacks to the Worker for dashboard polling), and **Vite** on **http://localhost:5173** (proxies `/api` to the Worker). Use **`pnpm shiba dev`** when you also need a Sandbox image build and containers (**http://127.0.0.1:8788/app/** without Vite).
-- In **`.dev.vars`**: set **`GITHUB_TOKEN`** (repo + PR scope), **`MODEL_CREDENTIAL_KEY`** (32+ chars for encrypted provider tokens), and **`GOOGLE_ANTIGRAVITY_CLIENT_SECRET`** when signing in Gemini/Antigravity. Optional: **`AI_GATEWAY_TOKEN`** if your gateway is auth-gated.
-- Open **Providers** and connect **Codex** (device code), **Claude** (daemon or setup-token), **Cursor** (browser + Finish), **Grok** and **Antigravity** (browser; loopback completes without pasting the callback URL when `pnpm dev` or `pnpm shiba dev` is running).
-- **Task flow**: compose a task → approve the delegation card → inspect the diff → approve publish/PR. Each step waits for you.
+- `pnpm dev` starts Wrangler on `http://127.0.0.1:8788`, OAuth loopback listeners, and Vite on `http://localhost:5173`.
+- Use `pnpm shiba dev` when you also need local secrets, D1 migrations, a sandbox image build, and containers.
+- In `.dev.vars`, set `GITHUB_TOKEN` scoped to the approved repository and `MODEL_CREDENTIAL_KEY` for encrypted provider tokens. Add provider sign-ins from the dashboard.
+- Task flow: compose a task → approve the exact delegation card → inspect the result → separately approve publication.
 
-`pnpm shiba dev` (same as `bash scripts/dev.sh`) also mints local secrets, applies D1 migrations, builds the Sandbox image, and starts OAuth loopback before `wrangler dev`. Run `npx wrangler login` once if Wrangler needs Cloudflare for container pulls.
+Preview the setup with `pnpm shiba dev --dry-run`. Full local gate: `pnpm typecheck && pnpm lint && pnpm test && pnpm docs:check && pnpm build`.
 
-Preview steps: `pnpm shiba dev --dry-run`. API/UI smoke without Docker: see [local development](apps/web/src/content/docs/docs/local-development.md).
+## Deploy
 
-Full gate: `pnpm typecheck && pnpm lint && pnpm test && pnpm docs:check && pnpm build`.
+### Static site
 
-- Dashboard only: `pnpm -C apps/frontend dev` (Vite on 5173; proxies `/api` to Worker 8788).
-- Docs editing: `pnpm docs:dev` (port 4321).
-- Packaging check (not a deploy): `npx wrangler deploy --dry-run --config apps/backend/wrangler.jsonc`.
+The `shiba` Cloudflare Pages project hosts the marketing site and `/docs/`:
 
-## Deploy the UI
-
-The `shiba` Cloudflare Pages project hosts the static UI. Build the dashboard and docs, then deploy the assembled `public/` directory:
-
-~~~sh
+```sh
 pnpm build
 pnpm exec wrangler pages deploy public --project-name shiba --branch main --commit-dirty=true
-~~~
+```
 
-This flow deploys the static landing page and `/docs/` documentation to `tryshiba.dev`. The Pages site serves no Worker API or WebSocket proxy of its own: `_redirects` sends `/app*` and `/dashboard*` to `app.tryshiba.dev` and edge-proxies `POST /api/waitlist` to the Worker. The live dashboard must be reached on `app.tryshiba.dev`, not the Pages host.
+The Pages site does not serve the Worker API. `_redirects` sends `/app*` and `/dashboard*` to `app.tryshiba.dev` and edge-proxies `POST /api/waitlist`.
 
-## Deploy the Worker backend
+### Worker backend
 
-One command provisions everything with [Alchemy](https://alchemy.run) (`alchemy.run.ts`): Worker, Durable Objects, Containers, KV, R2, D1, Vectorize, and **Cloudflare Access** in front of the dashboard. Prerequisites: Workers Paid plan, Docker running, `npx wrangler login`.
+One command provisions the Worker, Durable Objects, Containers, KV, R2, D1, Vectorize, Queues, Workflows, and Cloudflare Access with [Alchemy](https://alchemy.run):
 
-~~~sh
+```sh
 pnpm install
-pnpm run bootstrap   # asks for Access emails + secrets → .env, mints the Alchemy token once, builds, deploys
-~~~
+pnpm run bootstrap
+```
 
-Re-deploy after changes with `pnpm run deploy:alchemy` (build + `alchemy deploy`). Preview with `pnpm deploy:preview` (`alchemy plan`); tear down with `pnpm deploy:destroy`. The script is named `deploy:alchemy` — bare `pnpm deploy`/`pnpm setup` are pnpm built-ins.
+Re-deploy with `pnpm run deploy:alchemy`; preview with `pnpm deploy:preview`; tear down with `pnpm deploy:destroy`.
 
-What a live deploy does, secure by default:
+Secure-by-default deployment behavior:
 
-- `REQUIRE_ACCESS=1` is always set on live stages: no verified Access identity means 401 on the dashboard and API.
-- Without `REQUIRE_ACCESS` or `ACCESS_AUD`, only loopback hosts are served; requests to deployed hosts fail closed with 401.
-- With `ACCESS_EMAILS` and `WORKERS_SUBDOMAIN` set, it creates an Access app for the Worker host that allows only those emails, and the Worker verifies the `Cf-Access-Jwt-Assertion` JWT (`ACCESS_AUD`) instead of trusting the identity header.
-- A second Access app **bypasses** the machine callers, which the Worker authenticates itself: `/api/slack/events`, `/api/slack/command`, `/api/slack/interact`, `/api/github/webhook` (HMAC), `/api/telegram/webhook`, `/api/discord/interactions`, `/api/teams/messages` (Bot Framework JWT), `/api/trigger`, `/mcp` (bearer token), `/api/automations/*/trigger` (shared secret).
-- Secrets come only from `.env` (see `.env.example`). Alchemy replaces the Worker's secrets on every deploy, so a secret missing from `.env` is removed — don't mix in `wrangler secret put`.
+- `REQUIRE_ACCESS=1` is set on live stages; without verified Access identity the dashboard and API return 401.
+- `ACCESS_EMAILS`, `WORKERS_SUBDOMAIN`, and `ACCESS_AUD` configure the Access application and JWT verification.
+- A second Access application bypasses machine callers that authenticate themselves: `/api/slack/events`, `/api/slack/command`, `/api/slack/interact`, `/api/github/webhook`, `/api/telegram/webhook`, `/api/discord/interactions`, `/api/teams/messages`, `/api/trigger`, `/mcp`, and `/api/automations/*/trigger`.
+- Secrets come only from `.env`; Alchemy replaces Worker secrets on every deploy.
+- Rollback with `npx wrangler deploy --config apps/backend/wrangler.jsonc` does not create the Access applications.
 
-Still manual: add a provider key (BYOK) to the `default` AI Gateway, create the Slack app from `slack-app-manifest.yaml`, and mint an MCP token for Claude Code (see [Use from Claude Code](#use-from-claude-code)). Inbound email needs a domain on Cloudflare with Email Routing sending to the Worker; workers.dev cannot receive mail.
+Still manual: add provider keys or subscriptions, create the Slack app from `slack-app-manifest.yaml`, configure Discord/Teams apps, and mint MCP tokens. Inbound email requires a domain on Cloudflare Email Routing.
 
-Stage selection goes through `$ALCHEMY_STAGE` only (e.g. `ALCHEMY_STAGE=test-x pnpm run deploy:alchemy` suffixes every resource name); do not pass `--stage`. State is on the local filesystem by default; `ALCHEMY_STATE_BACKEND=cloudflare` opts into the remote State Store after `npx alchemy provider cloudflare bootstrap`.
+## Architecture and safety
 
-Rollback to wrangler (same bindings): `npx wrangler deploy --config apps/backend/wrangler.jsonc` — but it does not create the Access apps, so set them up by hand.
+The pnpm monorepo contains a Cloudflare Worker backend, React dashboard, Astro docs/marketing site, shared wire contracts, sandbox runtime packages, and an Electron desktop prototype.
 
-### Use from each surface
+Core invariants:
 
-| Surface | How |
-|---|---|
-| Web dashboard | `https://app.tryshiba.dev/app/` — Access login with an allowed email |
-| iPhone | Same URL in Safari → Share → **Add to Home Screen** (standalone app). Slack mobile works for approvals too. |
-| Slack | `@shiba` in a thread or `/shiba <repo> <task>`; approve on the card |
-| Telegram & Discord | Implemented webhook + approval-card bots (`/api/telegram/webhook`, `/api/discord/interactions`), gated by `TELEGRAM_APPROVERS`/`DISCORD_APPROVERS`; not yet verified against a live workspace |
-| Claude Code | MCP over `https://app.tryshiba.dev/mcp` with a bearer token — see below |
+- **Approval first.** Queueing work mints an approval; no sandbox starts before it is granted.
+- **Credentials stay outside containers.** Provider tokens are attached at the Worker egress proxy; the sandbox sees a placeholder.
+- **Repository scope is narrow.** `GITHUB_TOKEN` egress is refused until the exact approved `/owner/repo` scope is installed, and container pushes are refused.
+- **Authority does not cascade.** A child employee or delegated bot receives no more access than its parent plan grants.
+- **Publication is separate.** Creating a draft, running a task, merging a PR, posting to a channel, or sending email are distinct authority decisions.
+- **Evidence beats prose.** Completion requires durable output plus verification, not a model saying it is done.
 
-### Use from Claude Code
+Provider traffic is intercepted at the sandbox egress boundary and forwarded through the account owner's AI Gateway or subscription lane. There is no provider callback route.
 
-Mint a token into the deployed KV (id printed as `agentTokensNamespace` by `pnpm run deploy:alchemy`), then paste the printed line. `<worker-host>` is `app.tryshiba.dev` on the live stage:
-
-~~~sh
-node scripts/mint-token.mjs --agent claude-code --scopes sandbox:exec,runs:read \
-  --host <worker-host> --namespace-id <agentTokensNamespace> --write
-claude mcp add --transport http shiba https://<worker-host>/mcp --header "Authorization: Bearer shb_…"
-~~~
-
-Tools: `queue_run` (`sandbox:exec`) plus `run_status`, `list_runs`, `list_approvals` (`runs:read`, scoped to records the token's principal queued), and email and memory tools behind their own scopes. `queue_run` only queues — a human approves in the dashboard, on iPhone, or in Slack; there is no approve tool. Details: [/docs/mcp](apps/web/src/content/docs/docs/mcp.md).
-
-The built-in email backend has a documented OpenAPI contract at `GET /api/email/openapi.json` ([email API guide](apps/web/src/content/docs/docs/api.mdx#email-api)). The Inbox downloads stored attachments through an Access-gated route; sending a draft still requires human approval. This is Shiba's own API, not a Goshen Email `/v1` clone.
-
-To connect a cloud agent to mail, assign its exact `/mcp` token principal in Inbox settings. Email tools then see only that agent's assigned mailboxes; unassigned mailboxes stay dashboard-only. [Pairing guide](apps/web/src/content/docs/docs/mcp.md#pair-a-cloud-agent-with-its-mailbox).
-
-## Documentation
-
-The documentation site at `/docs/` includes setup, configuration, local development, dashboard usage, deployment, GitHub integration, security, architecture, API reference, troubleshooting, cost surfaces, contributing, and an end-to-end acceptance checklist.
-
-Source entry: [docs index](apps/web/src/content/docs/index.md). Content lives in `apps/web/src/content/docs/docs/`. The root build runs Vite (`frontend/`) first, builds Astro into `apps/web/dist`, then copies `apps/web/dist` into `public/` and verifies local links, anchors, assets, and Pagefind output.
-
-## Architecture
-
-~~~text
-People and channels
-  -> authenticated workspace ingress
-  -> Employee Orchestrator (current implementation: CodingOrchestrator DO)
-  -> exact approval and run/event spine
-  -> execution lane:
-     repository sandbox, artifact workspace, employee app action,
-     paired local machine, browser/computer session, or automation
-  -> deliverables, provenance, verification, and receipts
-  -> human review
-  -> separately approved publication or external effect
-~~~
-
-Repository work uses the Run Execution Agent (current implementation:
-`OpenCodeAgent`) and one selected harness in an ephemeral sandbox. Harnesses are
-execution lanes, not the product center. Durable Objects coordinate live state;
-D1, R2, KV, Vectorize, Queues, and Workflows own their separate state planes.
-Credentials stay outside containers. Details: [ARCHITECTURE.md](ARCHITECTURE.md).
-
-One installation is single-tenant and account-owned. No Python backend, Docker Compose, Postgres, Redis, or separate Next.js service is required by this implementation. Runs are routed to per-user orchestrator Durable Objects via the `CF-Access-Authenticated-User-Email` header. Default concurrency is five retained active coding runs and five configured container instances (`MAX_CONCURRENT_RUNS = 5`, `max_instances: 5`, `instance_type: standard-1`).
-
-## Platform ceiling
-
-Cloudflare Containers max out at **`standard-4` (4 vCPU / 12 GiB / 20 GB)** — see [Containers limits](https://developers.cloudflare.com/containers/platform/limits/). Heavy builds and large monorepo test suites are out of reach on this platform, by design. Do not expect larger hosted machine sizes (16 vCPU / 128 GB) here.
+Cloudflare Containers max out at **`standard-4` (4 vCPU / 12 GiB / 20 GB)**. Heavy builds and large monorepo test suites are outside this platform's ceiling.
 
 ## Configuration and models
 
-Non-secret defaults in `apps/backend/wrangler.jsonc`:
+Important defaults:
 
 | Setting | Default |
 | --- | --- |
-| GATEWAY_ID | default |
-| ORCHESTRATOR_MODEL | @cf/meta/llama-3.1-8b-instruct |
-| CODING_MODEL | google/gemini-3.5-flash-lite |
-| RUNTIME | sandbox |
+| `GATEWAY_ID` | `default` |
+| `ORCHESTRATOR_MODEL` | `@cf/meta/llama-3.1-8b-instruct` |
+| `CODING_MODEL` | `google/gemini-3.5-flash-lite` |
+| `RUNTIME` | `sandbox` |
+| `AGENT_HARNESS` | `opencode` |
 
-`CODING_MODEL` takes any `provider/model` the selected harness supports: `google/*`, `anthropic/*`, or `openai/*` for OpenCode; `anthropic/*` for Claude Code; `openai/*` for Codex; `devin/*` for Devin. An unsupported pairing is refused at config time with a message naming what the harness does support. Set `AGENT_HARNESS` to choose (default `opencode`).
+Harness lanes include API-key lanes (`opencode`, `claude-code`, `codex`, `devin`, `grok`), Subscription lanes (`claude-subscription`, `codex-subscription`, `antigravity-subscription`, `cursor-subscription`, `devin-subscription`), and ACP lanes (`claude-acp`, `codex-acp`, `gemini-acp`, `opencode-acp`, `devin-acp`). Anthropic's terms still forbid routing Free/Pro/Max plan credentials on behalf of third-party users.
 
-Model ids retire — `gemini-2.0-flash` was shut down 2026-06-01, which is why the default moved. Verify current availability in your account; the checked-in model name is not a service guarantee. The assistant model used to edit this project is independent of the application's runtime models.
+Pinned versions that couple to the run contract:
 
-Tokens dominate the bill — roughly 20–40× the Cloudflare compute cost — so provider choice, not container tuning, is the lever that matters. See `docs/costs`.
-
-Do not add provider credentials to the container. The container gets a dummy key (`DUMMY_PROVIDER_KEY`); the Sandbox Durable Object swaps in the real AI Gateway credential outside the container. Copy `apps/backend/.dev.vars.example` to the ignored `apps/backend/.dev.vars` for local configuration. `GITHUB_TOKEN` is attached by the Worker at the egress boundary for git traffic to the approved repo only, and is also used for Worker-side PR publishing; prefer a fine-grained token scoped to that repo. `GITHUB_WEBHOOK_SECRET` verifies acknowledgment-only webhook requests.
-
-## Pinned versions
-
-These versions are pinned because silent upgrades break the run contract:
-
-| Pin | Coupling |
+| Pin | Why |
 | --- | --- |
-| `opencode-ai@1.18.31` (apps/backend/Dockerfile) | `parseOpencodeEvent` in `apps/backend/src/harness/opencode.ts` couples to its JSON event shape. Each harness's parser couples to its own CLI the same way — a stream-format change makes a run appear to hang rather than fail, so treat harness CLI bumps as breaking. |
-| `@cloudflare/sandbox@1.0.1` (apps/backend/package.json) | `sandbox-shim` in `apps/backend/Dockerfile` must copy from `cloudflare/sandbox:1.0.1`; harness tools still build on `0.12.9-opencode` until rebased |
-| `wrangler@4.140.0` (package.json) | Sandbox SDK 1.0 needs `scheduling_policy: durable_object` (≥4.136.0) |
-| `CODING_MODEL` (`google/gemini-3.5-flash-lite`) | Provider model ids retire without warning |
+| `opencode-ai@1.18.31` | Its JSON event shape is parsed by the OpenCode harness adapter. |
+| `@cloudflare/sandbox@1.0.1` | The sandbox shim and container image are coupled to SDK 1.0 behavior. |
+| `wrangler@4.140.0` | Sandbox SDK 1.0 requires `scheduling_policy: durable_object`. |
+| `google/gemini-3.5-flash-lite` | Provider model ids retire without warning. |
 
-Bumping any of them requires re-running the P2 live acceptance run before claiming it works.
+Tokens dominate cost — roughly 20–40× Cloudflare compute — so provider choice matters more than container tuning. See [costs](apps/web/src/content/docs/docs/costs.md).
 
-## Slack
+## Honest implementation status
 
-Shipped: `/shiba <github-repo-url> <task>` (`POST /api/slack/command`) and `@shiba` mention (`POST /api/slack/events`). Both HMAC-verify, queue a durable pending approval, and post a Block Kit card. Mentions need `SLACK_BOT_TOKEN`; empty token means no card and no run. Repo comes from a GitHub URL in the mention/thread, else `SLACK_CHANNEL_REPOS`, else an in-thread ask. Clicks resolve on the DO named by the card pointer (`default` for slash, `slack:{team}:{channel}:{thread_ts}` for mentions), gated by `SLACK_APPROVERS` (unset = nobody).
+Implemented foundations include structured delegation, exact approvals, sandbox execution machinery, per-user orchestration, deny-by-default egress, subscription credential lanes, chat-channel adapters, automations, artifact capture, workspace credits, and extensive unit/browser fixtures.
 
-**`SLACK_APPROVERS` unset means nobody can approve from Slack.** That is deliberate: a valid signature authenticates Slack, not the human who clicked, and a Block Kit button in a public channel is clickable by every member.
+Do not read those foundations as proof of a finished AI employee workspace:
 
-No P3 live workspace verification is claimed. The P3 acceptance bar in `PLAN.md` §15 (Request URL verification with Access enabled, non-approver clicks refused with no container started, one run per burst, secret redaction) has not been exercised against a real workspace.
-
-## Automations
-
-Implemented: the trigger-rule engine (schedule with a five-field cron and 5-minute floor, missed ticks coalesced; GitHub, Slack, incoming-webhook, and manual triggers, OR'd together at most one run per event) plus the production fire path. Cloudflare Triggers run `*/5 * * * *`; Worker `scheduled()` ticks due schedules through the `Automations` Durable Object. Verified GitHub webhooks and `POST /api/automations/{id}/trigger` fan out the same way. A `runWhen` sentence is checked by TypeSafe Noul when `TYPESAFE_API_KEY` is set (noul ≥ 0.8 to run), else Workers AI YES/NO, and **fails closed**. Every run queues a frozen human approval.
-
-Safety: explicit human approval before every execution, a separate approval before publishing a completed file snapshot, and a daily run budget per automation. Legacy unattended configuration does not grant execution authority. Kill switches: `enabled` per automation, `AUTOMATIONS_ENABLED` globally. Not verified live.
-
-## Agent harnesses
-
-The pinned image ships nine agent CLIs (`opencode`, `claude`, `codex`, `grok`, `devin`, `cursor-agent`, `gemini`, `agy`, `procoder`) plus two ACP adapter packages. Selectable lanes (`HARNESS_IDS` in `packages/shared/src/mcp.ts` — the single enum the delegate tool, MCP tools, and composer all derive from):
-
-- **API-key lanes** (AI Gateway BYOK): `opencode` (default), `claude-code`, `codex`, `devin`, `grok`.
-- **Subscription lanes** (opt-in `SHIBA_*_SUBSCRIPTION=1`, dedicated egress branches): `claude-subscription`, `codex-subscription`, `antigravity-subscription`, `cursor-subscription`, `devin-subscription`.
-- **ACP lanes** (Agent Client Protocol via the shared driver in `harness/acp.ts`): `claude-acp`, `codex-acp`, `gemini-acp`, `opencode-acp`, `devin-acp`.
-
-Bare `cursor`/`antigravity` are registered in the catalog but not sandbox-runnable (no `supportedRuntimes` entry). Aider is not implemented. The dashboard's composer picks the harness per run; `AGENT_HARNESS` is only the deployment default. The Providers view lists the image's lanes with credential status.
-
-Subscription lanes carry their own provider namespace (`<provider>-subscription/<model>`) and, for the legacy single-operator secrets, `*_SUBSCRIPTION_TOKEN[_<ACCOUNT>]` or `CODEX_SUBSCRIPTION_AUTH_JSON` on dedicated egress branches. Anthropic's terms still forbid routing Free/Pro/Max plan credentials on behalf of third-party users.
-
-**Providers page (Codex and Claude).** Codex "Connect with sign-in" is the ChatGPT device-code grant (`auth.openai.com/codex/device`), the same flow as the Codex CLI. Finish sign-in polls the device grant and stores the refresh token encrypted per user (`MODEL_CREDENTIAL_KEY` + `ChatGptAuth`). A pasted `http://127.0.0.1` callback is only the fallback. Runs use harness `codex-subscription`. The sandbox `ACCESS_TOKEN` is a placeholder; egress attaches the real bearer.
-
-Claude "Connect with sign-in" pairs a local daemon when one is available (`claude auth login` stays on that machine). Otherwise the card asks for a `claude setup-token` paste, stored encrypted per user and attached at egress. Gemini, Grok, and OpenCode take a key pasted on the card (Gemini, xAI, OpenCode, or DeepSeek). That key is encrypted per user and sent straight to the provider. Nothing is configured shows Not connected. A deployment gateway token is optional and not required for these lanes.
-
-The credential invariant holds for every lane — the container receives a dummy key and the real one is injected outside it at the egress boundary. `allowedHosts` is narrowed per run to the *selected* harness's provider host plus git, never the union across harnesses. Only OpenCode has been exercised against a live CLI — the other lanes' event parsers are asserted from their documented stream formats until T10 proves otherwise, and the ACP lanes additionally need the sandbox image rebuilt before a live run can reach them.
-
-The computer adapter deliberately refuses execution — `@cloudflare/computer` is preview-only, so Sandbox remains the default.
-
-## What is and is not implemented
-
-- Structured delegation input and SDK approval UI exist.
-- Sandbox clone/configure/code/collect flow has unit tests using fakes.
-- Provider traffic interception at the Sandbox egress boundary is implemented in `apps/backend/src/sandbox.ts`; there is no callback route to enable.
-- Phase updates exist; token-level OpenCode JSON event streaming is partially surfaced via `streamProgress`.
-- Per-user orchestrator routing exists (`getUserId` in `apps/backend/src/index.ts`); without Access configuration, non-loopback `/api/runs` requests fail closed with 401. `ACCESS_AUD` enables Access JWT verification.
-- Egress is deny-by-default: `interceptHttps` is on and `allowedHosts` admits only `generativelanguage.googleapis.com`, `github.com`, and `codeload.github.com`, narrowed per run by `approveHarnessEgress` to the selected harness's provider host plus git. The boundary is unit-tested but has not faced a live hostile run — still do not expose untrusted runs publicly on this basis alone.
-- The GitHub credential is scoped to the run's repo: github.com egress is refused until `approveRepoScope` installs a forwarder for the approved `/owner/repo` path, and only GET/HEAD plus POST `git-upload-pack` pass — container pushes are refused even with the token.
+- Real sandbox container + live model + live GitHub end-to-end execution is not verified on an operator-owned Cloudflare deployment.
+- Slack's P3 acceptance bar has not been exercised against a real workspace.
+- ComputeSDK backends such as E2B, Daytona, and Modal are not production-verified for Shiba invariants.
+- The multi-round review loop endpoint remains incomplete.
+- General employee goal ownership, cross-bot delegation, artifact lineage, and role-specific semantic verification are still roadmap work.
 - Cancellation is best-effort; clearing registry/history is not process cancellation or complete Durable Object erasure.
-- GitHub publishing uses captured contents, not a lossless Git patch. File modes and large files need further work. Webhooks acknowledge events only.
-- The parent result envelope exists (`RESULT_MARKER`); trust the parsed envelope, not the transport type — inspect transcripts, not just badges.
-- `apps/backend/src/costs.ts` is gone — cost surfaces and application limits live in the docs (`apps/web/src/content/docs/docs/costs.md`, served at `/docs/costs`); they describe resources, not bills.
+- GitHub publishing uses captured contents, not a lossless Git patch; file modes and large files need more work.
 
-## Alternative runtimes
+The forward-looking sequence is in [docs/plans/roadmap.md](docs/plans/roadmap.md). Historical task evidence stays in [docs/plans/plan.md](docs/plans/plan.md) and [docs/verification/verification.md](docs/verification/verification.md).
 
-The computer adapter deliberately refuses execution. @cloudflare/computer's intended fit is persistent SQLite-backed VFS, typed Git, agent tools, and Worker-shell/container backends. It is not installed; verify current preview status before any implementation. Sandbox remains the default. celld is not a target because Workers compatibility does not supply managed Sandbox/Containers bindings.
+## Repository layout
 
-## Troubleshooting and costs
+```text
+.
+├── package.json             # private root scripts and toolchain devDependencies
+├── pnpm-workspace.yaml      # workspace definition
+├── turbo.json               # build/test/lint/typecheck task graph
+├── alchemy.run.ts           # Cloudflare stack declaration
+├── apps/
+│   ├── backend/             # Cloudflare Worker, Durable Objects, sandbox control
+│   ├── frontend/            # React dashboard
+│   ├── web/                 # Astro marketing and documentation site
+│   └── desktop/             # Electron desktop prototype
+├── packages/
+│   ├── shared/              # browser-safe wire contracts and schemas
+│   └── sandbox/             # sandbox runtime and provider adapters
+└── docs/
+    ├── architecture/        # living architecture companion documents
+    ├── plans/               # dated and active feature plans
+    ├── product/             # product contracts
+    ├── verification/        # dated verification evidence
+    └── readme/              # README screenshots
+```
 
-Start with the troubleshooting docs. Static builds do not require cloud credentials. Live container execution does.
-
-Cost surfaces include Workers, Workers AI planning inference, Durable Objects, Containers, AI Gateway/provider inference, and GitHub API quotas. No prices, free-tier suitability, or provisioning time guarantees are invented. Tokens dominate the bill (roughly 20–40× compute); review current limits and provider pricing before deployment.
-
-## Official sources
-
-- [Cloudflare Agents](https://developers.cloudflare.com/agents/)
-- [Sandbox](https://developers.cloudflare.com/sandbox/)
-- [Containers](https://developers.cloudflare.com/containers/)
-- [Containers limits](https://developers.cloudflare.com/containers/platform/limits/)
-- [AI Gateway](https://developers.cloudflare.com/ai-gateway/)
-- [AI Gateway BYOK](https://developers.cloudflare.com/ai-gateway/configuration/bring-your-own-keys/)
-- [Access](https://developers.cloudflare.com/cloudflare-one/access-controls/)
-- [Computer package](https://www.npmjs.com/package/@cloudflare/computer)
-- [Astro](https://docs.astro.build/)
-- [Starlight](https://starlight.astro.build/)
+Key entry points: [ARCHITECTURE.md](ARCHITECTURE.md), [docs/product/ai-employees.md](docs/product/ai-employees.md), [CONTRIBUTING.md](CONTRIBUTING.md), and [design.md](design.md).
 
 ## License
 

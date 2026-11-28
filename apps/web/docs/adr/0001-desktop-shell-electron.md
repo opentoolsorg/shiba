@@ -4,7 +4,7 @@
 
 Shiba Desktop (macOS) wraps the existing dashboard and adds one-click pairing that runs
 `scripts/shiba-local-daemon.mjs` on the user's machine. It must add no ingress surface and no
-approval path (`spec/GOAL.md` item 15; invariants D1–D8 in `DESKTOP-PLAN.md` §4).
+approval path (`spec/GOAL.md` item 15; invariants D1–D8 in `docs/plans/desktop.md` §4).
 
 ## Options
 
@@ -15,7 +15,7 @@ approval path (`spec/GOAL.md` item 15; invariants D1–D8 in `DESKTOP-PLAN.md` �
 
 ## Decision
 
-Electron, pinned to exact versions (`DESKTOP-PLAN.md` §2, A1). The window loads `<origin>/app/`;
+Electron, pinned to exact versions (`docs/plans/desktop.md` §2, A1). The window loads `<origin>/app/`;
 the daemon stays a dependency-free script supervised by the app.
 
 ## Consequences

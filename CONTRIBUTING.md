@@ -75,7 +75,7 @@ cookies, or access tokens in the comment or evidence.
 ## Docs and claims
 
 - Write behavior from **source** (`apps/backend/src/`, `wrangler.jsonc`, `env.ts`), not stale README prose.
-- Distinguish **unit tests**, **local `wrangler dev`**, and **cloud-live** evidence; cite dated entries in **`VERIFICATION.md`**.
+- Distinguish **unit tests**, **local `wrangler dev`**, and **cloud-live** evidence; cite dated entries in **`docs/verification/verification.md`**.
 - Do not claim production readiness without verify-shiba or equivalent live evidence.
 
 Extended contributor guide: [https://tryshiba.dev/docs/contributing/](https://tryshiba.dev/docs/contributing/) (source: `apps/web/src/content/docs/docs/contributing.md`).

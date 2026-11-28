@@ -6,8 +6,8 @@ files you edit applies next.
 
 For product or architecture work, start with the
 [product contract](docs/product/ai-employees.md) and
-[architecture map](ARCHITECTURE.md). Treat `PLAN.md`, `VERIFICATION.md`,
-`ROADMAP.md`, and `docs/verification/` as dated records. Open only the section
+[architecture map](ARCHITECTURE.md). Treat `docs/plans/plan.md`, `docs/verification/verification.md`,
+`docs/plans/roadmap.md`, and `docs/verification/` as dated records. Open only the section
 needed for a task id, acceptance question, or historical claim; do not use them
 as the current architecture by default.
 

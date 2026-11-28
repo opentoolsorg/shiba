@@ -13,7 +13,7 @@ New capability lands in one of four places, and the choice is not arbitrary:
 | A new execution lane | runtime adapter + approval/evidence contract | lanes differ in runtime, not in authority |
 
 **The cost of adding harnesses is real and ongoing:** each one multiplies the
-"a CLI changed its stream format" risk (`PLAN.md` §16). Treat format changes as
+"a CLI changed its stream format" risk (`docs/plans/plan.md` §16). Treat format changes as
 breaking, and pin versions. That is the real marginal cost of the
 bring-your-own-agent differentiator, not the first adapter.
 
@@ -50,7 +50,7 @@ Not bugs — deliberate or inherited, recorded so they are not rediscovered:
 - **Live output has bounded replay.** Rooms persist accepted terminal, status, diff, and child frames. Expired cursors and lost container transport produce explicit gap or uncertainty indicators. Browser reconnect does not resume a lost CLI process.
 - **GitHub is the only repo provider — by decision.** The approval gate is
   already provider-agnostic, so adding one later is a provider layer, not a
-  redesign. Deferred until GitHub itself is proven live (`PLAN.md` §17.6).
+  redesign. Deferred until GitHub itself is proven live (`docs/plans/plan.md` §17.6).
 - **Single deployment owner, not single-person use.** One installation is
   account-owned/self-hosted, while a workspace can have multiple members and
   employees. Do not confuse deployment tenancy with workspace collaboration.
@@ -67,7 +67,7 @@ Not bugs — deliberate or inherited, recorded so they are not rediscovered:
   where Docker is up.
 - **No dated live acceptance.** Every capability above is verified by unit
   tests and a dry run, not a recorded cloud run. Until T10's acceptance — and
-  the GitHub-specific T37–T39 — are in `VERIFICATION.md`, the honest status
+  the GitHub-specific T37–T39 — are in `docs/verification/verification.md`, the honest status
   stays "local prototype" (§17.9).
 
 ---
@@ -80,6 +80,6 @@ Not bugs — deliberate or inherited, recorded so they are not rediscovered:
 | the security boundary | `egress.ts`, `sandbox.ts`, `security.ts` |
 | state and persistence | the nine DO classes in §4 (`*-do.ts` plus the agent classes) |
 | every ingress surface | `slack-routes.ts`, `chat-lane.ts`, `telegram.ts`, `discord.ts`, `email-handler.ts`, `email-tasks.ts` |
-| what is planned and why | `PLAN.md` (§17 for parity roadmap, §4 for what was cut and why) |
+| what is planned and why | `docs/plans/plan.md` (§17 for parity roadmap, §4 for what was cut and why) |
 
 **Do not enable `SHIBA_SCOPED_DO` for personal desktop pairing yet.** Several LocalDispatch callers still resolve the default owner mailbox (`local-routes.ts`, `computers-routes.ts`, `provider-sign-in.ts`) while scoped personal dispatch resolves the account owner, so flag-on daemon routing needs its own review first.
