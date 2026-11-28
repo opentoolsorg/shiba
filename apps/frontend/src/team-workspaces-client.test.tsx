@@ -112,11 +112,27 @@ describe("team workspace client", () => {
     await act(async () => hook.result.current.refresh());
     expect(hook.result.current.selectedWorkspaceId).toBe(id);
     expect(hook.result.current.error).toContain("removed");
-    act(() => hook.result.current.selectWorkspace(""));
-    expect(hook.result.current.selectedWorkspaceId).toBe("");
-    expect(hook.result.current.error).toBeNull();
-    hook.rerender({ actorId: "b@example.com" });
-    expect(hook.result.current.selectedWorkspaceId).toBe("");
+    expect(localStorage.getItem("shiba:team-workspace:a%40example.com")).toBeNull();
+    expect(localStorage.getItem("shiba:last-team-workspace:a%40example.com")).toBeNull();
+    expect(localStorage.getItem("shiba:team-workspace-revoked:a%40example.com")).toBe(id);
+    hook.unmount();
+    const reloaded = renderHook(() =>
+      useTeamWorkspaceDirectory({ actorId: "a@example.com", enabled: true }),
+    );
+    await waitFor(() => expect(reloaded.result.current.loading).toBe(false));
+    expect(reloaded.result.current.selectedWorkspaceId).toBe("");
+    expect(reloaded.result.current.verified).toBe(false);
+    expect(reloaded.result.current.error).toContain("removed");
+    act(() => reloaded.result.current.selectWorkspace(""));
+    expect(reloaded.result.current.selectedWorkspaceId).toBe("");
+    expect(reloaded.result.current.error).toBeNull();
+    expect(localStorage.getItem("shiba:team-workspace-revoked:a%40example.com")).toBeNull();
+    reloaded.unmount();
+    const otherActor = renderHook(() =>
+      useTeamWorkspaceDirectory({ actorId: "b@example.com", enabled: true }),
+    );
+    expect(otherActor.result.current.selectedWorkspaceId).toBe("");
+    otherActor.unmount();
   });
   it("hides all data when disabled and reports failed refreshes without cached authority", async () => {
     const fetcher = vi

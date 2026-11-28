@@ -9,10 +9,10 @@ import { viewButtonClass } from "./ui/ViewChrome";
 export type WorkListGroup = "backlog" | "todo" | "in_progress" | "in_review" | "done";
 
 export const WORK_LIST_GROUPS: readonly { id: WorkListGroup; label: string }[] = [
-  { id: "backlog", label: "Backlog" },
-  { id: "todo", label: "Todo" },
-  { id: "in_progress", label: "In progress" },
   { id: "in_review", label: "In review" },
+  { id: "in_progress", label: "In progress" },
+  { id: "todo", label: "Todo" },
+  { id: "backlog", label: "Backlog" },
   { id: "done", label: "Done" },
 ];
 
@@ -93,6 +93,33 @@ export function WorkStatusIcon({
   );
 }
 
+
+function dueLabel(value?: string): string | null {
+  if (!value) return null;
+  const date = new Date(value.length === 10 ? `${value}T00:00:00` : value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function taskStateLabel(task: TeamWorkItem): { label: string; className: string } | null {
+  if (task.blocked || task.status === "blocked") return { label: "Blocked", className: "text-red-600 dark:text-red-400" };
+  if (workListGroup(task.status) === "in_review") return { label: "Ready for review", className: "text-violet-600 dark:text-violet-400" };
+  return null;
+}
+
+function WorkRowMetadata({ task }: { task: TeamWorkItem }): JSX.Element {
+  const state = taskStateLabel(task);
+  const due = dueLabel(task.endDate);
+  if (!state && !task.roomTitle && !due) return <span className="hidden sm:block" />;
+  return (
+    <span className="hidden min-w-0 items-center gap-3 text-xs sm:flex sm:justify-end">
+      {state ? <span className={`shrink-0 font-medium ${state.className}`}>{state.label}</span> : null}
+      {task.roomTitle ? <span className="max-w-40 truncate text-zinc-500 dark:text-zinc-400" title={task.roomTitle}>{task.roomTitle}</span> : null}
+      {due ? <span className="shrink-0 tabular-nums text-zinc-500 dark:text-zinc-400">{due}</span> : null}
+    </span>
+  );
+}
+
 function AssigneeSlot({ task, agents }: { task: TeamWorkItem; agents: readonly TaskDetailAgent[] }): JSX.Element {
   const id = task.assigneeActorId ?? task.assigneeUserId ?? task.ownerId;
   const name = task.assigneeName ?? id;
@@ -151,7 +178,7 @@ export function WorkListView({
         <ListChecks className="size-8 text-zinc-400 dark:text-zinc-500" aria-hidden="true" />
         <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">No tasks yet</p>
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
-          Add a task above. It lands in Todo.
+          Add a task below. It lands in Todo.
         </p>
       </section>
     );
@@ -236,6 +263,7 @@ export function WorkListView({
                         >
                           {task.title || "Untitled task"}
                         </span>
+                        <WorkRowMetadata task={task} />
                         <AssigneeSlot task={task} agents={agents} />
                       </button>
                     </li>

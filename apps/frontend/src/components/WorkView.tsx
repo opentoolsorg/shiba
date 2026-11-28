@@ -14,7 +14,7 @@ import { WorkBoardView } from "./WorkBoardView";
 import { WorkDetailModal } from "./WorkDetailModal";
 import { WorkHeader, type WorkHeaderViewMode } from "./WorkHeader";
 import { WorkLeftPanel, type WorkLeftPanelProps, type WorkScope } from "./WorkLeftPanel";
-import { WorkListFooter, WorkListView, workListGroup } from "./WorkListView";
+import { WORK_LIST_GROUPS, WorkListFooter, WorkListView, WorkStatusIcon, workListGroup, type WorkListGroup } from "./WorkListView";
 import { type OrganizationEmployee, type OrganizationUser, WorkOrganizationView } from "./WorkOrganizationView";
 import { WorkPeek, type WorkPeekProps } from "./WorkPeek";
 import { WorkQuickAdd } from "./WorkQuickAdd";
@@ -148,6 +148,7 @@ function workShell(props: WorkViewProps, lists: PanelLists, card: JSX.Element, d
       {showPanel && props.onScopeChange ? (
         <WorkLeftPanel
           scope={props.workspaceId ? "workspace" : "personal"}
+          workspaceName={props.workspaceName}
           onScopeChange={props.onScopeChange}
           view={props.view ?? "list"}
           onViewChange={props.onViewChange ?? (() => {})}
@@ -181,6 +182,15 @@ function workStatus(task: WorkTask, approvalStatus: "needs-approval" | "waiting-
   if (task.group === "pr-open") return "pr-open";
   if (task.group === "attention") return task.rawStatus ?? "unknown";
   return "completed";
+}
+
+
+function personalListGroup(task: WorkTask): WorkListGroup {
+  if (task.group === "done") return "done";
+  if (task.group === "needs-approval" || task.group === "pr-open" || task.group === "attention") return "in_review";
+  if (task.group === "running") return "in_progress";
+  if (task.group === "ready" || task.group === "queued") return "todo";
+  return "backlog";
 }
 
 export function WorkView(props: WorkViewProps): JSX.Element {
@@ -323,7 +333,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
 
   const q = filterQuery.trim().toLowerCase();
   const filteredTasks = tasks.filter((t) => !q || `${t.title} ${t.repo} ${t.stateLabel}`.toLowerCase().includes(q));
-  const openCount = tasks.filter((t) => t.group === "needs-approval" || t.group === "queued" || t.group === "running" || t.group === "pr-open").length;
+  const openCount = tasks.filter((t) => t.group === "needs-approval" || t.group === "queued" || t.group === "running" || t.group === "pr-open" || t.group === "attention").length;
   const selectedTask = tasks.find((task) => task.id === props.selection.task && (!props.selection.taskKind || task.kind === props.selection.taskKind));
   // A decided approval leaves the pending queue, but its receipt stays
   // addressable — resolved only from the authorized decided list, never guessed.
@@ -409,7 +419,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
     return filteredTasks.map((t) => ({
       id: personalTaskKey(t),
       title: t.title,
-      status: workStatus(t, "needs-approval"),
+      status: t.group === "attention" ? "attention" : workStatus(t, "needs-approval"),
       updatedAt: t.updatedAt,
       repoName: t.repo,
     }));
@@ -428,7 +438,6 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
   }, [filteredTasks]);
 
   const taskRow = (task: WorkTask) => {
-    const dotClass = STATUS_GROUPS.find((g) => g.id === task.group)!.dotClass;
     return (
       <div key={`${task.kind}-${task.id}`} className="border-b border-zinc-100 dark:border-zinc-800 last:border-b-0">
         <div className="flex items-center gap-3">
@@ -438,7 +447,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
             aria-haspopup="dialog"
             className="grid min-h-11 min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded px-3 py-2 text-left hover:bg-[var(--card-hover)] focus-visible:outline-2 focus-visible:outline-[var(--ring)] sm:flex"
           >
-            <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${dotClass}`} />
+            <WorkStatusIcon group={personalListGroup(task)} className="size-4 shrink-0" />
             <span className="min-w-0 flex-1 text-[13px] text-[var(--fg)] [overflow-wrap:anywhere]">{task.title}</span>
             <span className="col-start-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 sm:justify-end">
               {task.routine ? <span title={`Routine: ${task.routine.name}`} className="rounded border border-[var(--border-1)] px-2 py-0.5 text-[11px]">Routine · {routineCadence(task.routine.schedule, task.routine.timezone)}</span> : null}
@@ -525,19 +534,11 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
         </div>
       ) : null}
 
-      {props.routinesEnabled ? <div role="tablist" aria-label="Tasks filter" className="flex gap-2 border-b border-[var(--border-1)] px-4 py-2">
+      {props.routinesEnabled ? <div role="tablist" aria-label="Tasks filter" className="flex gap-2 border-b border-[var(--border-1)] px-4 py-1 sm:py-2">
         <button type="button" role="tab" aria-selected={!showRoutines} className={viewButtonClass} onClick={() => setShowRoutines(false)}>Tasks</button>
         <button type="button" role="tab" aria-selected={showRoutines} className={viewButtonClass} onClick={() => setShowRoutines(true)}>Routines</button>
       </div> : null}
       {showRoutines ? <RoutinesList {...routineState} onChanged={routineState.refresh} /> : <>
-      {/* Quick Add dashed row */}
-      <div className="px-4 pt-3 pb-2 shrink-0">
-        <WorkQuickAdd
-          onSubmit={(text) => onQuickAddTask?.(text)}
-          disabled={!onQuickAddTask}
-            />
-      </div>
-
       {/* Main body by view */}
       {activeView === "list" ? (
         <section aria-label="List view" className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 flex flex-col">
@@ -551,21 +552,21 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
                 No tasks yet
               </h3>
               <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                Add a task above to start a thread.
+                Add a task below to start a thread.
               </p>
             </div>
           ) : (
             <div className="flex flex-col gap-4">
-              {STATUS_GROUPS.map((group) => {
-                const grouped = filteredTasks.filter((t) => t.group === group.id);
+              {WORK_LIST_GROUPS.map((group) => {
+                const grouped = filteredTasks.filter((t) => personalListGroup(t) === group.id);
                 return (
-                  <section key={group.id} aria-label={`${group.name} - ${grouped.length}`}>
-                    <ViewGroup title={group.name} count={grouped.length} dotClass={group.dotClass}>
+                  <section key={group.id} aria-label={`${group.label} - ${grouped.length}`}>
+                    <ViewGroup title={group.label} count={grouped.length}>
                       {grouped.length ? (
                         grouped.map(taskRow)
                       ) : (
                         <p className="px-3 py-3 text-xs text-[var(--muted-foreground-3)]">
-                          {group.id === "needs-approval" ? "Nothing waiting" : `No tasks in ${group.name}`}
+                          {group.id === "in_review" ? "Nothing waiting" : `No tasks in ${group.label}`}
                         </p>
                       )}
                     </ViewGroup>
@@ -611,6 +612,13 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
           />
         </section>
       )}
+      {/* Bottom-docked task composer, matching the Overlay work surface. */}
+      <div className="shrink-0 px-4 pb-2 pt-2 sm:pb-4">
+        <WorkQuickAdd
+          onSubmit={(text) => onQuickAddTask?.(text)}
+          disabled={!onQuickAddTask}
+        />
+      </div>
       </>}
     </div>
   );
@@ -702,7 +710,7 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
     if (task) onUpdateTask?.(id, { status: workListGroup(task.status) === "done" ? "todo" : "done" });
   };
   const newTask = () => {
-    const input = quickAddRef.current?.querySelector("input");
+    const input = quickAddRef.current?.querySelector("textarea");
     if (onCreateTask && input) input.focus();
     else onNewTask?.();
   };
@@ -754,16 +762,6 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
       {sharedTasksError ? <p role="alert" className="px-4 pt-3 text-sm text-[var(--destructive-fg)]">{sharedTasksError}</p> : null}
       {sharedTasksLoading ? <p role="status" className="px-4 pt-3 text-sm text-[var(--muted-foreground-2)]">Loading work…</p> : null}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {view !== "organization" ? (
-            <div ref={quickAddRef} className="shrink-0 px-4 pt-3 pb-2">
-              <WorkQuickAdd
-                onSubmit={async (title, patch) => (onCreateTask ? (await (patch ? onCreateTask(title, patch) : onCreateTask(title))) !== null : false)}
-                fields={{ owners: agents, tasks: all.filter((task) => !task.archived) }}
-                disabled={!onCreateTask}
-                failureMessage="Could not create the task. Your draft has been kept. Try again."
-              />
-            </div>
-          ) : null}
           {view === "list" ? (
             <section aria-label="List view" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
               <WorkListView agents={agents} tasks={tasks} selectedId={selected?.id} onOpen={onTaskChange} onToggleDone={toggleDone} onNewTask={onCreateTask || onNewTask ? newTask : undefined} />
@@ -793,6 +791,16 @@ function TeamWorkView(props: TeamWorkViewProps): JSX.Element {
               <WorkOrganizationView employees={employees} onOpen={onOpenEmployee} onOpenApprovals={onOpenApprovals} onOpenChief={onOpenChief} onOpenChiefPage={onOpenChiefPage} onHireEmployee={onHireEmployee} onOpenOutputs={onOpenOutputs} user={user} />
             </section>
           )}
+          {view !== "organization" ? (
+            <div ref={quickAddRef} className="shrink-0 px-4 pb-2 pt-2 sm:pb-4">
+              <WorkQuickAdd
+                onSubmit={async (title, patch) => (onCreateTask ? (await (patch ? onCreateTask(title, patch) : onCreateTask(title))) !== null : false)}
+                fields={{ owners: agents, tasks: all.filter((task) => !task.archived) }}
+                disabled={!onCreateTask}
+                      failureMessage="Could not create the task. Your draft has been kept. Try again."
+              />
+            </div>
+          ) : null}
       </div>
     </div>
   );

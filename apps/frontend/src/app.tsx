@@ -26,7 +26,7 @@ import { RoomExecutionPanel } from "./components/RoomExecutionPanel";
 import { RoomApprovalReview } from "./components/RoomApprovalReview";
 import { TeamWorkspaceView } from "./components/TeamWorkspaceView";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
-import { lastTeamWorkspace, rememberLastTeamWorkspace, useTeamWorkspaceDirectory } from "./team-workspaces-client";
+import { lastTeamWorkspace, useTeamWorkspaceDirectory } from "./team-workspaces-client";
 import { useWorkTasks } from "./work-mutations";
 import { useFirstRunSeed } from "./first-run-seed";
 import { AnalyticsView } from "./components/AnalyticsView";
@@ -976,10 +976,6 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   useEffect(() => {
     if (mainView === "settings" && teamWorkspaceId) setSettingsSection("team");
   }, [mainView, teamWorkspaceId]);
-  // The directory forgets its selection when switching to Personal; keep the last team separately for the Workspace tab.
-  useEffect(() => {
-    if (teamWorkspaceId && orchestratorName) rememberLastTeamWorkspace(orchestratorName.trim().toLowerCase(), teamWorkspaceId);
-  }, [teamWorkspaceId, orchestratorName]);
   const teamWorkspace = teamDirectory.workspaces.find(item => item.workspaceId === teamWorkspaceId);
   useEffect(() => {
     setMailboxCounts({});
@@ -3661,7 +3657,7 @@ function employeeConversationRoomTitle(name: string): string {
 
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {/* TOP BAR — subtle chrome header */}
-        <header className="shiba-app-topbar pt-[env(safe-area-inset-top)] shrink-0 text-[var(--fg)] flex items-center gap-2.5 pl-2 pr-3 lg:px-4 z-20">
+        <header className="shiba-app-topbar pt-[env(safe-area-inset-top)] shrink-0 text-[var(--fg)] flex items-center gap-2.5 pl-2 pr-3 lg:hidden z-20">
           <button
             type="button"
             ref={mobileNavTriggerRef}
@@ -3749,7 +3745,7 @@ function employeeConversationRoomTitle(name: string): string {
           <OnboardingNudgePopup status={nudgeStatus} open={nudgeSession?.popupOpen ?? false} onResume={(step) => { void resumeNudgeStep(step); }} onDismiss={closeNudgePopup} />
         </> : null}
 
-        <div className={`shiba-app-content flex-1 flex min-w-0 min-h-0 ${mainView === "work" ? "" : "gap-3 p-3"}`}>
+        <div className={`shiba-app-content flex-1 flex min-w-0 min-h-0 ${mainView === "work" ? "" : "gap-2 p-2"}`}>
           {mainView !== "work" && !sessionsCollapsed ? <div id="app-context-panel" className="hidden min-h-0 lg:flex">{destinationPanel ?? <AppAreaSidebar />}</div> : null}
           <MainCard className={mainView === "work" || mainView === "settings" || (!personalOnlyNotice && SELF_CARDED_VIEWS.includes(mainView) && !(mainView === "integrations" && (teamWorkspaceId || restrictedTeamMember))) ? "!rounded-none !border-0 !bg-transparent !shadow-none" : ""}>
           {inboxMounted && privateDataEnabled ? (

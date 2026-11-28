@@ -1,4 +1,4 @@
-import { parseChatThreadName, type IntegrationProviderConnection } from "@shiba/shared";
+import { knowledgeReadToolArgsSchema, knowledgeSearchToolArgsSchema, parseChatThreadName, type IntegrationProviderConnection } from "@shiba/shared";
 import { registerIntegrationTools, integrationToolInput } from "./mcp-integration-tools.js";
 import { getIntegrationProvider } from "./ports/connector/registry.js";
 import { assertActionArgumentsAllowed, assertActionInputAllowed, IntegrationActionInputPolicyError, CREDENTIAL_INPUT_UNAVAILABLE } from "./integrations/action-input-policy.js";
@@ -121,6 +121,8 @@ export const EMPLOYEE_TOOL_ACTIONS = {
   run_status: { risk: "read", requiredScope: "runs:read", resourceArgument: "runId", resourceRequired: true, requiresLiveVerification: false },
   queue_run: { risk: "external_write", requiredScope: "sandbox:exec", resourceArgument: "repoUrl", resourceRequired: true, requiresLiveVerification: false },
   send_email: { risk: "external_write", requiredScope: "email:send", resourceArgument: "mailbox", resourceRequired: true, requiresLiveVerification: false },
+  knowledge_search: { risk: "read", requiredScope: "knowledge:read", resourceArgument: undefined, resourceRequired: false, requiresLiveVerification: false },
+  knowledge_read: { risk: "read", requiredScope: "knowledge:read", resourceArgument: "sourceId", resourceRequired: true, requiresLiveVerification: false },
 } as const;
 
 function jsonError(error: string, status: number): Response {
@@ -478,10 +480,23 @@ export async function dispatchEmployeeToolForPrincipal(
   const id = capabilityId(toolName);
   if (!selection.allowedCapabilityIds.includes(id)) return jsonError("capability_not_allowed", 403);
   const resourceKey = action.resourceArgument;
-  const gmailIds = toolName === "gmail_read" ? args[resourceKey] : undefined;
+  const gmailIds = toolName === "gmail_read" && resourceKey ? args[resourceKey] : undefined;
   let resourceId: string;
   let connection;
-  if (toolName === "gmail_read") {
+  if (toolName === "knowledge_search" || toolName === "knowledge_read") {
+    const schema = toolName === "knowledge_search" ? knowledgeSearchToolArgsSchema : knowledgeReadToolArgsSchema;
+    const allowedKeys = toolName === "knowledge_search" ? ["query", "limit"] : ["sourceKind", "sourceId", "maxChars"];
+    const parsed = schema.safeParse(args);
+    if (!parsed.success || Object.keys(args).some((key) => !allowedKeys.includes(key))) return jsonError("invalid_knowledge_tool_input", 400);
+    args = parsed.data as Record<string, unknown>;
+  }
+  if (toolName === "knowledge_search") {
+    resourceId = "workspace";
+    connection = await resolveEmployeeConnectionGrant(env, {
+      orgId, employeeId, employeeVersion: employee.version, actorId,
+      capabilityId: id, resourceId,
+    });
+  } else if (toolName === "gmail_read") {
     if (!Array.isArray(gmailIds) || gmailIds.length < 1 || gmailIds.length > 25 ||
         gmailIds.some((value) => typeof value !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(value)) || new Set(gmailIds).size !== gmailIds.length) {
       return jsonError("invalid_gmail_resource_ids", 400);
@@ -502,7 +517,7 @@ export async function dispatchEmployeeToolForPrincipal(
     }
     connection = { ...first, allowedResources: [...gmailIds] };
   } else {
-    if (typeof args[resourceKey] !== "string" || !(args[resourceKey] as string).trim() || (args[resourceKey] as string).length > 200) return jsonError("invalid_resource_id", 400);
+    if (!resourceKey || typeof args[resourceKey] !== "string" || !(args[resourceKey] as string).trim() || (args[resourceKey] as string).length > 200) return jsonError("invalid_resource_id", 400);
     resourceId = args[resourceKey] as string;
     connection = await resolveEmployeeConnectionGrant(env, {
       orgId, employeeId, employeeVersion: employee.version, actorId,

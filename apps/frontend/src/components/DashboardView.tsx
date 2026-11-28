@@ -132,10 +132,10 @@ export function DashboardView({
     const assigned = openSharedTasks.filter((task) => task.assigneeActorId === actorId || task.assigneeName === employee.name);
     const needsViewer = assigned.filter(teamWorkNeedsViewer).length;
     const sharedWorking = assigned.filter((task) => ["in-progress", "running", "queued"].includes(task.status)).length;
-    const activeRunWorking = workspaceScope ? 0 : stats.active.filter((run) => run.customAgentId === employee.id).length;
+    const activeRunWorking = workspaceScope ? 0 : runs.filter((run) => run.customAgentId === employee.id && ["running", "pending", "queued"].includes(run.status)).length;
     const working = sharedWorking + activeRunWorking;
     return { employee, assigned, needsViewer, working, status: working ? "working" as const : needsViewer ? "needs-approval" as const : "idle" as const };
-  }), [employees, openSharedTasks, stats.active, workspaceScope]);
+  }), [employees, openSharedTasks, runs, workspaceScope]);
   const visibleSharedTasks = openSharedTasks.slice(0, 6);
   const workspaceReviewTasks = openSharedTasks.filter(teamWorkNeedsViewer);
   const approvalCount = workspaceScope ? workspaceReviewTasks.length : pendingApprovals.length + storedApprovals.length;

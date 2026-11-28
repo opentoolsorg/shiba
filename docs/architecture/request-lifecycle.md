@@ -7,7 +7,7 @@ channel-delivered work follow the same control shape.
 
 ```text
  1  intake      person/channel/automation creates or selects workspace work
- 2  orient      Employee Orchestrator loads workspace, employee, and context
+ 2  orient      employee runtime/orchestrator loads workspace, employee, and context
  3  plan        produce or update a goal/plan/task with exact scope
  4  approve     required human approver grants exact frozen authority
  5  dispatch    run orchestration mints or resumes an approved run/attempt
@@ -26,8 +26,9 @@ channel-delivered work follow the same control shape.
 - **Approval freezes authority.** The envelope carries actor, workspace, employee
   profile/version, target, action, resources, model/runtime lane, expiry, and
   limits.
-- **The orchestrator does not perform the work.** It coordinates. An execution
-  lane performs the approved action.
+- **The employee runtime/orchestrator does not perform external work.** It
+  coordinates identity, conversation, approvals, lineage, and recovery. An
+  execution lane performs the approved action.
 - **Every run has lineage.** Parent/child work, retries, cancellation, receipts,
   and deliverables stay connected.
 - **Evidence is part of the result.** A result without enough evidence is partial,
@@ -51,7 +52,7 @@ channel-delivered work follow the same control shape.
 
 ```text
  1  approve     exact repo/ref/task and harness/runtime route are frozen
- 2  dispatch    Employee Orchestrator sends a structured envelope to the
+ 2  dispatch    room/coding orchestrator sends a structured envelope to the
                 Run Execution Agent (current implementation: OpenCodeAgent)
  3  sandbox     Sandbox DO starts an ephemeral container for the run
  4  clone       container receives only the approved scoped git capability

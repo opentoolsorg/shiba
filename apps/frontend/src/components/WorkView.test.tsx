@@ -78,13 +78,13 @@ describe("WorkView", () => {
       { ...base, runId: "archived", task: "Archived", archivedAt: 1 },
       ...(["error", "aborted", "cancelled", "unknown"] as const).map((status) => ({ ...base, runId: status, task: `Unsuccessful ${status}`, status })),
     ]} sessions={[{ id: "archived", title: "Archived session", status: "completed", repoName: "infra", updatedAt: 1 }]} />);
-    expect(within(screen.getByRole("region", { name: "PR linked - 1" })).getByText("Published")).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: "Completed - 1" })).getByText("Requested only")).toBeTruthy();
-    const attention = screen.getByRole("region", { name: "Needs attention - 4" });
-    expect(within(attention).getAllByRole("button")).toHaveLength(4);
+    const review = screen.getByRole("region", { name: "In review - 5" });
+    expect(within(review).getByText("Published")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Done - 1" })).getByText("Requested only")).toBeTruthy();
+    expect(within(review).getAllByRole("button")).toHaveLength(5);
     expect(screen.queryByText("Archived")).toBeNull();
     expect(screen.queryByText("Archived session")).toBeNull();
-    expect(screen.getByText("1 open")).toBeTruthy();
+    expect(screen.getByText("5 open")).toBeTruthy();
   });
 
   it("passes approval kind from every view without inventing repository metadata", () => {
@@ -107,12 +107,12 @@ describe("WorkView", () => {
     expect(screen.getByText("Personal")).toBeTruthy();
     expect(screen.getByText("Work")).toBeTruthy();
     expect(screen.getByText(/3 open/)).toBeTruthy();
-    const running = screen.getByRole("region", { name: "Running - 1" });
-    expect(running.querySelector("summary")?.textContent).toBe("Running1 item");
-    const done = screen.getByRole("region", { name: "Completed - 1" });
-    expect(done.querySelector("summary")?.textContent).toBe("Completed1 item");
-    const attention = screen.getByRole("region", { name: "Needs attention - 0" });
-    expect(attention.querySelector("summary")?.textContent).toBe("Needs attention0 items");
+    const running = screen.getByRole("region", { name: "In progress - 1" });
+    expect(running.querySelector("summary")?.textContent).toBe("In progress1 item");
+    const done = screen.getByRole("region", { name: "Done - 1" });
+    expect(done.querySelector("summary")?.textContent).toBe("Done1 item");
+    const review = screen.getByRole("region", { name: "In review - 2" });
+    expect(review.querySelector("summary")?.textContent).toBe("In review2 items");
   });
 
   it("switches between List, Board, and Timeline views", () => {
@@ -140,7 +140,7 @@ describe("WorkView", () => {
     const onQuickAddTask = vi.fn().mockResolvedValue(true);
     render(<WorkView runs={mockRuns} onQuickAddTask={onQuickAddTask} />);
 
-    const input = screen.getByRole("textbox", { name: "Add a task and press Enter" });
+    const input = screen.getByRole("textbox", { name: "Write a task…" });
     fireEvent.change(input, { target: { value: "Investigate latency spikes" } });
     fireEvent.submit(input.closest("form")!);
 
@@ -152,7 +152,7 @@ describe("WorkView", () => {
     let finish!: (success: boolean) => void;
     const onQuickAddTask = vi.fn(() => new Promise<boolean>((resolve) => { finish = resolve; }));
     render(<WorkView onQuickAddTask={onQuickAddTask} />);
-    const input = screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement;
+    const input = screen.getByRole("textbox", { name: "Write a task…" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "Keep this draft" } });
     const form = input.closest("form")!;
     fireEvent.submit(form);
@@ -171,7 +171,7 @@ describe("WorkView", () => {
 
   it("keeps a rejected quick-add draft and reports the failure", async () => {
     render(<WorkView onQuickAddTask={vi.fn().mockRejectedValue(new Error("Offline"))} />);
-    const input = screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement;
+    const input = screen.getByRole("textbox", { name: "Write a task…" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "Keep this offline draft" } });
     await act(async () => {
       fireEvent.submit(input.closest("form")!);
@@ -233,7 +233,7 @@ describe("WorkView", () => {
   it("renders centered empty state when there are zero tasks", () => {
     render(<WorkView runs={[]} storedApprovals={[]} sessions={[]} />);
     expect(screen.getByText("No tasks yet")).toBeTruthy();
-    expect(screen.getByText("Add a task above to start a thread.")).toBeTruthy();
+    expect(screen.getByText("Add a task below to start a thread.")).toBeTruthy();
   });
 
   it("shows Review for pending approvals in Board and Timeline as well as List", () => {
@@ -255,8 +255,8 @@ describe("WorkView", () => {
     render(<WorkView runs={[...mockRuns, failed]} />);
     fireEvent.click(screen.getByRole("button", { name: "Board" }));
     expect(screen.getByTestId("board-column-done").textContent).not.toContain("Broken migration");
-    expect(screen.getByTestId("board-column-pr_open").textContent).toContain("Fix flaky checkout test");
-    expect(screen.getByTestId("board-column-attention").textContent).toContain("Broken migration");
+    expect(screen.getByTestId("board-column-in_review").textContent).toContain("Fix flaky checkout test");
+    expect(screen.getByTestId("board-column-in_review").textContent).toContain("Broken migration");
   });
 
   it("keeps cancelled and PR-open labels distinct in the Timeline", () => {
@@ -273,9 +273,9 @@ describe("WorkView", () => {
     const onReviewApproval = vi.fn();
     const sessions = [{ id: "s-np", title: "Connect a provider", repoName: "", status: "needs-provider", updatedAt: 5 }];
     render(<WorkView sessions={sessions} onReviewApproval={onReviewApproval} />);
-    const waiting = screen.getByRole("region", { name: /^Needs attention - 1$/ });
+    const waiting = screen.getByRole("region", { name: /^In review - 1$/ });
     expect(waiting.textContent).toContain("Connect a provider");
-    expect(screen.getByRole("region", { name: /^Completed - 0$/ }).textContent).not.toContain("Connect a provider");
+    expect(screen.getByRole("region", { name: /^Done - 0$/ }).textContent).not.toContain("Connect a provider");
     expect(screen.queryByRole("button", { name: /^Review/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Board" }));
     expect(screen.queryByRole("button", { name: /^Review/ })).toBeNull();
@@ -425,7 +425,7 @@ describe("WorkView", () => {
     render(<WorkView workspaceId="workspace-1" sharedTasks={[sharedTask]} onUpdateTask={onUpdateTask} onCreateTask={onCreateTask} />);
     fireEvent.click(screen.getByRole("button", { name: `Mark ${sharedTask.title} done` }));
     expect(onUpdateTask).toHaveBeenCalledWith(sharedTask.id, { status: "done" });
-    const input = screen.getByRole("textbox", { name: "Add a task and press Enter" }) as HTMLInputElement;
+    const input = screen.getByRole("textbox", { name: "Write a task…" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "Draft the launch post" } });
     await act(async () => { fireEvent.submit(input.closest("form")!); });
     expect(onCreateTask).toHaveBeenCalledWith("Draft the launch post");
@@ -451,10 +451,10 @@ describe("WorkView", () => {
     const onCreateTask = vi.fn().mockResolvedValue({ ...sharedTask, id: "new" });
     const { rerender } = render(<WorkView workspaceId="workspace-1" view="list" sharedTasks={[sharedTask]} onUpdateTask={onUpdateTask} onCreateTask={onCreateTask} agents={[{ id: "agent:coder", name: "Coder" }]} />);
     fireEvent.click(screen.getByRole("button", { name: "Describe a new task" }));
-    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Add a task and press Enter" }));
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Write a task…" }));
     fireEvent.click(screen.getByRole("button", { name: "Add details" }));
     fireEvent.change(screen.getByLabelText("Assignee"), { target: { value: "agent:coder" } });
-    const input = screen.getByRole("textbox", { name: "Add a task and press Enter" });
+    const input = screen.getByRole("textbox", { name: "Write a task…" });
     fireEvent.change(input, { target: { value: "Plan the launch" } });
     await act(async () => { fireEvent.submit(input.closest("form")!); });
     expect(onCreateTask).toHaveBeenCalledWith("Plan the launch", { ownerId: "agent:coder" });

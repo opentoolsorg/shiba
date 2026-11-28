@@ -30,7 +30,7 @@ describe("WorkTimelineView", () => {
   it("renders the empty state when there are no tasks", () => {
     render(<WorkTimelineView tasks={[]} onOpen={vi.fn()} />);
     expect(screen.getByText("No tasks yet")).toBeTruthy();
-    expect(screen.getByText("Add a task above. It lands in Todo.")).toBeTruthy();
+    expect(screen.getByText("Add a task below. It lands in Todo.")).toBeTruthy();
     expect(screen.queryByTestId("timeline-scroller")).toBeNull();
   });
 

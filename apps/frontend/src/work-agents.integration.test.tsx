@@ -98,7 +98,7 @@ function WorkHarness() {
 async function renderWorkWithTask(title: string) {
   const backend = fakeWorkBackend();
   render(<WorkHarness />);
-  const input = await screen.findByRole("textbox", { name: "Add a task and press Enter" });
+  const input = await screen.findByRole("textbox", { name: "Write a task…" });
   input.focus();
   fireEvent.change(input, { target: { value: title } });
   fireEvent.keyDown(input, { key: "Enter" });
@@ -118,7 +118,7 @@ describe("Work flow", () => {
     fakeWorkBackend();
     render(<WorkHarness />);
     expect(await screen.findByText("No tasks yet")).toBeTruthy();
-    expect(screen.getByText("Add a task above. It lands in Todo.")).toBeTruthy();
+    expect(screen.getByText("Add a task below. It lands in Todo.")).toBeTruthy();
     expect(everything().getByText("No open tasks")).toBeTruthy();
   });
 
