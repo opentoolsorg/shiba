@@ -14,7 +14,7 @@
  * Telegram redelivers on any non-2xx, so an authenticated update is acked
  * at once and the work runs behind `ctx.waitUntil`, deduped on `update_id`.
  */
-import { buildDecisionData, parseDecisionData } from "@shiba/shared";
+import { buildCompactDecisionData, buildDecisionData, parseChatThreadName, parseDecisionData } from "@shiba/shared";
 import {
   CARD_TASK_LIMIT,
   chatApprovalText,
@@ -72,6 +72,76 @@ export interface TelegramDeps {
 }
 
 const NUMERIC_ID = /^-?\d+$/;
+export const TELEGRAM_CALLBACK_DATA_LIMIT_BYTES = 64;
+const TELEGRAM_MESSAGE_TEXT_LIMIT = 4000;
+const PUBLICATION_FAIL_CLOSED_NOTE =
+  "\n\nTelegram cannot carry this exact approval pointer in a button. No Telegram approval action was enabled; decide the pending publication in the Shiba dashboard.";
+
+function callbackDataFits(data: string): boolean {
+  return new TextEncoder().encode(data).byteLength <= TELEGRAM_CALLBACK_DATA_LIMIT_BYTES;
+}
+
+/**
+ * Prefer the legacy decision spelling, then the compact spelling. Null means
+ * Telegram must not render the action at all: a clipped or rewritten pointer
+ * is never a safe approval authority.
+ */
+export function telegramDecisionData(approved: boolean, approvalId: string): string | null {
+  const valid = (data: string) => {
+    const parsed = parseDecisionData(data);
+    return parsed?.approved === approved && parsed.approvalId === approvalId ? data : null;
+  };
+  const standard = buildDecisionData(approved, approvalId);
+  if (callbackDataFits(standard)) return valid(standard);
+  const compact = buildCompactDecisionData(approved, approvalId);
+  return callbackDataFits(compact) ? valid(compact) : null;
+}
+
+export function telegramDecisionKeyboard(approvalId: string): { inline_keyboard: { text: string; callback_data: string }[][] } | null {
+  const approve = telegramDecisionData(true, approvalId);
+  const reject = telegramDecisionData(false, approvalId);
+  if (!approve || !reject) return null;
+  return {
+    inline_keyboard: [[
+      { text: "Approve", callback_data: approve },
+      { text: "Reject", callback_data: reject },
+    ]],
+  };
+}
+
+function publicationFailClosedText(text: string): string {
+  return `${text.slice(0, TELEGRAM_MESSAGE_TEXT_LIMIT - PUBLICATION_FAIL_CLOSED_NOTE.length)}${PUBLICATION_FAIL_CLOSED_NOTE}`;
+}
+
+/** Post the second publication approval into the originating Telegram chat or topic. */
+export async function postTelegramPublicationApproval(
+  env: Env,
+  threadKey: string,
+  text: string,
+  approvalId: string,
+  deps: { adapter?: ChannelAdapter } = {},
+): Promise<boolean> {
+  const chat = parseChatThreadName(threadKey);
+  if (chat?.platform !== "telegram") return false;
+  const token = env.TELEGRAM_BOT_TOKEN?.trim();
+  const adapter = deps.adapter ?? (token ? createTelegramAdapter({ token }) : null);
+  if (!adapter) return false;
+  const target = {
+    placeId: chat.conversationId,
+    ...(chat.topicId ? { threadId: chat.topicId } : {}),
+  };
+  const keyboard = telegramDecisionKeyboard(approvalId);
+  if (!keyboard) {
+    await adapter.post({ ...target, text: publicationFailClosedText(text) });
+    return true;
+  }
+  await adapter.post({
+    ...target,
+    text: text.slice(0, TELEGRAM_MESSAGE_TEXT_LIMIT),
+    native: { reply_markup: keyboard },
+  });
+  return true;
+}
 
 async function handleMessage(message: InboundMessage, env: Env, adapter: ChannelAdapter, deps: TelegramDeps): Promise<void> {
   const chatId = message.placeId;
@@ -114,6 +184,7 @@ async function handleMessage(message: InboundMessage, env: Env, adapter: Channel
     task: employee.taskText,
     userId: message.authorId,
     harness: env.TELEGRAM_AGENT_HARNESS ?? env.AGENT_HARNESS,
+    publishPullRequest: true,
   };
   if (employee.kind === "ok") {
     if (!request.task) {
@@ -137,14 +208,14 @@ async function handleMessage(message: InboundMessage, env: Env, adapter: Channel
     await reply({ text: `Failed to queue the task. ${queued.error}` });
     return;
   }
+  const keyboard = telegramDecisionKeyboard(queued.approvalId);
+  if (!keyboard) {
+    await reply({ text: "Approval queued, but Telegram cannot carry its exact approval pointer in a button. Decide it in the Shiba dashboard; no Telegram approval action was enabled." });
+    return;
+  }
   await reply({
     text: chatApprovalText({ ...request, approvalId: queued.approvalId, route: queued.route }),
-    reply_markup: {
-      inline_keyboard: [[
-        { text: "Approve", callback_data: buildDecisionData(true, queued.approvalId) },
-        { text: "Reject", callback_data: buildDecisionData(false, queued.approvalId) },
-      ]],
-    },
+    reply_markup: keyboard,
   });
   // Telegram's message cap is 4096; a task over the card limit posts in full
   // right after the card so Approve never signs off on hidden text.

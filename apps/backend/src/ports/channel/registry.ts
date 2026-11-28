@@ -9,6 +9,7 @@ import { discordChannel, postDiscordPublicationApproval } from "../../channels/d
 import { emailChannel } from "../../channels/email/index.js";
 import { slackChannel } from "../../channels/slack/index.js";
 import { postTeamsPublicationApproval } from "../../channels/teams/connection.js";
+import { postTelegramPublicationApproval } from "../../telegram.js";
 import { teamsChannel } from "../../channels/teams/index.js";
 import { telegramChannel } from "../../channels/telegram/index.js";
 import type { Env } from "../../env.js";
@@ -89,6 +90,16 @@ const CHANNEL_PUBLICATIONS: Partial<Record<ChannelId, ChannelPublication>> = {
       return posted
         ? { status: "posted" }
         : { status: "unavailable", reason: "Discord publication conversation is unavailable." };
+    },
+  },
+  telegram: {
+    channel: "telegram",
+    capabilities: PUBLICATION_APPROVAL_CARD,
+    async postApprovalCard(env, input) {
+      const posted = await postTelegramPublicationApproval(env, input.threadKey, input.text, input.approvalId);
+      return posted
+        ? { status: "posted" }
+        : { status: "unavailable", reason: "Telegram publication conversation is unavailable." };
     },
   },
 };

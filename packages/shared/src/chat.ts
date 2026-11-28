@@ -17,6 +17,7 @@ const WEB_CONVERSATION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const TEAMS_CONVERSATION_ID = /^[A-Za-z0-9:@._;=-]{1,256}$/;
 const THREAD_NAME = /^(telegram|discord|teams|web):(.+)$/;
 const DECISION_DATA = /^(approve|reject):([a-z0-9][a-z0-9:_-]{0,119})$/;
+const COMPACT_DECISION_DATA = /^(a|r):([a-z0-9][a-z0-9:_-]{0,119})$/;
 const EMPLOYEE_DECISION_DATA = /^(emp-approve|emp-reject):(eap-[0-9a-f]{32})$/;
 
 function isValidConversationId(platform: ChatPlatform, id: string): boolean {
@@ -57,15 +58,29 @@ export interface ChatDecision {
   approvalId: string;
 }
 
-/** Button payload: a bounded pointer, not a capability. Initial run approvals fit Telegram's 64-byte callback_data; longer publication pointers are only rendered on platforms with larger action payloads. */
+/**
+ * Button payload: a bounded pointer, not a capability. The legacy spelling
+ * remains the default for surfaces with larger action payloads.
+ */
 export function buildDecisionData(approved: boolean, approvalId: string): string {
   return `${approved ? "approve" : "reject"}:${approvalId}`;
 }
 
+/**
+ * Compact spelling for Telegram's 64-byte callback_data budget. It carries
+ * the same exact approval pointer; parsing accepts both spellings so cards
+ * posted before a deploy remain decidable while they are still pending.
+ */
+export function buildCompactDecisionData(approved: boolean, approvalId: string): string {
+  return `${approved ? "a" : "r"}:${approvalId}`;
+}
+
 export function parseDecisionData(value: string): ChatDecision | null {
   const match = DECISION_DATA.exec(value);
-  if (!match) return null;
-  return { approved: match[1] === "approve", approvalId: match[2]! };
+  if (match) return { approved: match[1] === "approve", approvalId: match[2]! };
+  const compact = COMPACT_DECISION_DATA.exec(value);
+  if (!compact) return null;
+  return { approved: compact[1] === "a", approvalId: compact[2]! };
 }
 
 /** Discord/Telegram button payload for employee-tool exact-payload approvals. */
