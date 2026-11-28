@@ -16,7 +16,7 @@ Describe a task, review the proposed work, and approve the request. Shiba return
 
 The software is free to self-host. You pay for hosting and model usage through your chosen providers. Start with [your first task](https://tryshiba.dev/docs/getting-started/) or the [self-hosting guide](https://tryshiba.dev/docs/self-hosting/).
 
-**Status: deployed prototype, not production-ready.** No live end-to-end cloud run is claimed. Two hosts exist: `tryshiba.dev` is the Cloudflare Pages site (landing `/`, docs `/docs/` — static only), and `app.tryshiba.dev` is the deployed Worker (dashboard `/app/` plus the API) behind Cloudflare Access with `workers.dev` disabled. The Worker deploy proves the stack provisions and serves; it does not establish a live coding run. `VERIFICATION.md` records passing local typecheck, lint, tests, and build checks; the backend remains a prototype until a dated run meets the P2 acceptance bar in `PLAN.md` §15: submit → approve → clone/code/collect with a diff that matches reality, rejection starting no container, honest failure exit codes, PRs with deletions shown as deleted, and peak memory measured.
+**Status: deployed prototype, not production-ready.** No live end-to-end cloud run is claimed. Two hosts exist: `tryshiba.dev` is the Cloudflare Pages site (landing `/`, docs `/docs/` — static only), and `app.tryshiba.dev` is the deployed Worker (dashboard `/app/` plus the API) behind Cloudflare Access with `workers.dev` disabled. The Worker deploy proves the stack provisions and serves; it does not establish a live coding run. `docs/verification/verification.md` records passing local typecheck, lint, tests, and build checks; the backend remains a prototype until a dated run meets the P2 acceptance bar in `docs/plans/plan.md` §15: submit → approve → clone/code/collect with a diff that matches reality, rejection starting no container, honest failure exit codes, PRs with deletions shown as deleted, and peak memory measured.
 
 **Static site (landing, docs):** [https://tryshiba.dev/](https://tryshiba.dev/)
 
@@ -156,7 +156,7 @@ To connect a cloud agent to mail, assign its exact `/mcp` token principal in Inb
 
 The documentation site at `/docs/` includes setup, configuration, local development, dashboard usage, deployment, GitHub integration, security, architecture, API reference, troubleshooting, cost surfaces, contributing, and an end-to-end acceptance checklist.
 
-Source entry: [docs index](apps/web/src/content/docs/index.md). Content lives in `apps/web/src/content/docs/docs/`. The root build runs Vite (`frontend/`) first, builds Astro into `apps/web/dist`, then copies `apps/web/dist` into `public/` and verifies local links, anchors, assets, and Pagefind output.
+Source entry: [docs index](apps/web/src/content/docs/docs/). Content lives in `apps/web/src/content/docs/docs/`. The root build runs Vite (`frontend/`) first, builds Astro into `apps/web/dist`, then copies `apps/web/dist` into `public/` and verifies local links, anchors, assets, and Pagefind output.
 
 ## Architecture
 
@@ -223,7 +223,7 @@ Shipped: `/shiba <github-repo-url> <task>` (`POST /api/slack/command`) and `@shi
 
 **`SLACK_APPROVERS` unset means nobody can approve from Slack.** That is deliberate: a valid signature authenticates Slack, not the human who clicked, and a Block Kit button in a public channel is clickable by every member.
 
-No P3 live workspace verification is claimed. The P3 acceptance bar in `PLAN.md` §15 (Request URL verification with Access enabled, non-approver clicks refused with no container started, one run per burst, secret redaction) has not been exercised against a real workspace.
+No P3 live workspace verification is claimed. The P3 acceptance bar in `docs/plans/plan.md` §15 (Request URL verification with Access enabled, non-approver clicks refused with no container started, one run per burst, secret redaction) has not been exercised against a real workspace.
 
 ## Automations
 

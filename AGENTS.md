@@ -34,7 +34,7 @@ Use the smallest current document that answers the question:
 5. `docs/SOURCE-LAYOUT.md` maps backend domain ownership. Update it when a
    backend source file moves or a new one appears.
 
-`PLAN.md`, `ROADMAP.md`, `VERIFICATION.md`, `VERIFICATION_PLAN.md`, and files
+`docs/plans/plan.md`, `docs/plans/roadmap.md`, `docs/verification/verification.md`, `docs/verification/verification-plan.md`, and files
 under `docs/verification/` are dated planning or evidence records. Open them
 only when a task id, acceptance question, or historical claim requires them,
 and read the matching section instead of loading the whole file. They are not

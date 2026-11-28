@@ -24,7 +24,7 @@ Claimed user journey:
 9. Optional: publish a branch and pull request from the Worker (token never enters the container).
 10. Extra surfaces: Slack, Telegram, Discord, Linear, email, MCP, automations, a parked desktop app.
 
-The repo's own status line (README, `apps/web` product-status page, `VERIFICATION.md`): **deployed prototype, not production-ready. No live end-to-end cloud coding run is claimed.** The last recorded local container exercise (2026-09-19) reached provider egress and failed with HTTP 401 before inference.
+The repo's own status line (README, `apps/web` product-status page, `docs/verification/verification.md`): **deployed prototype, not production-ready. No live end-to-end cloud coding run is claimed.** The last recorded local container exercise (2026-09-19) reached provider egress and failed with HTTP 401 before inference.
 
 Architecture (as built, `ARCHITECTURE.md`): one Cloudflare Worker, nine Durable Objects, deny-by-default egress, secrets stay outside the container, per-surface auth. Default models: orchestrator `@cf/meta/llama-3.1-8b-instruct` (Workers AI), coding `google/gemini-3.5-flash-lite` via AI Gateway. Runtime default `sandbox`, instance `standard-1`, concurrency cap 5.
 

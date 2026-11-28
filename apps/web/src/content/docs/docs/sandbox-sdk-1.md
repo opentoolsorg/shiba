@@ -20,7 +20,7 @@ When ready:
 1. Create a **staging Worker** (for example `shiba-ai-coworker-sandbox-staging`) with the same bindings but a **renamed container app** in `wrangler.jsonc` `containers[].name`.
 2. `npx wrangler deploy --config apps/backend/wrangler.jsonc` against that staging name (never from cloud agents).
 3. Run verify-shiba `pr-publish` and `review-findings` against staging with a throwaway repo.
-4. Cut over production only after evidence is recorded in `VERIFICATION.md`.
+4. Cut over production only after evidence is recorded in `docs/verification/verification.md`.
 
 ## Security invariants (unchanged)
 

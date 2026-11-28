@@ -1,6 +1,6 @@
 # Triage Labels
 
-The skills speak in terms of five canonical triage roles. This file maps those roles to the strings used in this repo's tracker (the `Status:` word in `PLAN.md` §2.0; see `issue-tracker.md`).
+The skills speak in terms of five canonical triage roles. This file maps those roles to the strings used in this repo's tracker (the `Status:` word in `docs/plans/plan.md` §2.0; see `issue-tracker.md`).
 
 | Label in mattpocock/skills | Label in our tracker | Meaning                                  |
 | -------------------------- | -------------------- | ---------------------------------------- |

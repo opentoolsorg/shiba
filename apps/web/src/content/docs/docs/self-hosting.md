@@ -141,7 +141,7 @@ Redirect `/app*` from Pages to your Worker host via `apps/web/public/_redirects`
 
 1. `/api/setup/status` returns JSON when the API is up (not SPA HTML).
 2. Submit a throwaway task on a test repo with publishing disabled; approve; confirm a single sandbox container and an honest diff.
-3. When ready, enable PR + review and record evidence in `VERIFICATION.md` (see [Readiness](/docs/readiness/)).
+3. When ready, enable PR + review and record evidence in `docs/verification/verification.md` (see [Readiness](/docs/readiness/)).
 
 ## Operator checklist before public use
 

@@ -5,7 +5,7 @@ description: Prepare an account-owned installation without confusing local valid
 
 ## Current verification status
 
-The latest dated entry in `VERIFICATION.md` (2026-09-24) reports local checks passing, while Alchemy deployment remains pending Cloudflare OAuth/configuration. No end-to-end cloud run is recorded. The 2026-09-19 OpenCode `wrangler dev` run locally started a Docker container, cloned a public repo and routed provider egress, but the model request returned 401; model inference was not verified. Do not call the project cloud-live or production-ready on this evidence. See [Readiness](/docs/readiness/).
+The latest dated entry in `docs/verification/verification.md` (2026-09-24) reports local checks passing, while Alchemy deployment remains pending Cloudflare OAuth/configuration. No end-to-end cloud run is recorded. The 2026-09-19 OpenCode `wrangler dev` run locally started a Docker container, cloned a public repo and routed provider egress, but the model request returned 401; model inference was not verified. Do not call the project cloud-live or production-ready on this evidence. See [Readiness](/docs/readiness/).
 
 ## Local preparation
 
@@ -21,7 +21,7 @@ pnpm build
 npx wrangler deploy --dry-run --config apps/backend/wrangler.jsonc
 ```
 
-The dry run packages/validates configuration; it does not deploy. `VERIFICATION.md` records a prior dry run as blocked by Docker availability (with a no-container rollout variant passing), so rerun it in your environment and report the actual result.
+The dry run packages/validates configuration; it does not deploy. `docs/verification/verification.md` records a prior dry run as blocked by Docker availability (with a no-container rollout variant passing), so rerun it in your environment and report the actual result.
 
 ## First Alchemy deployment
 
@@ -60,6 +60,6 @@ Configure the account-owned AI Gateway and its provider credentials separately. 
 
 ## Acceptance and rollback
 
-Use an isolated test deployment and throwaway public repository. Keep pull-request publishing disabled initially; verify approval, execution, result and diff, and run the repository checks independently. Record date, environment, harness, model outcome, and failures in `VERIFICATION.md`. Until a cloud run succeeds, distinguish local/unit evidence from cloud-live behavior.
+Use an isolated test deployment and throwaway public repository. Keep pull-request publishing disabled initially; verify approval, execution, result and diff, and run the repository checks independently. Record date, environment, harness, model outcome, and failures in `docs/verification/verification.md`. Until a cloud run succeeds, distinguish local/unit evidence from cloud-live behavior.
 
 For updates, preserve the prior revision and lockfile, rerun local checks, and review Durable Object migrations. Rolling back code does not roll back Durable Object data or undo repository branches/PRs. Avoid deleting runtime data during routine updates.

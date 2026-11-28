@@ -68,7 +68,7 @@ error inside the container. Grok runs its verified headless print mode
 `cursor`/`antigravity` remain registered-but-unrunnable (no sandbox
 `supportedRuntimes` entry) until their runnability is proven.
 
-**Caveat carried from `PLAN.md` §2.0:** only OpenCode has completed a live run.
+**Caveat carried from `docs/plans/plan.md` §2.0:** only OpenCode has completed a live run.
 The other lanes are unit-tested against their documented stream formats;
 the ACP lanes additionally need the sandbox image rebuilt with their
 adapter CLIs before a live run can exercise them.

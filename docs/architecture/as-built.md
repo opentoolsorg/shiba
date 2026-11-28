@@ -199,6 +199,6 @@ approval. These are architectural requirements, not optional UI wording.
 5. `docs/architecture/durable-objects.md` — state ownership.
 6. `docs/architecture/request-lifecycle.md` — shared work lifecycle.
 7. `docs/architecture/security-model.md` — authority invariants.
-8. `INFRA-AUTH-HARNESS-MONOREPO.md` — infrastructure and runtime seams.
-9. `UI-ARCHITECTURE.md` — client target shape.
-10. `PLAN.md` and `VERIFICATION.md` — dated implementation evidence.
+8. `docs/architecture/runtime.md` — infrastructure and runtime seams.
+9. `docs/architecture/ui.md` — client target shape.
+10. `docs/plans/plan.md` and `docs/verification/verification.md` — dated implementation evidence.

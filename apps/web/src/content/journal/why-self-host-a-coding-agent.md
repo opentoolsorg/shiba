@@ -13,7 +13,7 @@ This is a note about a phrase. Self-hosted gets attached to a lot of software
 that hands you the container and keeps the leverage. Shiba is built around a
 stricter reading, and it is worth writing down what that reading is.
 
-Sources: `README.md`, `PLAN.md`, `spec/GOAL.md`, and `design.md`. Shiba
+Sources: `README.md`, `docs/plans/plan.md`, `spec/GOAL.md`, and `design.md`. Shiba
 is a local prototype, so this note describes an architecture and a position,
 not a verified live cloud run.
 
@@ -29,7 +29,7 @@ not a verified live cloud run.
 The usual offer is a binary. Run the vendor's agent on your machines, keep
 your repos on your side, and call it self-hosted.
 
-`PLAN.md` names the setup this project targets: a team runs its harness in
+`docs/plans/plan.md` names the setup this project targets: a team runs its harness in
 its cloud account with its chosen model provider.
 
 That is the gap. You can self-host the workload and still rent the judgment.

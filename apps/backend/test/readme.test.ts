@@ -32,7 +32,7 @@ describe("README structure (T24 honest-ship contract)", () => {
     // test must not drift it back to "local"; run-level verification is
     // what the claim still withholds.
     expect(README).toContain("deployed prototype");
-    expect(README).toContain("VERIFICATION.md");
+    expect(README).toContain("docs/verification/verification.md");
     expect(README).toContain("No live end-to-end cloud run is claimed");
     expect(README).toContain("P2");
     expect(README).toContain("P3");

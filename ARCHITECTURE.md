@@ -75,13 +75,13 @@ the area you are changing.
 
 **Current companions:** [product contract](docs/product/ai-employees.md) ·
 [public architecture guide](apps/web/src/content/docs/docs/architecture.md) ·
-[measured as-built snapshot](ARCHITECTURE-AS-BUILT.md) ·
-[infra/auth/harness/monorepo](INFRA-AUTH-HARNESS-MONOREPO.md) ·
-[UI architecture](UI-ARCHITECTURE.md) · `design.md` (machine-readable visual system).
+[measured as-built snapshot](docs/architecture/as-built.md) ·
+[infra/auth/harness/monorepo](docs/architecture/runtime.md) ·
+[UI architecture](docs/architecture/ui.md) · `design.md` (machine-readable visual system).
 
-**Dated records:** `PLAN.md`, `ROADMAP.md`, `VERIFICATION.md`,
-`VERIFICATION_PLAN.md`, `docs/verification/`, and `docs/audits/` are historical
+**Dated records:** `docs/plans/plan.md`, `docs/plans/roadmap.md`, `docs/verification/verification.md`,
+`docs/verification/verification-plan.md`, `docs/verification/`, and `docs/audits/` are historical
 planning, evidence, and review material. Open them only for a specific task,
 acceptance, or provenance question; do not use them as the current architecture.
-`LAUNCH_CHECKLIST.md` and `spec/GOAL.md` are useful only when their dated scope
+`docs/operations/launch-checklist.md` and `spec/GOAL.md` are useful only when their dated scope
 matches the work at hand.
