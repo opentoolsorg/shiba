@@ -928,7 +928,7 @@ function PersonalIntegrationsView({
               <LoadErrorState message={failed.message} onRetry={reloadAll} />
             </div>
           ) : null}
-          <div className="flex-1 overflow-y-auto p-4 lg:p-8">
+          <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-8">
             <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
               <section aria-labelledby="connection-management-heading" className="rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)] p-4 shadow-[var(--sh-card)] sm:p-5">
                 <h2 id="connection-management-heading" className="text-base font-semibold text-[var(--fg)]">Connection management</h2>
