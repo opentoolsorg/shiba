@@ -29,6 +29,8 @@ Use the smallest current document that answers the question:
 3. `docs/architecture/` holds topic notes. Read the note for the area you are
    changing, not the whole directory.
 4. `design.md` is the visual system for dashboard, docs, and marketing work.
+   It follows the Google `DESIGN.md` format: machine-readable YAML tokens plus
+   prose that explains how to apply them.
 5. `docs/SOURCE-LAYOUT.md` maps backend domain ownership. Update it when a
    backend source file moves or a new one appears.
 
@@ -54,7 +56,7 @@ reasons, not narratives. If a doc becomes stale, fix it when you notice.
 | `docs/product/ai-employees.md` | Product contract, employee/workspace goals, acceptance boundaries |
 | `ARCHITECTURE.md` | Architecture roles, spine, and topic index |
 | `docs/architecture/` | Security, lifecycle, browser, computer use, harness, and change rules |
-| `design.md` | Visual system and design tokens |
+| `design.md` | Machine-readable visual system, design tokens, and application rules |
 | `docs/SOURCE-LAYOUT.md` | Backend source-file domain ownership |
 | `CONTRIBUTING.md` | Validation labels, contributor gate, and QA handoff |
 | `docs/DEPLOY.md` | Deployment, bindings, secrets, and preview operations |

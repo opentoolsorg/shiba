@@ -77,7 +77,7 @@ the area you are changing.
 [public architecture guide](apps/web/src/content/docs/docs/architecture.md) ·
 [measured as-built snapshot](ARCHITECTURE-AS-BUILT.md) ·
 [infra/auth/harness/monorepo](INFRA-AUTH-HARNESS-MONOREPO.md) ·
-[UI architecture](UI-ARCHITECTURE.md) · `design.md` (visual system).
+[UI architecture](UI-ARCHITECTURE.md) · `design.md` (machine-readable visual system).
 
 **Dated records:** `PLAN.md`, `ROADMAP.md`, `VERIFICATION.md`,
 `VERIFICATION_PLAN.md`, `docs/verification/`, and `docs/audits/` are historical
