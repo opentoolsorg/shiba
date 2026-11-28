@@ -56,14 +56,17 @@ export function chatApprovalText(input: {
   approvalId: string;
   route?: string;
   employeeLabel?: string;
+  executionTarget?: ExecutionTarget;
 }): string {
   const task = input.task.length <= CARD_TASK_LIMIT
     ? input.task
     : `${input.task.slice(0, CARD_TASK_LIMIT)}… (${input.task.length - CARD_TASK_LIMIT} more chars — full task in this thread)`;
   const route = input.route ? `\nRoute: ${input.route}` : "";
   const bot = input.employeeLabel ? `\nBot: ${input.employeeLabel}` : "";
+  const outputs = input.executionTarget?.kind === "artifact-workspace" ? input.executionTarget.expectedDeliverables : [];
+  const files = outputs.length ? `\nOutput files: ${outputs.join(", ")}` : "";
   const repoLine = input.repoUrl ? `Repo: ${input.repoUrl}\n` : "";
-  return `Approval requested\n${repoLine}Task: ${task}${bot}${route}\napproval ${input.approvalId}`;
+  return `Approval requested\n${repoLine}Task: ${task}${bot}${files}${route}\napproval ${input.approvalId}`;
 }
 
 /**

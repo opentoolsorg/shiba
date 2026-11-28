@@ -34,6 +34,7 @@ import {
   type TelegramCall,
 } from "./channels/telegram/index.js";
 import type { ChannelAdapter, InboundAction, InboundMessage } from "./ports/channel/index.js";
+import { chatEmployeeQueueExtras, resolveChatEmployeeFromText } from "./chat-employee.js";
 import type { Env } from "./env.js";
 import { tryAnswerUiBlockFallback } from "./ui-block-fallback.js";
 import { redactSecrets } from "./security.js";
@@ -93,31 +94,51 @@ async function handleMessage(message: InboundMessage, env: Env, adapter: Channel
     return;
   }
   if (!COMMAND.test(text)) return;
+  const command = text.replace(COMMAND, "").trim();
   const parsed = parseChatTaskRequest({
-    text: text.replace(COMMAND, ""),
+    text: command,
     conversationId: chatId,
     repoMap: env.TELEGRAM_CHAT_REPOS,
     mapName: "TELEGRAM_CHAT_REPOS",
     usage: TELEGRAM_USAGE,
   });
-  if ("error" in parsed) {
+  const employee = await resolveChatEmployeeFromText(env, "error" in parsed ? command : parsed.task);
+  if (employee.kind === "error") {
+    await reply({ text: employee.error });
+    return;
+  }
+  const request: Parameters<typeof queueChatRun>[1] = {
+    platform: "telegram",
+    threadKey: message.conversationKey,
+    repoUrl: "error" in parsed ? "" : parsed.repoUrl,
+    task: employee.taskText,
+    userId: message.authorId,
+    harness: env.TELEGRAM_AGENT_HARNESS ?? env.AGENT_HARNESS,
+  };
+  if (employee.kind === "ok") {
+    if (!request.task) {
+      await reply({ text: "Describe the task for this employee." });
+      return;
+    }
+    const configured = await chatEmployeeQueueExtras(env, employee.agent, employee.orgId, request.task, request.repoUrl || null);
+    if (!configured.ok) {
+      await reply({ text: configured.error || ("error" in parsed ? parsed.error : TELEGRAM_USAGE) });
+      return;
+    }
+    Object.assign(request, configured.extras, {
+      task: configured.task, harness: configured.extras.harness ?? request.harness,
+    });
+  } else if ("error" in parsed) {
     await reply({ text: parsed.error });
     return;
   }
-  const queued = await queueChatRun(env, {
-    platform: "telegram",
-    threadKey: message.conversationKey,
-    repoUrl: parsed.repoUrl,
-    task: parsed.task,
-    userId: message.authorId,
-    harness: env.TELEGRAM_AGENT_HARNESS ?? env.AGENT_HARNESS,
-  }, deps.resolveOrchestrator);
+  const queued = await queueChatRun(env, request, deps.resolveOrchestrator);
   if ("error" in queued) {
     await reply({ text: `Failed to queue the task. ${queued.error}` });
     return;
   }
   await reply({
-    text: chatApprovalText({ ...parsed, approvalId: queued.approvalId, route: queued.route }),
+    text: chatApprovalText({ ...request, approvalId: queued.approvalId, route: queued.route }),
     reply_markup: {
       inline_keyboard: [[
         { text: "Approve", callback_data: buildDecisionData(true, queued.approvalId) },
@@ -127,7 +148,7 @@ async function handleMessage(message: InboundMessage, env: Env, adapter: Channel
   });
   // Telegram's message cap is 4096; a task over the card limit posts in full
   // right after the card so Approve never signs off on hidden text.
-  for (const chunk of chatTaskChunks(parsed.task, CARD_TASK_LIMIT, 3900)) {
+  for (const chunk of chatTaskChunks(request.task, CARD_TASK_LIMIT, 3900)) {
     await adapter.post({ placeId: chatId, ...(message.threadId ? { threadId: message.threadId } : {}), text: chunk });
   }
 }
