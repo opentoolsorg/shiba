@@ -184,7 +184,7 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
   }
 
 
-  async function mutateFile(file: KnowledgeFile, method: "PATCH" | "DELETE", body?: unknown) {
+  async function mutateFile(file: KnowledgeFile, method: "PATCH" | "DELETE", body?: unknown): Promise<boolean> {
     setBusy(true);
     setError(null);
     try {
@@ -198,8 +198,10 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
       if (!response.ok) throw new Error(result.error ?? (method === "DELETE" ? "File could not be deleted." : "File could not be moved."));
       setMoveMenuFor(null);
       await load();
+      return true;
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : method === "DELETE" ? "File could not be deleted." : "File could not be moved.");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -224,10 +226,18 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
     const ids = [...selectedIds];
     if (!ids.length) return;
     const selectedFiles = files.filter((file) => selectedIds.has(file.id));
+    const failed = new Set<string>();
+    const deleted = new Set<string>();
     for (const file of selectedFiles) {
-      await mutateFile(file, "DELETE");
+      if (await mutateFile(file, "DELETE")) deleted.add(file.id);
+      else failed.add(file.id);
     }
-    exitSelectMode();
+    if (!failed.size) {
+      exitSelectMode();
+      return;
+    }
+    setSelectedIds((current) => new Set([...current].filter((id) => !deleted.has(id))));
+    setError(`${failed.size} selected ${failed.size === 1 ? "file" : "files"} could not be deleted.`);
   }
 
   function moveControls(file: KnowledgeFile) {

@@ -194,6 +194,35 @@ describe("FilesView", () => {
     expect(screen.getByRole("button", { name: "Select items" })).toBeTruthy();
   });
 
+
+  it("keeps failed bulk deletions selected and reports the remaining count", async () => {
+    const readonlyFile = { id: "file-readonly", name: "readonly.md", mime: "text/markdown", size: 9, updatedAt: 1, folderId: null, ingestion: { state: "done" } };
+    const ownedFile = { id: "file-owned", name: "owned.md", mime: "text/markdown", size: 8, updatedAt: 1, folderId: null, ingestion: { state: "done" } };
+    let ownedArchived = false;
+    const api = vi.fn(async (input: string, init?: RequestInit) => {
+      const url = new URL(input, "http://localhost");
+      if (url.pathname === "/api/files/folders") return Response.json({ folders: [] });
+      if (url.pathname === "/api/files") return Response.json({ files: [readonlyFile, ...(ownedArchived ? [] : [ownedFile])] });
+      if (url.pathname === "/api/files/file-readonly" && init?.method === "DELETE") return Response.json({ error: "You do not have permission to edit this resource." }, { status: 403 });
+      if (url.pathname === "/api/files/file-owned" && init?.method === "DELETE") {
+        ownedArchived = true;
+        return Response.json({ file: { ...ownedFile, archivedAt: 2 } });
+      }
+      return Response.json({ error: "unexpected" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", api);
+    render(<FilesView />);
+    await screen.findByText("readonly.md", { selector: "span" });
+    fireEvent.click(screen.getByRole("button", { name: "Select items" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select readonly.md" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select owned.md" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete (2)" }));
+    await screen.findByText("1 selected file could not be deleted.");
+    expect(screen.getByRole("button", { name: "Delete (1)" })).toBeTruthy();
+    expect((screen.getByRole("checkbox", { name: "Select readonly.md" }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.queryByRole("checkbox", { name: "Select owned.md" })).toBeNull();
+  });
+
   it("links to memory sources only when navigation is wired, without saving anything", async () => {
     const api = mockApi();
     const onNavigate = vi.fn();
