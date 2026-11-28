@@ -402,4 +402,15 @@ describe("note Markdown", () => {
       expect(parseNoteMarkdown(saved)).toEqual(doc);
     }
   });
+  it("preserves newline characters inside code and at paragraph edges", () => {
+    for (const content of [
+      [{ type: "text", text: "one\ntwo", marks: [{ type: "code" }] }],
+      [{ type: "text", text: "\nleading" }],
+      [{ type: "text", text: "trailing\n" }],
+      [{ type: "text", text: "under\nline", marks: [{ type: "underline" }] }],
+    ]) {
+      const doc = { type: "doc", content: [{ type: "paragraph", content }] };
+      expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
+    }
+  });
 });

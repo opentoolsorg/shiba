@@ -88,6 +88,13 @@ function safeLinkHref(href: string | undefined): string | null {
   }
 }
 
+const inlineHtmlMarks: Record<string, [string, string]> = {
+  "<u>": ["underline", "</u>"],
+  "<mark>": ["highlight", "</mark>"],
+  "<del>": ["strike", "</del>"],
+  "<code>": ["code", "</code>"],
+};
+
 function inlineNodes(
   nodes: MdastNode[] = [],
   marks: Mark[] = [],
@@ -96,13 +103,9 @@ function inlineNodes(
   const result: JSONContent[] = [];
   for (let index = 0; index < nodes.length; index++) {
     const node = nodes[index] ?? { type: "text", value: "" };
-    if (
-      node.type === "html" &&
-      (node.value === "<u>" || node.value === "<mark>" || node.value === "<del>")
-    ) {
-      const markType =
-        node.value === "<u>" ? "underline" : node.value === "<mark>" ? "highlight" : "strike";
-      const close = node.value === "<u>" ? "</u>" : node.value === "<mark>" ? "</mark>" : "</del>";
+    const htmlMark = node.type === "html" ? inlineHtmlMarks[node.value ?? ""] : undefined;
+    if (htmlMark) {
+      const [markType, close] = htmlMark;
       let end = index + 1;
       while (end < nodes.length && !(nodes[end]?.type === "html" && nodes[end]?.value === close))
         end++;
@@ -450,13 +453,19 @@ function segmentMarkKey(segment: InlineSegment, mark: string): string | null {
 function markedMdast(segments: InlineSegment[], depth = 0): MdastNode[] {
   const mark = markOrder[depth];
   if (!mark) {
-    return segments.map((segment) =>
-      segment.hardBreak
-        ? { type: "html", value: "<br>" }
-        : segment.code
-          ? { type: "inlineCode", value: segment.value }
-          : { type: "text", value: segment.value },
-    );
+    return segments.flatMap((segment) => {
+      if (segment.hardBreak) return [{ type: "html", value: "<br>" }];
+      if (segment.code) {
+        if (!segment.value.includes("\n")) return [{ type: "inlineCode", value: segment.value }];
+        return [
+          { type: "html", value: "<code>" },
+          ...newlineFallbackNodes(segment.value),
+          { type: "html", value: "</code>" },
+        ];
+      }
+      if (segment.value.includes("\n")) return newlineFallbackNodes(segment.value);
+      return [{ type: "text", value: segment.value }];
+    });
   }
   const result: MdastNode[] = [];
   let index = 0;
@@ -479,7 +488,7 @@ function markedMdast(segments: InlineSegment[], depth = 0): MdastNode[] {
 }
 
 function inlineMdast(nodes: JSONContent[] = []): MdastNode[] {
-  return preserveNewlinesBeforeHtml(markedMdast(inlineSegments(nodes)));
+  return markedMdast(inlineSegments(nodes));
 }
 
 function newlineFallbackNodes(value: string): MdastNode[] {
@@ -496,28 +505,6 @@ function newlineFallbackNodes(value: string): MdastNode[] {
   }
   if (spaces) nodes.push({ type: "text", value: spaces });
   return nodes;
-}
-
-function preserveNewlinesBeforeHtml(nodes: MdastNode[]): MdastNode[] {
-  const result: MdastNode[] = [];
-  for (let index = 0; index < nodes.length; index++) {
-    const input = nodes[index] ?? { type: "text" };
-    const node = { ...input };
-    if (node.children) node.children = preserveNewlinesBeforeHtml(node.children);
-    const next = nodes[index + 1];
-    const trailing = node.type === "text" ? /((?:\n[ \t]*)+)$/.exec(node.value ?? "") : null;
-    if (
-      trailing &&
-      next?.type === "html" &&
-      (next.value === "<u>" || next.value === "<mark>" || next.value === "<del>")
-    ) {
-      const trailingText = trailing[1] ?? "";
-      const before = (node.value ?? "").slice(0, -trailingText.length);
-      if (before) result.push({ ...node, value: before });
-      result.push(...newlineFallbackNodes(trailingText));
-    } else result.push(node);
-  }
-  return result;
 }
 
 function inlineMarkdown(children: JSONContent[] | undefined): string {
