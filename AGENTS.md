@@ -45,6 +45,13 @@ Keep durable knowledge in the canonical document that owns it. Do not add prompt
 transcripts, agent session logs, temporary design exports, or one-off review
 scratch files as repository context.
 
+Rule of thumb: do not give agents reference context by default. Do not load
+external example repositories, competitor implementations, audits, roadmaps,
+or large historical markdown unless the task explicitly asks for comparison,
+provenance, or that exact domain. Start with the canonical owner document and
+the nearest nested guide; add one reference at a time only when a question
+remains unanswered.
+
 ## Living docs ownership
 
 Read the owning document before work in a new area, and update it in the same
