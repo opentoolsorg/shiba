@@ -25,8 +25,8 @@ function returnNotice(): string | null {
   return null;
 }
 
-export function WorkspaceBillingCard({ sessionId, sessionApiAvailable }: { sessionId: string; sessionApiAvailable: boolean }): JSX.Element | null {
-  const billing = useWorkspaceBilling(sessionId, sessionApiAvailable);
+export function WorkspaceBillingCard({ sessionId, sessionApiAvailable, workspaceId = null, canManage = true }: { sessionId: string; sessionApiAvailable: boolean; workspaceId?: string | null; canManage?: boolean }): JSX.Element | null {
+  const billing = useWorkspaceBilling(sessionId, sessionApiAvailable, workspaceId);
   if (billing.state.kind === "loading") return null;
   if (billing.state.kind === "error") {
     return (
@@ -37,7 +37,7 @@ export function WorkspaceBillingCard({ sessionId, sessionApiAvailable }: { sessi
   }
   const data = billing.state.data.billing;
   if (data === undefined) return null;
-  return <BillingShell mode={data.mode}>{data.enabled ? <BillingBody billing={data} sessionId={sessionId} sessionApiAvailable={sessionApiAvailable} /> : <BillingOff missing={data.missing} />}</BillingShell>;
+  return <BillingShell mode={data.mode}>{data.enabled ? <BillingBody billing={data} sessionId={sessionId} sessionApiAvailable={sessionApiAvailable} workspaceId={workspaceId} canManage={canManage} /> : <BillingOff missing={data.missing} />}</BillingShell>;
 }
 
 function BillingShell({ mode, children }: { mode?: WorkspaceBilling["mode"]; children: JSX.Element }): JSX.Element {
@@ -70,7 +70,7 @@ function BillingOff({ missing }: { missing: string[] }): JSX.Element {
   );
 }
 
-function BillingBody({ billing, sessionId, sessionApiAvailable }: { billing: WorkspaceBilling; sessionId: string; sessionApiAvailable: boolean }): JSX.Element {
+function BillingBody({ billing, sessionId, sessionApiAvailable, workspaceId, canManage }: { billing: WorkspaceBilling; sessionId: string; sessionApiAvailable: boolean; workspaceId: string | null; canManage: boolean }): JSX.Element {
   const [amount, setAmount] = useState<string>("25");
   const [busy, setBusy] = useState<"checkout" | "portal" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -82,8 +82,8 @@ function BillingBody({ billing, sessionId, sessionApiAvailable }: { billing: Wor
     setBusy(action);
     setError(null);
     const request = action === "checkout"
-      ? startWorkspaceTopUp(parsed, sessionId, sessionApiAvailable)
-      : openWorkspaceBillingPortal(sessionId, sessionApiAvailable);
+      ? startWorkspaceTopUp(parsed, sessionId, sessionApiAvailable, workspaceId)
+      : openWorkspaceBillingPortal(sessionId, sessionApiAvailable, workspaceId);
     void request
       .then((url) => window.location.assign(url))
       .catch((reason: unknown) => {
@@ -110,13 +110,13 @@ function BillingBody({ billing, sessionId, sessionApiAvailable }: { billing: Wor
             {billing.pendingUsd > 0 ? ` · ${usd(billing.pendingUsd)} in flight` : ""}
           </div>
         </div>
-        <button type="button" className={viewButtonClass} disabled={!billing.hasCustomer || busy !== null} onClick={() => go("portal")}
+        {canManage ? <button type="button" className={viewButtonClass} disabled={!billing.hasCustomer || busy !== null} onClick={() => go("portal")}
           title={billing.hasCustomer ? undefined : "Available after your first top-up"}>
           {busy === "portal" ? "Opening Stripe…" : "Manage billing"}
-        </button>
+        </button> : null}
       </div>
 
-      <fieldset className="flex flex-col gap-2 border-t border-[#e4e4e7] pt-3 dark:border-zinc-800">
+      {canManage ? <fieldset className="flex flex-col gap-2 border-t border-[#e4e4e7] pt-3 dark:border-zinc-800">
         <legend className="text-xs font-semibold text-[#0a0a0a] dark:text-zinc-100">Add credits</legend>
         <div className="flex flex-wrap items-center gap-2">
           {PRESETS.map((preset) => (
@@ -138,7 +138,7 @@ function BillingBody({ billing, sessionId, sessionApiAvailable }: { billing: Wor
           Whole dollars from {usd(billing.limits.minUsd)} to {usd(billing.limits.maxUsd)}. Credits cover computer time and models this deployment pays for; your own provider keys and plan subscriptions aren&apos;t charged.
         </p>
         {error !== null ? <p className="text-[11px] text-rose-600 dark:text-rose-400">Couldn&apos;t open Stripe: {error}</p> : null}
-      </fieldset>
+      </fieldset> : <p className="border-t border-[#e4e4e7] pt-3 text-[11px] text-[#71717a] dark:border-zinc-800 dark:text-zinc-400">Only workspace owners and admins can add credits or manage billing.</p>}
 
       {billing.topUps.length > 0 ? (
         <div className="border-t border-[#e4e4e7] pt-3 dark:border-zinc-800">

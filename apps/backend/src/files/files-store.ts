@@ -71,6 +71,25 @@ export async function listFiles(env: Env, workspaceId: string, scope: KnowledgeS
   return rows.results.map((row) => fileDto(row as Record<string, unknown>));
 }
 
+export async function listProjectFiles(env: Env, workspaceId: string, viewer: string, projectId: string): Promise<KnowledgeFile[]> {
+  const rows = await env.AGENT_AUDIT.prepare(
+    `SELECT * FROM files WHERE workspace_id=? AND project_id=? AND archived_at IS NULL
+       AND (scope='workspace' OR created_by=?)
+     ORDER BY updated_at DESC`,
+  ).bind(workspaceId, projectId, viewer).all();
+  return rows.results.map((row) => fileDto(row as Record<string, unknown>));
+}
+
+export async function countProjectFiles(env: Env, workspaceId: string, viewer: string): Promise<Map<string, number>> {
+  const rows = await env.AGENT_AUDIT.prepare(
+    `SELECT project_id, COUNT(*) AS count FROM files
+     WHERE workspace_id=? AND project_id IS NOT NULL AND archived_at IS NULL
+       AND (scope='workspace' OR created_by=?)
+     GROUP BY project_id`,
+  ).bind(workspaceId, viewer).all<{ project_id: string; count: number }>();
+  return new Map(rows.results.map((row) => [String(row.project_id), Number(row.count)]));
+}
+
 export async function getFile(env: Env, fileId: string): Promise<KnowledgeFile | null> {
   const row = await env.AGENT_AUDIT.prepare(`SELECT * FROM files WHERE id=?`).bind(fileId).first();
   return row ? fileDto(row as Record<string, unknown>) : null;
@@ -96,6 +115,43 @@ export async function insertFileRecord(
   const file = await getFile(env, id);
   if (!file) throw new FilesStoreError("File record missing after insert.", 500);
   return file;
+}
+
+
+export async function updateFileDetails(
+  env: Env,
+  fileId: string,
+  input: { name?: string; folderId?: string | null },
+): Promise<KnowledgeFile> {
+  const file = await getFile(env, fileId);
+  if (!file || file.archivedAt) throw new KnowledgeAccessError("File not found.", 404);
+  const name = input.name === undefined ? file.name : input.name.trim();
+  if (!name || name.length > 240) throw new FilesStoreError("File name must be 1–240 characters.");
+  const folderId = input.folderId === undefined ? file.folderId : input.folderId;
+  if (folderId) {
+    const folder = await env.AGENT_AUDIT.prepare(
+      `SELECT id FROM folders WHERE id=? AND workspace_id=? AND scope=?`,
+    ).bind(folderId, file.workspaceId, file.scope).first<{ id: string }>();
+    if (!folder) throw new FilesStoreError("Folder not found.", 404);
+  }
+  await env.AGENT_AUDIT.prepare(
+    `UPDATE files SET name=?, folder_id=?, updated_at=? WHERE id=?`,
+  ).bind(name, folderId ?? null, Date.now(), fileId).run();
+  const updated = await getFile(env, fileId);
+  if (!updated) throw new FilesStoreError("File missing.", 500);
+  return updated;
+}
+
+export async function archiveFile(env: Env, fileId: string): Promise<KnowledgeFile> {
+  const file = await getFile(env, fileId);
+  if (!file || file.archivedAt) throw new KnowledgeAccessError("File not found.", 404);
+  const now = Date.now();
+  await env.AGENT_AUDIT.prepare(
+    `UPDATE files SET archived_at=?, updated_at=? WHERE id=?`,
+  ).bind(now, now, fileId).run();
+  const updated = await getFile(env, fileId);
+  if (!updated) throw new FilesStoreError("File missing.", 500);
+  return updated;
 }
 
 export async function retryFileIngestion(env: Env, fileId: string, viewer: string): Promise<KnowledgeFile> {

@@ -132,7 +132,7 @@ export const ROUTES: readonly RouteEntry[] = [
   route("filesResponse", "model", "*", "^/api/files", "session", handlers.filesResponse),
   route("notesResponse", "model", "*", "^/api/notes", "session", handlers.notesResponse),
   route("knowledgeResponse", "model", "*", "^/api/knowledge/search$", "session", handlers.knowledgeResponse),
-  route("projectsResponse", "model", "*", "^/api/projects$", "session", handlers.projectsResponse),
+  route("projectsResponse", "model", "*", "^/api/projects(?:/.*)?$", "session", handlers.projectsResponse),
   route("outputsResponse", "model", "*", "^/api/outputs", "session", handlers.outputsResponse),
   route("auditResponse", "model", "*", "^/api/audit$", "session", handlers.auditResponse),
   route("sandboxRouteResponse", "model", "*", "^/api/sandboxes/", "session", handlers.sandboxRouteResponse),

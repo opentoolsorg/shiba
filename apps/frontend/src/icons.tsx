@@ -11,6 +11,12 @@ import {
   AiSparklesIcon,
   Alert02Icon,
   AlertCircleIcon,
+  TextUnderlineIcon,
+  TextAlignCenterIcon,
+  HighlighterIcon,
+  CheckListIcon,
+  AlignRightIcon,
+  AlignLeftIcon,
   AppWindowIcon,
   ArchiveIcon,
   ArrowLeft01Icon,
@@ -44,6 +50,7 @@ import {
   ComputerTerminal01Icon,
   ContainerIcon,
   Copy01Icon,
+  CursorRectangleSelectionIcon,
   CornerLeftUpIcon,
   CpuIcon,
   DashboardSpeed01Icon,
@@ -60,6 +67,7 @@ import {
   FileTextIcon,
   FlaskConicalIcon,
   FolderGit2Icon,
+  FolderMoveToIcon,
   FolderPlusIcon,
   GitBranchIcon,
   GitCompareArrowsIcon,
@@ -105,9 +113,7 @@ import {
   PlugIcon,
   PlusSignIcon,
   Presentation01Icon,
-  QuoteDownIcon,
   RadioIcon,
-  Redo02Icon,
   RefreshCwIcon,
   RobotIcon,
   RotateCcwIcon,
@@ -133,7 +139,6 @@ import {
   TickDouble02Icon,
   ToggleLeftIcon,
   ToggleRightIcon,
-  Undo02Icon,
   Upload01Icon,
   UserAdd01Icon,
   UserCheck01Icon,
@@ -169,6 +174,9 @@ function defineIcon(name: string, icon: IconSvgElement): LucideIcon {
   return Component;
 }
 
+export const AlignCenter = defineIcon("AlignCenter", TextAlignCenterIcon);
+export const AlignLeft = defineIcon("AlignLeft", AlignLeftIcon);
+export const AlignRight = defineIcon("AlignRight", AlignRightIcon);
 export const AppWindow = defineIcon("AppWindow", AppWindowIcon);
 export const ArrowUp = defineIcon("ArrowUp", ArrowUp01Icon);
 export const ArrowUpRight = defineIcon("ArrowUpRight", ArrowUpRight01Icon);
@@ -189,6 +197,7 @@ export const CircleDot = defineIcon("CircleDot", CircleDotIcon);
 export const Clock = defineIcon("Clock", Clock01Icon);
 export const Code = defineIcon("Code", SourceCodeIcon);
 export const Copy = defineIcon("Copy", Copy01Icon);
+export const SquareMousePointer = defineIcon("SquareMousePointer", CursorRectangleSelectionIcon);
 export const Database = defineIcon("Database", Database01Icon);
 export const Download = defineIcon("Download", Download01Icon);
 export const ExternalLink = defineIcon("ExternalLink", ExternalLinkIcon);
@@ -199,11 +208,13 @@ export const FileText = defineIcon("FileText", FileTextIcon);
 export const FlaskConical = defineIcon("FlaskConical", FlaskConicalIcon);
 export const FolderGit2 = defineIcon("FolderGit2", FolderGit2Icon);
 export const FolderPlus = defineIcon("FolderPlus", FolderPlusIcon);
+export const FolderInput = defineIcon("FolderInput", FolderMoveToIcon);
 export const GitCompareArrows = defineIcon("GitCompareArrows", GitCompareArrowsIcon);
 export const Globe2 = defineIcon("Globe2", Globe02Icon);
 export const Hash = defineIcon("Hash", HashIcon);
 export const Heading1 = defineIcon("Heading1", Heading01Icon);
 export const Heading2 = defineIcon("Heading2", Heading02Icon);
+export const Highlighter = defineIcon("Highlighter", HighlighterIcon);
 export const History = defineIcon("History", HistoryIcon);
 export const Italic = defineIcon("Italic", TextItalicIcon);
 export const KeyRound = defineIcon("KeyRound", KeyRoundIcon);
@@ -212,6 +223,7 @@ export const LayoutGrid = defineIcon("LayoutGrid", LayoutGridIcon);
 export const Link2 = defineIcon("Link2", Link02Icon);
 export const List = defineIcon("List", LeftToRightListDashIcon);
 export const ListChecks = defineIcon("ListChecks", ListChecksIcon);
+export const ListTodo = defineIcon("ListTodo", CheckListIcon);
 export const ListOrdered = defineIcon("ListOrdered", LeftToRightListNumberIcon);
 export const Loader2 = defineIcon("Loader2", Loading03Icon);
 export const LoaderCircle = defineIcon("LoaderCircle", LoaderCircleIcon);
@@ -232,9 +244,7 @@ export const Pin = defineIcon("Pin", LicensePinIcon);
 export const Plug = defineIcon("Plug", PlugIcon);
 export const Plus = defineIcon("Plus", PlusSignIcon);
 export const Presentation = defineIcon("Presentation", Presentation01Icon);
-export const Quote = defineIcon("Quote", QuoteDownIcon);
 export const Radio = defineIcon("Radio", RadioIcon);
-export const Redo2 = defineIcon("Redo2", Redo02Icon);
 export const RefreshCw = defineIcon("RefreshCw", RefreshCwIcon);
 export const Search = defineIcon("Search", Search01Icon);
 export const Server = defineIcon("Server", ServerIcon);
@@ -249,7 +259,7 @@ export const StickyNote = defineIcon("StickyNote", StickyNote01Icon);
 export const Strikethrough = defineIcon("Strikethrough", TextStrikethroughIcon);
 export const Terminal = defineIcon("Terminal", ComputerTerminal01Icon);
 export const Type = defineIcon("Type", TextFontIcon);
-export const Undo2 = defineIcon("Undo2", Undo02Icon);
+export const Underline = defineIcon("Underline", TextUnderlineIcon);
 export const Upload = defineIcon("Upload", Upload01Icon);
 export const UserPlus = defineIcon("UserPlus", UserAdd01Icon);
 export const Users = defineIcon("Users", UserMultiple02Icon);

@@ -33,8 +33,8 @@ export function ContextPanel({ title, actions, children, className = "", scope }
         </div>
       ) : null}
       <AppAreaNavigation />
-      <div className="flex shrink-0 items-center justify-between min-h-14 px-4 py-2">
-        <h2 className="text-[14px] font-semibold tracking-tight text-[#0a0a0a] dark:text-zinc-100">{title}</h2>
+      <div className="flex shrink-0 items-center justify-between min-h-12 px-4 py-2">
+        <h2 className="text-[15px] font-semibold tracking-tight text-[#0a0a0a] dark:text-zinc-100">{title}</h2>
         <div className="flex items-center gap-1">{actions}</div>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pb-4">{children}</div>
@@ -52,7 +52,7 @@ export function PanelNavItem({ icon: Icon, label, active = false, disabled = fal
 }): JSX.Element {
   return (
     <button type="button" onClick={onClick} disabled={disabled} aria-current={active ? "page" : undefined}
-      className={`flex min-h-10 w-full items-center gap-3 rounded-lg px-2.5 text-left text-[14px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${active ? "bg-[#e4e4e7] font-medium text-[#0a0a0a] dark:bg-zinc-800 dark:text-zinc-100" : "text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100"}`}>
+      className={`flex min-h-[34px] w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[14px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] ${active ? "bg-[#e4e4e7] font-medium text-[#0a0a0a] dark:bg-zinc-800 dark:text-zinc-100" : "text-[#71717a] hover:bg-[#f4f4f5] hover:text-[#0a0a0a] dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100"}`}>
       {Icon ? <Icon className="size-4 shrink-0" strokeWidth={1.75} aria-hidden="true" /> : null}
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {trailing}

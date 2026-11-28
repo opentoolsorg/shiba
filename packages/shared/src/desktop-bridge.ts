@@ -77,7 +77,35 @@ export function pairFailureMessage(code: PairFailureCode): string {
 }
 
 /** Views the shell can open in the dashboard. The page at that path is the dashboard's. */
-export type DesktopViewName = "tasks" | "diff" | "approvals" | "providers" | "remote";
+export type DesktopViewName =
+  | "work"
+  | "dashboard"
+  | "tasks"
+  | "threads"
+  | "activity"
+  | "analytics"
+  | "diff"
+  | "approvals"
+  | "swarm"
+  | "collaboration"
+  | "team"
+  | "agents"
+  | "inbox"
+  | "memory"
+  | "files"
+  | "notes"
+  | "projects"
+  | "outputs"
+  | "automations"
+  | "providers"
+  | "integrations"
+  | "skills"
+  | "spaces"
+  | "custom-agents"
+  | "employee-tools"
+  | "chief-of-staff"
+  | "remote"
+  | "settings";
 
 export type DesktopFailure = { ok: false; error: string };
 
@@ -88,12 +116,7 @@ export type DesktopClaudeLoginResult = { ok: true } | DesktopFailure;
  * probing for truthiness, so a capability the shell does not ship (native
  * ChatGPT sign-in, for one) never renders a control that cannot work.
  */
-export const DESKTOP_CAPABILITIES = [
-  "status",
-  "unpair",
-  "onStatus",
-  "claudeLogin",
-] as const;
+export const DESKTOP_CAPABILITIES = ["status", "unpair", "onStatus", "claudeLogin"] as const;
 
 export type DesktopCapability = (typeof DESKTOP_CAPABILITIES)[number];
 

@@ -82,7 +82,7 @@ test("cold-start deep link opens its requested dashboard view", async () => {
   const app = await launch({ SHIBA_DESKTOP_URL: stubUrl }, ["shiba://open/providers"]);
   try {
     const win = await app.firstWindow();
-    await win.waitForURL(`${stubUrl}/app/?tab=providers`);
+    await win.waitForURL(`${stubUrl}/providers/`);
     expect(await win.evaluate(() => typeof (window as unknown as { shibaDesktop?: unknown }).shibaDesktop)).toBe("object");
     expect(await app.evaluate(() => (globalThis as { __protocolRegistrations?: number }).__protocolRegistrations)).toBe(0);
   } finally {

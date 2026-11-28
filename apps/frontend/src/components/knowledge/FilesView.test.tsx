@@ -10,7 +10,12 @@ function mockApi(failFirst = false) {
   let name = "";
   const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
     const url = new URL(input, "http://localhost");
-    if (url.pathname === "/api/files/folders") return Response.json({ folders: [{ id: "folder-1", name: "Documents" }] });
+    if (url.pathname === "/api/files/folders" && init?.method !== "POST") return Response.json({ folders: [{ id: "folder-1", name: "Documents" }] });
+    if (url.pathname === "/api/files/folders" && init?.method === "POST") {
+      const folder = JSON.parse(String(init.body));
+      const id = `created-${folder.name}`;
+      return Response.json({ folder: { id, name: folder.name } }, { status: 201 });
+    }
     if (url.pathname === "/api/files") return Response.json({ files: [...uploaded] });
     const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
     if (body?.action === "begin") {
@@ -38,6 +43,7 @@ describe("FilesView", () => {
     expect(input.multiple).toBe(true);
     const click = vi.spyOn(input, "click");
     fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Upload File/ }));
     expect(click).toHaveBeenCalledOnce();
     fireEvent.change(input, { target: { files: [new File(["A real document.\n"], "notes.md", { type: "text/markdown" })] } });
     await screen.findByText("notes.md", { selector: "span" });
@@ -86,6 +92,137 @@ describe("FilesView", () => {
     expect(lists).toBe(2);
   });
 
+
+  it("dismisses search results when the search control is closed", async () => {
+    const api = vi.fn(async (input: string) => {
+      const url = new URL(input, "http://localhost");
+      if (url.pathname === "/api/files/folders") return Response.json({ folders: [] });
+      if (url.pathname === "/api/files") return Response.json({ files: [] });
+      if (url.pathname === "/api/knowledge/search") return Response.json({
+        hits: [{ chunkId: "chunk-1", sourceKind: "file", sourceId: "file-1", sourceName: "notes.md", scope: "personal", ordinal: 0, text: "needle passage", score: 1, rank: 1 }],
+      });
+      return Response.json({}, { status: 404 });
+    });
+    vi.stubGlobal("fetch", api);
+    render(<FilesView />);
+    fireEvent.click(screen.getByRole("button", { name: "Search files" }));
+    fireEvent.change(screen.getByLabelText("Search files and notes"), { target: { value: "needle" } });
+    fireEvent.submit(screen.getByRole("search", { name: "Search knowledge" }));
+    await waitFor(() => expect(api.mock.calls.some(([url]) => String(url).includes("/api/knowledge/search"))).toBe(true));
+    await screen.findByText("notes.md");
+    fireEvent.click(screen.getByRole("button", { name: "Close search files" }));
+    await waitFor(() => expect(screen.queryByText("notes.md")).toBeNull());
+    expect(screen.queryByRole("search", { name: "Search knowledge" })).toBeNull();
+  });
+
+  it("preserves folder upload paths through created nested folders", async () => {
+    const api = mockApi();
+    render(<FilesView />);
+    await screen.findByRole("option", { name: "Documents" });
+    const file = new File(["nested"], "inner.md", { type: "text/markdown" });
+    Object.defineProperty(file, "webkitRelativePath", { value: "root/sub/inner.md" });
+    fireEvent.change(screen.getByLabelText("Upload folder"), { target: { files: [file] } });
+    await screen.findByText("inner.md", { selector: "span" });
+    const folderPosts = api.mock.calls.filter(([url, init]) => String(url).startsWith("/api/files/folders") && init?.method === "POST");
+    expect(folderPosts.map(([, init]) => JSON.parse(String(init?.body)))).toEqual([
+      { name: "root", scope: "personal", parentId: null },
+      { name: "sub", scope: "personal", parentId: "created-root" },
+    ]);
+    const begin = api.mock.calls.find(([, init]) => typeof init?.body === "string" && init.body.includes('"name":"inner.md"'));
+    expect(JSON.parse(String(begin?.[1]?.body))).toMatchObject({ folderId: "created-sub" });
+  });
+
+  it("queues note creation when New Note navigates to Notes", async () => {
+    mockApi();
+    const onNavigate = vi.fn();
+    render(<FilesView onNavigate={onNavigate} />);
+    await screen.findByRole("option", { name: "Documents" });
+    fireEvent.click(screen.getByRole("button", { name: "Create folder" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /New Note/ }));
+    expect(onNavigate).toHaveBeenCalledWith("notes");
+    expect(window.sessionStorage.getItem("shiba:notes:create-after-navigation")).toBe("personal");
+
+    window.sessionStorage.clear();
+    fireEvent.change(screen.getByLabelText("Scope"), { target: { value: "workspace" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create folder" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /New Note/ }));
+    expect(window.sessionStorage.getItem("shiba:notes:create-after-navigation")).toBe("workspace");
+  });
+
+
+
+  it("moves a file into a folder from its row action", async () => {
+    const record = { id: "file-1", name: "notes.md", mime: "text/markdown", size: 17, updatedAt: 1, folderId: null, ingestion: { state: "done" } };
+    const api = vi.fn(async (input: string, init?: RequestInit) => {
+      const url = new URL(input, "http://localhost");
+      if (url.pathname === "/api/files/folders") return Response.json({ folders: [{ id: "folder-1", name: "Documents" }] });
+      if (url.pathname === "/api/files") return Response.json({ files: [record] });
+      if (url.pathname === "/api/files/file-1" && init?.method === "PATCH") return Response.json({ file: { ...record, folderId: "folder-1" } });
+      return Response.json({ error: "unexpected" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", api);
+    render(<FilesView />);
+    await screen.findByText("notes.md", { selector: "span" });
+    fireEvent.click(screen.getByRole("button", { name: "Move notes.md" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Documents" }));
+    await waitFor(() => expect(api.mock.calls.some(([url, init]) => String(url).includes("/api/files/file-1") && init?.method === "PATCH")).toBe(true));
+    const patch = api.mock.calls.find(([, init]) => init?.method === "PATCH");
+    expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ folderId: "folder-1" });
+  });
+
+  it("selects and deletes files in bulk", async () => {
+    const record = { id: "file-1", name: "notes.md", mime: "text/markdown", size: 17, updatedAt: 1, folderId: null, ingestion: { state: "done" } };
+    let archived = false;
+    const api = vi.fn(async (input: string, init?: RequestInit) => {
+      const url = new URL(input, "http://localhost");
+      if (url.pathname === "/api/files/folders") return Response.json({ folders: [] });
+      if (url.pathname === "/api/files") return Response.json({ files: archived ? [] : [record] });
+      if (url.pathname === "/api/files/file-1" && init?.method === "DELETE") {
+        archived = true;
+        return Response.json({ file: { ...record, archivedAt: 2 } });
+      }
+      return Response.json({ error: "unexpected" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", api);
+    render(<FilesView />);
+    await screen.findByText("notes.md", { selector: "span" });
+    fireEvent.click(screen.getByRole("button", { name: "Select items" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select notes.md" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete (1)" }));
+    await waitFor(() => expect(api.mock.calls.some(([url, init]) => String(url).includes("/api/files/file-1") && init?.method === "DELETE")).toBe(true));
+    await waitFor(() => expect(screen.queryByText("notes.md", { selector: "span" })).toBeNull());
+    expect(screen.getByRole("button", { name: "Select items" })).toBeTruthy();
+  });
+
+
+  it("keeps failed bulk deletions selected and reports the remaining count", async () => {
+    const readonlyFile = { id: "file-readonly", name: "readonly.md", mime: "text/markdown", size: 9, updatedAt: 1, folderId: null, ingestion: { state: "done" } };
+    const ownedFile = { id: "file-owned", name: "owned.md", mime: "text/markdown", size: 8, updatedAt: 1, folderId: null, ingestion: { state: "done" } };
+    let ownedArchived = false;
+    const api = vi.fn(async (input: string, init?: RequestInit) => {
+      const url = new URL(input, "http://localhost");
+      if (url.pathname === "/api/files/folders") return Response.json({ folders: [] });
+      if (url.pathname === "/api/files") return Response.json({ files: [readonlyFile, ...(ownedArchived ? [] : [ownedFile])] });
+      if (url.pathname === "/api/files/file-readonly" && init?.method === "DELETE") return Response.json({ error: "You do not have permission to edit this resource." }, { status: 403 });
+      if (url.pathname === "/api/files/file-owned" && init?.method === "DELETE") {
+        ownedArchived = true;
+        return Response.json({ file: { ...ownedFile, archivedAt: 2 } });
+      }
+      return Response.json({ error: "unexpected" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", api);
+    render(<FilesView />);
+    await screen.findByText("readonly.md", { selector: "span" });
+    fireEvent.click(screen.getByRole("button", { name: "Select items" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select readonly.md" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select owned.md" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete (2)" }));
+    await screen.findByText("1 selected file could not be deleted.");
+    expect(screen.getByRole("button", { name: "Delete (1)" })).toBeTruthy();
+    expect((screen.getByRole("checkbox", { name: "Select readonly.md" }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.queryByRole("checkbox", { name: "Select owned.md" })).toBeNull();
+  });
+
   it("links to memory sources only when navigation is wired, without saving anything", async () => {
     const api = mockApi();
     const onNavigate = vi.fn();
@@ -96,7 +233,9 @@ describe("FilesView", () => {
 
     render(<FilesView onNavigate={onNavigate} />);
     await screen.findByRole("option", { name: "Documents" });
-    fireEvent.click(screen.getByRole("button", { name: "Review memory sources" }));
+    const memory = screen.getByRole("button", { name: "Review memory sources" });
+    expect(memory.className).not.toContain("sr-only");
+    fireEvent.click(memory);
     expect(onNavigate).toHaveBeenCalledWith("memory");
     expect(api.mock.calls.every(([, init]) => !init?.method)).toBe(true);
   });

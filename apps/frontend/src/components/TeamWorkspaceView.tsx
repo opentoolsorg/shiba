@@ -11,6 +11,7 @@ import {
   teamWorkspaceRequest,
   TeamWorkspaceRequestError,
 } from "../team-workspaces-client";
+import { WorkspaceBillingCard } from "./WorkspaceBillingCard";
 
 const BUTTON_PRIMARY =
   "h-9 px-3.5 rounded-lg bg-[#0a0a0a] dark:bg-zinc-100 text-white dark:text-zinc-900 hover:bg-[#27272a] dark:hover:bg-zinc-200 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 inline-flex items-center justify-center gap-1.5";
@@ -81,7 +82,11 @@ function TeamWorkspaceSurface({
   const nameDirty = useRef(false);
   const [email, setEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<TeamWorkspaceRole>("member");
-  const [activeTab, setActiveTab] = useState<TeamWorkspaceTab>("people");
+  const [activeTab, setActiveTab] = useState<TeamWorkspaceTab>(() => {
+    if (typeof window === "undefined") return "people";
+    const requested = new URLSearchParams(window.location.search).get("teamTab");
+    return requested === "people" || requested === "invitations" || requested === "roles" || requested === "settings" ? requested : "people";
+  });
   const [createdLink, setCreatedLink] = useState<{
     url: string;
     email: string;
@@ -608,6 +613,9 @@ function TeamWorkspaceSurface({
                 </p>
               )}
             </div>
+            {activeTab === "settings" && workspaceId ? (
+              <WorkspaceBillingCard sessionId="" sessionApiAvailable={false} workspaceId={workspaceId} canManage={manager} />
+            ) : null}
 
             {/* People Tab (Members list) */}
             <div className={`${PANEL} ${activeTab === "people" ? "block" : "hidden"}`}>

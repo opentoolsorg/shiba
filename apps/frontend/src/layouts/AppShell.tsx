@@ -1,5 +1,4 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
-import { ChevronDown } from "lucide-react";
+import { createContext, useContext, type ReactNode } from "react";
 import { navigationLabel, areaForView, type AppNavView } from "../app-navigation";
 
 interface ShellNavigation {
@@ -23,21 +22,14 @@ export function AppShell({ children, ...navigation }: ShellNavigation & { childr
 /** Rendered above the current surface's own filters, lists and actions. */
 export function AppAreaNavigation() {
   const shell = useContext(ShellNavigationContext);
-  const [open, setOpen] = useState(false);
   if (!shell) return null;
   const area = areaForView(shell.activeView);
   return (
     <nav aria-label={`${area.label} destinations`} className="shiba-area-navigation">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        className="shiba-area-disclosure"
-      >
-        <span className="min-w-0 flex-1 truncate">More in {area.label}</span>
-        <ChevronDown className={`size-3.5 shrink-0 motion-safe:transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
-      </button>
-      {open ? area.views.map((view) => (
+      <p className="flex min-h-12 items-center px-2 text-[15px] font-semibold text-[var(--fg)]">
+        {area.label}
+      </p>
+      {area.views.map((view) => (
         <button
           type="button"
           key={view}
@@ -57,7 +49,7 @@ export function AppAreaNavigation() {
             </span>
           ) : null}
         </button>
-      )) : null}
+      ))}
     </nav>
   );
 }

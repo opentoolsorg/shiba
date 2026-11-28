@@ -190,6 +190,15 @@ importers:
       jose:
         specifier: 6.2.12
         version: 6.2.12
+      mdast-util-from-markdown:
+        specifier: 2.0.3
+        version: 2.0.3
+      mdast-util-gfm:
+        specifier: 3.1.0
+        version: 3.1.0
+      micromark-extension-gfm:
+        specifier: 3.0.0
+        version: 3.0.0
       postal-mime:
         specifier: 2.7.6
         version: 2.7.6
@@ -276,9 +285,42 @@ importers:
       '@tanstack/react-start':
         specifier: ^1.169.2
         version: 1.169.2(esbuild@0.28.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(rolldown@1.3.3)(vite@8.3.8(@types/node@26.6.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
+      '@tiptap/extension-code':
+        specifier: 2.27.3
+        version: 2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))
+      '@tiptap/extension-highlight':
+        specifier: 2.27.3
+        version: 2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))
+      '@tiptap/extension-link':
+        specifier: 2.27.3
+        version: 2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))(@tiptap/pm@2.27.3)
       '@tiptap/extension-placeholder':
         specifier: ^2.11.5
         version: 2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))(@tiptap/pm@2.27.3)
+      '@tiptap/extension-table':
+        specifier: 2.27.3
+        version: 2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))(@tiptap/pm@2.27.3)
+      '@tiptap/extension-table-cell':
+        specifier: 2.27.3
+        version: 2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))
+      '@tiptap/extension-table-header':
+        specifier: 2.27.3
+        version: 2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))
+      '@tiptap/extension-table-row':
+        specifier: 2.27.3
+        version: 2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))
+      '@tiptap/extension-task-item':
+        specifier: 2.27.3
+        version: 2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))(@tiptap/pm@2.27.3)
+      '@tiptap/extension-task-list':
+        specifier: 2.27.3
+        version: 2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))
+      '@tiptap/extension-text-align':
+        specifier: 2.27.3
+        version: 2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))
+      '@tiptap/extension-underline':
+        specifier: 2.27.3
+        version: 2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))
       '@tiptap/pm':
         specifier: ^2.11.5
         version: 2.27.3
@@ -309,6 +351,18 @@ importers:
       cmdk:
         specifier: ^1.1.1
         version: 1.1.1(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      mdast-util-from-markdown:
+        specifier: 2.0.3
+        version: 2.0.3
+      mdast-util-gfm:
+        specifier: 3.1.0
+        version: 3.1.0
+      mdast-util-to-markdown:
+        specifier: 2.1.2
+        version: 2.1.2
+      micromark-extension-gfm:
+        specifier: 3.0.0
+        version: 3.0.0
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -3869,6 +3923,11 @@ packages:
     peerDependencies:
       '@tiptap/core': ^2.7.0
 
+  '@tiptap/extension-highlight@2.27.3':
+    resolution: {integrity: sha512-NalKhoLGfXelD1P+2wThcpiorINDqeNz05brko28Tg+Ue9skOKO54Uh0XCoe93Mig/MvP/KQbi578LCYz8mqmw==}
+    peerDependencies:
+      '@tiptap/core': ^2.7.0
+
   '@tiptap/extension-history@2.27.3':
     resolution: {integrity: sha512-btT7Teg9xtWbv9q6uc38aIQbZsbMhgNu1NGLf7nLf7Vqzm+GRCpRF5EzlF9RpwEPtC2j1bxrDzpy427Su1qF7w==}
     peerDependencies:
@@ -3885,6 +3944,12 @@ packages:
     resolution: {integrity: sha512-ycgP6h7QQ4WXojOlH7gQEWwzNEzkIkVzdfH6jAZtZ2nw71L5KO1t5kt6Iu382CmQa60skDTuErbfiBUx7a3e2A==}
     peerDependencies:
       '@tiptap/core': ^2.7.0
+
+  '@tiptap/extension-link@2.27.3':
+    resolution: {integrity: sha512-0KF+iweOlegWjsRDJO7EZL1bmmcghNmjPbcSvvyeF19Lh7Nit44dYV0w1JCDvweRRAXECYFXpxZTcIvSf0fEng==}
+    peerDependencies:
+      '@tiptap/core': ^2.7.0
+      '@tiptap/pm': ^2.7.0
 
   '@tiptap/extension-list-item@2.27.3':
     resolution: {integrity: sha512-jWh5tZdNiZDx8X3jKV80EM6zMfUeRD3HKNVGcj5izqNncgH+/jJtF3hDmpP0nbFmhren8BQFo6W5f9L/GqtAVA==}
@@ -3912,6 +3977,43 @@ packages:
     peerDependencies:
       '@tiptap/core': ^2.7.0
 
+  '@tiptap/extension-table-cell@2.27.3':
+    resolution: {integrity: sha512-f697x9RDiva8EFZvLBxEp6Nx6sY5KRbHdNMhbCnqC1PrkRKNCTOib9ddWpqIERzs3HhmqZWL7XCPzvE/t8C+IQ==}
+    peerDependencies:
+      '@tiptap/core': ^2.7.0
+
+  '@tiptap/extension-table-header@2.27.3':
+    resolution: {integrity: sha512-x//GuYJlTzM3GavsDxBRDjGHMY9bbnmglQ0EAPVwQM5QHXpjwKzZN7wvDMM/RwxmxzYWd6Z+Fp7Zk8RYckpzhg==}
+    peerDependencies:
+      '@tiptap/core': ^2.7.0
+
+  '@tiptap/extension-table-row@2.27.3':
+    resolution: {integrity: sha512-0ekXiw6aAESlcrKFmI90ar/j7XJmfdxeJEDeGZuMwOAQs+qq5RAB7ug5WPCZjG0Kqa+Kyxzb1jMw9pSkuTYp+w==}
+    peerDependencies:
+      '@tiptap/core': ^2.7.0
+
+  '@tiptap/extension-table@2.27.3':
+    resolution: {integrity: sha512-xBDaT/ixkmrHKuCUlJNbzRolxjf0fFkHxybyeqfcGNDbVwOb6pOGZly6mGjBG1TXrx3U37y0jmFpwW6WU1zokA==}
+    peerDependencies:
+      '@tiptap/core': ^2.7.0
+      '@tiptap/pm': ^2.7.0
+
+  '@tiptap/extension-task-item@2.27.3':
+    resolution: {integrity: sha512-7ES+qMoMgjb2iXI8iRzgegMeM1pE4zQAekT/5lQyuTv6oEyZw5s3TUZWeTYCq5TI/MezYGu3X2sV5PQnfBAsdA==}
+    peerDependencies:
+      '@tiptap/core': ^2.7.0
+      '@tiptap/pm': ^2.7.0
+
+  '@tiptap/extension-task-list@2.27.3':
+    resolution: {integrity: sha512-T8Y3S95ZzYlh82KGd0H81QOsJZVWweUVps6l7wkiOReNsJxhkb4qW/smNE0TeNhvbU307emiPL0CH5e+eHxjEg==}
+    peerDependencies:
+      '@tiptap/core': ^2.7.0
+
+  '@tiptap/extension-text-align@2.27.3':
+    resolution: {integrity: sha512-1gUN+rdCkuYDePfY8/AixiftkXZDqDN1czZS+e5QIZCNcYnFPIIVu4qurE9kaE0NYo46/RPhPERFBQAbK+dWFw==}
+    peerDependencies:
+      '@tiptap/core': ^2.7.0
+
   '@tiptap/extension-text-style@2.27.3':
     resolution: {integrity: sha512-Z4ZKju7vA2vUCeWVgEWERHvnln6XtgEMcb29xW8i25dSrw5Qefn/b+ym7JPkaMvjWbbQ+5VtECiaEYdL3rRH6Q==}
     peerDependencies:
@@ -3919,6 +4021,11 @@ packages:
 
   '@tiptap/extension-text@2.27.3':
     resolution: {integrity: sha512-9VnSK7qXUuZevNzE0FIymbc8BbY5X+0k4NxxO2dtPBOX4IoNHcWzmpLcuCggd3uN6XYLAXhDi/w2hkmBtig8Mw==}
+    peerDependencies:
+      '@tiptap/core': ^2.7.0
+
+  '@tiptap/extension-underline@2.27.3':
+    resolution: {integrity: sha512-9qc6WtfF7j+gwlbz7ChmwjPqDRF8T2vbHMrZLoWERAez2pOi9VfRG7lj437sc1v9LPT31FlWyIkaTDTGqYMPWA==}
     peerDependencies:
       '@tiptap/core': ^2.7.0
 
@@ -6095,6 +6202,9 @@ packages:
 
   linkify-it@5.0.2:
     resolution: {integrity: sha512-ONTm2jCMAVZjgQa/Fy1kScXsuOoF5NPTsoFBdE1KVIZ2vAh/r9+Bqo+0jINCBYnavTPQZz38QzFTme79ENoN3Q==}
+
+  linkifyjs@4.4.0:
+    resolution: {integrity: sha512-InTexvtbai+2c+dEVGcc6O6P2DMVIiwD9a/i4zFroazOIYLOS6FSVmAJ7kFeumnCMx6/gQqNAkbUvgMubV4+MA==}
 
   locate-path@6.0.0:
     resolution: {integrity: sha512-iPZK6eYjbxRu3uB4/WZ3EsEIMJFMqAoopl3R+zuq0UjcAm/MO6KCweDgPfP3elTztoKP3KtnVHxTn2NHBSDVUw==}
@@ -11426,6 +11536,10 @@ snapshots:
     dependencies:
       '@tiptap/core': 2.27.3(@tiptap/pm@2.27.3)
 
+  '@tiptap/extension-highlight@2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))':
+    dependencies:
+      '@tiptap/core': 2.27.3(@tiptap/pm@2.27.3)
+
   '@tiptap/extension-history@2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))(@tiptap/pm@2.27.3)':
     dependencies:
       '@tiptap/core': 2.27.3(@tiptap/pm@2.27.3)
@@ -11439,6 +11553,12 @@ snapshots:
   '@tiptap/extension-italic@2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))':
     dependencies:
       '@tiptap/core': 2.27.3(@tiptap/pm@2.27.3)
+
+  '@tiptap/extension-link@2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))(@tiptap/pm@2.27.3)':
+    dependencies:
+      '@tiptap/core': 2.27.3(@tiptap/pm@2.27.3)
+      '@tiptap/pm': 2.27.3
+      linkifyjs: 4.4.0
 
   '@tiptap/extension-list-item@2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))':
     dependencies:
@@ -11461,11 +11581,45 @@ snapshots:
     dependencies:
       '@tiptap/core': 2.27.3(@tiptap/pm@2.27.3)
 
+  '@tiptap/extension-table-cell@2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))':
+    dependencies:
+      '@tiptap/core': 2.27.3(@tiptap/pm@2.27.3)
+
+  '@tiptap/extension-table-header@2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))':
+    dependencies:
+      '@tiptap/core': 2.27.3(@tiptap/pm@2.27.3)
+
+  '@tiptap/extension-table-row@2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))':
+    dependencies:
+      '@tiptap/core': 2.27.3(@tiptap/pm@2.27.3)
+
+  '@tiptap/extension-table@2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))(@tiptap/pm@2.27.3)':
+    dependencies:
+      '@tiptap/core': 2.27.3(@tiptap/pm@2.27.3)
+      '@tiptap/pm': 2.27.3
+
+  '@tiptap/extension-task-item@2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))(@tiptap/pm@2.27.3)':
+    dependencies:
+      '@tiptap/core': 2.27.3(@tiptap/pm@2.27.3)
+      '@tiptap/pm': 2.27.3
+
+  '@tiptap/extension-task-list@2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))':
+    dependencies:
+      '@tiptap/core': 2.27.3(@tiptap/pm@2.27.3)
+
+  '@tiptap/extension-text-align@2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))':
+    dependencies:
+      '@tiptap/core': 2.27.3(@tiptap/pm@2.27.3)
+
   '@tiptap/extension-text-style@2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))':
     dependencies:
       '@tiptap/core': 2.27.3(@tiptap/pm@2.27.3)
 
   '@tiptap/extension-text@2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))':
+    dependencies:
+      '@tiptap/core': 2.27.3(@tiptap/pm@2.27.3)
+
+  '@tiptap/extension-underline@2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))':
     dependencies:
       '@tiptap/core': 2.27.3(@tiptap/pm@2.27.3)
 
@@ -13806,7 +13960,7 @@ snapshots:
       quickjs-emscripten: 0.32.0
       re2js: 1.3.3
       seek-bzip: 2.0.0
-      smol-toml: 1.9.0
+      smol-toml: 1.9.1
       sprintf-js: 1.1.3
       sql.js: 1.14.2
       turndown: 7.2.4
@@ -13929,6 +14083,8 @@ snapshots:
   linkify-it@5.0.2:
     dependencies:
       uc.micro: 2.1.0
+
+  linkifyjs@4.4.0: {}
 
   locate-path@6.0.0:
     dependencies:

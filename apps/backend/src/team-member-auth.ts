@@ -51,6 +51,7 @@ const workspaceApi = [
   /^\/api\/onboarding\/progress(?:\/team-task)?\/?$/,
   /^\/api\/governance(?:\/|$)/,
   /^\/api\/share(?:\/|$)/,
+  /^\/api\/(?:files|notes|projects)(?:\/|$)/,
 ];
 
 /**

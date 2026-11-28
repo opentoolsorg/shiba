@@ -74,7 +74,7 @@ export async function handleWorkspaceBilling(request: Request, env: Env): Promis
     return Response.json({ billing: await readWorkspaceBilling(env, subject.key, Date.now()) });
   }
   if (!isWorkspaceBillingEnabled(env)) return Response.json({ error: "Billing is not configured on this deployment." }, { status: 503 });
-  const returnUrl = `${url.origin}/analytics`;
+  const returnUrl = subject.scope === "team" ? `${url.origin}/settings/?section=team&teamTab=settings` : `${url.origin}/analytics`;
   const account = await ensureBillingAccount(env.AGENT_AUDIT, subject.key, Date.now());
 
   if (route === "portal") {
@@ -110,8 +110,8 @@ export async function handleWorkspaceBilling(request: Request, env: Env): Promis
       line_items: [{ quantity: 1, price_data: { currency: "usd", unit_amount: amountUsd * 100, product_data: { name: "Shiba workspace credits" } } }],
       metadata,
       payment_intent_data: { metadata },
-      success_url: `${returnUrl}?billing=success`,
-      cancel_url: `${returnUrl}?billing=cancelled`,
+      success_url: `${returnUrl}${returnUrl.includes("?") ? "&" : "?"}billing=success`,
+      cancel_url: `${returnUrl}${returnUrl.includes("?") ? "&" : "?"}billing=cancelled`,
     });
     await recordPendingTopUp(env.AGENT_AUDIT, { publicId, sessionId: session.id, subject: subject.key, amountMicroUsd: amountUsd * 1_000_000 });
     return Response.json({ url: session.url });

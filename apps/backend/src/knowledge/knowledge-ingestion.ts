@@ -1,4 +1,7 @@
 import type { IngestQueueMessage, KnowledgeScope } from "@shiba/shared";
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { gfmFromMarkdown } from "mdast-util-gfm";
+import { gfm } from "micromark-extension-gfm";
 import type { Env } from "../env.js";
 import { randomHex } from "../mailbox-store.js";
 import { enqueue } from "../platform/queues.js";
@@ -14,10 +17,65 @@ export function filesBucket(env: Env): R2Bucket {
   throw new Error("FILES binding is not configured.");
 }
 
+
+type MarkdownNode = {
+  type: string;
+  value?: string;
+  alt?: string;
+  children?: MarkdownNode[];
+};
+
+function decodedLegacyPayload(value: string): string | null {
+  const encoded = /^<(?:span|code) data-shiba-text="([^"]*)">$/.exec(value);
+  if (!encoded) return null;
+  try {
+    return decodeURIComponent(encoded[1] ?? "");
+  } catch {
+    return " ";
+  }
+}
+
+function generatedHtmlText(value: string): string {
+  const legacy = decodedLegacyPayload(value);
+  if (legacy !== null) return legacy;
+  if (/^<br\s*\/?>$/.test(value)) return "\n";
+  const aligned = /^<(p|h[1-6]) style="text-align: [^"]+">([\s\S]*)<\/\1>$/.exec(value);
+  return aligned ? markdownSearchText(aligned[2] ?? "") : "";
+}
+
+function markdownNodeText(node: MarkdownNode): string {
+  if (node.type === "text" || node.type === "inlineCode") return node.value ?? "";
+  if (node.type === "code") return `${node.value ?? ""}\n`;
+  if (node.type === "break") return "\n";
+  if (node.type === "image" || node.type === "imageReference") return node.alt ?? "";
+  if (node.type === "html") return generatedHtmlText(node.value ?? "");
+  const children = (node.children ?? []).map((child) => markdownNodeText(child)).join("");
+  if (
+    node.type === "root" ||
+    node.type === "paragraph" ||
+    node.type === "heading" ||
+    node.type === "blockquote" ||
+    node.type === "list" ||
+    node.type === "listItem" ||
+    node.type === "table" ||
+    node.type === "tableRow" ||
+    node.type === "tableCell"
+  )
+    return `${children}\n`;
+  return children;
+}
+
+function markdownSearchText(text: string): string {
+  return markdownNodeText(
+    fromMarkdown(text, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] }) as MarkdownNode,
+  );
+}
+
 export async function extractText(bytes: Uint8Array, mime: string, env: Env): Promise<string> {
   const lower = mime.toLowerCase();
   if (lower.startsWith("text/") || lower === "application/json") {
-    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    return lower === "text/markdown" ? markdownSearchText(decoded) : decoded;
   }
   if (lower === "application/pdf" || lower.includes("word") || lower.includes("html")) {
     const result = await env.AI.run(TO_MARKDOWN, { blob: [...bytes], contentType: mime }) as { data?: string };
