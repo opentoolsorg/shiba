@@ -335,11 +335,11 @@ describe("channel registry", () => {
     expect(channelForConversationKey("constructor:x")).toBeNull();
   });
 
-  it("declares publication approval cards only for Slack, Teams, and Discord", () => {
+  it("declares publication approval cards for Slack, Teams, Discord, and Telegram", () => {
     expect(channelPublicationFor("slack")?.capabilities.has("publicationApprovalCard")).toBe(true);
     expect(channelPublicationFor("teams")?.capabilities.has("publicationApprovalCard")).toBe(true);
     expect(channelPublicationFor("discord")?.capabilities.has("publicationApprovalCard")).toBe(true);
-    expect(channelPublicationFor("telegram")).toBeNull();
+    expect(channelPublicationFor("telegram")?.capabilities.has("publicationApprovalCard")).toBe(true);
     expect(channelPublicationFor("email")).toBeNull();
   });
 
@@ -348,6 +348,7 @@ describe("channel registry", () => {
       ["slack:T1:C1:1.2", "slack"],
       [`teams:${TEAMS_CONVERSATION}`, "teams"],
       ["discord:123456", "discord"],
+      ["telegram:-100", "telegram"],
       ["default", "slack"],
     ] as const) {
       const resolved = resolveChannelPublication(threadKey);
@@ -355,7 +356,6 @@ describe("channel registry", () => {
       if (resolved.status === "supported") expect(resolved.publication.channel).toBe(channel);
     }
     for (const [threadKey, channel] of [
-      ["telegram:-100", "telegram"],
       ["email:inbox-1", "email"],
       ["web:session-1", "web"],
       ["web:devin:session-1", "web"],
@@ -367,7 +367,7 @@ describe("channel registry", () => {
   it("does not fall back to another channel when publication is unsupported", async () => {
     const result = await postChannelPublicationApproval({} as Env, {
       ownerId: "default",
-      threadKey: "telegram:-100",
+      threadKey: "email:inbox-1",
       approvalId: "pr-publish:run-1",
       repoUrl: "https://github.com/o/r",
       task: "publish it",
@@ -375,8 +375,8 @@ describe("channel registry", () => {
     });
     expect(result).toEqual({
       status: "unsupported",
-      channel: "telegram",
-      reason: "telegram does not support publication approval cards.",
+      channel: "email",
+      reason: "email does not support publication approval cards.",
     });
   });
 
