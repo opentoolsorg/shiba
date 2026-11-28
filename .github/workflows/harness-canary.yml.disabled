@@ -1,0 +1,147 @@
+name: Harness canary
+
+on:
+  workflow_dispatch:
+  # Add schedule only after a separately approved isolated dispatch is verified.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shiba-harness-canary-v1
+  cancel-in-progress: false
+
+jobs:
+  conformance:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository != 'opentoolsorg/shiba' && github.repository == vars.SHIBA_CANARY_SOURCE_REPO && vars.SHIBA_CANARY_ENABLED == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    outputs:
+      result: ${{ steps.suite.outputs.result }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.22.3'
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115
+      - run: pnpm install --frozen-lockfile
+      - name: Run the existing offline harness suites
+        id: suite
+        shell: bash
+        run: |
+          if timeout --kill-after=5s 120s pnpm -C apps/backend exec vitest run --maxWorkers=2 \
+            test/agent-harness.test.ts test/harness.test.ts test/acp-driver.test.ts test/harness-capabilities.test.ts; then
+            echo 'result=passed' >> "$GITHUB_OUTPUT"
+          else
+            echo 'result=failed' >> "$GITHUB_OUTPUT"
+          fi
+
+  image:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository != 'opentoolsorg/shiba' && github.repository == vars.SHIBA_CANARY_SOURCE_REPO && vars.SHIBA_CANARY_ENABLED == 'true' }}
+    environment: shiba-canary-image
+    runs-on:
+      group: shiba-canary-isolated
+      labels: shiba-canary-amd64
+    timeout-minutes: 3
+    outputs:
+      report: ${{ steps.probe.outputs.report }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify preloaded CLI pins with network disabled
+        id: probe
+        env:
+          SHIBA_CANARY_IMAGE: ${{ vars.SHIBA_CANARY_IMAGE }}
+          SHIBA_CANARY_IMAGE_INPUTS_SHA256: ${{ vars.SHIBA_CANARY_IMAGE_INPUTS_SHA256 }}
+        run: |
+          test "$(node -p process.versions.node)" = 24.22.3
+          node scripts/harness-canary-probe.mjs image "$RUNNER_TEMP/canary-image.json"
+          node -p '"report=" + JSON.stringify(require(process.argv[1]))' "$RUNNER_TEMP/canary-image.json" >> "$GITHUB_OUTPUT"
+
+  models:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository != 'opentoolsorg/shiba' && github.repository == vars.SHIBA_CANARY_SOURCE_REPO && vars.SHIBA_CANARY_ENABLED == 'true' }}
+    environment: shiba-canary-metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      report: ${{ steps.probe.outputs.report }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.22.3'
+      - name: Verify exact models on isolated direct API credentials
+        id: probe
+        env:
+          SHIBA_CANARY_OPENAI_KEY: ${{ secrets.SHIBA_CANARY_OPENAI_KEY }}
+          SHIBA_CANARY_ANTHROPIC_KEY: ${{ secrets.SHIBA_CANARY_ANTHROPIC_KEY }}
+          SHIBA_CANARY_GOOGLE_KEY: ${{ secrets.SHIBA_CANARY_GOOGLE_KEY }}
+          SHIBA_CANARY_XAI_KEY: ${{ secrets.SHIBA_CANARY_XAI_KEY }}
+        run: |
+          node scripts/harness-canary-probe.mjs models "$RUNNER_TEMP/canary-models.json"
+          node -p '"report=" + JSON.stringify(require(process.argv[1]))' "$RUNNER_TEMP/canary-models.json" >> "$GITHUB_OUTPUT"
+
+  report:
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository != 'opentoolsorg/shiba' && github.repository == vars.SHIBA_CANARY_SOURCE_REPO && vars.SHIBA_CANARY_ENABLED == 'true' }}
+    needs: [conformance, image, models]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      report: ${{ steps.assemble.outputs.report }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.22.3'
+      - name: Assemble a bounded report from this run
+        id: assemble
+        env:
+          CONFORMANCE_RESULT: ${{ needs.conformance.outputs.result }}
+          IMAGE_REPORT: ${{ needs.image.outputs.report }}
+          MODEL_REPORT: ${{ needs.models.outputs.report }}
+        run: |
+          node scripts/harness-canary-incidents.mjs evaluate "$RUNNER_TEMP/shiba-harness-canary.json"
+          node -p '"report=" + JSON.stringify(require(process.argv[1]))' "$RUNNER_TEMP/shiba-harness-canary.json" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: shiba-harness-canary-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/shiba-harness-canary.json
+          if-no-files-found: error
+          retention-days: 14
+  reconcile:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository != 'opentoolsorg/shiba' && github.repository == vars.SHIBA_CANARY_SOURCE_REPO && vars.SHIBA_CANARY_ENABLED == 'true' }}
+    needs: [report]
+    environment: shiba-canary-incidents
+    permissions:
+      contents: read
+      issues: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24.22.3'
+      - name: Persist the verdict and reconcile only this canary's incident
+        env:
+          CANARY_REPORT: ${{ needs.report.outputs.report }}
+          SHIBA_CANARY_SOURCE_REPO: ${{ vars.SHIBA_CANARY_SOURCE_REPO }}
+          SHIBA_CANARY_LEDGER_ISSUE: ${{ vars.SHIBA_CANARY_LEDGER_ISSUE }}
+          SHIBA_CANARY_ISSUES_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s\n' "$CANARY_REPORT" > "$RUNNER_TEMP/shiba-harness-canary.json"
+          node scripts/harness-canary-incidents.mjs record "$RUNNER_TEMP/shiba-harness-canary.json"

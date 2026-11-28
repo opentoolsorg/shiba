@@ -1,0 +1,40 @@
+{
+  "baseImage": "docker.io/cloudflare/sandbox:0.12.9-opencode@sha256:7b84b0163bd93f090504daf2f8e33d74a219a90774802f028adbb5b9de8107b5",
+  "imageInputs": [
+    "apps/backend/Dockerfile",
+    "apps/backend/scripts/acp-install.sh",
+    "apps/backend/scripts/run-computer.py",
+    "apps/backend/scripts/run-computer.policy.json"
+  ],
+  "cli": {
+    "opencode-ai": ["opencode", "1.18.34"],
+    "@anthropic-ai/claude-code": ["claude", "2.1.284"],
+    "@openai/codex": ["codex", "0.157.1"],
+    "@xai-official/grok": ["grok", "1.0.41"],
+    "@earendil-works/pi-coding-agent": ["pi", "1.3.0"],
+    "@agentclientprotocol/claude-agent-acp": ["claude-agent-acp", "0.86.0"],
+    "@agentclientprotocol/codex-acp": ["codex-acp", "2.1.1"],
+    "@google/gemini-cli": ["gemini", "0.62.0"]
+  },
+  "lanes": {
+    "opencode": ["opencode-ai", "google/gemini-3.5-flash-lite"],
+    "opencode-acp": ["opencode-ai", "google/gemini-3.5-flash-lite"],
+    "claude-code": ["@anthropic-ai/claude-code", "anthropic/claude-sonnet-4-6"],
+    "claude-acp": ["@agentclientprotocol/claude-agent-acp", "anthropic/claude-sonnet-4-6"],
+    "codex": ["@openai/codex", "openai/gpt-5.3-codex"],
+    "codex-acp": ["@agentclientprotocol/codex-acp", "openai/gpt-5.3-codex"],
+    "grok": ["@xai-official/grok", "xai/grok-4.6"],
+    "pi": ["@earendil-works/pi-coding-agent", "anthropic/claude-sonnet-4-6"],
+    "gemini-acp": ["@google/gemini-cli", "google/gemini-3.5-flash"]
+  },
+  "excluded": {
+    "claude-subscription": "subscription entitlement not checked by a direct API key",
+    "codex-subscription": "subscription entitlement not checked by a direct API key",
+    "antigravity-subscription": "requires a separately authenticated OAuth lane",
+    "cursor-subscription": "auto is a model picker, not an exact model",
+    "acp": "agent and version depend on the allowlisted registry snapshot",
+    "claude-login": "not sandbox runnable",
+    "cursor": "not sandbox runnable",
+    "antigravity": "not sandbox runnable"
+  }
+}
