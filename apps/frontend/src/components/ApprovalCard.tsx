@@ -24,6 +24,7 @@ export interface ApprovalCardProps {
 
 export function ApprovalCard({ approval, decided, decision, onDecideApproval, agentName, reviewAfterPublish, conflict, onClaimChoice }: ApprovalCardProps): JSX.Element {
   const videoGeneration = approval.tool === "generate_video";
+  const screenInput = ["screen_click", "screen_type", "screen_key"].includes(approval.tool);
   const browserSignIn = approval.tool === "browser_sign_in";
   const input = typeof approval.input === "object" && approval.input !== null && !Array.isArray(approval.input)
     ? approval.input as Record<string, unknown> : {};
@@ -40,7 +41,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
     <div className="bg-[var(--bg)] overflow-hidden">
       <div className="flex items-center px-4 min-h-11 text-xs text-[var(--muted-foreground-2)]" role="status">
         {decided && decision !== undefined
-          ? decision ? browserSignIn ? "Approved — saved sign-in permitted" : videoGeneration ? "Approved — paid video generation permitted" : "Approved — sandbox starting" : "Denied. This decision is final."
+          ? decision ? browserSignIn ? "Approved — saved sign-in permitted" : videoGeneration ? "Approved — paid video generation permitted" : screenInput ? "Approved — screen input permitted" : "Approved — sandbox starting" : "Denied. This decision is final."
           : decided ? "Decision recorded" : "Waiting for your approval"}
       </div>
       <div className="p-4 flex flex-col gap-3">
@@ -78,7 +79,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
         </p>
       ) : null}
 
-      {(approval.computer ?? input?.computer === true) ? <p className="text-xs font-medium text-[var(--fg)]">Uses a cloud computer</p> : null}
+      {!browserSignIn && (approval.computer ?? input.computer === true) ? <p className="text-xs font-medium text-[var(--fg)]">Uses a cloud computer</p> : null}
 
       {conflict ? (
         <div className="border border-[var(--warning)] bg-[var(--warning-subtle)] p-3 text-sm" role="status">
@@ -113,6 +114,7 @@ export function ApprovalCard({ approval, decided, decision, onDecideApproval, ag
           ? "Approve to use this saved login in the current browser on its approved site. The password and one-time code stay out of Chat. Reject to cancel this sign-in attempt."
           : videoGeneration
           ? "Approve to generate this video using your connected provider. This spends money on that provider account. Reject to cancel before generation starts."
+          : screenInput ? "Approve this input on the running cloud computer. Reject to leave the screen unchanged."
           : "Approve to run this in an isolated sandbox with the payload above. Reject to cancel — no container starts."}
       </p>
 

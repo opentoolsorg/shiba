@@ -74,6 +74,25 @@ beforeEach(async () => {
   sealedInput = await sealed();
 });
 
+describe("cloud computer credential admission", () => {
+  it("refuses a device-login preference selected after approval before acquiring a sandbox", async () => {
+    const instance = agent(await sealed({
+      computer: true, harness: "codex-subscription", initiatorUserId: "person@test.example",
+      runtime: "sandbox", sandboxProvider: "cloudflare", codingModel: "openai-subscription/gpt-5.3-codex",
+    }));
+    Object.assign(instance.env, {
+      SHIBA_CODEX_DEVICE_AUTH: "1", AGENT_AUDIT: {
+        prepare: () => ({ bind: () => ({ first: async () => ({ mode: "device-auth" }) }) }),
+      },
+    });
+    const { result } = await responseFor(instance);
+    expect(result.status).toBe("error");
+    expect(result.summary).toContain("Worker-managed credentials");
+    expect(mocks.sandbox).not.toHaveBeenCalled();
+    expect(mocks.run).not.toHaveBeenCalled();
+  });
+});
+
 describe("CLI recovery policy", () => {
   function durable(instance: OpenCodeAgent) {
     const rows = new Map<string, unknown>();

@@ -1878,7 +1878,8 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
         await chat.addToolApprovalResponse({ id: approvalId, approved });
         setApprovalAnnouncement(
           tool === "browser_sign_in" ? (approved ? "Saved sign-in approved for this browser." : "Saved sign-in rejected. No saved credentials will be used.") :
-          tool === "generate_video" ? `Video generation ${approved ? "approved. Paid provider generation is now permitted." : "rejected. No video will be generated."}` : `Task ${approved ? "approved" : "rejected"}. ${
+          tool === "generate_video" ? `Video generation ${approved ? "approved. Paid provider generation is now permitted." : "rejected. No video will be generated."}` :
+          tool && ["screen_click", "screen_type", "screen_key"].includes(tool) ? `Screen input ${approved ? "approved" : "rejected"}.` : `Task ${approved ? "approved" : "rejected"}. ${
             approved
               ? "Sandbox execution is now permitted."
               : "No sandbox will start for this tool call."
@@ -2020,7 +2021,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   );
 
   const submitTask = useCallback(
-    async (event?: React.FormEvent, options?: { forceWork?: boolean; customAgentId?: string; create?: ChatCreateChoice }) => {
+    async (event?: React.FormEvent, options?: { forceWork?: boolean; customAgentId?: string; create?: ChatCreateChoice; computerRunId?: string }) => {
       if (threadLinkPending) return;
       // A bot page that is opening, empty or failed has no committed conversation
       // to send into; the keyboard shortcut reaches here too.
@@ -2062,6 +2063,7 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
               text: draft.trim(),
               metadata: {
                 shibaMode: "chat",
+                ...(options?.computerRunId ? { shibaComputerRunId: options.computerRunId } : {}),
                 shibaRoomViewerId: realtimeViewerId,
                 ...(options?.create ? { shibaChatCreate: options.create } : {}),
                 ...(selectedChatLookups(chatLookupsRef.current).length ? { shibaChatTools: selectedChatLookups(chatLookupsRef.current) } : {}),
@@ -4507,7 +4509,7 @@ function employeeConversationRoomTitle(name: string): string {
                         value={composerVisible ? task : ""}
                         onChange={setTask}
                         onPrepareWork={() => setConversationMode("work")}
-                        onSubmit={(event, create) => submitTask(event, { create })}
+                        onSubmit={submitTask}
                         onVideoHandoff={composerVisible && videoHandoffScope === composerScope ? consumeVideoHandoff : undefined}
                         onStop={() => { void chat.stop(); }}
                         onRetry={() => { void chat.regenerate(); }}
@@ -4515,6 +4517,7 @@ function employeeConversationRoomTitle(name: string): string {
                         streaming={chat.isStreaming || chat.isRecovering || chat.status === "streaming" || chat.status === "submitted"}
                         failed={Boolean(chat.error)}
                         lookups={chatLookups}
+                        computerRunId={privateDataEnabled && !teamWorkspaceId && chatAgentName && chatAgentName !== "default" && composerVisible && reviewRun?.computer && reviewRun.status === "running" ? reviewRun.runId : undefined}
                         onToggleLookup={(id) => setChatLookupIds((current) => current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id])}
                       />
                     </div>

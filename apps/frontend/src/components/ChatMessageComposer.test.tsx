@@ -6,6 +6,22 @@ import { ChatMessageComposer } from "./ChatMessageComposer";
 afterEach(cleanup);
 
 describe("ChatMessageComposer", () => {
+  it("opts into one running computer for one submission, never carrying consent to another run", () => {
+    const onSubmit = vi.fn((event: React.FormEvent<HTMLFormElement>) => event.preventDefault());
+    const props = { value: "Inspect the screen", onChange: vi.fn(), onSubmit, onStop: vi.fn(), onRetry: vi.fn(), busy: false, streaming: false, failed: false };
+    const view = render(<ChatMessageComposer {...props} computerRunId="first" />);
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(onSubmit).toHaveBeenLastCalledWith(expect.anything(), { computerRunId: "first" });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(onSubmit).toHaveBeenLastCalledWith(expect.anything());
+    fireEvent.click(screen.getByRole("checkbox"));
+    view.rerender(<ChatMessageComposer {...props} computerRunId="second" />);
+    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+    view.rerender(<ChatMessageComposer {...props} />);
+    expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+
   it("keeps send disabled for an empty prompt and submits an ordinary question", () => {
     const onSubmit = vi.fn((event: React.FormEvent<HTMLFormElement>) => event.preventDefault());
     const onChange = vi.fn();
