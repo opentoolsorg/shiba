@@ -42,7 +42,7 @@ import { redactSecrets } from "./security.js";
 import { isApprover, parseApproverAllowlist, type ExecutionContextLike } from "./slack-approval.js";
 import { log } from "./obs/log.js";
 
-export { decisionButtons, DISCORD_REPLAY_WINDOW_SECONDS, postDiscordPublicationApproval, verifyDiscordRequest } from "./channels/discord/index.js";
+export { DISCORD_REPLAY_WINDOW_SECONDS, postDiscordPublicationApproval, verifyDiscordRequest } from "./channels/discord/index.js";
 
 export const DISCORD_INTERACTIONS_PATH = "/api/discord/interactions";
 export const DISCORD_COMMAND = DISCORD_COMMAND_NAME;
