@@ -23,7 +23,7 @@ export function AppShell({ children, ...navigation }: ShellNavigation & { childr
 /** Rendered above the current surface's own filters, lists and actions. */
 export function AppAreaNavigation() {
   const shell = useContext(ShellNavigationContext);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   if (!shell) return null;
   const area = areaForView(shell.activeView);
   return (
