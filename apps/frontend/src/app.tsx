@@ -26,7 +26,7 @@ import { RoomExecutionPanel } from "./components/RoomExecutionPanel";
 import { RoomApprovalReview } from "./components/RoomApprovalReview";
 import { TeamWorkspaceView } from "./components/TeamWorkspaceView";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
-import { lastTeamWorkspace, useTeamWorkspaceDirectory } from "./team-workspaces-client";
+import { lastTeamWorkspace, rememberLastTeamWorkspace, useTeamWorkspaceDirectory } from "./team-workspaces-client";
 import { useWorkTasks } from "./work-mutations";
 import { useFirstRunSeed } from "./first-run-seed";
 import { AnalyticsView } from "./components/AnalyticsView";
@@ -378,8 +378,6 @@ const DEFAULT_VIEW: MainView = "tasks";
 function settingsSectionFromSearch(search: string): string {
   return normalizeSettingsSection(new URLSearchParams(search).get("section") || "overview");
 }
-/** Views that render their own MainCard, so the shell must not add a second one. */
-const SELF_CARDED_VIEWS: readonly string[] = ["dashboard", "activity", "analytics", "diff", "approvals", "automations", "providers", "spaces", "integrations"];
 /** Views that work inside a team workspace; every other view is personal-only. */
 const TEAM_WORKSPACE_VIEWS: readonly string[] = ["dashboard", "team", "work", "threads", "collaboration", "custom-agents", "skills", "providers", "integrations", "files", "notes", "projects", "settings"];
 
@@ -976,6 +974,10 @@ const [taskHistoryItems, setTaskHistoryItems] = useState<TaskHistoryItem[]>([]);
   useEffect(() => {
     if (mainView === "settings" && teamWorkspaceId) setSettingsSection("team");
   }, [mainView, teamWorkspaceId]);
+  // The directory forgets its selection when switching to Personal; keep the last team separately for the Workspace tab.
+  useEffect(() => {
+    if (teamWorkspaceId && orchestratorName) rememberLastTeamWorkspace(orchestratorName.trim().toLowerCase(), teamWorkspaceId);
+  }, [teamWorkspaceId, orchestratorName]);
   const teamWorkspace = teamDirectory.workspaces.find(item => item.workspaceId === teamWorkspaceId);
   useEffect(() => {
     setMailboxCounts({});
@@ -3655,8 +3657,10 @@ function employeeConversationRoomTitle(name: string): string {
         </div>
       ) : null}
 
+      {mainView !== "work" && !sessionsCollapsed ? <div id="app-context-panel" className="hidden min-h-0 lg:flex">{destinationPanel ?? <AppAreaSidebar />}</div> : null}
+
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
-        {/* TOP BAR — subtle chrome header */}
+        {/* TOP BAR — mobile chrome; desktop surfaces own their screen header like Overlay. */}
         <header className="shiba-app-topbar pt-[env(safe-area-inset-top)] shrink-0 text-[var(--fg)] flex items-center gap-2.5 pl-2 pr-3 lg:hidden z-20">
           <button
             type="button"
@@ -3745,9 +3749,8 @@ function employeeConversationRoomTitle(name: string): string {
           <OnboardingNudgePopup status={nudgeStatus} open={nudgeSession?.popupOpen ?? false} onResume={(step) => { void resumeNudgeStep(step); }} onDismiss={closeNudgePopup} />
         </> : null}
 
-        <div className={`shiba-app-content flex-1 flex min-w-0 min-h-0 ${mainView === "work" ? "" : "gap-2 p-2"}`}>
-          {mainView !== "work" && !sessionsCollapsed ? <div id="app-context-panel" className="hidden min-h-0 lg:flex">{destinationPanel ?? <AppAreaSidebar />}</div> : null}
-          <MainCard className={mainView === "work" || mainView === "settings" || (!personalOnlyNotice && SELF_CARDED_VIEWS.includes(mainView) && !(mainView === "integrations" && (teamWorkspaceId || restrictedTeamMember))) ? "!rounded-none !border-0 !bg-transparent !shadow-none" : ""}>
+        <div className="shiba-app-content flex-1 flex min-w-0 min-h-0">
+          <MainCard className="!rounded-none !border-0 !bg-transparent !shadow-none">
           {inboxMounted && privateDataEnabled ? (
             <div
               className="flex flex-1 flex-col h-full min-h-0 overflow-hidden"

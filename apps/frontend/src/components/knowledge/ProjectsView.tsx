@@ -194,9 +194,9 @@ export function ProjectsView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex min-h-16 shrink-0 flex-col justify-center border-b border-[var(--border-1)] px-6 py-1.5">
+      <header className="flex min-h-16 shrink-0 flex-col justify-center border-b border-[var(--border-1)] px-6 py-3">
           <h1 className="text-sm leading-5 font-medium">Projects</h1>
-          <p className="mt-0.5 text-xs leading-5 text-[var(--muted-foreground-2)]">
+          <p className="mt-1 text-xs leading-relaxed text-[var(--muted-foreground-2)]">
             Group files and notes into focused workspaces. Deleting a project keeps every file and
             note.
           </p>

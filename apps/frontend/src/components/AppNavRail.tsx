@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type JSX, type ComponentPropsWithRef } from "react";
 import {
-  BookMarked,
+  FileText,
   HelpCircle,
   ListChecks,
   MessagesSquare,
@@ -103,7 +103,7 @@ const AREA_ICONS = {
   work: ListChecks,
   chat: MessagesSquare,
   team: Users,
-  knowledge: BookMarked,
+  knowledge: FileText,
   settings: Settings,
 };
 
@@ -436,7 +436,7 @@ export function AppNavRail({
         className={
           sheet
             ? "shiba-rail-footer flex shrink-0 items-center justify-between border-t border-[var(--border-1)] pt-2"
-            : "shiba-rail-footer flex shrink-0 flex-col items-center gap-1 pt-2"
+            : "shiba-rail-footer flex shrink-0 flex-col items-center gap-1"
         }
       >
         {!sheet && onToggleCollapse ? (
