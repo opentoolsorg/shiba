@@ -53,6 +53,7 @@ import { localDispatchStub } from "../local-dispatch.js";
 import { chatGptAuthStub } from "../chatgpt-auth-do.js";
 import { codexDeviceAuthDeploymentEnabled } from "../harness/codex-device-auth.js";
 import { readUserOpenAiAuthMode } from "../subscription-device-auth.js";
+import { runComputerCredentialIssue } from "../run-computer-credentials.js";
 import { modelCredentialKeyConfigured } from "../subscription-credentials.js";
 import { acquireSandboxOps } from "../sandbox/lifecycle.js";
 import { HARNESS_RETRY, withRetry } from "../harness/retry.js";
@@ -383,6 +384,10 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
             result = await runVerifyStandInTask(input, emit);
           } else {
             const harness = resolveHarness(input.harness ?? this.env.AGENT_HARNESS, this.env);
+            if (input.computer) {
+              const issue = runComputerCredentialIssue(harness.name, input);
+              if (issue) throw new Error(issue);
+            }
             // T48: subscription-authed harnesses must have a succeeded auth
             // flow before a container spins up — assert at the admission seam,
             // after the harness is resolved, before any sandbox work starts.
@@ -411,6 +416,7 @@ export class OpenCodeAgent extends AIChatAgent<Env> {
                 (await readUserOpenAiAuthMode(this.env, input.initiatorUserId)) === "device-auth";
               if (deviceAuth) {
                 runInput = { ...input, codexAuthMode: "device-auth" };
+                if (input.computer) throw new Error(runComputerCredentialIssue(harness.name, runInput));
               } else if (this.env.ChatGptAuth && modelCredentialKeyConfigured(this.env)) {
                 const accessResponse = await chatGptAuthStub(this.env, input.initiatorUserId).fetch(
                   "https://chatgpt-auth.internal/access",

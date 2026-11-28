@@ -49,6 +49,17 @@ function fixture(desktopExit = 0, harnessExit = 0, evidenceExit = 0) {
 }
 
 describe("approved run desktop", () => {
+  it.each([
+    { harness: "antigravity-subscription" }, { harness: "claude-login" },
+    { harness: "codex-subscription", codexAuthMode: "device-auth" }, { chatgptAccessToken: "test-only" },
+  ] as const)("refuses credential-bearing routes before any sandbox IO: %o", async (route) => {
+    const { events, ops } = fixture();
+    const result = await new SandboxRuntimeAdapter().runCodingTask(ops, { ...INPUT, ...route }, () => {});
+    expect(result.status).toBe("error");
+    expect(events).toEqual([]);
+    expect(ops.exec).not.toHaveBeenCalled();
+  });
+
   it("starts after the scoped checkout and exposes only the promised tool to the harness", async () => {
     const { events, ops } = fixture();
     const save = vi.fn(async () => { events.push("save"); });
