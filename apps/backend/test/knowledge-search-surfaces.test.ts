@@ -81,6 +81,10 @@ describe("knowledge search hardening", () => {
       const hits = await hybridKnowledgeSearch(f.env, BEN, f.workspaceId, query, 5);
       expect(hits.map((hit) => hit.sourceName)).toContain("note-roundtrip.md");
     }
+    for (const markupOnlyQuery of ["raw", "shiba", "span", "code"]) {
+      const hits = await hybridKnowledgeSearch(f.env, BEN, f.workspaceId, markupOnlyQuery, 5);
+      expect(hits.map((hit) => hit.sourceName)).not.toContain("note-roundtrip.md");
+    }
   });
 
   it("keeps semantic-only matches and still hides another user's personal source", async () => {

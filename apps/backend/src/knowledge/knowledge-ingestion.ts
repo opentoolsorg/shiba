@@ -14,10 +14,35 @@ export function filesBucket(env: Env): R2Bucket {
   throw new Error("FILES binding is not configured.");
 }
 
+
+function markdownSearchText(text: string): string {
+  return text
+    .replace(/<(span|code) data-shiba-text="([^"]*)"><\/\1>/g, (_match, _tag, encoded: string) => {
+      try {
+        return decodeURIComponent(encoded);
+      } catch {
+        return " ";
+      }
+    })
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<\/?(?:span|code|u|mark|del|p|h[1-6])(?:\s[^>]*)?>/g, " ")
+    .replace(/<br\s*\/?>/g, " ")
+    .replace(/&#(x?[0-9a-f]+);/gi, (match, value: string) => {
+      const codePoint = Number.parseInt(value, value.toLowerCase().startsWith("x") ? 16 : 10);
+      if (!Number.isFinite(codePoint) || codePoint < 0 || codePoint > 0x10ffff) return match;
+      try {
+        return String.fromCodePoint(codePoint);
+      } catch {
+        return match;
+      }
+    });
+}
+
 export async function extractText(bytes: Uint8Array, mime: string, env: Env): Promise<string> {
   const lower = mime.toLowerCase();
   if (lower.startsWith("text/") || lower === "application/json") {
-    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    return lower === "text/markdown" ? markdownSearchText(decoded) : decoded;
   }
   if (lower === "application/pdf" || lower.includes("word") || lower.includes("html")) {
     const result = await env.AI.run(TO_MARKDOWN, { blob: [...bytes], contentType: mime }) as { data?: string };
