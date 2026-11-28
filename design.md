@@ -117,9 +117,17 @@ corners, hard offset shadows, window-chrome panels, mono microcopy, serif
 display type, and pixel-crisp details. The interface should feel like a
 designed application object, not a generic SaaS dashboard.
 
-Every surface reads this file before adding visual rules. That includes the
-dashboard in `apps/frontend` and the docs and marketing site in `apps/web`.
-Amend this file when the system needs to grow. Do not fork per-page styles.
+This file is the target design contract, not a measured snapshot. Every visual
+change must read it before adding visual rules. That includes the dashboard in
+`apps/frontend` and the docs and marketing site in `apps/web`. Amend this file
+when the system needs to grow. Do not fork per-page styles.
+
+Current implementation status:
+
+| Surface | Status |
+| --- | --- |
+| `apps/web` | Implements the cream/navy paper-OS tokens closely. |
+| `apps/frontend` | Uses the canonical token names in places, but still has neutral zinc values, rounded radii, and soft shadows from an unfinished migration. Treat those differences as migration debt, not as a second design system. |
 
 The YAML above is the machine-readable token contract. The prose below explains
 how to apply it. CSS custom properties remain the runtime delivery mechanism;
