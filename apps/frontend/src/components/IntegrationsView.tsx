@@ -30,6 +30,7 @@ import { SlackInstallationsPanel } from "./SlackInstallationsPanel";
 import { DiscordConnectionPanel, DiscordStatusChip, discordBindingInput, useDiscordConnection } from "./DiscordConnectionPanel";
 import { SlackCoworkerPanel } from "./SlackCoworkerPanel";
 import { TeamsConnectionPanel } from "./TeamsConnectionPanel";
+import { ChannelMatrix, type ChannelConnectionState, type ChannelSurfaceId } from "./ChannelMatrix";
 import { FounderStripeReads } from "./FounderStripeReads";
 import { FounderMetaReads } from "./FounderMetaReads";
 import { FounderHubSpotReads } from "./FounderHubSpotReads";
@@ -195,7 +196,11 @@ function WorkspaceIntegrationSettings(props: IntegrationsViewProps & { workspace
       </button>
       {showBrowserLogins ? <BrowserLoginVault workspaceId={props.workspaceId} workspaceName={props.workspaceName} workspaceRole={props.workspaceRole} /> : null}
     </section>
-    <IntegrationsSetupCard workspaceId={props.workspaceId} /><WorkspaceConnectorsPanel bindingInputs={UNREAD_PRIVATE_BINDINGS}
+    <IntegrationsSetupCard workspaceId={props.workspaceId} />
+    <section className="px-4">
+      <ChannelMatrix />
+    </section>
+    <WorkspaceConnectorsPanel bindingInputs={UNREAD_PRIVATE_BINDINGS}
     actorId={props.actorId} workspaceId={props.workspaceId} workspaceName={props.workspaceName} workspaceRole={props.workspaceRole}
     allowPersonalScope={props.allowPersonalScope} onPersonalScope={props.onPersonalScope} />
     {props.workspaceRole === "owner" && props.actorId && <section ref={slackSetup} id="slack-installations" className="p-4">
@@ -621,6 +626,19 @@ function PersonalIntegrationsView({
     return items;
   }, [status, mailboxes.state, providers, savedSkills, toolDirectory, libraryCatalog, spacesCatalog]);
 
+  // Only surfaces with a real deployment read may report a connection state;
+  // everything else stays "Not verified here" rather than claiming live status.
+  const channelLive = useMemo<Partial<Record<ChannelSurfaceId, ChannelConnectionState>>>(() => ({
+    discord: discord.loading
+      ? "checking"
+      : !discord.status
+        ? "unknown"
+        : discord.status.installations.some((installation) => installation.state === "active")
+          ? "connected"
+          : "disconnected",
+    gmail: gmailLoading ? "checking" : gmailConnected === null ? "unknown" : gmailConnected ? "connected" : "disconnected",
+  }), [discord.loading, discord.status, gmailLoading, gmailConnected]);
+
   const scopeCrumb = scope === "workspace" ? "Workspace" : "Personal";
   const sectionCrumb = activeTab === "skills" ? "Skills" : activeTab === "mcp" ? "MCP Servers" : activeTab === "logins" ? "Saved logins" : "Connectors";
   const crumbs = [scopeCrumb, "Extensions", sectionCrumb];
@@ -904,14 +922,10 @@ function PersonalIntegrationsView({
       </div>
       ) : (
         <>
-          <IntegrationsSetupCard />
-          {failed ? (
-            <div className="border-b border-[var(--border-1)] px-4 py-2 lg:px-8">
-              <LoadErrorState message={failed.message} onRetry={reloadAll} />
-            </div>
-          ) : null}
-          <div className="flex-1 overflow-y-auto p-4 lg:p-8">
+          <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-8">
             <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+              <IntegrationsSetupCard />
+              {failed ? <LoadErrorState message={failed.message} onRetry={reloadAll} /> : null}
               <section aria-labelledby="connection-management-heading" className="rounded-[var(--radius-card)] border border-[var(--border-1)] bg-[var(--card)] p-4 shadow-[var(--sh-card)] sm:p-5">
                 <h2 id="connection-management-heading" className="text-base font-semibold text-[var(--fg)]">Connection management</h2>
                 <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-[var(--muted-foreground-2)]">
@@ -922,6 +936,7 @@ function PersonalIntegrationsView({
                   <button type="button" onClick={() => onNavigate?.("employee-tools")} className="min-h-11 rounded-[var(--radius-button)] border border-[var(--border-1)] bg-[var(--card)] px-3 text-xs font-medium text-[var(--fg)] hover:bg-[var(--card-hover)]">Review employee permissions</button>
                 </div>
               </section>
+              <ChannelMatrix live={channelLive} />
               <WorkspaceConnectorsPanel bindingInputs={bindingInputs} actorId={actorId} onManagePermissions={() => onNavigate?.("employee-tools")} onChooseWorkspace={onChooseWorkspace} onChanged={() => setCatalogRefresh((value) => value + 1)} />
             </div>
           </div>
