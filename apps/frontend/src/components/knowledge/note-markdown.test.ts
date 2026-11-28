@@ -368,4 +368,21 @@ describe("note Markdown", () => {
     expect(saved).not.toContain("~~`code`~~x");
     expect(parseNoteMarkdown(saved)).toEqual(doc);
   });
+  it("keeps soft line breaks before ordinary strikethrough", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "first\n" },
+            { type: "text", text: "second", marks: [{ type: "strike" }] },
+          ],
+        },
+      ],
+    };
+    const saved = serializeNoteMarkdown(doc);
+    expect(saved).toContain("first\n~~second~~");
+    expect(parseNoteMarkdown(saved)).toEqual(doc);
+  });
 });

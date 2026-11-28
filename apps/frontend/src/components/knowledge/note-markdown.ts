@@ -23,7 +23,13 @@ type MdastNode = {
 };
 
 type Mark = NonNullable<JSONContent["marks"]>[number];
-type InlineSegment = { value: string; marks: string[]; code: boolean; hardBreak?: boolean };
+type InlineSegment = {
+  value: string;
+  marks: string[];
+  code: boolean;
+  hardBreak?: boolean;
+  htmlStrike?: boolean;
+};
 type ReferenceTarget = { url: string; title?: string | null };
 type ReferenceMap = ReadonlyMap<string, ReferenceTarget>;
 
@@ -386,11 +392,35 @@ function decodeLinkKey(key: string): { href: string; title: string | null } {
   }
 }
 
-function applyMark(nodes: MdastNode[], markType: string): MdastNode[] {
+function wordChar(value: string | undefined): boolean {
+  return value !== undefined && /[\p{L}\p{N}]/u.test(value);
+}
+
+function markStrikeBoundaries(segments: InlineSegment[]): InlineSegment[] {
+  return segments.map((segment, index) => {
+    if (!segment.marks.includes("strike") || segment.hardBreak) return segment;
+    const previous = segments[index - 1];
+    const next = segments[index + 1];
+    const before =
+      previous && !previous.hardBreak && !previous.marks.includes("strike")
+        ? previous.value.at(-1)
+        : undefined;
+    const after =
+      next && !next.hardBreak && !next.marks.includes("strike") ? next.value.charAt(0) : undefined;
+    const htmlStrike =
+      (wordChar(before) && wordChar(segment.value.charAt(0))) ||
+      (wordChar(segment.value.at(-1)) && wordChar(after));
+    return htmlStrike ? { ...segment, htmlStrike: true } : segment;
+  });
+}
+
+function applyMark(nodes: MdastNode[], markType: string, htmlStrike = false): MdastNode[] {
   if (markType === "bold") return [{ type: "strong", children: nodes }];
   if (markType === "italic") return [{ type: "emphasis", children: nodes }];
   if (markType === "strike")
-    return [{ type: "html", value: "<del>" }, ...nodes, { type: "html", value: "</del>" }];
+    return htmlStrike
+      ? [{ type: "html", value: "<del>" }, ...nodes, { type: "html", value: "</del>" }]
+      : [{ type: "delete", children: nodes }];
   if (markType === "underline")
     return [{ type: "html", value: "<u>" }, ...nodes, { type: "html", value: "</u>" }];
   if (markType === "highlight")
@@ -467,14 +497,23 @@ function markedMdast(segments: InlineSegment[], depth = 0): MdastNode[] {
     )
       end++;
     const children = markedMdast(segments.slice(index, end), depth + 1);
-    result.push(...(activeKey ? applyMark(children, activeKey) : children));
+    result.push(
+      ...(activeKey
+        ? applyMark(
+            children,
+            activeKey,
+            activeKey === "strike" &&
+              segments.slice(index, end).some((segment) => segment.htmlStrike),
+          )
+        : children),
+    );
     index = end;
   }
   return result;
 }
 
 function inlineMdast(nodes: JSONContent[] = []): MdastNode[] {
-  return markedMdast(inlineSegments(nodes));
+  return markedMdast(markStrikeBoundaries(inlineSegments(nodes)));
 }
 
 function inlineMarkdown(children: JSONContent[] | undefined): string {
