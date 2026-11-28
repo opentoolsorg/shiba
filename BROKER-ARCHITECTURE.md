@@ -1,7 +1,7 @@
 # Credential broker architecture: replacement for Phases 9-13
 
 Target: `/Users/princepal/oss/ai-intern` (shiba)
-Supersedes: Phases 9-13 of `ARCHITECTURE-IMPORT-PROMPT.md`
+Supersedes: Phases 9-13 of the retired architecture import prompt
 Reference: a peer AGPL-3.0 agent product @ main, 2026-09-27, pushed same day
 
 ---

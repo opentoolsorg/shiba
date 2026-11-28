@@ -1,6 +1,6 @@
 # Issue tracker: PLAN.md tasks
 
-Work for this repo is tracked as tasks in `PLAN.md` at the repo root, not in GitHub Issues. Each task has an id `T<n>` (bugs are `B<n>`, gaps found by verification are `G<n>` in `VERIFICATION_PLAN.md`). The `§2.0` status table in `PLAN.md` is the authoritative open/done list.
+Work for this repo is tracked as tasks in `PLAN.md` at the repo root, not in GitHub Issues. Use this tracker only when the work references a task id or explicitly asks for plan tracking. Read the matching task and table row instead of loading the whole file. Each task has an id `T<n>` (bugs are `B<n>`, gaps found by verification are `G<n>` in `VERIFICATION_PLAN.md`). The `§2.0` status table in `PLAN.md` is the authoritative open/done list.
 
 ## Conventions
 

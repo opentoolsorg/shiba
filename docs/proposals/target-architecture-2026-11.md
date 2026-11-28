@@ -1128,7 +1128,7 @@ If that's too many, the first scope to cut is M23 and M24 *for lists other than 
 | Q8 | Is full-text search across threads needed at launch? | No. Search titles in the D1 projection. Add D1 FTS5 on a message projection later. |
 | Q9 | Should Slack and Teams presence be mirrored into web presence? | No. Show only web and desktop presence. |
 | Q10 | Retention defaults for events, audit and memory, and do buyers need legal hold? | Events and audit kept forever / 400 days. Memory per section 10. Legal hold not at launch. |
-| Q11 | Commit to `effect` or remove it? (`EFFECT-REVIEW.md` exists) | Remove it. No new usage from today, and the 7 files are converted in M36. |
+| Q11 | Commit to `effect` or remove it? (`docs/audits/EFFECT-REVIEW.md` exists) | Remove it. No new usage from today, and the 7 files are converted in M36. |
 | Q12 | How many concurrent containers can the buyer's Cloudflare plan run? Is 5 a platform limit or our choice? | Make it a configured value (`SHIBA_MAX_CONTAINERS`, default 5) and document the plan limits. |
 | Q13 | Does the desktop app always load the remote SPA, or does it bundle one? | Load the deployment's SPA. Native code is only for the tray, notifications and LocalDispatch. |
 | Q14 | Can we run a prod D1 export for the rehearsal (it holds customer data), and where may it live? | Default to the dogfood export. A prod export is opt-in per migration with maintainer approval: an encrypted CI artifact with 24h expiry. |
