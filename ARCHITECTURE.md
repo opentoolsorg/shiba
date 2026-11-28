@@ -51,6 +51,9 @@ target, and external publication requires its own exact approval.
 
 ## Architecture notes
 
+The notes are one file per topic. Use the index below and open only the note for
+the area you are changing.
+
 - [Repository structure](docs/architecture/structure.md)
   - [The one-paragraph version](docs/architecture/structure.md#the-one-paragraph-version)
   - [Domain model](docs/architecture/structure.md#domain-model)
@@ -70,12 +73,15 @@ target, and external publication requires its own exact approval.
 - [Change rules and known gaps](docs/architecture/change-rules.md)
 - [Internal signing migration](docs/architecture/internal-signing-migration.md)
 
-**Companions:** [product contract](docs/product/ai-employees.md) ·
+**Current companions:** [product contract](docs/product/ai-employees.md) ·
 [public architecture guide](apps/web/src/content/docs/docs/architecture.md) ·
 [measured as-built snapshot](ARCHITECTURE-AS-BUILT.md) ·
 [infra/auth/harness/monorepo](INFRA-AUTH-HARNESS-MONOREPO.md) ·
-[UI architecture](UI-ARCHITECTURE.md) ·
-[launch checklist](LAUNCH_CHECKLIST.md) ·
-`spec/GOAL.md`, `PLAN.md`, and `ROADMAP.md` are dated coding-spine/platform
-documents unless a section explicitly says it is current · `design.md` (visual
-system) · `VERIFICATION.md` (dated evidence).
+[UI architecture](UI-ARCHITECTURE.md) · `design.md` (machine-readable visual system).
+
+**Dated records:** `PLAN.md`, `ROADMAP.md`, `VERIFICATION.md`,
+`VERIFICATION_PLAN.md`, `docs/verification/`, and `docs/audits/` are historical
+planning, evidence, and review material. Open them only for a specific task,
+acceptance, or provenance question; do not use them as the current architecture.
+`LAUNCH_CHECKLIST.md` and `spec/GOAL.md` are useful only when their dated scope
+matches the work at hand.
