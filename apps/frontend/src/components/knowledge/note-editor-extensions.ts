@@ -14,6 +14,12 @@ import StarterKit from "@tiptap/starter-kit";
 
 const InlineCode = Code.extend({ excludes: "" });
 
+const TextAlignWithoutShortcuts = TextAlign.extend({
+  addKeyboardShortcuts() {
+    return {};
+  },
+});
+
 const LinkWithTitle = Link.extend({
   addAttributes() {
     return {
@@ -28,7 +34,7 @@ export function noteEditorExtensions() {
     StarterKit.configure({ code: false }),
     InlineCode,
     Placeholder.configure({ placeholder: "Write something, or press '/' for commands…" }),
-    TextAlign.configure({ types: ["heading", "paragraph"] }),
+    TextAlignWithoutShortcuts.configure({ types: ["heading", "paragraph"] }),
     TaskList,
     TaskItem.configure({ nested: true }),
     Highlight.configure({ multicolor: true }),
