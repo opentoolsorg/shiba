@@ -16,6 +16,14 @@ export interface SetupStatus {
   github: { token: boolean; app: boolean; publish: boolean; webhookSecret: boolean };
   linear: { webhookSecret: boolean; apiToken: boolean; defaultRepo: boolean };
   slackVerification: { signingSecret: boolean };
+  teams?: {
+    appId: boolean;
+    appPassword: boolean;
+    tenantId: boolean;
+    workspaceId: boolean;
+    approvers: number;
+    channelRepos: boolean;
+  };
   gateway: { id: string; token: boolean; reachable: "yes" | "unauthorized" | "error" | "unknown"; hostedAccessStopped?: boolean };
   access: { required: boolean };
   betterAuth: { configured: boolean };

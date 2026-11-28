@@ -68,6 +68,16 @@ function phaseForBinding(
     case "discord":
       if (!inputs.discord) return bindingPhase(setupLoading, false, false, true);
       return bindingPhase(inputs.discord.loading, inputs.discord.configured, inputs.discord.partial);
+    case "teams": {
+      const teams = setup?.teams;
+      const configured = Boolean(
+        teams?.appId && teams?.appPassword && teams?.tenantId && teams?.workspaceId && (teams?.approvers ?? 0) > 0,
+      );
+      const partial = Boolean(
+        teams?.appId || teams?.appPassword || teams?.tenantId || teams?.workspaceId || (teams?.approvers ?? 0) > 0 || teams?.channelRepos,
+      );
+      return bindingPhase(setupLoading, configured, partial);
+    }
     case "telegram":
     case "generic_webhook":
       return bindingPhase(setupLoading, false, false, true);

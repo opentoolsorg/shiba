@@ -17,6 +17,7 @@ function defaultSetup() {
     github: { token: true, app: false, publish: true, webhookSecret: true },
     linear: { webhookSecret: false, apiToken: false, defaultRepo: false },
     slackVerification: { signingSecret: true },
+    teams: { appId: true, appPassword: true, tenantId: true, workspaceId: true, approvers: 2, channelRepos: true },
     gateway: { id: "gw", token: true, reachable: "yes" },
     access: { required: false },
     betterAuth: { configured: true },
@@ -223,6 +224,18 @@ describe("IntegrationsView native catalog", () => {
     const hubspotRow = await screen.findByTestId("integration-catalog-row-hubspot");
     expect(hubspotRow.textContent).toMatch(/Available|Catalog/i);
     expect(screen.getByText(/OPEN_CONNECTOR_ADMIN_TOKEN/i)).toBeTruthy();
+  });
+
+  it("shows Microsoft Teams in setup details with live deployment presence signals", async () => {
+    stubIntegrationsFetch();
+    render(<IntegrationsView />);
+    await screen.findByRole("heading", { name: "Configured connections" });
+    fireEvent.click(screen.getByRole("button", { name: "Show setup details" }));
+    const row = await screen.findByTestId("integration-teams");
+    expect(row.textContent).toContain("Microsoft Teams");
+    expect(row.textContent).toContain("Configured");
+    expect(row.textContent).toContain("Adaptive Cards");
+    expect(row.textContent).not.toContain("private-client-secret");
   });
 
   it("preserves setup detail panels behind Show setup details", async () => {
