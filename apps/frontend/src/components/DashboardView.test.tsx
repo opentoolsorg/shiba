@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DashboardView } from "./DashboardView";
 import type { RetainedRun } from "../types";
@@ -41,7 +41,7 @@ describe("DashboardView", () => {
     expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toBeTruthy();
     expect(screen.getAllByText("Workspace").length).toBeGreaterThan(0);
     expect(screen.getByText("Insights")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Dashboard" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Workspace" })).toBeTruthy();
     expect(screen.getByText("Connected")).toBeTruthy();
 
     // New task button
@@ -122,16 +122,19 @@ describe("DashboardView", () => {
     expect(onInspectRun).toHaveBeenCalledWith("run-12345678");
   });
 
-  it("shows the workspace employee roster and marks employees assigned to active runs", () => {
+  it("shows the workspace employee roster and marks employees with active shared work", () => {
     render(
       <DashboardView
-        runs={[{ ...mockRun, status: "running", customAgentId: "employee-1" }]}
+        runs={[{ ...mockRun, status: "running", customAgentId: "employee-2" }]}
         pendingApprovals={[]}
         storedApprovals={[]}
         agents={[]}
         employees={[
           { id: "employee-1", name: "Ava", role: "Engineer", emoji: "🛠️" },
           { id: "employee-2", name: "Mira", role: "Researcher", emoji: "🔎" },
+        ]}
+        sharedTasks={[
+          { id: "task-1", workspaceId: "ws-1", roomId: "room-1", roomTitle: "Team room", title: "Prepare checkout fix", assigneeKind: "agent", assigneeActorId: "agent:employee-1", status: "in-progress", updatedAt: 1000 },
         ]}
         workspaceName="Acme operations"
         scope="workspace"
@@ -144,12 +147,21 @@ describe("DashboardView", () => {
       />,
     );
 
+    expect(screen.getByRole("heading", { name: "Acme operations" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "AI employees" })).toBeTruthy();
     expect(screen.getByText("1/2 working · your employee roster")).toBeTruthy();
-    expect(screen.getByText("Ava")).toBeTruthy();
-    expect(screen.getByText("1 working")).toBeTruthy();
-    expect(screen.getByText("Mira")).toBeTruthy();
-    expect(screen.getByText("0 open")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Ava Engineer 1 working/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Mira Researcher 0 open/ })).toBeTruthy();
+    const summary = screen.getByRole("region", { name: "Run summary" });
+    expect(within(summary).queryByText("Total runs")).toBeNull();
+    expect(within(summary).queryByText("Active sandboxes")).toBeNull();
+    expect(within(summary).queryByText("Success rate")).toBeNull();
+    expect(within(summary).getByRole("button", { name: /Shared tasks.*1 active in this workspace/ })).toBeTruthy();
+    expect(within(summary).getByRole("button", { name: /AI employees.*1 working on shared tasks/ })).toBeTruthy();
+    expect(within(summary).getByRole("button", { name: /Completion rate.*No finished shared tasks yet/ })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Work is in motion" })).toBeTruthy();
+    expect(screen.getByText("1 shared task is queued or in progress. Open Work to follow progress and next steps.")).toBeTruthy();
+    expect(screen.queryByText(/run is running or pending/)).toBeNull();
   });
 
   it("keeps workspace actions in workspace scope and opens the selected shared task", () => {
@@ -157,7 +169,7 @@ describe("DashboardView", () => {
     render(
       <DashboardView
         runs={[]}
-        pendingApprovals={[]}
+        pendingApprovals={[{ approvalId: "personal-1", messageId: "m1", toolCallId: "tc1", tool: "personal-deploy", input: {} }]}
         storedApprovals={[]}
         agents={[]}
         employees={[{ id: "employee-1", name: "Ava", role: "Engineer", emoji: "🛠️" }]}
@@ -189,9 +201,14 @@ describe("DashboardView", () => {
 
     expect(screen.getByRole("heading", { name: "Shared work queue" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "AI employees" })).toBeTruthy();
+    expect(screen.queryByText("Recent activity")).toBeNull();
+    expect(screen.queryByText("MCP principals")).toBeNull();
+    expect(screen.getByText("Manage people")).toBeTruthy();
+    expect(screen.queryByText("personal-deploy")).toBeNull();
+    expect(screen.getByText("Nothing waiting on you.", { exact: false })).toBeTruthy();
     expect(screen.getByText("1 working")).toBeTruthy();
     fireEvent.click(screen.getByText("Prepare checkout fix").closest("button")!);
-    expect(onOpenSharedTask).toHaveBeenCalledWith(expect.objectContaining({ id: "task-1" }));
+    expect(onOpenSharedTask).toHaveBeenCalledWith(expect.objectContaining({ id: "task-1", roomId: "room-1" }));
   });
 });
 

@@ -160,15 +160,23 @@ export async function notifyEmployeeToolApprovalInChat(
   env: Env,
   record: Pick<
     EmployeeApprovalRecord,
-    "approvalId" | "employeeId" | "action" | "payload" | "executionContextId" | "orgId"
+    "approvalId" | "employeeId" | "action" | "payload" | "executionContextId" | "orgId" | "accountId"
   > & { employeeLabel?: string },
 ): Promise<void> {
   const threadName = record.executionContextId?.trim() ?? "";
   if (!threadName || !isChatIngressThreadName(threadName)) return;
-  const preview = summarizeEmployeePayload(record.payload, record.action);
-  const label = record.employeeLabel ?? record.employeeId;
   const slackIds = parseSlackThreadName(threadName);
   const token = env.SLACK_BOT_TOKEN?.trim();
+  if (record.accountId || record.action === "gmail_read" || record.action.startsWith("integrations.")) {
+    const text = "A private employee tool call needs approval. The connected account owner can review it in the dashboard under Tool policy.";
+    const relay = slackIds && token
+      ? postSlackMessage(token, { channel: slackIds.channelId, threadTs: slackIds.threadTs, text })
+      : postToChatThread(env, threadName, text);
+    if (relay) await relay.catch(() => undefined);
+    return;
+  }
+  const preview = summarizeEmployeePayload(record.payload, record.action);
+  const label = record.employeeLabel ?? record.employeeId;
   if (slackIds && token) {
     await postSlackMessage(token, {
       channel: slackIds.channelId,
@@ -236,13 +244,16 @@ export async function decideChatEmployeeToolApproval(
     return { ok: false, error: "This employee approval does not belong to this chat thread." };
   }
   const row = await env.AGENT_AUDIT.prepare(
-    `SELECT employee_id, execution_context_id, status FROM employee_tool_approvals WHERE org_id = ? AND approval_id = ? LIMIT 1`,
+    `SELECT employee_id, execution_context_id, status, account_id, action FROM employee_tool_approvals WHERE org_id = ? AND approval_id = ? LIMIT 1`,
   )
     .bind(input.orgId, input.approvalId)
-    .first<{ employee_id: string; execution_context_id: string | null; status: string }>();
+    .first<{ employee_id: string; execution_context_id: string | null; status: string; account_id: string | null; action: string }>();
   if (!row?.employee_id) return { ok: false, error: "This employee approval is unknown or expired." };
   if (row.execution_context_id !== input.threadKey) {
     return { ok: false, error: "This employee approval does not belong to this chat thread." };
+  }
+  if (row.account_id || row.action === "gmail_read" || row.action.startsWith("integrations.")) {
+    return { ok: false, error: "Only the connected account owner can decide this approval in the dashboard under Tool policy." };
   }
   if (row.status !== "pending") {
     return { ok: false, error: "This approval is already resolved or expired — nothing to do." };

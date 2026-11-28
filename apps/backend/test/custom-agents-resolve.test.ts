@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { overridesFromCustomAgent } from "../src/custom-agents-resolve.js";
+import { composeCustomAgentTask, overridesFromCustomAgent } from "../src/custom-agents-resolve.js";
+
+
+describe("composeCustomAgentTask", () => {
+  it("does not prepend the same employee instructions twice", () => {
+    const once = composeCustomAgentTask("Compare Q1 and Q2.", "Reconcile supplied figures.");
+    expect(composeCustomAgentTask(once, "Reconcile supplied figures.")).toBe(once);
+  });
+});
 
 describe("overridesFromCustomAgent", () => {
   it("includes approvalPolicy when configured", () => {

@@ -1214,7 +1214,7 @@ describe("app Work and Threads routing", () => {
     expect(window.location.search).toContain("section=");
   });
 
-  it("opens the new hire conversation and keeps later Tool policy visits on the default employee", async () => {
+  it("opens the new hire conversation, preselects them in Tool policy, and keeps later visits on the default employee", async () => {
     window.history.replaceState(null, "", "/custom-agents/");
     localStorage.setItem(ONBOARDING_DISMISSED_KEY, "true");
     const builder = { id: "cag-builder", slug: "builder", version: 1, config: { name: "Builder", instructions: "Build.", harness: "opencode" } };
@@ -1242,6 +1242,10 @@ describe("app Work and Threads routing", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create bot" }));
     await waitFor(() => expect(hired).toBe(true));
     expect(await screen.findByRole("button", { name: "Rename thread" })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Show details panel" }));
+    fireEvent.click(within(await screen.findByRole("complementary", { name: "Agent details" })).getByRole("button", { name: /^Tools/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Employee tool policy" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Employee" })).toHaveProperty("value", scout.id));
 
     await act(async () => {
       window.history.pushState(null, "", "/settings/?section=overview");

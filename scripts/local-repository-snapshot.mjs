@@ -1,7 +1,10 @@
 /** Dependency-free immutable publication capture for the local daemon. */
 import { createHash } from "node:crypto";
+import { constants } from "node:fs";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { TextDecoder } from "node:util";
-import { captureExpectedDeliverables, readContainedChangedFile } from "./local-deliverables.mjs";
+import { captureExpectedDeliverables, createExpectedDeliverableValidator, readContainedChangedFile } from "./local-deliverables.mjs";
 
 const MAX_FILES = 50;
 const MAX_FILE_BYTES = 100_000;
@@ -20,17 +23,62 @@ function nulRecords(bytes) {
   return text === "" ? [] : text.slice(0, -1).split("\0");
 }
 
-function textContent(bytes, required) {
+function textContent(bytes) {
   try {
     const text = decoder().decode(bytes);
     if ([...text].some((character) => {
       const code = character.charCodeAt(0);
       return (code < 32 && ![9, 10, 13].includes(code)) || (code >= 127 && code <= 159);
-    }) || (required && !text.trim())) throw new Error("Expected nonblank UTF-8 text.");
+    })) throw new Error("Expected UTF-8 text.");
     return { content: text, encoding: "utf8" };
-  } catch (error) {
-    if (required) throw error;
+  } catch {
     return { content: bytes.toString("base64"), encoding: "base64" };
+  }
+}
+
+
+function lfsPointer(bytes) {
+  if (bytes.length > 1024) return null;
+  let text;
+  try { text = decoder().decode(bytes); } catch { return null; }
+  const match = /^version https:\/\/git-lfs\.github\.com\/spec\/v1\noid sha256:([a-f0-9]{64})\nsize ([0-9]+)\n?$/.exec(text);
+  if (!match) return null;
+  const size = Number(match[2]);
+  return Number.isSafeInteger(size) ? { oid: match[1], size } : null;
+}
+
+async function readLfsObject(git, cloneDir, pointer, maxBytes) {
+  if (pointer.size > maxBytes) throw new Error("Git LFS object exceeds its complete capture size limit.");
+  const commonText = (await git(["rev-parse", "--git-common-dir"], 1024)).toString("utf8").trim();
+  if (!commonText || commonText.includes("\n") || commonText.includes("\0")) throw new Error("Git did not return one common object directory.");
+  const gitDir = path.resolve(cloneDir, commonText);
+  let configuredStorage = "";
+  try { configuredStorage = (await git(["config", "--get", "lfs.storage"], 1024)).toString("utf8").trim(); } catch { configuredStorage = ""; }
+  if (configuredStorage.includes("\n") || configuredStorage.includes("\0")) throw new Error("Git LFS storage configuration is invalid.");
+  const storageDir = configuredStorage ? path.resolve(cloneDir, configuredStorage) : path.join(gitDir, "lfs");
+  const objectPath = path.join(storageDir, "objects", pointer.oid.slice(0, 2), pointer.oid.slice(2, 4), pointer.oid);
+  const realStorageDir = await fs.realpath(storageDir);
+  const realObjectPath = await fs.realpath(objectPath);
+  const relative = path.relative(realStorageDir, realObjectPath);
+  if (relative === "" || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error("Git LFS object escapes its configured object store.");
+  }
+  const handle = await fs.open(realObjectPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.size !== pointer.size) throw new Error("Git LFS object is missing or has the wrong size.");
+    const bytes = Buffer.alloc(pointer.size);
+    let length = 0;
+    while (length < bytes.length) {
+      const read = await handle.read(bytes, length, bytes.length - length, length);
+      if (read.bytesRead === 0) break;
+      length += read.bytesRead;
+    }
+    if (length !== pointer.size) throw new Error("Git LFS object is truncated.");
+    if (createHash("sha256").update(bytes).digest("hex") !== pointer.oid) throw new Error("Git LFS object digest does not match its pointer.");
+    return bytes;
+  } finally {
+    await handle.close();
   }
 }
 
@@ -81,19 +129,25 @@ export async function collectLocalRepositorySnapshot({ cloneDir, baseRevision, e
   }
   if (new Set([...requested, ...changes.map((change) => change.path)]).size > MAX_FILES) throw new Error("Repository checkpoint exceeds the 50-file limit; refusing to publish a partial tree.");
   const files = [];
+  const validateFrozenExpected = createExpectedDeliverableValidator();
+  const MAX_FROZEN_EXPECTED_BYTES = 12 * 1024 * 1024;
   let totalBytes = 0;
-  async function capture(name, objectId, required) {
+  async function capture(name, objectId, required = false) {
     const sizeText = (await git(["cat-file", "-s", objectId], 1024)).toString("utf8");
     const size = Number(sizeText.trim());
-    if (!/^\d+\s*$/.test(sizeText) || !Number.isSafeInteger(size) || size > (required ? 16_384 : MAX_FILE_BYTES) || (required && size === 0)) {
+    const maxBytes = required ? MAX_FROZEN_EXPECTED_BYTES : MAX_FILE_BYTES;
+    if (!/^\d+\s*$/.test(sizeText) || !Number.isSafeInteger(size) || size > maxBytes) {
       throw new Error(`File ${name} exceeds its complete capture size limit.`);
     }
     const bytes = await git(["cat-file", "blob", objectId], size);
     const hash = createHash("sha1").update(`blob ${size}\0`).update(bytes).digest("hex");
     if (bytes.length !== size || hash !== objectId) throw new Error(`File ${name} has truncated or corrupt Git blob bytes.`);
-    totalBytes += size;
-    if (totalBytes > MAX_TOTAL_BYTES || (required && totalBytes > 65_536)) throw new Error("Captured files exceed their complete byte limit.");
-    files.push({ path: name, ...textContent(bytes, required) });
+    if (!required) {
+      totalBytes += size;
+      if (totalBytes > MAX_TOTAL_BYTES) throw new Error("Captured files exceed their complete byte limit.");
+    }
+    const materialized = required && lfsPointer(bytes) ? await readLfsObject(git, cloneDir, lfsPointer(bytes), maxBytes) : bytes;
+    files.push(required ? validateFrozenExpected.validate(name, materialized) : { path: name, ...textContent(bytes) });
   }
   for (const name of requested) {
     try {
@@ -109,7 +163,7 @@ export async function collectLocalRepositorySnapshot({ cloneDir, baseRevision, e
     if (change.objectId === null) files.push({ path: change.path, content: null, encoding: "utf8" });
     else {
       if (!validated.has(change.path)) throw new Error("Repository paths changed while freezing the checkpoint.");
-      await capture(change.path, change.objectId, false);
+      await capture(change.path, change.objectId);
     }
   }
   const diff = decoder().decode(await git(["diff", "--no-ext-diff", "--no-textconv", "--no-color", baseRevision, tree, "--"], 2_000_000));

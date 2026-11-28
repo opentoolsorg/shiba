@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { link, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -30,6 +31,17 @@ beforeEach(async () => {
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
 describe("local immutable repository capture", () => {
+  it("exports a larger approved workbook and a changed note from one frozen repository", async () => {
+    const content = Buffer.alloc(800_000);
+    content.set([0x50, 0x4b, 0x03, 0x04]);
+    await writeFile(path.join(root, "sales.xlsx"), content);
+    await writeFile(path.join(root, "README.md"), "Reconciled with workbook.");
+    const result = await collectLocalRepositorySnapshot({ cloneDir: root, baseRevision, expectedDeliverables: ["sales.xlsx"], git });
+    expect(result.files).toEqual([
+      { path: "sales.xlsx", encoding: "base64", content: content.toString("base64") },
+      { path: "README.md", encoding: "utf8", content: "Reconciled with workbook." },
+    ]);
+  });
   it("counts unchanged requested deliverables toward the complete 50-file limit", async () => {
     for (let index = 0; index < 50; index++) await writeFile(path.join(root, `file-${index}.txt`), "complete output\n");
     await expect(collectLocalRepositorySnapshot({ cloneDir: root, baseRevision, expectedDeliverables: ["README.md"], git })).rejects.toThrow(/50-file limit/);
@@ -82,6 +94,36 @@ describe("local immutable repository capture", () => {
       return output;
     } });
     expect(result.files[0]).toEqual({ path: "brief.md", content: "# Approved settled brief\n", encoding: "utf8" });
+  });
+
+  it("materializes a checksummed Git LFS deliverable instead of returning its pointer", async () => {
+    const content = "account,total\ninfra,42\n";
+    const oid = createHash("sha256").update(content).digest("hex");
+    const objectPath = path.join(root, ".git", "lfs", "objects", oid.slice(0, 2), oid.slice(2, 4));
+    await mkdir(objectPath, { recursive: true });
+    await writeFile(path.join(objectPath, oid), content);
+    await writeFile(path.join(root, "report.csv"), `version https://git-lfs.github.com/spec/v1\noid sha256:${oid}\nsize ${content.length}\n`);
+    const result = await collectLocalRepositorySnapshot({ cloneDir: root, baseRevision, expectedDeliverables: ["report.csv"], git });
+    expect(result.files[0]).toEqual({ path: "report.csv", content, encoding: "utf8" });
+  });
+
+  it("reads Git LFS objects from configured repository storage", async () => {
+    const content = "metric,value\nconversion,7\n";
+    const oid = createHash("sha256").update(content).digest("hex");
+    await git(["config", "lfs.storage", "lfs-store"]);
+    const objectPath = path.join(root, "lfs-store", "objects", oid.slice(0, 2), oid.slice(2, 4));
+    await mkdir(objectPath, { recursive: true });
+    await writeFile(path.join(objectPath, oid), content);
+    await writeFile(path.join(root, "metrics.csv"), `version https://git-lfs.github.com/spec/v1\noid sha256:${oid}\nsize ${content.length}\n`);
+    const result = await collectLocalRepositorySnapshot({ cloneDir: root, baseRevision, expectedDeliverables: ["metrics.csv"], git });
+    expect(result.files[0]).toEqual({ path: "metrics.csv", content, encoding: "utf8" });
+  });
+
+  it("captures normalized text bytes from the frozen tree", async () => {
+    await git(["config", "core.autocrlf", "true"]);
+    await writeFile(path.join(root, "brief.txt"), "approved version\r\nwith CRLF\r\n");
+    const result = await collectLocalRepositorySnapshot({ cloneDir: root, baseRevision, expectedDeliverables: ["brief.txt"], git });
+    expect(result.files[0]).toEqual({ path: "brief.txt", content: "approved version\nwith CRLF\n", encoding: "utf8" });
   });
 
   it.each(["truncated", "corrupt"])("rejects %s immutable blob transport", async (mode) => {

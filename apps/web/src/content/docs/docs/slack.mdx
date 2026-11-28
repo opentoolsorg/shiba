@@ -37,7 +37,7 @@ In the legacy bot-token connection, replies in a thread with prior Shiba runs co
 
 ## Get files back in the thread
 
-With the bot-token connection, a completed approved run attaches its [named deliverables](/docs/artifacts/#named-formats-and-limits) to the original Slack thread. The bot needs `files:write` in addition to its existing message permissions; a Slack admin may need to reinstall the app after granting it. The Slack slash command's private reply and managed coworker handoffs do not publish file copies to a channel.
+With the bot-token connection, a completed approved run attaches its [named deliverables](/docs/artifacts/#named-formats-and-limits) to the original Slack thread. The bot needs `files:write` in addition to its existing message permissions. Without it, replies and the dashboard link still arrive, Shiba says once in that thread that an administrator must grant the permission, and it attempts no upload; see [Slack setup](/docs/slack-setup/#attach-result-files) for the admin steps and reinstall. The Slack slash command's private reply and managed coworker handoffs do not publish file copies to a channel.
 
 Try hiring the **Sales report** template, then mention Shiba with `employee:sales-report` and provide dates, currency, and figures or approved read sources. Review and approve the work. When it completes, look for `report.pdf` and `sales.xlsx` in that thread. You can also use [image and video requests](/docs/media-generation/#generate-media-in-slack) without creating a sandbox run.
 

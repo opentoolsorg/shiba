@@ -102,11 +102,11 @@ test("actual native shared UI retains goal, thread, approved output and review a
   // connects a provider, so the task stage is reached from the step rail.
   async function openTaskStage(page: Page) {
     const journey = page.getByRole("region", { name: "Guided onboarding", exact: true });
-    if (!(await journey.isVisible().catch(() => false))) {
-      // The chat's draft footer opens the same flow when it is not already up.
-      const review = page.getByRole("button", { name: "Review setup draft", exact: true });
-      if (await review.isVisible().catch(() => false)) await review.click();
-    }
+    // The chat's draft footer opens the same flow when it is not already up;
+    // wait for whichever renders first instead of sampling once.
+    const review = page.getByRole("button", { name: "Review setup draft", exact: true });
+    await journey.or(review).first().waitFor({ state: "visible", timeout: 15_000 });
+    if (!(await journey.isVisible())) await review.click();
     await journey.waitFor({ state: "visible", timeout: 15_000 });
     await journey.getByRole("button", { name: /^Draft your first task/ }).click();
     await page.getByRole("region", { name: "First task setup", exact: true }).waitFor();
@@ -255,6 +255,8 @@ test("actual native shared UI retains goal, thread, approved output and review a
     await instructionsInput.click();
     await instructionsInput.pressSequentially("Use only supplied fixture facts. Produce the required report for human review.");
     await page.getByLabel("Required deliverables").fill("reports/native-fixture.md");
+    // Employees no longer default to a coding harness; this one runs on the paired opencode computer.
+    await page.getByLabel("Harness", { exact: true }).fill("opencode");
     await expect.poll(() => page.getByLabel("Name", { exact: true }).inputValue()).toBe("Native Fixture Researcher");
     await expect.poll(() => page.getByLabel("Instructions", { exact: true }).inputValue()).toBe("Use only supplied fixture facts. Produce the required report for human review.");
     const keepCurrentDraft = page.getByRole("button", { name: "Keep current draft", exact: true });
@@ -285,7 +287,10 @@ test("actual native shared UI retains goal, thread, approved output and review a
       })
       .toBeTruthy();
     if (!employee) throw new Error("Fixture employee was not persisted");
-    await page.goto(`${fixture.origin}/threads/`);
+    // Saving an employee opens its own thread; return to the goal thread that holds the draft.
+    const goalThread = threads.sessions.find((thread) => thread.name === threadName);
+    if (!goalThread) throw new Error("Goal thread was not retained");
+    await page.goto(`${fixture.origin}/threads/?session=${goalThread.id}`);
     await openChat(page);
     await openTaskStage(page);
     await page.getByRole("button", { name: "Edit employee", exact: true }).click();

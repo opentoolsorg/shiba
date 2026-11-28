@@ -30,6 +30,10 @@ oauth_config:
       - groups:history
       - im:history
       - mpim:history
+      # Attaches approved deliverables and generated media to their requesting
+      # thread. Remove it for a text-only app; Shiba keeps replying and names the
+      # missing permission instead. Granting it requires an admin reinstall.
+      - files:write
 settings:
   event_subscriptions:
     request_url: https://YOUR-WORKER.workers.dev/api/slack/events

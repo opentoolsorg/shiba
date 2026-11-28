@@ -13,6 +13,7 @@ import {
   Plus,
   ShieldCheck,
   Terminal,
+  Users,
 } from "lucide-react";
 import {
   ERROR_FAMILY_STATUSES,
@@ -94,7 +95,7 @@ export function DashboardView({
   onToggleSidebar,
   className = "",
 }: DashboardViewProps): JSX.Element {
-  const approvalCount = pendingApprovals.length + storedApprovals.length;
+  const workspaceScope = scope === "workspace";
   const scopeLabel = scope === "workspace" ? "Workspace" : "Personal";
   const stats = useMemo(() => {
     const active = runs.filter((run) => run.status === "running" || run.status === "pending");
@@ -131,18 +132,31 @@ export function DashboardView({
     const assigned = openSharedTasks.filter((task) => task.assigneeActorId === actorId || task.assigneeName === employee.name);
     const needsViewer = assigned.filter(teamWorkNeedsViewer).length;
     const sharedWorking = assigned.filter((task) => ["in-progress", "running", "queued"].includes(task.status)).length;
-    const activeRunWorking = stats.active.filter((run) => run.customAgentId === employee.id).length;
+    const activeRunWorking = workspaceScope ? 0 : stats.active.filter((run) => run.customAgentId === employee.id).length;
     const working = sharedWorking + activeRunWorking;
     return { employee, assigned, needsViewer, working, status: working ? "working" as const : needsViewer ? "needs-approval" as const : "idle" as const };
-  }), [employees, openSharedTasks, stats.active]);
+  }), [employees, openSharedTasks, stats.active, workspaceScope]);
   const visibleSharedTasks = openSharedTasks.slice(0, 6);
+  const workspaceReviewTasks = openSharedTasks.filter(teamWorkNeedsViewer);
+  const approvalCount = workspaceScope ? workspaceReviewTasks.length : pendingApprovals.length + storedApprovals.length;
+  const reviewView: AppNavView = workspaceScope ? "work" : "approvals";
+  const workingEmployees = employeeRows.filter((row) => row.working > 0).length;
+  const workspaceActiveTasks = openSharedTasks.filter((task) => ["queued", "running", "in-progress", "needs-approval"].includes(task.status)).length;
+  const workspaceCompletedTasks = sharedTasks.filter((task) => task.status === "done" || task.status === "completed").length;
+  const workspaceTerminalTasks = sharedTasks.filter((task) => ["done", "completed", "blocked", "cancelled"].includes(task.status)).length;
+  const workspaceCompletionRate = workspaceTerminalTasks > 0 ? Math.round((workspaceCompletedTasks / workspaceTerminalTasks) * 100) : null;
+  const title = workspaceScope ? workspaceName?.trim() || "Workspace" : "Dashboard";
+  const inMotionTasks = openSharedTasks.filter((task) => ["queued", "running", "in-progress"].includes(task.status)).length;
+  const inMotion = workspaceScope
+    ? { count: inMotionTasks, detail: `${inMotionTasks} shared task${inMotionTasks === 1 ? " is" : "s are"} queued or in progress. Open Work to follow progress and next steps.` }
+    : { count: stats.active.length, detail: `${stats.active.length} run${stats.active.length === 1 ? " is" : "s are"} running or pending. Open Work to follow progress and next steps.` };
   const nextStep =
     approvalCount > 0
       ? {
           label: "Your review comes first",
           detail: `${approvalCount} request${approvalCount === 1 ? " is" : "s are"} waiting for your decision. Review the details before any approved action runs.`,
           action: "Review approvals",
-          view: "approvals" as const,
+          view: reviewView,
           icon: ShieldCheck,
         }
       : launchBlocked
@@ -154,10 +168,10 @@ export function DashboardView({
             icon: Terminal,
           }
         : {
-            label: stats.active.length > 0 ? "Work is in motion" : "Make room for your next idea",
+            label: inMotion.count > 0 ? "Work is in motion" : "Make room for your next idea",
             detail:
-              stats.active.length > 0
-                ? `${stats.active.length} run${stats.active.length === 1 ? " is" : "s are"} running or pending. Open Work to follow progress and next steps.`
+              inMotion.count > 0
+                ? inMotion.detail
                 : "Plan a task, choose an agent, and review the request before execution starts.",
             action: "Open work",
             view: "work" as const,
@@ -211,7 +225,7 @@ export function DashboardView({
           <section className="shiba-dashboard-heading" aria-labelledby="dashboard-title">
             <div className="min-w-0">
               <p className="shiba-overview-eyebrow">Workspace overview</p>
-              <h1 id="dashboard-title">Dashboard</h1>
+              <h1 id="dashboard-title">{title}</h1>
               <p className="shiba-overview-description">
                 Your work, decisions, and agents. One place to see what happens next.
               </p>
@@ -253,8 +267,38 @@ export function DashboardView({
           ) : null}
 
           <section aria-label="Run summary" className="shiba-overview-stats">
-            {(
-              [
+            {(workspaceScope
+              ? ([
+                {
+                  label: "Shared tasks",
+                  value: openSharedTasks.length,
+                  detail: `${workspaceActiveTasks} active in this workspace`,
+                  icon: Activity,
+                  view: "work",
+                },
+                {
+                  label: "AI employees",
+                  value: employees.length,
+                  detail: `${workingEmployees} working on shared tasks`,
+                  icon: Terminal,
+                  view: "custom-agents",
+                },
+                {
+                  label: "Pending approvals",
+                  value: approvalCount,
+                  detail: approvalCount ? "Ready for your review" : "You’re all caught up",
+                  icon: ShieldCheck,
+                  view: reviewView,
+                },
+                {
+                  label: "Completion rate",
+                  value: workspaceCompletionRate === null ? "—" : `${workspaceCompletionRate}%`,
+                  detail: workspaceTerminalTasks ? `${workspaceCompletedTasks}/${workspaceTerminalTasks} finished` : "No finished shared tasks yet",
+                  icon: CircleCheck,
+                  view: "work",
+                },
+              ] as const)
+              : [
                 {
                   label: "Total runs",
                   value: runs.length,
@@ -274,7 +318,7 @@ export function DashboardView({
                   value: approvalCount,
                   detail: approvalCount ? "Ready for your review" : "You’re all caught up",
                   icon: ShieldCheck,
-                  view: "approvals",
+                  view: reviewView,
                 },
                 {
                   label: "Success rate",
@@ -373,6 +417,7 @@ export function DashboardView({
           ) : null}
 
           <div className="shiba-overview-columns">
+            {workspaceScope ? null : (
             <section className="shiba-overview-panel" aria-labelledby="dashboard-recent-title">
               <header className="shiba-overview-section-header">
                 <div>
@@ -450,6 +495,7 @@ export function DashboardView({
                 </span>
               </footer>
             </section>
+            )}
 
             <div className="flex min-w-0 flex-col gap-4">
               <section className="shiba-overview-panel" aria-labelledby="dashboard-approvals-title">
@@ -478,7 +524,15 @@ export function DashboardView({
                 ) : (
                   <>
                     <ul className="shiba-overview-approval-list">
-                      {pendingApprovals.slice(0, 3).map((approval) => (
+                      {workspaceScope ? workspaceReviewTasks.slice(0, 3).map((task) => (
+                        <li key={task.id}>
+                          <span className="block truncate font-medium">{task.title}</span>
+                          <span className="mt-1 block truncate text-xs text-[var(--muted-foreground-2)]">
+                            {task.assigneeName ?? (task.assigneeKind === "agent" ? "Employee" : "Member")} · {task.roomTitle || "Workspace"}
+                          </span>
+                        </li>
+                      )) : null}
+                      {workspaceScope ? null : pendingApprovals.slice(0, 3).map((approval) => (
                         <li key={approval.approvalId}>
                           <span className="block truncate font-medium">{approval.tool}</span>
                           <span className="mt-1 block text-xs text-[var(--muted-foreground-2)]">
@@ -486,7 +540,7 @@ export function DashboardView({
                           </span>
                         </li>
                       ))}
-                      {storedApprovals
+                      {workspaceScope ? null : storedApprovals
                         .slice(0, Math.max(0, 3 - pendingApprovals.length))
                         .map((approval) => (
                           <li key={approval.approvalId}>
@@ -501,7 +555,7 @@ export function DashboardView({
                       <span>{approvalCount} pending</span>
                       <button
                         type="button"
-                        onClick={() => onNavigate("approvals")}
+                        onClick={() => onNavigate(reviewView)}
                         className="shiba-overview-link"
                       >
                         Review all <ArrowRight className="size-3.5" aria-hidden="true" />
@@ -515,7 +569,7 @@ export function DashboardView({
                   <div>
                     <h2 id="dashboard-agents-title">AI employees</h2>
                     <p>
-                      {employees.length ? `${employeeRows.filter((row) => row.working > 0).length}/${employees.length} working · your employee roster` : `${liveAgents}/${agents.length} MCP principals live`}
+                      {employees.length ? `${workingEmployees}/${employees.length} working · your employee roster` : workspaceScope ? "Build your workspace roster" : `${liveAgents}/${agents.length} MCP principals live`}
                     </p>
                   </div>
                 </header>
@@ -573,8 +627,13 @@ export function DashboardView({
                     detail: "Browse apps and account connections",
                     icon: Blocks,
                   },
-                  {
-                    id: "memory",
+                  workspaceScope ? {
+                    id: "team" as const,
+                    title: "Manage people",
+                    detail: "Members, invitations, and workspace roles",
+                    icon: Users,
+                  } : {
+                    id: "memory" as const,
                     title: "Add useful context",
                     detail: "Manage memory and source documents",
                     icon: BookOpen,
