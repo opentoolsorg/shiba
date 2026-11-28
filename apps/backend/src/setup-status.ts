@@ -27,6 +27,14 @@ export interface SetupStatus {
   github: { token: boolean; app: boolean; publish: boolean; webhookSecret: boolean };
   linear: { webhookSecret: boolean; apiToken: boolean; defaultRepo: boolean };
   slackVerification: { signingSecret: boolean };
+  teams: {
+    appId: boolean;
+    appPassword: boolean;
+    tenantId: boolean;
+    workspaceId: boolean;
+    approvers: number;
+    channelRepos: boolean;
+  };
   gateway: { id: string; token: boolean; reachable: "yes" | "unauthorized" | "error" | "unknown"; hostedAccessStopped: boolean };
   access: { required: boolean };
   betterAuth: { configured: boolean };
@@ -74,6 +82,10 @@ export async function readSetupStatus(env: Env, probe = true, initiatorUserId?: 
     .split(",")
     .map((id) => id.trim())
     .filter(Boolean);
+  const teamsApprovers = (env.TEAMS_APPROVERS ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
   const sso = getSsoReadiness(env);
   const modelSnapshot = await readModelConfig(env);
   const rolePins = modelSnapshot.policy.rolePins;
@@ -97,6 +109,14 @@ export async function readSetupStatus(env: Env, probe = true, initiatorUserId?: 
     },
     slackVerification: {
       signingSecret: Boolean(env.SLACK_SIGNING_SECRET?.trim()),
+    },
+    teams: {
+      appId: Boolean(env.TEAMS_APP_ID?.trim()),
+      appPassword: Boolean(env.TEAMS_APP_PASSWORD?.trim()),
+      tenantId: Boolean(env.TEAMS_APP_TENANT_ID?.trim()),
+      workspaceId: Boolean(env.TEAMS_WORKSPACE_ID?.trim()),
+      approvers: teamsApprovers.length,
+      channelRepos: Boolean(env.TEAMS_CHANNEL_REPOS?.trim()),
     },
     gateway: {
       id: env.GATEWAY_ID || "default",

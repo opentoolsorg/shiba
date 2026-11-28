@@ -30,6 +30,30 @@ describe("readSetupStatus mailbox signals", () => {
     expect(status.mailbox).toEqual({ addressOverride: false, sendEnabled: false });
   });
 
+  it("reports Teams configuration presence without exposing app, tenant, workspace, approver, or secret values", async () => {
+    const status = await readSetupStatus(setupStatusEnv({
+      TEAMS_APP_ID: "private-app-id",
+      TEAMS_APP_PASSWORD: "private-client-secret",
+      TEAMS_APP_TENANT_ID: "private-tenant-id",
+      TEAMS_WORKSPACE_ID: "ws_privateworkspaceid",
+      TEAMS_APPROVERS: "user-one,user-two",
+      TEAMS_CHANNEL_REPOS: '{"19:private@thread.tacv2":"https://github.com/acme/private"}',
+    }), false);
+
+    expect(status.teams).toEqual({
+      appId: true,
+      appPassword: true,
+      tenantId: true,
+      workspaceId: true,
+      approvers: 2,
+      channelRepos: true,
+    });
+    const serialized = JSON.stringify(status);
+    for (const secret of ["private-app-id", "private-client-secret", "private-tenant-id", "ws_privateworkspaceid", "user-one", "19:private@thread.tacv2"]) {
+      expect(serialized).not.toContain(secret);
+    }
+  });
+
   it("reports transactional email booleans for auth mail", async () => {
     const status = await readSetupStatus(
       setupStatusEnv({

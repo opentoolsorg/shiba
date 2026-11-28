@@ -121,6 +121,16 @@ function slackChip(slack: SetupStatus["slack"] | undefined, loading: boolean): J
   return <ToneChip tone="neutral" label="Not set up" />;
 }
 
+function teamsChip(teams: SetupStatus["teams"] | undefined, loading: boolean): JSX.Element {
+  if (loading) return <ToneChip tone="neutral" label="Checking…" />;
+  if (!teams) return <ToneChip tone="neutral" label="Not set up" />;
+  const configured = teams.appId && teams.appPassword && teams.tenantId && teams.workspaceId && teams.approvers > 0;
+  const partial = teams.appId || teams.appPassword || teams.tenantId || teams.workspaceId || teams.approvers > 0 || teams.channelRepos;
+  if (configured) return <ToneChip tone="pending" label="Configured" />;
+  if (partial) return <ToneChip tone="pending" label="Partially configured" />;
+  return <ToneChip tone="neutral" label="Not set up" />;
+}
+
 function githubChip(github: SetupStatus["github"] | undefined, loading: boolean): JSX.Element {
   if (loading) return <ToneChip tone="neutral" label="Checking…" />;
   if (!github) return <ToneChip tone="neutral" label="Not set up" />;
@@ -860,6 +870,19 @@ function PersonalIntegrationsView({
               }}
             >
               <DiscordConnectionPanel connection={discord} />
+            </IntegrationRow>
+            ) : null}
+            {rowVisible("Microsoft Teams") || rowVisible("Teams") ? (
+            <IntegrationRow
+              name="Microsoft Teams"
+              status={teamsChip(status?.teams, loading)}
+              action={{ label: "Teams setup guide ↗", href: "/docs/teams-setup/" }}
+              data-testid="integration-teams"
+            >
+              <p>Queue repository tasks, approve them with Adaptive Cards, and receive the run result in the originating Teams conversation.</p>
+              <p className="mt-0.5 text-[11px]">
+                Requires deployment Teams settings, a native workspace owner enabling the connection, and app installation in Teams. Teams execution uses the deployment runtime and does not open pull requests from Teams approvals.
+              </p>
             </IntegrationRow>
             ) : null}
           </IntegrationGroup>

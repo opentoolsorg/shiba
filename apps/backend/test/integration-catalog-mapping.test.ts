@@ -6,12 +6,18 @@ describe("OpenConnector catalog mappings", () => {
   it("maps differing service IDs without claiming the planned path is live", () => {
     for (const [id, service] of [
       ["google-ads", "googleads"], ["meta-ads", "meta"], ["x-twitter", "twitter"],
-      ["microsoft-teams", "microsoft_teams"], ["jira-atlassian", "jira"],
+      ["jira-atlassian", "jira"],
     ]) {
       expect(INTEGRATION_CATALOG.find((entry) => entry.id === id)).toMatchObject({
         openConnectorServiceIds: [service], status: "catalog_only",
       });
     }
+  });
+
+  it("marks only the implemented native Teams path as live while retaining its provider mapping", () => {
+    expect(INTEGRATION_CATALOG.find((entry) => entry.id === "microsoft-teams")).toMatchObject({
+      openConnectorServiceIds: ["microsoft_teams"], status: "live", nativeBinding: "teams",
+    });
   });
 
   it("preserves separate service IDs for grouped rows and leaves ambiguous rows unmapped", () => {
