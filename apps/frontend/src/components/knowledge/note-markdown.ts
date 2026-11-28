@@ -103,14 +103,17 @@ function inlineNodes(
   const result: JSONContent[] = [];
   for (let index = 0; index < nodes.length; index++) {
     const node = nodes[index] ?? { type: "text", value: "" };
-    const encodedCode =
-      node.type === "html" ? /^<code data-shiba-text="([^"]*)">$/.exec(node.value ?? "") : null;
-    if (encodedCode) {
+    const encodedInline =
+      node.type === "html"
+        ? /^<(span|code) data-shiba-text="([^"]*)">$/.exec(node.value ?? "")
+        : null;
+    if (encodedInline) {
       try {
-        result.push(
-          textNode(decodeURIComponent(encodedCode[1] ?? ""), [...marks, { type: "code" }]),
-        );
-        if (nodes[index + 1]?.type === "html" && nodes[index + 1]?.value === "</code>") index++;
+        const encodedMarks =
+          encodedInline[1] === "code" ? [...marks, { type: "code" as const }] : marks;
+        result.push(textNode(decodeURIComponent(encodedInline[2] ?? ""), encodedMarks));
+        const close = `</${encodedInline[1]}>`;
+        if (nodes[index + 1]?.type === "html" && nodes[index + 1]?.value === close) index++;
         continue;
       } catch {
         // malformed copied HTML falls through as literal text
@@ -463,6 +466,15 @@ function segmentMarkKey(segment: InlineSegment, mark: string): string | null {
   return segment.marks.includes(mark) ? mark : null;
 }
 
+const autolinkLikeText = /(?:https?:\/\/|www\.|[\w.+-]+@[\w-]+\.)/i;
+
+function encodedTextNode(tag: "span" | "code", value: string): MdastNode {
+  return {
+    type: "html",
+    value: `<${tag} data-shiba-text="${encodeURIComponent(value)}"></${tag}>`,
+  };
+}
+
 function markedMdast(segments: InlineSegment[], depth = 0): MdastNode[] {
   const mark = markOrder[depth];
   if (!mark) {
@@ -470,13 +482,9 @@ function markedMdast(segments: InlineSegment[], depth = 0): MdastNode[] {
       if (segment.hardBreak) return [{ type: "html", value: "<br>" }];
       if (segment.code) {
         if (!segment.value.includes("\n")) return [{ type: "inlineCode", value: segment.value }];
-        return [
-          {
-            type: "html",
-            value: `<code data-shiba-text="${encodeURIComponent(segment.value)}"></code>`,
-          },
-        ];
+        return [encodedTextNode("code", segment.value)];
       }
+      if (autolinkLikeText.test(segment.value)) return [encodedTextNode("span", segment.value)];
       if (segment.value.includes("\n")) return newlineFallbackNodes(segment.value);
       return [{ type: "text", value: segment.value }];
     });

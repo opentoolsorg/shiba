@@ -431,4 +431,17 @@ describe("note Markdown", () => {
     };
     expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
   });
+  it("does not add autolinks to unlinked URLs or emails", () => {
+    for (const content of [
+      [{ type: "text", text: "visit https://example.com now" }],
+      [{ type: "text", text: "mail dev@example.com", marks: [{ type: "strike" }] }],
+      [
+        { type: "text", text: "open https://example.com", marks: [{ type: "italic" }] },
+        { type: "text", text: " plainly" },
+      ],
+    ]) {
+      const doc = { type: "doc", content: [{ type: "paragraph", content }] };
+      expect(parseNoteMarkdown(serializeNoteMarkdown(doc))).toEqual(doc);
+    }
+  });
 });
