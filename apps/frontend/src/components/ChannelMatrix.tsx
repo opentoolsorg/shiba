@@ -90,7 +90,7 @@ export const CHANNEL_CAPABILITY_MATRIX: readonly ChannelMatrixEntry[] = [
     implementation: "implemented",
     implementationNote: "Chat lane through a Telegram bot: /shiba queues an approval-gated task.",
     approvals: yes("Inline-keyboard Approve/Reject buttons; only TELEGRAM_APPROVERS user ids can press them."),
-    publication: { state: "elsewhere", label: "Email / dashboard", detail: "Publication approvals do not post into Telegram; they fall back to email or the dashboard." },
+    publication: yes("The second pull-request publication approval posts into the originating Telegram chat or topic with bounded callback pointers."),
     history: no("No", "The Telegram Bot API has no message history, so history reads are unsupported."),
     uploads: yes("Document uploads with captions."),
     setupHref: "/docs/telegram-setup/",

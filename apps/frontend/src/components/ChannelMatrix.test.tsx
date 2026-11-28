@@ -45,7 +45,7 @@ describe("ChannelMatrix", () => {
     expect(within(teams).queryByText("Planned")).toBeNull();
 
     const telegram = screen.getByTestId("channel-matrix-row-telegram");
-    expect(within(telegram).getByText("Email / dashboard")).toBeTruthy();
+    expect(within(telegram).getByText(/originating Telegram chat or topic/i)).toBeTruthy();
     expect(within(telegram).getByText(/Bot API has no message history/i)).toBeTruthy();
 
     const gmail = screen.getByTestId("channel-matrix-row-gmail");
