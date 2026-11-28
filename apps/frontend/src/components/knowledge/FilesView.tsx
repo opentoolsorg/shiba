@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
-import { BookOpen, Code, FileArchive, FileSpreadsheet, FileText, FolderPlus, LayoutGrid, List, Plus, Search, Upload } from "lucide-react";
+import { BookOpen, Code, FileArchive, FileSpreadsheet, FileText, FolderInput, FolderPlus, LayoutGrid, List, SquareMousePointer, Plus, Search, Trash2, Upload, X } from "lucide-react";
 import type { KnowledgeFile, KnowledgeScope, KnowledgeSearchHit } from "@shiba/shared";
 import { MarkedSnippet } from "../palette/ResultRow";
 import { uploadFile } from "../../files-upload-client";
@@ -43,6 +43,9 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
   const [folderFormOpen, setFolderFormOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
+  const [moveMenuFor, setMoveMenuFor] = useState<string | null>(null);
   const workspaceHeaders = useMemo(() => teamWorkspaceHeaders(workspaceId ?? undefined), [workspaceId]);
 
   const load = useCallback(async () => {
@@ -58,6 +61,7 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
     void load().catch((err: unknown) => setError(err instanceof Error ? err.message : "Files failed to load."));
     return () => { fileRequest.current++; };
   }, [load]);
+
 
   const loadFolders = useCallback(async () => {
     const request = ++folderRequest.current;
@@ -179,6 +183,83 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
     }
   }
 
+
+  async function mutateFile(file: KnowledgeFile, method: "PATCH" | "DELETE", body?: unknown) {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/files/${encodeURIComponent(file.id)}`, {
+        method,
+        credentials: "same-origin",
+        headers: body === undefined ? workspaceHeaders : { ...workspaceHeaders, "Content-Type": "application/json" },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      const result = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? (method === "DELETE" ? "File could not be deleted." : "File could not be moved."));
+      setMoveMenuFor(null);
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : method === "DELETE" ? "File could not be deleted." : "File could not be moved.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function toggleFileSelected(id: string) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    setMoveMenuFor(null);
+  }
+
+  async function deleteSelectedFiles() {
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    const selectedFiles = files.filter((file) => selectedIds.has(file.id));
+    for (const file of selectedFiles) {
+      await mutateFile(file, "DELETE");
+    }
+    exitSelectMode();
+  }
+
+  function moveControls(file: KnowledgeFile) {
+    return <div className="relative shrink-0">
+      <button type="button" aria-label={`Move ${file.name}`} title="Move file" disabled={busy} onClick={(event) => {
+        event.stopPropagation();
+        setMoveMenuFor((current) => current === file.id ? null : file.id);
+      }} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--muted-foreground-2)] transition-colors hover:bg-[var(--card-hover)] hover:text-[var(--fg)] disabled:opacity-50">
+        <FolderInput size={13} />
+      </button>
+      {moveMenuFor === file.id ? <div role="menu" aria-label={`Move ${file.name} to folder`} className="absolute right-0 top-full z-30 mt-1 w-44 rounded-lg border border-[var(--border-1)] bg-[var(--card)] py-1 shadow-lg">
+        <button type="button" role="menuitem" className="block w-full px-2.5 py-1.5 text-left text-xs hover:bg-[var(--card-hover)]" onClick={(event) => {
+          event.stopPropagation();
+          void mutateFile(file, "PATCH", { folderId: null });
+        }}>All files</button>
+        {folders.map((folder) => <button key={folder.id} type="button" role="menuitem" className="block w-full truncate px-2.5 py-1.5 text-left text-xs hover:bg-[var(--card-hover)]" onClick={(event) => {
+          event.stopPropagation();
+          void mutateFile(file, "PATCH", { folderId: folder.id });
+        }}>{folderPathLabel(folder, folders)}</button>)}
+      </div> : null}
+    </div>;
+  }
+
+  function deleteControl(file: KnowledgeFile) {
+    return <button type="button" aria-label={`Delete ${file.name}`} title="Delete file" disabled={busy} onClick={(event) => {
+      event.stopPropagation();
+      void mutateFile(file, "DELETE");
+    }} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground-2)] transition-colors hover:bg-red-500/10 hover:text-red-600 disabled:opacity-50">
+      <Trash2 size={13} />
+    </button>;
+  }
+
   const iconFor = (file: KnowledgeFile, size = 15) => {
     const mime = (file.mime ?? "").toLowerCase();
     const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
@@ -212,7 +293,7 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
           <span className="text-xs leading-5 text-[var(--muted-light)]">/</span>
           <label className="flex items-center text-xs leading-5 text-[var(--muted-light)]">
             <span className="sr-only">Scope</span>
-            <select aria-label="Scope" className="max-w-24 bg-transparent text-xs text-[var(--muted-foreground-2)] outline-none transition-colors hover:text-[var(--fg)]" value={scope} disabled={busy} onChange={(e) => { setScope(e.target.value as KnowledgeScope); setFolderId(""); setFolders([]); }}>
+            <select aria-label="Scope" className="max-w-24 bg-transparent text-xs text-[var(--muted-foreground-2)] outline-none transition-colors hover:text-[var(--fg)]" value={scope} disabled={busy} onChange={(e) => { setScope(e.target.value as KnowledgeScope); setFolderId(""); setFolders([]); exitSelectMode(); }}>
               <option value="personal">Personal</option>
               <option value="workspace">Workspace</option>
             </select>
@@ -220,7 +301,7 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
           <span className="text-xs leading-5 text-[var(--muted-light)]">/</span>
           <label className="flex items-center text-xs leading-5 text-[var(--muted-light)]">
             <span className="sr-only">Folder</span>
-            <select aria-label="Folder" className="max-w-24 bg-transparent text-xs text-[var(--muted-foreground-2)] outline-none transition-colors hover:text-[var(--fg)]" value={folderId} disabled={busy} onChange={(e) => setFolderId(e.target.value)}>
+            <select aria-label="Folder" className="max-w-24 bg-transparent text-xs text-[var(--muted-foreground-2)] outline-none transition-colors hover:text-[var(--fg)]" value={folderId} disabled={busy} onChange={(e) => { setFolderId(e.target.value); exitSelectMode(); }}>
               <option value="">All files</option>
               {folders.map((folder) => <option key={folder.id} value={folder.id}>{folderPathLabel(folder, folders)}</option>)}
             </select>
@@ -241,6 +322,12 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
           <button type="button" title={searchOpen ? "Close search files" : "Search files"} aria-label={searchOpen ? "Close search files" : "Search files"} aria-pressed={searchOpen} onClick={() => { searchOpen ? closeSearch() : setSearchOpen(true); }} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-1)] bg-[var(--card)] text-[var(--muted-foreground-2)] transition-colors hover:bg-[var(--card-hover)] hover:text-[var(--fg)]">
             <Search size={15} />
           </button>
+          {!selectMode ? <button type="button" title="Select items" aria-label="Select items" onClick={() => setSelectMode(true)} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-1)] bg-[var(--card)] text-[var(--muted-foreground-2)] transition-colors hover:bg-[var(--card-hover)] hover:text-[var(--fg)]">
+            <SquareMousePointer size={15} />
+          </button> : <>
+            <button type="button" onClick={exitSelectMode} className="inline-flex h-8 items-center gap-1 rounded-md border border-[var(--border-1)] bg-[var(--card)] px-2.5 text-xs text-[var(--muted-foreground-2)] transition-colors hover:bg-[var(--card-hover)] hover:text-[var(--fg)]"><X size={13} />Cancel</button>
+            <button type="button" disabled={busy || selectedIds.size === 0} onClick={() => void deleteSelectedFiles()} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-red-500/25 bg-red-500/10 px-2.5 text-xs leading-none text-red-600 transition-colors hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-40"><Trash2 size={13} />Delete ({selectedIds.size})</button>
+          </>}
           <div className="flex h-8 items-center rounded-md border border-[var(--border-1)] bg-[var(--panel)] p-0.5">
             <button type="button" title="List" aria-label="List layout" aria-pressed={layout === "list"} onClick={() => setLayout("list")} className={`inline-flex h-7 items-center rounded px-2 transition-colors ${layout === "list" ? "bg-[var(--card)] text-[var(--fg)] shadow-xs" : "text-[var(--muted-light)] hover:text-[var(--fg)]"}`}><List size={14} /></button>
             <button type="button" title="Cards" aria-label="Cards layout" aria-pressed={layout === "cards"} onClick={() => setLayout("cards")} className={`inline-flex h-7 items-center rounded px-2 transition-colors ${layout === "cards" ? "bg-[var(--card)] text-[var(--fg)] shadow-xs" : "text-[var(--muted-light)] hover:text-[var(--fg)]"}`}><LayoutGrid size={14} /></button>
@@ -356,8 +443,9 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
                     file.workspaceId === "self-hosted" && file.archivedAt === null && file.mime === "application/json" &&
                     /^file_[a-f0-9]{24}$/.test(file.id) && file.name.endsWith(".app-preview.json");
                   return <li key={file.id} className={canPreview ? "group rounded-[8px] border border-transparent px-3 py-2.5 transition-colors hover:border-[var(--border-1)] hover:bg-[var(--panel)]" : "group flex items-center gap-3 rounded-[8px] border border-transparent px-3 py-2.5 transition-colors hover:border-[var(--border-1)] hover:bg-[var(--panel)]"}>
-                    {iconFor(file)}
+                    {selectMode ? <input type="checkbox" aria-label={`Select ${file.name}`} checked={selectedIds.has(file.id)} onChange={() => toggleFileSelected(file.id)} className="size-4 shrink-0 accent-[var(--accent)]" /> : iconFor(file)}
                     <span className="min-w-0 flex-1 truncate font-normal leading-relaxed">{file.name}</span>
+                    {!selectMode ? <div className={`flex shrink-0 items-center gap-0.5 ${REVEAL_ON_HOVER}`}>{moveControls(file)}{deleteControl(file)}</div> : null}
                     <span className={`hidden shrink-0 text-xs text-[var(--muted-light)] ${REVEAL_ON_HOVER} lg:inline`}>{file.mime ?? "file"}</span>
                     <span className={`hidden shrink-0 text-xs text-[var(--muted-light)] ${REVEAL_ON_HOVER} sm:inline`}>{new Date(file.updatedAt).toLocaleDateString()}</span>
                     <span className={`shrink-0 text-xs tabular-nums text-[var(--muted-light)] ${REVEAL_ON_HOVER}`}>{file.size.toLocaleString()} bytes</span>
@@ -374,7 +462,10 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
                     file.workspaceId === "self-hosted" && file.archivedAt === null && file.mime === "application/json" &&
                     /^file_[a-f0-9]{24}$/.test(file.id) && file.name.endsWith(".app-preview.json");
                   return <li key={file.id} className="mb-4 break-inside-avoid overflow-hidden rounded-xl border border-[var(--border-1)] bg-[var(--card)] shadow-xs transition-shadow hover:shadow-md">
-                    <div className="flex h-28 items-center justify-center bg-[var(--panel)]"><span className={`inline-flex size-16 items-center justify-center rounded-lg shadow-xs ${iconFrameFor(file)}`}>{iconFor(file, 36)}</span></div>
+                    <div className="relative flex h-28 items-center justify-center bg-[var(--panel)]">
+                      {selectMode ? <input type="checkbox" aria-label={`Select ${file.name}`} checked={selectedIds.has(file.id)} onChange={() => toggleFileSelected(file.id)} className="absolute left-2.5 top-2.5 z-10 size-4 accent-[var(--accent)]" /> : <div className={`absolute right-2 top-2 z-10 flex items-center gap-0.5 rounded-md bg-[var(--card)]/90 p-0.5 shadow-xs ${REVEAL_ON_HOVER}`}>{moveControls(file)}{deleteControl(file)}</div>}
+                      <span className={`inline-flex size-16 items-center justify-center rounded-lg shadow-xs ${iconFrameFor(file)}`}>{iconFor(file, 36)}</span>
+                    </div>
                     <div className="px-3 py-2">
                       <p className="line-clamp-2 text-xs font-medium">{file.name}</p>
                       <p className="mt-1 line-clamp-2 text-[10px] text-[var(--muted-foreground-2)]">{file.folderId ? folders.find((folder) => folder.id === file.folderId)?.name ?? "Folder" : "All files"}</p>

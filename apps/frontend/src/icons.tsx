@@ -50,6 +50,7 @@ import {
   ComputerTerminal01Icon,
   ContainerIcon,
   Copy01Icon,
+  CursorRectangleSelectionIcon,
   CornerLeftUpIcon,
   CpuIcon,
   DashboardSpeed01Icon,
@@ -66,6 +67,7 @@ import {
   FileTextIcon,
   FlaskConicalIcon,
   FolderGit2Icon,
+  FolderMoveToIcon,
   FolderPlusIcon,
   GitBranchIcon,
   GitCompareArrowsIcon,
@@ -195,6 +197,7 @@ export const CircleDot = defineIcon("CircleDot", CircleDotIcon);
 export const Clock = defineIcon("Clock", Clock01Icon);
 export const Code = defineIcon("Code", SourceCodeIcon);
 export const Copy = defineIcon("Copy", Copy01Icon);
+export const SquareMousePointer = defineIcon("SquareMousePointer", CursorRectangleSelectionIcon);
 export const Database = defineIcon("Database", Database01Icon);
 export const Download = defineIcon("Download", Download01Icon);
 export const ExternalLink = defineIcon("ExternalLink", ExternalLinkIcon);
@@ -205,6 +208,7 @@ export const FileText = defineIcon("FileText", FileTextIcon);
 export const FlaskConical = defineIcon("FlaskConical", FlaskConicalIcon);
 export const FolderGit2 = defineIcon("FolderGit2", FolderGit2Icon);
 export const FolderPlus = defineIcon("FolderPlus", FolderPlusIcon);
+export const FolderInput = defineIcon("FolderInput", FolderMoveToIcon);
 export const GitCompareArrows = defineIcon("GitCompareArrows", GitCompareArrowsIcon);
 export const Globe2 = defineIcon("Globe2", Globe02Icon);
 export const Hash = defineIcon("Hash", HashIcon);

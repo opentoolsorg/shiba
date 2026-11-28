@@ -8,7 +8,7 @@ import { enqueueIngestion } from "../knowledge/knowledge-ingestion.js";
 import { filesBucket } from "../knowledge/knowledge-ingestion.js";
 import { GENERATED_DOCUMENT_PREFIX } from "../tools/document-gen.js";
 import {
-  createFolder, FilesStoreError, getFile, listFiles, listFolders, retryFileIngestion,
+  archiveFile, createFolder, FilesStoreError, getFile, listFiles, listFolders, retryFileIngestion, updateFileDetails,
 } from "./files-store.js";
 import {
   completeMultipartUpload, createMultipartUploadSession, uploadPart,
@@ -211,6 +211,51 @@ export async function handleFiles(request: Request, env: Env): Promise<Response 
         "Cache-Control": "private, no-store",
       },
     });
+  }
+
+  if (!suffix && request.method === "PATCH") {
+    const blocked = requireSameOriginBrowserMutation(request);
+    if (blocked) return blocked;
+    const body = await request.json().catch(() => null) as { name?: string; folderId?: string | null } | null;
+    try {
+      await assertKnowledgeWrite(env, userId, {
+        workspaceId: file.workspaceId,
+        scope: file.scope,
+        createdBy: file.createdBy,
+        resourceId: file.id,
+        resourceKind: "file",
+      });
+      const updated = await updateFileDetails(env, fileId, {
+        ...(body && Object.hasOwn(body, "name") ? { name: body.name } : {}),
+        ...(body && Object.hasOwn(body, "folderId") ? { folderId: body.folderId ?? null } : {}),
+      });
+      return json({ file: updated });
+    } catch (error) {
+      if (error instanceof FilesStoreError || error instanceof KnowledgeAccessError) {
+        return json({ error: error.message }, error.status);
+      }
+      throw error;
+    }
+  }
+
+  if (!suffix && request.method === "DELETE") {
+    const blocked = requireSameOriginBrowserMutation(request);
+    if (blocked) return blocked;
+    try {
+      await assertKnowledgeWrite(env, userId, {
+        workspaceId: file.workspaceId,
+        scope: file.scope,
+        createdBy: file.createdBy,
+        resourceId: file.id,
+        resourceKind: "file",
+      });
+      return json({ file: await archiveFile(env, fileId) });
+    } catch (error) {
+      if (error instanceof FilesStoreError || error instanceof KnowledgeAccessError) {
+        return json({ error: error.message }, error.status);
+      }
+      throw error;
+    }
   }
 
   if (!suffix && request.method === "GET") return json({ file });

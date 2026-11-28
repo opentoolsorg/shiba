@@ -150,6 +150,50 @@ describe("FilesView", () => {
   });
 
 
+
+  it("moves a file into a folder from its row action", async () => {
+    const record = { id: "file-1", name: "notes.md", mime: "text/markdown", size: 17, updatedAt: 1, folderId: null, ingestion: { state: "done" } };
+    const api = vi.fn(async (input: string, init?: RequestInit) => {
+      const url = new URL(input, "http://localhost");
+      if (url.pathname === "/api/files/folders") return Response.json({ folders: [{ id: "folder-1", name: "Documents" }] });
+      if (url.pathname === "/api/files") return Response.json({ files: [record] });
+      if (url.pathname === "/api/files/file-1" && init?.method === "PATCH") return Response.json({ file: { ...record, folderId: "folder-1" } });
+      return Response.json({ error: "unexpected" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", api);
+    render(<FilesView />);
+    await screen.findByText("notes.md", { selector: "span" });
+    fireEvent.click(screen.getByRole("button", { name: "Move notes.md" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Documents" }));
+    await waitFor(() => expect(api.mock.calls.some(([url, init]) => String(url).includes("/api/files/file-1") && init?.method === "PATCH")).toBe(true));
+    const patch = api.mock.calls.find(([, init]) => init?.method === "PATCH");
+    expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ folderId: "folder-1" });
+  });
+
+  it("selects and deletes files in bulk", async () => {
+    const record = { id: "file-1", name: "notes.md", mime: "text/markdown", size: 17, updatedAt: 1, folderId: null, ingestion: { state: "done" } };
+    let archived = false;
+    const api = vi.fn(async (input: string, init?: RequestInit) => {
+      const url = new URL(input, "http://localhost");
+      if (url.pathname === "/api/files/folders") return Response.json({ folders: [] });
+      if (url.pathname === "/api/files") return Response.json({ files: archived ? [] : [record] });
+      if (url.pathname === "/api/files/file-1" && init?.method === "DELETE") {
+        archived = true;
+        return Response.json({ file: { ...record, archivedAt: 2 } });
+      }
+      return Response.json({ error: "unexpected" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", api);
+    render(<FilesView />);
+    await screen.findByText("notes.md", { selector: "span" });
+    fireEvent.click(screen.getByRole("button", { name: "Select items" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select notes.md" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete (1)" }));
+    await waitFor(() => expect(api.mock.calls.some(([url, init]) => String(url).includes("/api/files/file-1") && init?.method === "DELETE")).toBe(true));
+    await waitFor(() => expect(screen.queryByText("notes.md", { selector: "span" })).toBeNull());
+    expect(screen.getByRole("button", { name: "Select items" })).toBeTruthy();
+  });
+
   it("links to memory sources only when navigation is wired, without saving anything", async () => {
     const api = mockApi();
     const onNavigate = vi.fn();

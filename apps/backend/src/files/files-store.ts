@@ -117,6 +117,43 @@ export async function insertFileRecord(
   return file;
 }
 
+
+export async function updateFileDetails(
+  env: Env,
+  fileId: string,
+  input: { name?: string; folderId?: string | null },
+): Promise<KnowledgeFile> {
+  const file = await getFile(env, fileId);
+  if (!file || file.archivedAt) throw new KnowledgeAccessError("File not found.", 404);
+  const name = input.name === undefined ? file.name : input.name.trim();
+  if (!name || name.length > 240) throw new FilesStoreError("File name must be 1–240 characters.");
+  const folderId = input.folderId === undefined ? file.folderId : input.folderId;
+  if (folderId) {
+    const folder = await env.AGENT_AUDIT.prepare(
+      `SELECT id FROM folders WHERE id=? AND workspace_id=? AND scope=?`,
+    ).bind(folderId, file.workspaceId, file.scope).first<{ id: string }>();
+    if (!folder) throw new FilesStoreError("Folder not found.", 404);
+  }
+  await env.AGENT_AUDIT.prepare(
+    `UPDATE files SET name=?, folder_id=?, updated_at=? WHERE id=?`,
+  ).bind(name, folderId ?? null, Date.now(), fileId).run();
+  const updated = await getFile(env, fileId);
+  if (!updated) throw new FilesStoreError("File missing.", 500);
+  return updated;
+}
+
+export async function archiveFile(env: Env, fileId: string): Promise<KnowledgeFile> {
+  const file = await getFile(env, fileId);
+  if (!file || file.archivedAt) throw new KnowledgeAccessError("File not found.", 404);
+  const now = Date.now();
+  await env.AGENT_AUDIT.prepare(
+    `UPDATE files SET archived_at=?, updated_at=? WHERE id=?`,
+  ).bind(now, now, fileId).run();
+  const updated = await getFile(env, fileId);
+  if (!updated) throw new FilesStoreError("File missing.", 500);
+  return updated;
+}
+
 export async function retryFileIngestion(env: Env, fileId: string, viewer: string): Promise<KnowledgeFile> {
   const file = await getFile(env, fileId);
   if (!file) throw new KnowledgeAccessError("File not found.", 404);
