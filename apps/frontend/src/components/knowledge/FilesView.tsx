@@ -507,9 +507,25 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
           </button>
           <div className="flex min-w-0 flex-1 items-center gap-2">
             {iconFor(file)}
-            <h2 className="min-w-0 flex-1 truncate text-sm font-medium" title={file.name}>
-              {file.name}
-            </h2>
+            <input
+              key={file.id}
+              aria-label="File name"
+              defaultValue={file.name}
+              disabled={busy}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+                if (event.key === "Escape") {
+                  event.currentTarget.value = file.name;
+                  event.currentTarget.blur();
+                }
+              }}
+              onBlur={(event) => {
+                const name = event.currentTarget.value.trim();
+                if (name && name !== file.name) void mutateFile(file, "PATCH", { name });
+                else event.currentTarget.value = file.name;
+              }}
+              className="h-8 min-w-0 flex-1 truncate rounded-md border border-transparent bg-transparent px-1 text-sm font-medium outline-none transition-colors hover:border-[var(--border-1)] focus:border-[var(--border-3)] focus:bg-[var(--card)]"
+            />
           </div>
           <a
             href={downloadUrl}
