@@ -27,6 +27,18 @@ Workspace-owner installations upgrade through **Settings → Integrations → Sl
 
 Files stay available in Shiba while the scope is missing, and nothing is silently retried later. Ask again after the reinstall to receive them in the conversation.
 
+### Review replies to shared channels
+
+A channel shared outside your workspace through Slack Connect carries every reply into another organization. Shiba does not post there directly: it sends the exact reply to one authorized approver as a Slack DM, and only that approver's click sends it. Drafts expire after an hour, and repeated Slack deliveries of the same event never create a second draft or a second post.
+
+The manifest now includes four scopes this needs:
+
+- `channels:read` and `groups:read` read whether a public or private channel is shared externally.
+- `users:read` confirms an approver is a live member of this workspace, not a member of the other organization.
+- `im:write` opens the reviewer's DM and checks it is a separate conversation.
+
+Without them Shiba cannot classify the channel and posts nothing there; it tells an approver in their DM which scopes to add. The reviewer is the first user in `SLACK_APPROVERS` who is a current member of the workspace. Approval cards for shared channels, such as a task or publication approval, also go to that DM rather than the channel, and they are separate from the reply draft's send button. Files are never attached to a shared channel; they stay in Shiba with their dashboard link.
+
 ## Configure delivery
 
 | Slack setting | Shiba endpoint |

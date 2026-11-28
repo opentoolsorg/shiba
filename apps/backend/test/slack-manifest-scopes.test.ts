@@ -13,4 +13,14 @@ describe("shipped Slack app manifest", () => {
     expect(manifestScopes).toContain("files:write");
     expect(SLACK_BOT_SCOPES).toContain("files:write");
   });
+
+  it("grants the scopes a reviewed reply to a shared channel needs", () => {
+    // conversations.info, users.info and conversations.open back the review
+    // gate; a documented install must be able to classify a channel and reach
+    // its reviewer, or it posts nothing to a shared channel.
+    for (const scope of ["channels:read", "groups:read", "users:read", "im:write"]) {
+      expect(manifestScopes).toContain(scope);
+      expect(SLACK_BOT_SCOPES).toContain(scope);
+    }
+  });
 });

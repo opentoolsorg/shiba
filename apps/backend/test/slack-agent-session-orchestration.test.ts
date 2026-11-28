@@ -79,6 +79,9 @@ function slackFixture(context: ReturnType<typeof host>, authResponse?: () => Res
     if (url === "https://slack.com/api/chat.postMessage" || url === "https://slack.com/api/chat.update") {
       return Response.json({ ok: true, channel: "C1", ts: "1700.0002" });
     }
+    if (new URL(url).pathname === "/api/conversations.info") {
+      return Response.json({ ok: true, channel: { id: "C1", is_ext_shared: false } });
+    }
     throw new Error(`Unexpected fixture request: ${url}`);
   });
   vi.stubGlobal("fetch", fetch);
@@ -122,6 +125,7 @@ describe("native Slack lifecycle from committed orchestration with fixture HTTP"
     await approve(context, approvalId);
     await vi.waitFor(() => expect(fixture.statuses).toContain("processing"));
     expect(context.instance.state.pendingApprovals?.[0]?.status).toBe("approved");
+    await vi.waitFor(() => expect(mocks.child).toHaveBeenCalledOnce());
     finish(formatAgentResult({ status: "completed", exitCode: 0, stderrTail: "", changedFiles: [], diff: "", files: [], summary: "Completed status fixture." }));
     await vi.waitFor(() => expect(context.instance.state.runs[0]?.status).toBe("completed"));
     await flush(context);

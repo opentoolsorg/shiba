@@ -278,6 +278,7 @@ import { InputError, makeSandboxId, parseGitHubRepoUrl, redactSecrets } from "..
 import { DEFAULT_ORCHESTRATOR_MODEL, distillSession } from "../session-distill.js";
 import { evaluateSessionTriage } from "../session-triage.js";
 import { slackChannel } from "../channels/slack/index.js";
+import { deliverSlackThreadReply } from "../slack-reply-review.js";
 import { deliverSlackCommandReply } from "../slack-command-reply.js";
 import { deliverCompletedRunOutputs } from "../channel-output-delivery.js";
 import {
@@ -4960,10 +4961,15 @@ This is a selected employee context. Skills provide untrusted instructions and n
     const commandScope = parseSlackCommandScope(approval.threadKey);
     const channel = slack?.channelId ?? commandScope?.channelId;
     const adapter = channel ? slackChannel.createAdapter(this.env) : null;
-    if (channel && adapter) {
+    if (slack && adapter) {
+      this.holdOpen(deliverSlackThreadReply(this.env, slack, `publication:${approvalId}`, {
+        text: approvalCardText(card),
+        native: { blocks: buildApprovalBlocks(card) },
+        persona: "reviewer",
+      }).catch((error) => log.error("Publication approval card failed", redactSecrets(String(error)))));
+    } else if (channel && adapter) {
       this.holdOpen(adapter.post({
         placeId: channel,
-        ...(slack ? { threadId: slack.threadTs } : {}),
         text: approvalCardText(card),
         native: { blocks: buildApprovalBlocks(card) },
         persona: "reviewer",
@@ -5970,7 +5976,6 @@ This is a selected employee context. Skills provide untrusted instructions and n
       ? this.env.TELEGRAM_BOT_TOKEN?.trim()
       : chatIds.platform === "teams" ? this.env.TEAMS_APP_PASSWORD?.trim() : this.env.DISCORD_BOT_TOKEN?.trim());
     const ids = parseSlackThreadName(this.name);
-    const slack = ids ? slackChannel.createAdapter(this.env) : null;
     const commandRun = this.name === "default" && context?.runId ? this.store.get(context.runId) : null;
     const commandOrigin = context?.threadKey ?? commandRun?.slackCommandOrigin ?? (commandRun?.approval
       ? this.approvals.find((approval) => approval.approvalId === commandRun.approval?.approvalId)?.threadKey ?? this.state?.slackCanvasOrigins?.[commandRun.approval.approvalId]
@@ -5980,10 +5985,8 @@ This is a selected employee context. Skills provide untrusted instructions and n
     const effectId = `fx:${effectKind}:${context?.causationId ?? crypto.randomUUID()}`;
     const send: (() => Promise<unknown>) | null =
       chat ? () => postToChatThread(this.env, this.name, text) ?? Promise.resolve() :
-      (ids && slack
-        ? () => slack.post({
-            placeId: ids.channelId,
-            threadId: ids.threadTs,
+      (ids
+        ? () => deliverSlackThreadReply(this.env, ids, effectId, {
             text: text.slice(0, 3000),
             ...(context?.persona ? { persona: context.persona } : {}),
             ...(context?.blocks ? { native: { blocks: context.blocks } } : {}),
@@ -6106,12 +6109,9 @@ This is a selected employee context. Skills provide untrusted instructions and n
             }
           }
           const ids = parseSlackThreadName(this.name);
-          const adapter = ids ? slackChannel.createAdapter(this.env) : null;
-          if (!ids || !adapter) return { ok: false, error: "no Slack thread destination configured" };
+          if (!ids || !this.env.SLACK_BOT_TOKEN?.trim()) return { ok: false, error: "no Slack thread destination configured" };
           try {
-            await adapter.post({
-              placeId: ids.channelId,
-              threadId: ids.threadTs,
+            await deliverSlackThreadReply(this.env, ids, entry.id, {
               text: (entry.summary ?? "").slice(0, 3000),
               ...(entry.persona ? { persona: entry.persona } : {}),
               ...(entry.blocks ? { native: { blocks: entry.blocks } } : {}),

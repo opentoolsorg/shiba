@@ -42,13 +42,29 @@ function response(text = "Which file should I inspect first?"): ChatResponseResu
   } };
 }
 
+/** Slack writes only: the reply gate's channel read is not a post. */
+function posts(fetchImpl: ReturnType<typeof vi.fn>) {
+  return fetchImpl.mock.calls.filter(([input]) => !String(input).includes("conversations.info"));
+}
+
+/** The reply gate reads the channel's audience first; these threads are internal. */
+function postOnly(handle: (init?: RequestInit) => Response | Promise<Response>) {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.startsWith("https://slack.com/api/conversations.info")) {
+      return Response.json({ ok: true, channel: { id: new URL(url).searchParams.get("channel"), is_ext_shared: false } });
+    }
+    return handle(init);
+  });
+}
+
 afterEach(() => { vi.unstubAllGlobals(); privateReply.mockReset(); });
 
 describe("Slack coordinator delivery", () => {
   it("persists intent before posting a coordinator question and delivers a replayed hook once", async () => {
     const { instance, held } = host();
     const calls: Record<string, unknown>[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+    vi.stubGlobal("fetch", postOnly((init) => {
       expect(instance.state.outbox).toHaveLength(1);
       expect(instance.state.outbox?.[0]?.status).toBe("pending");
       calls.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
@@ -67,7 +83,7 @@ describe("Slack coordinator delivery", () => {
   it("posts a frozen pending run card without approving or starting it", async () => {
     const { instance, held } = host({ runs: [], pendingApprovals: [pending] });
     const calls: Record<string, unknown>[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+    vi.stubGlobal("fetch", postOnly((init) => {
       calls.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
       return Response.json({ ok: true, channel: "C1", ts: "1700.0002" });
     }));
@@ -99,25 +115,25 @@ describe("Slack coordinator delivery", () => {
     await Promise.all(first.held);
     expect(first.instance.state.outbox?.[0]).toMatchObject({ status: "failed", persona: "reviewer", blocks });
     const restarted = host(structuredClone(first.instance.state));
-    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchImpl = postOnly((init) => {
       expect(JSON.parse(String(init?.body))).toMatchObject({ username: "Shiba Reviewer", icon_emoji: ":eyes:", blocks });
       return Response.json({ ok: true, channel: "C1", ts: "1700.0002" });
     });
     vi.stubGlobal("fetch", fetchImpl);
     await restarted.internals.drainEffectOutbox();
-    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(posts(fetchImpl)).toHaveLength(1);
     expect(restarted.instance.state.outbox?.[0]?.status).toBe("dispatched");
   });
 
   it("reports a failed queued decision once without creating a replacement run", async () => {
     const { instance, internals, held } = host();
-    const fetchImpl = vi.fn(async () => Response.json({ ok: true, channel: "C1", ts: "1700.0002" }));
+    const fetchImpl = postOnly(() => Response.json({ ok: true, channel: "C1", ts: "1700.0002" }));
     vi.stubGlobal("fetch", fetchImpl);
     const submission: ThinkSubmissionInspection = { submissionId: "slack-buffer:batch-1", status: "error", error: "Provider unavailable.", createdAt: Date.now() };
     internals.onSubmissionStatus(submission);
     internals.onSubmissionStatus(submission);
     await Promise.all(held);
-    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(posts(fetchImpl)).toHaveLength(1);
     expect(instance.state.runs).toHaveLength(0);
     expect(instance.state.pendingApprovals ?? []).toHaveLength(0);
   });

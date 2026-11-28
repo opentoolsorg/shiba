@@ -11,7 +11,7 @@ import type { Env } from "./env.js";
 import { DASHBOARD_ORG_ID } from "./org-request-auth.js";
 import { resolveEmployeeRunToolContext } from "./employee-run-tools.js";
 import { decideEmployeeActionApproval, type EmployeeApprovalRecord } from "./employee-tool-store.js";
-import { postSlackMessage } from "./slack.js";
+import { deliverSlackThreadReply } from "./slack-reply-review.js";
 import {
   buildEmployeeToolApprovalBlocks,
 } from "./slack-approval.js";
@@ -170,7 +170,7 @@ export async function notifyEmployeeToolApprovalInChat(
   if (record.accountId || record.action === "gmail_read" || record.action.startsWith("integrations.")) {
     const text = "A private employee tool call needs approval. The connected account owner can review it in the dashboard under Tool policy.";
     const relay = slackIds && token
-      ? postSlackMessage(token, { channel: slackIds.channelId, threadTs: slackIds.threadTs, text })
+      ? deliverSlackThreadReply(env, slackIds, `employee-private:${record.approvalId}`, { text })
       : postToChatThread(env, threadName, text);
     if (relay) await relay.catch(() => undefined);
     return;
@@ -178,19 +178,19 @@ export async function notifyEmployeeToolApprovalInChat(
   const preview = summarizeEmployeePayload(record.payload, record.action);
   const label = record.employeeLabel ?? record.employeeId;
   if (slackIds && token) {
-    await postSlackMessage(token, {
-      channel: slackIds.channelId,
-      threadTs: slackIds.threadTs,
+    await deliverSlackThreadReply(env, slackIds, `employee:${record.approvalId}`, {
       text: `Employee action approval · ${label} · ${record.action}`,
-      blocks: buildEmployeeToolApprovalBlocks({
-        threadKey: threadName,
-        approvalId: record.approvalId,
-        employeeId: record.employeeId,
-        orgId: record.orgId,
-        tool: record.action,
-        employeeLabel: label,
-        payloadPreview: preview,
-      }),
+      native: {
+        blocks: buildEmployeeToolApprovalBlocks({
+          threadKey: threadName,
+          approvalId: record.approvalId,
+          employeeId: record.employeeId,
+          orgId: record.orgId,
+          tool: record.action,
+          employeeLabel: label,
+          payloadPreview: preview,
+        }),
+      },
     }).catch(() => undefined);
     return;
   }

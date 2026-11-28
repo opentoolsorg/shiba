@@ -1023,20 +1023,24 @@ describe("orchestrator run routes", () => {
 
   it("posts run cancellation back to the originating Slack thread", async () => {
     const instance = agent();
+    const held: Promise<unknown>[] = [];
     Object.assign(instance, {
       name: "slack:T1:C9:1700.0001",
-      ctx: { waitUntil: vi.fn((p: Promise<unknown>) => p) },
+      ctx: { waitUntil: (p: Promise<unknown>) => held.push(p) },
     });
     Object.assign(instance.env, { SLACK_BOT_TOKEN: "xoxb-test" });
     instance.setState({ runs: [{ ...retained(), updatedAt: Date.now() }] });
-    const fetchMock = vi.fn(async (_url: unknown, _init?: { body?: unknown }) =>
-      new Response("{}", { status: 200 }));
+    const fetchMock = vi.fn(async (url: unknown, _init?: { body?: unknown }) =>
+      String(url).includes("conversations.info")
+        ? Response.json({ ok: true, channel: { id: "C9", is_ext_shared: false } })
+        : Response.json({ ok: true, channel: "C9", ts: "1700.0002" }));
     vi.stubGlobal("fetch", fetchMock);
     try {
       const response = await instance.onRequest(
         new Request("https://internal/api/runs/r1", { method: "DELETE" }),
       );
       expect(response.status).toBe(200);
+      await Promise.all(held);
       const postCalls = fetchMock.mock.calls.filter((call) =>
         String(call[0]).includes("chat.postMessage"));
       expect(postCalls).toHaveLength(1);
@@ -1942,14 +1946,17 @@ describe("run reliability", () => {
   const INPUT = { repoUrl: "https://github.com/o/r", task: "fix", baseBranch: "main", publishPullRequest: false };
 
   /** Slack-thread orchestrator whose post-backs and waitUntil work are captured. */
-  function slackAgent(slackReply: Record<string, unknown> = { ok: true, ts: "1700.0002" }) {
+  function slackAgent(slackReply: Record<string, unknown> = { ok: true, channel: "C9", ts: "1700.0002" }) {
     const instance = agent();
     const pending: Promise<unknown>[] = [];
     const waitUntil = vi.fn((p: Promise<unknown>) => { pending.push(p); });
     Object.assign(instance, { name: "slack:T1:C9:1700.0001", ctx: { waitUntil } });
     Object.assign(instance.env, { SLACK_BOT_TOKEN: "xoxb-test" });
     const posts: { text: string }[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (_url: unknown, init?: { body?: unknown }) => {
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: { body?: unknown }) => {
+      if (String(url).includes("conversations.info")) {
+        return Response.json({ ok: true, channel: { id: "C9", is_ext_shared: false } });
+      }
       posts.push(JSON.parse(String(init?.body)) as { text: string });
       return Response.json(slackReply);
     }));
@@ -2001,9 +2008,10 @@ describe("run reliability", () => {
   });
 
   it("the scheduled reclaim reaps a stale run without traffic and tells its Slack thread", async () => {
-    const { instance, posts } = slackAgent();
+    const { instance, posts, settled } = slackAgent();
     instance.setState({ runs: [retained()] });
     await instance.reclaimRuns();
+    await settled();
     expect(instance.state.runs[0]?.status).toBe("unknown");
     expect(mocks.destroy).toHaveBeenCalledOnce();
     expect(posts).toHaveLength(1);
@@ -2028,12 +2036,14 @@ describe("run reliability", () => {
     expect(instance.state.runs[0]?.status).toBe("unknown");
     expect(mocks.destroy).toHaveBeenCalledOnce();
     expect(waitUntil).toHaveBeenCalled();
-    const notice = posts.find((post) => post.text.includes("not sure how the o/r run ended"));
-    expect(notice?.text).toContain("orchestrator restart");
+    await vi.waitFor(() => {
+      const notice = posts.find((post) => post.text.includes("not sure how the o/r run ended"));
+      expect(notice?.text).toContain("orchestrator restart");
+    });
   });
 
   it("posts the PR link and a short summary even when a long diff precedes it in the log", async () => {
-    const { instance, posts } = slackAgent();
+    const { instance, posts, settled } = slackAgent();
     const pullUrl = "https://github.com/o/r/pull/7";
     const diff = "+line\n".repeat(5000);
     mocks.execute.mockResolvedValue(`Diff:\n${diff}\n${formatAgentResult({
@@ -2045,6 +2055,7 @@ describe("run reliability", () => {
       execute: (input: unknown, options?: unknown) => Promise<unknown>;
     };
     await delegate.execute(INPUT, { toolCallId: "pr" });
+    await settled();
     const run = instance.state.runs[0]!;
     expect(run.status).toBe("completed");
     expect(run.pullUrl).toBe(pullUrl);
