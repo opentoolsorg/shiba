@@ -14,9 +14,9 @@
  * custom_id is a pointer: only DISCORD_APPROVERS may press it, and the
  * orchestrator honors it only while the approval is still pending.
  */
-import { buildChatThreadName, buildDecisionData, parseDecisionData, parseEmployeeDecisionData } from "@shiba/shared";
+import { buildChatThreadName, buildDecisionData, parseChatThreadName, parseDecisionData, parseEmployeeDecisionData } from "@shiba/shared";
 import { seenDelivery } from "./automations-stub.js";
-import { DISCORD_INTERACTION, discordTransport } from "./channels/discord/index.js";
+import { createDiscordAdapter, DISCORD_INTERACTION, discordTransport } from "./channels/discord/index.js";
 import {
   CARD_TASK_LIMIT,
   chatApprovalText,
@@ -133,6 +133,7 @@ export async function prepareDiscordTask(
       task: parsed.task,
       userId: input.userId,
       harness: env.DISCORD_AGENT_HARNESS ?? env.AGENT_HARNESS,
+      publishPullRequest: true,
     },
   };
 }
@@ -146,6 +147,7 @@ export function discordApprovalCard(queueBody: QueueBody, queued: { approvalId: 
       approvalId: queued.approvalId,
       route: queued.route,
       employeeLabel: queueBody.employeeLabel,
+      publishPullRequest: queueBody.publishPullRequest,
     }),
     components: decisionButtons(queued.approvalId),
     allowed_mentions: NO_MENTIONS,
@@ -154,6 +156,28 @@ export function discordApprovalCard(queueBody: QueueBody, queued: { approvalId: 
 
 export function discordTaskFollowUps(task: string): string[] {
   return chatTaskChunks(task, CARD_TASK_LIMIT, 1900);
+}
+
+
+/** Post the second publication approval into the originating Discord channel. */
+export async function postDiscordPublicationApproval(
+  env: Env,
+  threadKey: string,
+  text: string,
+  approvalId: string,
+  deps: { adapter?: ReturnType<typeof createDiscordAdapter> } = {},
+): Promise<boolean> {
+  const chat = parseChatThreadName(threadKey);
+  if (chat?.platform !== "discord") return false;
+  const botToken = env.DISCORD_BOT_TOKEN?.trim();
+  const adapter = deps.adapter ?? (botToken ? createDiscordAdapter({ botToken }) : null);
+  if (!adapter) return false;
+  await adapter.post({
+    placeId: chat.conversationId,
+    text: text.slice(0, 1900),
+    native: { components: decisionButtons(approvalId) },
+  });
+  return true;
 }
 
 export interface DiscordDeps {
@@ -167,7 +191,7 @@ function ephemeral(content: string): Response {
   return Response.json({ type: 4, data: { content, flags: EPHEMERAL, allowed_mentions: NO_MENTIONS } });
 }
 
-function decisionButtons(approvalId: string): unknown[] {
+export function decisionButtons(approvalId: string): unknown[] {
   return [{
     type: 1,
     components: [

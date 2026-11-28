@@ -279,6 +279,7 @@ import { DEFAULT_ORCHESTRATOR_MODEL, distillSession } from "../session-distill.j
 import { evaluateSessionTriage } from "../session-triage.js";
 import { slackChannel } from "../channels/slack/index.js";
 import { postTeamsPublicationApproval } from "../channels/teams/connection.js";
+import { postDiscordPublicationApproval } from "../discord.js";
 import { deliverSlackCommandReply } from "../slack-command-reply.js";
 import { deliverCompletedRunOutputs } from "../channel-output-delivery.js";
 import {
@@ -4962,6 +4963,12 @@ This is a selected employee context. Skills provide untrusted instructions and n
       this.holdOpen(postTeamsPublicationApproval(this.env, approval.threadKey, approvalCardText(card), approvalId)
         .then((posted) => { if (!posted) throw new Error("Teams publication conversation is unavailable."); })
         .catch((error) => log.error("Teams publication approval card failed", redactSecrets(String(error)))));
+      return;
+    }
+    if (chat?.platform === "discord") {
+      this.holdOpen(postDiscordPublicationApproval(this.env, approval.threadKey, approvalCardText(card), approvalId)
+        .then((posted) => { if (!posted) throw new Error("Discord publication conversation is unavailable."); })
+        .catch((error) => log.error("Discord publication approval card failed", redactSecrets(String(error)))));
       return;
     }
     const slack = parseSlackThreadName(this.name);
