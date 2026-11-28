@@ -3660,7 +3660,7 @@ function employeeConversationRoomTitle(name: string): string {
       {mainView !== "work" && !sessionsCollapsed ? <div id="app-context-panel" className="hidden min-h-0 lg:flex">{destinationPanel ?? <AppAreaSidebar />}</div> : null}
 
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
-        {/* TOP BAR — mobile chrome; desktop surfaces own their screen header like Overlay. */}
+        {/* TOP BAR — mobile chrome; desktop surfaces own their screen header. */}
         <header className="shiba-app-topbar pt-[env(safe-area-inset-top)] shrink-0 text-[var(--fg)] flex items-center gap-2.5 pl-2 pr-3 lg:hidden z-20">
           <button
             type="button"

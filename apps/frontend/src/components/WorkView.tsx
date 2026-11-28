@@ -612,7 +612,7 @@ function PersonalWorkView(props: PersonalWorkViewProps): JSX.Element {
           />
         </section>
       )}
-      {/* Bottom-docked task composer, matching the Overlay work surface. */}
+      {/* Bottom-docked task composer for the work surface. */}
       <div className="shrink-0 px-4 pb-2 pt-2 sm:pb-4">
         <WorkQuickAdd
           onSubmit={(text) => onQuickAddTask?.(text)}

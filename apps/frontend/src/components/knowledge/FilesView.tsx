@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
-import { BookOpen, Code, FileArchive, FileSpreadsheet, FileText, FolderInput, FolderPlus, LayoutGrid, List, SquareMousePointer, Plus, Search, Trash2, Upload, X } from "lucide-react";
+import { ArrowLeft, BookOpen, Code, Download, FileArchive, FileSpreadsheet, FileText, FolderInput, FolderPlus, LayoutGrid, List, SquareMousePointer, Plus, Search, Trash2, Upload, X } from "lucide-react";
 import type { KnowledgeFile, KnowledgeScope, KnowledgeSearchHit } from "@shiba/shared";
 import { MarkedSnippet } from "../palette/ResultRow";
 import { uploadFile } from "../../files-upload-client";
@@ -7,6 +7,7 @@ import { teamWorkspaceHeaders } from "../../team-workspaces-client";
 import type { AppNavView } from "../AppNavRail";
 import { LoadErrorState } from "../LoadErrorState";
 import { FileAppPreview } from "./FileAppPreview";
+import { MarkdownPreview } from "../TaskDetailSections";
 import { queueNewNoteIntent } from "./new-note-intent";
 
 type FolderRow = { id: string; name: string; parent_id?: string | null };
@@ -18,6 +19,118 @@ function folderPathLabel(folder: FolderRow, folders: FolderRow[], depth = 0): st
 }
 
 const REVEAL_ON_HOVER = "transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100";
+
+type FileViewerKind =
+  | "markdown"
+  | "text"
+  | "csv"
+  | "html"
+  | "pdf"
+  | "image"
+  | "audio"
+  | "video"
+  | "other";
+type FileViewerState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ready"; text: string; url: string }
+  | { status: "error"; error: string };
+
+function viewerKind(file: KnowledgeFile): FileViewerKind {
+  const mime = (file.mime ?? "").toLowerCase();
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (mime.includes("markdown") || ["md", "markdown"].includes(extension)) return "markdown";
+  if (mime === "text/csv" || extension === "csv") return "csv";
+  if (mime.includes("html") || ["htm", "html"].includes(extension)) return "html";
+  if (mime === "application/pdf" || extension === "pdf") return "pdf";
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("audio/")) return "audio";
+  if (mime.startsWith("video/")) return "video";
+  if (
+    mime.startsWith("text/") ||
+    mime === "application/json" ||
+    [
+      "txt",
+      "log",
+      "json",
+      "js",
+      "jsx",
+      "ts",
+      "tsx",
+      "css",
+      "xml",
+      "yaml",
+      "yml",
+      "toml",
+      "py",
+      "sh",
+    ].includes(extension)
+  )
+    return "text";
+  return "other";
+}
+
+function parseCsvPreview(source: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index];
+    if (quoted) {
+      if (char === '"' && source[index + 1] === '"') {
+        cell += '"';
+        index++;
+      } else if (char === '"') quoted = false;
+      else cell += char;
+    } else if (char === '"') quoted = true;
+    else if (char === ",") {
+      row.push(cell);
+      cell = "";
+    } else if (char === "\n" || char === "\r") {
+      if (char === "\r" && source[index + 1] === "\n") index++;
+      row.push(cell);
+      if (row.some((value) => value !== "")) rows.push(row);
+      row = [];
+      cell = "";
+    } else cell += char;
+  }
+  row.push(cell);
+  if (row.some((value) => value !== "")) rows.push(row);
+  return rows.slice(0, 80);
+}
+
+function CsvPreview({ source }: { source: string }) {
+  const rows = parseCsvPreview(source);
+  const width = Math.max(1, ...rows.map((row) => row.length));
+  return (
+    <div className="overflow-auto rounded-lg border border-[var(--border-1)] bg-[var(--card)]">
+      <table className="w-full border-collapse text-left text-xs">
+        <tbody>
+          {rows.map((row, rowIndex) => (
+            <tr
+              key={rowIndex}
+              className={
+                rowIndex === 0
+                  ? "bg-[var(--panel)] font-medium"
+                  : "border-t border-[var(--border-1)]"
+              }
+            >
+              {Array.from({ length: width }, (_, cellIndex) => (
+                <td
+                  key={cellIndex}
+                  className="max-w-72 truncate border-r border-[var(--border-1)] px-3 py-2 last:border-r-0"
+                >
+                  {row[cellIndex] ?? ""}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavigate?: (view: AppNavView) => void; appPreviewOwner?: string; workspaceId?: string | null } = {}): JSX.Element {
   const [scope, setScope] = useState<KnowledgeScope>("personal");
@@ -46,7 +159,35 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
   const [moveMenuFor, setMoveMenuFor] = useState<string | null>(null);
+  const [selectedFileId, setSelectedFileId] = useState<string | null>(() =>
+    typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("file"),
+  );
+  const [viewer, setViewer] = useState<FileViewerState>({ status: "idle" });
   const workspaceHeaders = useMemo(() => teamWorkspaceHeaders(workspaceId ?? undefined), [workspaceId]);
+  const selectedFile = files.find((file) => file.id === selectedFileId) ?? null;
+
+  function updateFileQuery(fileId: string | null) {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (fileId) url.searchParams.set("file", fileId);
+    else url.searchParams.delete("file");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }
+
+  function openFile(file: KnowledgeFile) {
+    if (selectMode) {
+      toggleFileSelected(file.id);
+      return;
+    }
+    setSelectedFileId(file.id);
+    updateFileQuery(file.id);
+  }
+
+  function closeFile() {
+    setSelectedFileId(null);
+    setViewer({ status: "idle" });
+    updateFileQuery(null);
+  }
 
   const load = useCallback(async () => {
     const request = ++fileRequest.current;
@@ -90,6 +231,55 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
     return () => clearInterval(timer);
   }, [files, load]);
 
+
+  useEffect(() => {
+    if (!selectedFile) {
+      setViewer({ status: "idle" });
+      return;
+    }
+    const kind = viewerKind(selectedFile);
+    const downloadUrl = `/api/files/${encodeURIComponent(selectedFile.id)}/download`;
+    if (!["markdown", "text", "csv", "html"].includes(kind)) {
+      setViewer({ status: "ready", text: "", url: downloadUrl });
+      return;
+    }
+    let cancelled = false;
+    setViewer({ status: "loading" });
+    void fetch(downloadUrl, {
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: workspaceHeaders,
+    })
+      .then(async (response) => {
+        const body = await response.text();
+        if (!response.ok)
+          throw new Error(
+            (JSON.parse(body || "{}") as { error?: string }).error ??
+              `File preview unavailable (${response.status}).`,
+          );
+        let url = downloadUrl;
+        if (kind === "html") {
+          const previewUrl = `/api/files/${encodeURIComponent(selectedFile.id)}/preview`;
+          const previewResponse = await fetch(previewUrl, {
+            credentials: "same-origin",
+            cache: "no-store",
+            headers: workspaceHeaders,
+          });
+          if (previewResponse.ok) url = previewUrl;
+        }
+        if (!cancelled) setViewer({ status: "ready", text: body, url });
+      })
+      .catch((err: unknown) => {
+        if (!cancelled)
+          setViewer({
+            status: "error",
+            error: err instanceof Error ? err.message : "File preview unavailable.",
+          });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedFile?.id, selectedFile?.mime, selectedFile?.name, workspaceHeaders]);
   async function createFolder() {
     if (!folderName.trim()) return;
     setBusy(true);
@@ -197,6 +387,7 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
       const result = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(result.error ?? (method === "DELETE" ? "File could not be deleted." : "File could not be moved."));
       setMoveMenuFor(null);
+      if (method === "DELETE" && selectedFileId === file.id) closeFile();
       await load();
       return true;
     } catch (err: unknown) {
@@ -294,6 +485,164 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
     return "bg-neutral-100 dark:bg-neutral-900/60";
   };
 
+
+  function renderFileDetail(file: KnowledgeFile) {
+    const kind = viewerKind(file);
+    const downloadUrl = `/api/files/${encodeURIComponent(file.id)}/download`;
+    const previewUrl = `/api/files/${encodeURIComponent(file.id)}/preview`;
+    const ready = viewer.status === "ready" ? viewer : null;
+    const renderedHtml = kind === "html" && ready?.url === previewUrl;
+    return (
+      <section
+        aria-label={`${file.name} viewer`}
+        className="mx-auto flex min-h-full w-full max-w-5xl flex-col"
+      >
+        <div className="mb-3 flex shrink-0 flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={closeFile}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs text-[var(--muted-foreground-2)] transition-colors hover:bg-[var(--card-hover)] hover:text-[var(--fg)]"
+          >
+            <ArrowLeft size={14} /> All files
+          </button>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            {iconFor(file)}
+            <input
+              key={file.id}
+              aria-label="File name"
+              defaultValue={file.name}
+              disabled={busy}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+                if (event.key === "Escape") {
+                  event.currentTarget.value = file.name;
+                  event.currentTarget.blur();
+                }
+              }}
+              onBlur={(event) => {
+                const name = event.currentTarget.value.trim();
+                if (name && name !== file.name) void mutateFile(file, "PATCH", { name });
+                else event.currentTarget.value = file.name;
+              }}
+              className="h-8 min-w-0 flex-1 truncate rounded-md border border-transparent bg-transparent px-1 text-sm font-medium outline-none transition-colors hover:border-[var(--border-1)] focus:border-[var(--border-3)] focus:bg-[var(--card)]"
+            />
+          </div>
+          <a
+            href={downloadUrl}
+            download={file.name}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-1)] bg-[var(--card)] px-2.5 text-xs text-[var(--muted-foreground-2)] transition-colors hover:bg-[var(--card-hover)] hover:text-[var(--fg)]"
+          >
+            <Download size={13} /> Download
+          </a>
+          {deleteControl(file)}
+        </div>
+        <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--muted-light)]">
+          <span>{file.mime ?? "file"}</span>
+          <span>{file.size.toLocaleString()} bytes</span>
+          <span>Updated {new Date(file.updatedAt).toLocaleString()}</span>
+          <span className="rounded-full bg-[var(--surface-subtle)] px-2 py-0.5">
+            {file.ingestion.state}
+          </span>
+        </div>
+        {viewer.status === "loading" ? (
+          <div className="flex min-h-64 items-center justify-center text-xs text-[var(--muted-light)]">
+            Loading preview…
+          </div>
+        ) : null}
+        {viewer.status === "error" ? (
+          <div className="rounded-lg border border-[var(--border-1)] bg-[var(--card)] p-6 text-center">
+            <p className="text-sm font-medium">Preview unavailable</p>
+            <p className="mt-2 text-xs text-[var(--muted-foreground-2)]">{viewer.error}</p>
+            <a
+              href={downloadUrl}
+              download={file.name}
+              className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-1)] px-3 text-xs"
+            >
+              Download file
+            </a>
+          </div>
+        ) : null}
+        {ready ? (
+          <div className="min-h-0 flex-1">
+            {kind === "markdown" ? (
+              <article className="rounded-lg border border-[var(--border-1)] bg-[var(--card)] px-6 py-5 text-sm leading-6">
+                <MarkdownPreview source={ready.text} allowMailto={false} />
+              </article>
+            ) : null}
+            {kind === "csv" ? <CsvPreview source={ready.text} /> : null}
+            {kind === "text" ? (
+              <pre className="max-h-[calc(100vh-15rem)] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-[var(--border-1)] bg-[var(--card)] p-4 font-mono text-xs leading-5">
+                {ready.text}
+              </pre>
+            ) : null}
+            {kind === "html" ? (
+              renderedHtml ? (
+                <iframe
+                  title={`${file.name} preview`}
+                  src={previewUrl}
+                  sandbox=""
+                  className="h-[calc(100vh-15rem)] min-h-96 w-full rounded-lg border border-[var(--border-1)] bg-white"
+                />
+              ) : (
+                <pre className="max-h-[calc(100vh-15rem)] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-[var(--border-1)] bg-[var(--card)] p-4 font-mono text-xs leading-5">
+                  {ready.text}
+                </pre>
+              )
+            ) : null}
+            {kind === "pdf" ? (
+              <iframe
+                title={`${file.name} preview`}
+                src={ready.url}
+                className="h-[calc(100vh-15rem)] min-h-96 w-full rounded-lg border border-[var(--border-1)] bg-white"
+              />
+            ) : null}
+            {kind === "image" ? (
+              <div className="flex min-h-96 items-center justify-center rounded-lg border border-[var(--border-1)] bg-[var(--panel)] p-4">
+                <img
+                  src={ready.url}
+                  alt={file.name}
+                  className="max-h-[calc(100vh-17rem)] max-w-full object-contain"
+                />
+              </div>
+            ) : null}
+            {kind === "audio" ? (
+              <div className="rounded-lg border border-[var(--border-1)] bg-[var(--card)] p-6">
+                <audio controls src={ready.url} className="w-full">
+                  <track kind="captions" />
+                  Audio preview unavailable.
+                </audio>
+              </div>
+            ) : null}
+            {kind === "video" ? (
+              <div className="rounded-lg border border-[var(--border-1)] bg-black p-2">
+                <video controls src={ready.url} className="max-h-[calc(100vh-17rem)] w-full">
+                  <track kind="captions" />
+                  Video preview unavailable.
+                </video>
+              </div>
+            ) : null}
+            {kind === "other" ? (
+              <div className="flex min-h-64 flex-col items-center justify-center rounded-lg border border-[var(--border-1)] bg-[var(--card)] p-6 text-center">
+                {iconFor(file, 36)}
+                <p className="mt-3 text-sm font-medium">No inline preview for this file type</p>
+                <p className="mt-1 text-xs text-[var(--muted-foreground-2)]">
+                  Download it to open it with an application.
+                </p>
+                <a
+                  href={downloadUrl}
+                  download={file.name}
+                  className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-1)] px-3 text-xs"
+                >
+                  <Download size={13} /> Download
+                </a>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+    );
+  }
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--bg)] text-[var(--fg)]">
       <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 px-6 py-3">
@@ -303,7 +652,7 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
           <span className="text-xs leading-5 text-[var(--muted-light)]">/</span>
           <label className="flex items-center text-xs leading-5 text-[var(--muted-light)]">
             <span className="sr-only">Scope</span>
-            <select aria-label="Scope" className="max-w-24 bg-transparent text-xs text-[var(--muted-foreground-2)] outline-none transition-colors hover:text-[var(--fg)]" value={scope} disabled={busy} onChange={(e) => { setScope(e.target.value as KnowledgeScope); setFolderId(""); setFolders([]); exitSelectMode(); }}>
+            <select aria-label="Scope" className="max-w-24 bg-transparent text-xs text-[var(--muted-foreground-2)] outline-none transition-colors hover:text-[var(--fg)]" value={scope} disabled={busy} onChange={(e) => { setScope(e.target.value as KnowledgeScope); setFolderId(""); setFolders([]); exitSelectMode(); closeFile(); }}>
               <option value="personal">Personal</option>
               <option value="workspace">Workspace</option>
             </select>
@@ -311,7 +660,7 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
           <span className="text-xs leading-5 text-[var(--muted-light)]">/</span>
           <label className="flex items-center text-xs leading-5 text-[var(--muted-light)]">
             <span className="sr-only">Folder</span>
-            <select aria-label="Folder" className="max-w-24 bg-transparent text-xs text-[var(--muted-foreground-2)] outline-none transition-colors hover:text-[var(--fg)]" value={folderId} disabled={busy} onChange={(e) => { setFolderId(e.target.value); exitSelectMode(); }}>
+            <select aria-label="Folder" className="max-w-24 bg-transparent text-xs text-[var(--muted-foreground-2)] outline-none transition-colors hover:text-[var(--fg)]" value={folderId} disabled={busy} onChange={(e) => { setFolderId(e.target.value); exitSelectMode(); closeFile(); }}>
               <option value="">All files</option>
               {folders.map((folder) => <option key={folder.id} value={folder.id}>{folderPathLabel(folder, folders)}</option>)}
             </select>
@@ -434,7 +783,8 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
 
           {error ? <LoadErrorState message={error} onRetry={() => void load().catch((err: unknown) => setError(err instanceof Error ? err.message : "Files failed to load."))} /> : null}
 
-          <section aria-label="File list" onDragOver={(e) => e.preventDefault()} onDrop={(e) => {
+          {selectedFile ? renderFileDetail(selectedFile) : null}
+          {!selectedFile ? <section aria-label="File list" onDragOver={(e) => e.preventDefault()} onDrop={(e) => {
             e.preventDefault();
             void uploadFiles(e.dataTransfer.files);
           }}>
@@ -454,7 +804,9 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
                     /^file_[a-f0-9]{24}$/.test(file.id) && file.name.endsWith(".app-preview.json");
                   return <li key={file.id} className={canPreview ? "group rounded-[8px] border border-transparent px-3 py-2.5 transition-colors hover:border-[var(--border-1)] hover:bg-[var(--panel)]" : "group flex items-center gap-3 rounded-[8px] border border-transparent px-3 py-2.5 transition-colors hover:border-[var(--border-1)] hover:bg-[var(--panel)]"}>
                     {selectMode ? <input type="checkbox" aria-label={`Select ${file.name}`} checked={selectedIds.has(file.id)} onChange={() => toggleFileSelected(file.id)} className="size-4 shrink-0 accent-[var(--accent)]" /> : iconFor(file)}
-                    <span className="min-w-0 flex-1 truncate font-normal leading-relaxed">{file.name}</span>
+                    <button type="button" aria-label={`Open ${file.name}`} onClick={() => openFile(file)} className="min-w-0 flex-1 truncate text-left font-normal leading-relaxed">
+                      <span className="block truncate">{file.name}</span>
+                    </button>
                     {!selectMode ? <div className={`flex shrink-0 items-center gap-0.5 ${REVEAL_ON_HOVER}`}>{moveControls(file)}{deleteControl(file)}</div> : null}
                     <span className={`hidden shrink-0 text-xs text-[var(--muted-light)] ${REVEAL_ON_HOVER} lg:inline`}>{file.mime ?? "file"}</span>
                     <span className={`hidden shrink-0 text-xs text-[var(--muted-light)] ${REVEAL_ON_HOVER} sm:inline`}>{new Date(file.updatedAt).toLocaleDateString()}</span>
@@ -477,7 +829,9 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
                       <span className={`inline-flex size-16 items-center justify-center rounded-lg shadow-xs ${iconFrameFor(file)}`}>{iconFor(file, 36)}</span>
                     </div>
                     <div className="px-3 py-2">
-                      <p className="line-clamp-2 text-xs font-medium">{file.name}</p>
+                      <button type="button" aria-label={`Open ${file.name}`} onClick={() => openFile(file)} className="block w-full text-left">
+                        <span className="line-clamp-2 text-xs font-medium">{file.name}</span>
+                      </button>
                       <p className="mt-1 line-clamp-2 text-[10px] text-[var(--muted-foreground-2)]">{file.folderId ? folders.find((folder) => folder.id === file.folderId)?.name ?? "Folder" : "All files"}</p>
                       <p className="mt-1 text-[10px] text-[var(--muted-light)]">{new Date(file.updatedAt).toLocaleDateString("en-US")}</p>
                       {canPreview && <FileAppPreview key={appPreviewOwner} fileId={file.id} fileName={file.name} />}
@@ -487,7 +841,7 @@ export function FilesView({ onNavigate, appPreviewOwner, workspaceId }: { onNavi
               </ul>
             )}
             {!files.length ? <div className="flex min-h-36 flex-col items-center justify-center gap-2 text-xs text-[var(--muted-light)]"><FileText size={22} /><span>No files yet</span></div> : null}
-          </section>
+          </section> : null}
         </div>
       </div>
     </div>

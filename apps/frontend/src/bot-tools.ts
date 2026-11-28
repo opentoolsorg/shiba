@@ -56,7 +56,7 @@ function countActive(policy: BotToolPolicy, predicate: (id: string) => boolean):
 }
 
 /**
- * The eight capability groups Overlay lists, in its order, then Shiba's own run
+ * The primary capability groups in display order, then Shiba's own run
  * and email capabilities. `policy` is null while it is loading or after it
  * failed — rows then report `unknown` instead of implying the bot has none.
  */

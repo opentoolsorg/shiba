@@ -223,6 +223,61 @@ describe("FilesView", () => {
     expect(screen.queryByRole("checkbox", { name: "Select owned.md" })).toBeNull();
   });
 
+
+  it("opens a markdown file in the detail viewer and returns to the list", async () => {
+    const record = { id: "file-1", name: "notes.md", mime: "text/markdown", size: 17, updatedAt: 1, folderId: null, ingestion: { state: "done" } };
+    const api = vi.fn(async (input: string) => {
+      const url = new URL(input, "http://localhost");
+      if (url.pathname === "/api/files/folders") return Response.json({ folders: [] });
+      if (url.pathname === "/api/files") return Response.json({ files: [record] });
+      if (url.pathname === "/api/files/file-1/download") return new Response("# Release checklist\n\nShip it.", { status: 200 });
+      return Response.json({ error: "unexpected" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", api);
+    render(<FilesView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open notes.md" }));
+    await screen.findByRole("region", { name: "notes.md viewer" });
+    await screen.findByText("Release checklist");
+    expect(screen.getByRole("link", { name: /Download/ })).toBeTruthy();
+    expect(new URL(window.location.href).searchParams.get("file")).toBe("file-1");
+    fireEvent.click(screen.getByRole("button", { name: /All files/ }));
+    await screen.findByRole("region", { name: "File list" });
+    expect(new URL(window.location.href).searchParams.get("file")).toBeNull();
+  });
+
+  it("uses the sandboxed generated-page preview for generated HTML files", async () => {
+    const record = { id: "file-html", name: "report.html", mime: "text/html", size: 40, updatedAt: 1, folderId: null, ingestion: { state: "done" } };
+    const api = vi.fn(async (input: string) => {
+      const url = new URL(input, "http://localhost");
+      if (url.pathname === "/api/files/folders") return Response.json({ folders: [] });
+      if (url.pathname === "/api/files") return Response.json({ files: [record] });
+      if (url.pathname === "/api/files/file-html/download") return new Response("<h1>Report</h1>", { status: 200 });
+      if (url.pathname === "/api/files/file-html/preview") return new Response("<h1>Report</h1>", { status: 200 });
+      return Response.json({ error: "unexpected" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", api);
+    render(<FilesView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open report.html" }));
+    await screen.findByRole("region", { name: "report.html viewer" });
+    await waitFor(() => expect(screen.getByTitle("report.html preview")).toBeTruthy());
+    expect(screen.getByTitle("report.html preview").getAttribute("src")).toBe("/api/files/file-html/preview");
+  });
+
+  it("links media previews directly to the authenticated download route", async () => {
+    const record = { id: "file-image", name: "image.png", mime: "image/png", size: 40, updatedAt: 1, folderId: null, ingestion: { state: "done" } };
+    const api = vi.fn(async (input: string) => {
+      const url = new URL(input, "http://localhost");
+      if (url.pathname === "/api/files/folders") return Response.json({ folders: [] });
+      if (url.pathname === "/api/files") return Response.json({ files: [record] });
+      return Response.json({ error: "unexpected" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", api);
+    render(<FilesView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open image.png" }));
+    const image = await screen.findByRole("img", { name: "image.png" });
+    expect(image.getAttribute("src")).toBe("/api/files/file-image/download");
+  });
+
   it("links to memory sources only when navigation is wired, without saving anything", async () => {
     const api = mockApi();
     const onNavigate = vi.fn();
