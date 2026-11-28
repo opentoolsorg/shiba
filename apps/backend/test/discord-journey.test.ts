@@ -95,7 +95,7 @@ function bucket(): R2Bucket {
   } as unknown as R2Bucket;
 }
 
-async function fixture() {
+async function fixture(channel = CHANNEL) {
   const db = customAgentD1();
   const keyPair = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"])) as CryptoKeyPair;
   const publicKey = Buffer.from(await crypto.subtle.exportKey("raw", keyPair.publicKey)).toString("hex");
@@ -158,7 +158,7 @@ async function fixture() {
     return { authorize, callback };
   };
   const interaction = async (payload: Record<string, unknown>) => {
-    const body = JSON.stringify({ application_id: APP_ID, token: "interaction-token", guild_id: GUILD, channel_id: CHANNEL, ...payload });
+    const body = JSON.stringify({ application_id: APP_ID, token: "interaction-token", guild_id: GUILD, channel_id: channel, ...payload });
     const timestamp = String(Math.floor(Date.now() / 1000));
     const signature = Buffer.from(await crypto.subtle.sign({ name: "Ed25519" }, keyPair.privateKey, new TextEncoder().encode(timestamp + body))).toString("hex");
     return call("/api/discord/interactions", {
@@ -202,8 +202,8 @@ function wireHarness(env: Record<string, unknown>) {
   });
 }
 
-const channelPosts = (calls: DiscordCall[]) =>
-  calls.filter((call) => call.method === "POST" && call.url === `/api/v10/channels/${CHANNEL}/messages`);
+const channelPosts = (calls: DiscordCall[], channel = CHANNEL) =>
+  calls.filter((call) => call.method === "POST" && call.url === `/api/v10/channels/${channel}/messages`);
 
 beforeEach(() => {
   identity.user = "owner@example.test";
@@ -215,9 +215,10 @@ afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("Discord journey (fixture, real Worker routes)", () => {
   it.each(["slash command", "bot mention"])("installs, queues a %s, and posts the result to the channel only after approval", async (source) => {
-    const f = await fixture();
+    const channel = source === "slash command" ? CHANNEL : "333333333333333334";
+    const f = await fixture(channel);
     wireHarness(f.env);
-    const host = f.orchestrator(`discord:${CHANNEL}`);
+    const host = f.orchestrator(`discord:${channel}`);
 
     const before = await f.status();
     expect(before.configured).toEqual({ oauth: true, publicKey: true, botToken: true, approvers: 1 });
@@ -247,7 +248,7 @@ describe("Discord journey (fixture, real Worker routes)", () => {
       expect(await command.json()).toEqual({ type: 5 });
     } else {
       const mention = await handleDiscordMention(f.env as never, {
-        id: "900000000000000001", channel_id: CHANNEL, guild_id: GUILD,
+        id: "900000000000000001", channel_id: channel, guild_id: GUILD,
         content: `<@${BOT_USER}> add a README ${REPO}`,
         author: { id: REQUESTER }, mentions: [{ id: BOT_USER }],
       }, BOT_USER, { seen: async () => false });
@@ -255,7 +256,7 @@ describe("Discord journey (fixture, real Worker routes)", () => {
     }
     const card = (source === "slash command"
       ? f.discord.find((call) => call.method === "PATCH" && call.url === `/api/v10/webhooks/${APP_ID}/interaction-token/messages/@original`)
-      : channelPosts(f.discord)[0])!;
+      : channelPosts(f.discord, channel)[0])!;
     const cardBody = card.body as { content: string; components: Array<{ components: Array<{ custom_id: string; label: string }> }> };
     expect(cardBody.content).toContain("Approval requested");
     expect(cardBody.content).toContain("Task: add a README");
@@ -284,11 +285,11 @@ describe("Discord journey (fixture, real Worker routes)", () => {
     const retired = f.discord.find((call) => call.method === "PATCH")!;
     expect((retired.body as { components: unknown[]; content: string }).components).toEqual([]);
     expect((retired.body as { content: string }).content).toContain(`Approved by <@${APPROVER}>`);
-    await vi.waitFor(() => expect(channelPosts(f.discord).length).toBeGreaterThan(0));
-    const posted = channelPosts(f.discord).map((call) => (call.body as { content: string }).content).join("\n");
+    await vi.waitFor(() => expect(channelPosts(f.discord, channel).length).toBeGreaterThan(0));
+    const posted = channelPosts(f.discord, channel).map((call) => (call.body as { content: string }).content).join("\n");
     expect(posted).toContain("Edited README.");
     expect(posted).not.toMatch(/failed/i);
-    for (const post of channelPosts(f.discord)) {
+    for (const post of channelPosts(f.discord, channel)) {
       expect(post.authorization).toBe(`Bot ${BOT_TOKEN}`);
       expect((post.body as { allowed_mentions: unknown }).allowed_mentions).toEqual({ parse: [] });
     }

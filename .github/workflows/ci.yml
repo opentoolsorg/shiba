@@ -33,6 +33,7 @@ jobs:
       # (config enables it for `pnpm format`), not retro-applied repo-wide.
       - run: pnpm exec biome ci --formatter-enabled=false --assist-enabled=false .
       - run: pnpm check:knip
+      - run: pnpm check:deps
     timeout-minutes: 30
   check:
     if: "${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'build:validate') }}"
