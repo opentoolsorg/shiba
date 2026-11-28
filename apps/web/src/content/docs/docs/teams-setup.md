@@ -58,7 +58,7 @@ In a channel or group chat, use the real Teams **@Shiba** mention; plain, unment
 
 In a one-to-one chat with Shiba, send the question directly: `https://github.com/owner/repo Where are the tests defined?` No mention or command is needed. Include a GitHub repository URL unless you’ve mapped that exact conversation. Keep the task itself to **1,500 characters** so the approval card can show the full text.
 
-Shiba posts an Adaptive Card in the originating conversation with **Approve** and **Reject** (`Action.Submit`). Only users in `TEAMS_APPROVERS` can decide. Nothing starts before approval. Try rejecting a small request first, then approve a new one and check for the completed run summary in the same conversation. Teams approval authorizes the run only. It does not open a GitHub pull request, and separate publication approval is not available in Teams.
+Shiba posts an Adaptive Card in the originating conversation with **Approve** and **Reject** (`Action.Submit`). Only users in `TEAMS_APPROVERS` can decide. Nothing starts before approval. Try rejecting a small request first, then approve a new one and check for the completed run summary in the same conversation. The first Teams approval authorizes the run only. When repository changes are ready, Shiba posts a separate publication approval card; only a second allowlisted decision may push the captured files and open a GitHub pull request. Rejecting the publication card leaves the completed run unpublished.
 
 ## Disable or remove the app
 

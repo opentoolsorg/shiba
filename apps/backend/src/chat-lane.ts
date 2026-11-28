@@ -57,6 +57,7 @@ export function chatApprovalText(input: {
   route?: string;
   employeeLabel?: string;
   executionTarget?: ExecutionTarget;
+  publishPullRequest?: boolean;
 }): string {
   const task = input.task.length <= CARD_TASK_LIMIT
     ? input.task
@@ -66,7 +67,8 @@ export function chatApprovalText(input: {
   const outputs = input.executionTarget?.kind === "artifact-workspace" ? input.executionTarget.expectedDeliverables : [];
   const files = outputs.length ? `\nOutput files: ${outputs.join(", ")}` : "";
   const repoLine = input.repoUrl ? `Repo: ${input.repoUrl}\n` : "";
-  return `Approval requested\n${repoLine}Task: ${task}${bot}${files}${route}\napproval ${input.approvalId}`;
+  const publication = input.publishPullRequest ? "\nPublication requested. A separate approval is required after the changes are ready." : "";
+  return `Approval requested\n${repoLine}Task: ${task}${bot}${files}${route}${publication}\napproval ${input.approvalId}`;
 }
 
 /**

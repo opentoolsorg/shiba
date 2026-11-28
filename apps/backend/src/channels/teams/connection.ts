@@ -1,5 +1,6 @@
-import { isTeamWorkspaceId } from "@shiba/shared";
+import { buildDecisionData, isTeamWorkspaceId } from "@shiba/shared";
 import type { Env } from "../../env.js";
+import type { ChannelAdapter } from "../../ports/channel/index.js";
 import { isTeamsServiceUrl, teamsAdapterFromEnv, type TeamsActivity } from "./index.js";
 
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
@@ -74,6 +75,12 @@ export async function saveTeamsApproval(env: Env, threadKey: string, approvalId:
   ).bind(approvalId, threadKey).run();
 }
 
+export async function replaceTeamsApproval(env: Env, threadKey: string, approvalId: string) {
+  await env.AGENT_AUDIT.prepare(
+    "UPDATE teams_task_replies SET approval_id=?, card_activity_id=NULL WHERE thread_key=?",
+  ).bind(approvalId, threadKey).run();
+}
+
 export async function teamsApprovalThread(env: Env, generation: string, conversationId: string, approvalId: string) {
   return env.AGENT_AUDIT.prepare(`SELECT thread_key, card_activity_id FROM teams_task_replies
     WHERE approval_id=? AND generation=? AND conversation_id=?`)
@@ -92,6 +99,47 @@ export function teamsReplyAddress(conversationId: string, tenantId: string, botI
     from: { id: botId },
     recipient: { id: recipientId },
   };
+}
+
+export function teamsApprovalCard(text: string, approvalId: string): Record<string, unknown> {
+  return {
+    contentType: "application/vnd.microsoft.card.adaptive",
+    content: {
+      type: "AdaptiveCard",
+      $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+      version: "1.4",
+      body: [{ type: "TextBlock", text: text.replace(/([\\`*_~\[\]])/g, "\\$1"), wrap: true }],
+      actions: [
+        { type: "Action.Submit", title: "Approve", data: { shiba: buildDecisionData(true, approvalId) } },
+        { type: "Action.Submit", title: "Reject", data: { shiba: buildDecisionData(false, approvalId) } },
+      ],
+    },
+  };
+}
+
+/** Post the second publication approval and repoint this conversation's active approval pointer at it. */
+export async function postTeamsPublicationApproval(env: Env, threadKey: string, text: string, approvalId: string, deps: { adapter?: ChannelAdapter } = {}): Promise<boolean> {
+  const settings = teamsSettings(env);
+  if (!settings) return false;
+  const destination = await env.AGENT_AUDIT.prepare(`SELECT r.* FROM teams_task_replies r JOIN teams_connections c
+    ON c.generation=r.generation WHERE r.thread_key=? AND c.workspace_id=? AND c.app_id=? AND c.tenant_id=?`)
+    .bind(threadKey, ...teamsSettingsKey(settings)).first<TeamsReply>();
+  if (!destination) return false;
+  if (!isTeamsServiceUrl(destination.service_url)) throw new Error("Invalid saved Teams Connector service URL.");
+  const adapter = deps.adapter ?? teamsAdapterFromEnv(env, { serviceUrl: destination.service_url });
+  if (!adapter) throw new Error("Teams Connector is not configured.");
+  await replaceTeamsApproval(env, threadKey, approvalId);
+  const posted = await adapter.post({
+    placeId: destination.conversation_id,
+    replyToMessageId: destination.activity_id,
+    text: "",
+    native: {
+      ...teamsReplyAddress(destination.conversation_id, settings.tenantId, destination.bot_id, destination.recipient_id),
+      attachments: [teamsApprovalCard(text.slice(0, 4000), approvalId)],
+    },
+  });
+  if (/^[A-Za-z0-9@:_;=-][A-Za-z0-9@:_;=.\-]{0,255}$/.test(posted.messageId)) await saveTeamsCard(env, threadKey, posted.messageId);
+  return true;
 }
 
 export async function postTeamsTaskReply(env: Env, threadKey: string, text: string): Promise<void> {

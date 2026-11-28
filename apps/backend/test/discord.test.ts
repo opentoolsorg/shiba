@@ -8,6 +8,7 @@ import {
   DISCORD_INTERACTIONS_PATH,
   DISCORD_REPLAY_WINDOW_SECONDS,
   handleDiscordInteractions,
+  postDiscordPublicationApproval,
   verifyDiscordRequest,
   type DiscordDeps,
 } from "../src/discord.js";
@@ -418,6 +419,32 @@ describe("handleDiscordInteractions /shiba command", () => {
     expect(sends).toHaveLength(1);
     expect(String(sends[0]!.body.content)).toContain("Failed to queue the task");
     expect(String(sends[0]!.body.content)).toContain("GITHUB_TOKEN is not set");
+  });
+});
+
+describe("postDiscordPublicationApproval", () => {
+  it("posts the publication pointer with approve and reject buttons to the source channel", async () => {
+    const posts: unknown[] = [];
+    const adapter = {
+      post: vi.fn(async (input: unknown) => {
+        posts.push(input);
+        return { placeId: CHANNEL_ID, messageId: "publication-message" };
+      }),
+    };
+    const posted = await postDiscordPublicationApproval(
+      env(),
+      `discord:${CHANNEL_ID}`,
+      "External Action: Publish the frozen snapshot.",
+      "pr-publish:agent-tool:run-1",
+      { adapter: adapter as never },
+    );
+    expect(posted).toBe(true);
+    expect(posts[0]).toMatchObject({ placeId: CHANNEL_ID, text: "External Action: Publish the frozen snapshot." });
+    const components = (posts[0] as { native: { components: Array<{ components: Array<{ custom_id: string }> }> } }).native.components;
+    expect(components[0]?.components.map((button) => button.custom_id)).toEqual([
+      "approve:pr-publish:agent-tool:run-1",
+      "reject:pr-publish:agent-tool:run-1",
+    ]);
   });
 });
 

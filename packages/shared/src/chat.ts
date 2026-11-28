@@ -16,7 +16,7 @@ const WEB_CONVERSATION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 // Teams conversation ids look like `19:abc@thread.tacv2;messageid=1` or `a:1xyz`.
 const TEAMS_CONVERSATION_ID = /^[A-Za-z0-9:@._;=-]{1,256}$/;
 const THREAD_NAME = /^(telegram|discord|teams|web):(.+)$/;
-const DECISION_DATA = /^(approve|reject):([0-9a-f-]{36})$/;
+const DECISION_DATA = /^(approve|reject):([a-z0-9][a-z0-9:_-]{0,119})$/;
 const EMPLOYEE_DECISION_DATA = /^(emp-approve|emp-reject):(eap-[0-9a-f]{32})$/;
 
 function isValidConversationId(platform: ChatPlatform, id: string): boolean {
@@ -57,7 +57,7 @@ export interface ChatDecision {
   approvalId: string;
 }
 
-/** Button payload: a pointer, not a capability. Fits Telegram's 64-byte callback_data. */
+/** Button payload: a bounded pointer, not a capability. Initial run approvals fit Telegram's 64-byte callback_data; longer publication pointers are only rendered on platforms with larger action payloads. */
 export function buildDecisionData(approved: boolean, approvalId: string): string {
   return `${approved ? "approve" : "reject"}:${approvalId}`;
 }

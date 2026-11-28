@@ -115,6 +115,16 @@ describe("distinct approval for publishing captured repository files", () => {
     expect(s.get).not.toHaveBeenCalled(); expect(s.fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("accepts only an allowlisted Teams object id as the publication decision authority", async () => {
+    const s = setup();
+    s.env.TEAMS_APPROVERS = "teams-object-id";
+    const proposal = await s.stage();
+    await expect(executePrPublishApproval(s.env, approved(proposal, { decidedBy: "teams:intruder" }), expected, { fetchImpl: s.fetchImpl })).rejects.toThrow("authorized human");
+    await executePrPublishApproval(s.env, approved(proposal, { decidedBy: "teams:teams-object-id" }), expected, { fetchImpl: s.fetchImpl });
+    const commit = s.fetchImpl.mock.calls.find(([resource]) => String(resource).endsWith("/git/commits"));
+    expect((JSON.parse(String(commit?.[1]?.body)) as { message: string }).message).toContain("Approved-by: teams:teams-object-id");
+  });
+
   it.each(["owner@example.com\nReviewed-by: forged", "owner@example.com\r\nApproved-by: forged"])("refuses commit trailer injection in a decision identity %j", async (decidedBy) => {
     const s = setup(); const proposal = await s.stage();
     await expect(executePrPublishApproval(s.env, approved(proposal, { decidedBy }), expected, { fetchImpl: s.fetchImpl })).rejects.toThrow("human approval");

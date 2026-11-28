@@ -4,7 +4,8 @@ import { CodingOrchestrator, type OrchestratorState } from "../src/agents/orches
 import { postToChatThread } from "../src/chat-lane.js";
 import type { Env } from "../src/env.js";
 import worker from "../src/index.js";
-import { formatAgentResult, parseAgentToolInput } from "../src/opencode-input.js";
+import { formatAgentResult, parseAgentToolInput, type CodingTaskResult } from "../src/opencode-input.js";
+import { stagePrPublishApproval } from "../src/pr-publish-approval.js";
 import { setSandboxHandleResolver } from "../src/sandbox/lifecycle.js";
 import { createTeamWorkspace } from "../src/team-workspaces-store.js";
 import { clearSeenTeamsActivities } from "../src/teams.js";
@@ -14,6 +15,7 @@ import { productionEnvStubs, setStateLikeProduction } from "./orchestrator-host.
 const mocks = vi.hoisted(() => ({
   getAgentByName: vi.fn(),
   execute: vi.fn(),
+  reviewer: vi.fn(),
   destroy: vi.fn(async () => {}),
 }));
 vi.mock("agents/routing", () => ({ getAgentByName: mocks.getAgentByName, routeAgentRequest: vi.fn(async () => null) }));
@@ -28,7 +30,7 @@ vi.mock("@cloudflare/think", () => ({
     onRequest() { return new Response(null, { status: 404 }); }
   },
 }));
-vi.mock("agents/agent-tools", () => ({ agentTool: () => ({ execute: mocks.execute }) }));
+vi.mock("agents/agent-tools", () => ({ agentTool: (cls: { name: string }) => ({ execute: cls.name === "ReviewerAgent" ? mocks.reviewer : mocks.execute }) }));
 vi.mock("../src/agents/opencode-agent.js", () => ({ OpenCodeAgent: class {} }));
 setSandboxHandleResolver(() => ({ destroy: mocks.destroy }));
 
@@ -54,6 +56,7 @@ afterEach(() => {
 it("fixture: verifies Teams install, deployment-level self-hosted execution, exact conversation result, and reconnect at Worker ingress", async () => {
   const d1 = customAgentD1();
   try {
+    const publicationObjects = new Map<string, Uint8Array<ArrayBuffer>>();
     const prepare = (sql: string, values: unknown[] = []) => ({
       bind: (...params: unknown[]) => prepare(sql, params),
       async all() {
@@ -85,6 +88,16 @@ it("fixture: verifies Teams install, deployment-level self-hosted execution, exa
       BETTER_AUTH_SECRET: "fixture-auth-secret".repeat(4), BETTER_AUTH_URL: ORIGIN, BETTER_AUTH_OWNER_EMAIL: OWNER,
       BETTER_AUTH_BOOTSTRAP_TOKEN: "fixture-bootstrap",
       GITHUB_TOKEN: "fixture-github-token", Sandbox: {},
+      ATTACHMENTS: {
+        get: async (key: string) => {
+          const bytes = publicationObjects.get(key);
+          return bytes ? { size: bytes.byteLength, arrayBuffer: async () => bytes.slice().buffer } : null;
+        },
+        put: async (key: string, bytes: Uint8Array<ArrayBuffer>) => {
+          publicationObjects.set(key, new Uint8Array(bytes));
+          return { key };
+        },
+      },
       SHIBA_VERIFY_STANDIN: "1",
       TEAMS_APP_ID: APP_ID, TEAMS_APP_PASSWORD: CLIENT_SECRET, TEAMS_APP_TENANT_ID: TENANT, TEAMS_APPROVERS: APPROVER,
     } as unknown as Env;
@@ -112,13 +125,29 @@ it("fixture: verifies Teams install, deployment-level self-hosted execution, exa
       }
       return { fetch: instance.onRequest.bind(instance) };
     });
-    mocks.execute.mockImplementation(async (text: string) => {
+    mocks.execute.mockImplementation(async (text: string, options: { toolCallId: string }) => {
       expect(text).not.toContain(CLIENT_SECRET);
       expect(text).not.toContain(BOT_TOKEN);
       const input = parseAgentToolInput([{ role: "user", text }]);
-      expect(input).toMatchObject({ repoUrl: REPO, task: "Verify the README", publishPullRequest: false });
-      return formatAgentResult({ status: "completed", exitCode: 0, stderrTail: "", changedFiles: [], diff: "", files: [], summary: VERIFY_TEXT });
+      expect(input).toMatchObject({ repoUrl: REPO, task: "Verify the README", publishPullRequest: true });
+      const result: CodingTaskResult = {
+        baseRevision: "a".repeat(40), status: "completed", exitCode: 0, stderrTail: "",
+        changedFiles: ["README.md"], diff: "+verified readme note", files: [{ path: "README.md", content: "verified\n", encoding: "utf8" }], summary: VERIFY_TEXT,
+      };
+      if (!input.accessAgent) throw new Error("Expected the approved run owner.");
+      const publicationProposal = await stagePrPublishApproval(env, {
+        ownerId: input.accessAgent,
+        runId: `agent-tool:${options.toolCallId}`,
+        sandboxId: input.sandboxId,
+        repoUrl: input.repoUrl,
+        baseBranch: input.baseBranch,
+        task: input.task,
+        threadKey: input.approvalThreadKey ?? input.accessAgent,
+        result,
+      });
+      return formatAgentResult({ ...result, publicationProposal });
     });
+    mocks.reviewer.mockResolvedValue({ agent: "reviewer", status: "completed", summary: "Captured changes reviewed.", report: "Reviewed the exact captured diff against the approved task.", findings: [] });
     const keys = await crypto.subtle.generateKey(
       { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
       true, ["sign", "verify"],
@@ -242,6 +271,15 @@ it("fixture: verifies Teams install, deployment-level self-hosted execution, exa
       path: first.path, method: "POST", body: expect.objectContaining({ replyToId: "mention-1", text: expect.stringContaining(VERIFY_TEXT) }),
     })));
     expect(mocks.execute).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(outbound.some((entry) => JSON.stringify(entry.body).includes("pr-publish:agent-tool:"))).toBe(true));
+    const publicationPost = outbound.find((entry) => JSON.stringify(entry.body).includes("pr-publish:agent-tool:"))!;
+    const publicationAttachments = publicationPost.body.attachments as Array<{ content: { body: Array<{ text: string }>; actions: Array<{ data: { shiba: string } }> } }>;
+    expect(publicationAttachments[0]!.content.body[0]!.text).toContain("External Action: Push this frozen snapshot and publish its pull request.");
+    const publicationReject = publicationAttachments[0]!.content.actions[1]!.data;
+    const replyBinding = d1.sqlite.prepare("SELECT approval_id, card_activity_id FROM teams_task_replies WHERE thread_key=?").get(host.name) as { approval_id: string; card_activity_id: string };
+    expect(replyBinding.approval_id).toMatch(/^pr-publish:agent-tool:/);
+    await deliver(activity("publication-reject-1", { value: publicationReject, replyToId: replyBinding.card_activity_id }));
+    await vi.waitFor(() => expect(host.state.pendingApprovals?.some((approval) => approval.kind === "pr_publish" && approval.status === "rejected")).toBe(true));
 
     const denied = await card("mention-2");
     await deliver(activity("click-2", { value: denied.reject, replyToId: denied.id }));

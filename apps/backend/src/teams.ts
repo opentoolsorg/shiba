@@ -12,7 +12,7 @@
  * The Connector retries slow responses, so an authenticated activity is
  * acked at once and the work runs behind `ctx.waitUntil`, deduped on its id.
  */
-import { buildDecisionData, parseDecisionData } from "@shiba/shared";
+import { parseDecisionData } from "@shiba/shared";
 import { sha256Hex } from "./agent-tokens.js";
 import {
   CARD_TASK_LIMIT,
@@ -25,7 +25,7 @@ import {
   type ResolveOrchestrator,
 } from "./chat-lane.js";
 import { isTeamsServiceUrl, parseTeamsActivity, stripTeamsMentions, teamsAdapterFromEnv, teamsTransport, type TeamsActivity } from "./channels/teams/index.js";
-import { recordTeamsInstallation, reserveTeamsReply, saveTeamsApproval, saveTeamsCard, teamsActivityTenant, teamsApprovalThread, teamsGeneration, teamsReplyAddress, teamsSettings } from "./channels/teams/connection.js";
+import { recordTeamsInstallation, reserveTeamsReply, saveTeamsApproval, saveTeamsCard, teamsActivityTenant, teamsApprovalCard, teamsApprovalThread, teamsGeneration, teamsReplyAddress, teamsSettings } from "./channels/teams/connection.js";
 import type { ChannelAdapter, ChannelTransport, InboundAction, InboundMessage } from "./ports/channel/index.js";
 import type { Env } from "./env.js";
 import { redactSecrets } from "./security.js";
@@ -54,22 +54,6 @@ export interface TeamsDeps {
   resolveOrchestrator?: ResolveOrchestrator;
   /** Durable check-and-record for activity ids. True = already seen. */
   dedupe?: (activityId: string) => Promise<boolean>;
-}
-
-function approvalCard(text: string, approvalId: string): Record<string, unknown> {
-  return {
-    contentType: "application/vnd.microsoft.card.adaptive",
-    content: {
-      type: "AdaptiveCard",
-      $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
-      version: "1.4",
-      body: [{ type: "TextBlock", text: text.replace(/([\\`*_~\[\]])/g, "\\$1"), wrap: true }],
-      actions: [
-        { type: "Action.Submit", title: "Approve", data: { shiba: buildDecisionData(true, approvalId) } },
-        { type: "Action.Submit", title: "Reject", data: { shiba: buildDecisionData(false, approvalId) } },
-      ],
-    },
-  };
 }
 
 type ActivityContext = {
@@ -121,7 +105,7 @@ async function handleMessage(message: InboundMessage, context: ActivityContext):
     task: parsed.task,
     userId: message.authorId,
     harness: env.TEAMS_AGENT_HARNESS ?? env.AGENT_HARNESS,
-    publishPullRequest: false,
+    publishPullRequest: true,
   }, deps.resolveOrchestrator);
   if ("error" in queued) {
     await reply(`Failed to queue the task. ${queued.error}`);
@@ -129,8 +113,8 @@ async function handleMessage(message: InboundMessage, context: ActivityContext):
   }
   await saveTeamsApproval(env, threadKey, queued.approvalId);
   if (await teamsGeneration(env, settings) !== generation) return;
-  const cardText = chatApprovalText({ ...parsed, approvalId: queued.approvalId, route: queued.route });
-  const card = await reply("", { attachments: [approvalCard(cardText, queued.approvalId)] });
+  const cardText = chatApprovalText({ ...parsed, approvalId: queued.approvalId, route: queued.route, publishPullRequest: true });
+  const card = await reply("", { attachments: [teamsApprovalCard(cardText, queued.approvalId)] });
   if (ACTIVITY_ID.test(card.messageId)) await saveTeamsCard(env, threadKey, card.messageId);
 }
 

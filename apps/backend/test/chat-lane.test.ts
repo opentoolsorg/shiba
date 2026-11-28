@@ -171,6 +171,10 @@ describe("buildDecisionData / parseDecisionData", () => {
       approved: false,
       approvalId: APPROVAL_ID,
     });
+    expect(parseDecisionData(buildDecisionData(true, `pr-publish:agent-tool:${APPROVAL_ID}`))).toEqual({
+      approved: true,
+      approvalId: `pr-publish:agent-tool:${APPROVAL_ID}`,
+    });
   });
 
   it("stays inside Telegram's 64-byte callback_data limit", () => {
@@ -181,10 +185,8 @@ describe("buildDecisionData / parseDecisionData", () => {
     for (const bad of [
       "",
       "approve:",
-      `approve:${APPROVAL_ID.slice(0, -1)}`,
       `maybe:${APPROVAL_ID}`,
       `approve:${APPROVAL_ID.toUpperCase()}`,
-      `approve:${APPROVAL_ID}:extra`,
       "approve:not-a-uuid-at-all-nor-close!!",
     ]) {
       expect(parseDecisionData(bad)).toBeNull();
