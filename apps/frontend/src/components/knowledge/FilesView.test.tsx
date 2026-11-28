@@ -3,20 +3,14 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FilesView } from "./FilesView";
 
-afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-  vi.restoreAllMocks();
-});
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 function mockApi(failFirst = false) {
-  const uploaded: Array<{ id: string; name: string; size: number; ingestion: { state: string } }> =
-    [];
+  const uploaded: Array<{ id: string; name: string; size: number; ingestion: { state: string } }> = [];
   let name = "";
   const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
     const url = new URL(input, "http://localhost");
-    if (url.pathname === "/api/files/folders" && init?.method !== "POST")
-      return Response.json({ folders: [{ id: "folder-1", name: "Documents" }] });
+    if (url.pathname === "/api/files/folders" && init?.method !== "POST") return Response.json({ folders: [{ id: "folder-1", name: "Documents" }] });
     if (url.pathname === "/api/files/folders" && init?.method === "POST") {
       const folder = JSON.parse(String(init.body));
       const id = `created-${folder.name}`;
@@ -26,8 +20,7 @@ function mockApi(failFirst = false) {
     const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
     if (body?.action === "begin") {
       name = body.name;
-      if (failFirst && name === "bad.md")
-        return Response.json({ error: "Upload rate limit exceeded." }, { status: 429 });
+      if (failFirst && name === "bad.md") return Response.json({ error: "Upload rate limit exceeded." }, { status: 429 });
       return Response.json({ session: { sessionId: "session-1", partSize: 5 * 1024 * 1024 } });
     }
     if (body?.action === "complete") {
@@ -52,9 +45,7 @@ describe("FilesView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Upload" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /Upload File/ }));
     expect(click).toHaveBeenCalledOnce();
-    fireEvent.change(input, {
-      target: { files: [new File(["A real document.\n"], "notes.md", { type: "text/markdown" })] },
-    });
+    fireEvent.change(input, { target: { files: [new File(["A real document.\n"], "notes.md", { type: "text/markdown" })] } });
     await screen.findByText("notes.md", { selector: "span" });
     expect(screen.getByText("17 bytes")).toBeTruthy();
     expect(screen.getByText("done", { selector: "span" })).toBeTruthy();
@@ -68,33 +59,17 @@ describe("FilesView", () => {
     await screen.findByRole("option", { name: "Documents" });
     fireEvent.change(screen.getByLabelText("Scope"), { target: { value: "workspace" } });
     await screen.findByRole("option", { name: "Documents" });
-    fireEvent.change(screen.getByLabelText("Folder", { exact: true }), {
-      target: { value: "folder-1" },
-    });
+    fireEvent.change(screen.getByLabelText("Folder", { exact: true }), { target: { value: "folder-1" } });
     fireEvent.drop(screen.getByRole("region", { name: "File list" }), {
-      dataTransfer: {
-        files: [
-          new File(["bad"], "bad.md", { type: "text/markdown" }),
-          new File(["good"], "good.pdf", { type: "application/pdf" }),
-        ],
-      },
+      dataTransfer: { files: [new File(["bad"], "bad.md", { type: "text/markdown" }), new File(["good"], "good.pdf", { type: "application/pdf" })] },
     });
     await screen.findByText("good.pdf", { selector: "span" });
     expect(screen.getByRole("alert").textContent).toContain("Upload rate limit exceeded.");
-    const begin = api.mock.calls.find(
-      ([, init]) => typeof init?.body === "string" && init.body.includes('"name":"good.pdf"'),
-    );
+    const begin = api.mock.calls.find(([, init]) => typeof init?.body === "string" && init.body.includes('"name":"good.pdf"'));
     if (!begin?.[1]) throw new Error("Expected PDF begin request.");
     expect(begin[0]).toContain("scope=workspace");
-    expect(JSON.parse(begin[1].body as string)).toMatchObject({
-      scope: "workspace",
-      folderId: "folder-1",
-    });
-    await waitFor(() =>
-      expect((screen.getByRole("button", { name: "Upload" }) as HTMLButtonElement).disabled).toBe(
-        false,
-      ),
-    );
+    expect(JSON.parse(begin[1].body as string)).toMatchObject({ scope: "workspace", folderId: "folder-1" });
+    await waitFor(() => expect((screen.getByRole("button", { name: "Upload" }) as HTMLButtonElement).disabled).toBe(false));
     expect(api.mock.calls.some(([url]) => url.includes("folderId=folder-1"))).toBe(true);
   });
 
@@ -106,68 +81,34 @@ describe("FilesView", () => {
     });
     vi.spyOn(globalThis, "clearInterval").mockImplementation(() => {});
     let lists = 0;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) =>
-        url.includes("/folders")
-          ? Response.json({ folders: [] })
-          : Response.json({
-              files: [
-                {
-                  id: "file-1",
-                  name: "pending.md",
-                  size: 12,
-                  ingestion: { state: ++lists === 1 ? "pending" : "done" },
-                },
-              ],
-            }),
-      ),
-    );
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => url.includes("/folders")
+      ? Response.json({ folders: [] })
+      : Response.json({ files: [{ id: "file-1", name: "pending.md", size: 12, ingestion: { state: ++lists === 1 ? "pending" : "done" } }] })));
     render(<FilesView />);
     await screen.findByText("pending", { selector: "span" });
     expect(poll).toBeTypeOf("function");
-    await act(async () => {
-      poll?.();
-    });
+    await act(async () => { poll?.(); });
     await screen.findByText("done", { selector: "span" });
     expect(lists).toBe(2);
   });
+
 
   it("dismisses search results when the search control is closed", async () => {
     const api = vi.fn(async (input: string) => {
       const url = new URL(input, "http://localhost");
       if (url.pathname === "/api/files/folders") return Response.json({ folders: [] });
       if (url.pathname === "/api/files") return Response.json({ files: [] });
-      if (url.pathname === "/api/knowledge/search")
-        return Response.json({
-          hits: [
-            {
-              chunkId: "chunk-1",
-              sourceKind: "file",
-              sourceId: "file-1",
-              sourceName: "notes.md",
-              scope: "personal",
-              ordinal: 0,
-              text: "needle passage",
-              score: 1,
-              rank: 1,
-            },
-          ],
-        });
+      if (url.pathname === "/api/knowledge/search") return Response.json({
+        hits: [{ chunkId: "chunk-1", sourceKind: "file", sourceId: "file-1", sourceName: "notes.md", scope: "personal", ordinal: 0, text: "needle passage", score: 1, rank: 1 }],
+      });
       return Response.json({}, { status: 404 });
     });
     vi.stubGlobal("fetch", api);
     render(<FilesView />);
     fireEvent.click(screen.getByRole("button", { name: "Search files" }));
-    fireEvent.change(screen.getByLabelText("Search files and notes"), {
-      target: { value: "needle" },
-    });
+    fireEvent.change(screen.getByLabelText("Search files and notes"), { target: { value: "needle" } });
     fireEvent.submit(screen.getByRole("search", { name: "Search knowledge" }));
-    await waitFor(() =>
-      expect(api.mock.calls.some(([url]) => String(url).includes("/api/knowledge/search"))).toBe(
-        true,
-      ),
-    );
+    await waitFor(() => expect(api.mock.calls.some(([url]) => String(url).includes("/api/knowledge/search"))).toBe(true));
     await screen.findByText("notes.md");
     fireEvent.click(screen.getByRole("button", { name: "Close search files" }));
     await waitFor(() => expect(screen.queryByText("notes.md")).toBeNull());
@@ -182,16 +123,12 @@ describe("FilesView", () => {
     Object.defineProperty(file, "webkitRelativePath", { value: "root/sub/inner.md" });
     fireEvent.change(screen.getByLabelText("Upload folder"), { target: { files: [file] } });
     await screen.findByText("inner.md", { selector: "span" });
-    const folderPosts = api.mock.calls.filter(
-      ([url, init]) => String(url).startsWith("/api/files/folders") && init?.method === "POST",
-    );
+    const folderPosts = api.mock.calls.filter(([url, init]) => String(url).startsWith("/api/files/folders") && init?.method === "POST");
     expect(folderPosts.map(([, init]) => JSON.parse(String(init?.body)))).toEqual([
       { name: "root", scope: "personal", parentId: null },
       { name: "sub", scope: "personal", parentId: "created-root" },
     ]);
-    const begin = api.mock.calls.find(
-      ([, init]) => typeof init?.body === "string" && init.body.includes('"name":"inner.md"'),
-    );
+    const begin = api.mock.calls.find(([, init]) => typeof init?.body === "string" && init.body.includes('"name":"inner.md"'));
     expect(JSON.parse(String(begin?.[1]?.body))).toMatchObject({ folderId: "created-sub" });
   });
 
@@ -212,23 +149,15 @@ describe("FilesView", () => {
     expect(window.sessionStorage.getItem("shiba:notes:create-after-navigation")).toBe("workspace");
   });
 
+
+
   it("moves a file into a folder from its row action", async () => {
-    const record = {
-      id: "file-1",
-      name: "notes.md",
-      mime: "text/markdown",
-      size: 17,
-      updatedAt: 1,
-      folderId: null,
-      ingestion: { state: "done" },
-    };
+    const record = { id: "file-1", name: "notes.md", mime: "text/markdown", size: 17, updatedAt: 1, folderId: null, ingestion: { state: "done" } };
     const api = vi.fn(async (input: string, init?: RequestInit) => {
       const url = new URL(input, "http://localhost");
-      if (url.pathname === "/api/files/folders")
-        return Response.json({ folders: [{ id: "folder-1", name: "Documents" }] });
+      if (url.pathname === "/api/files/folders") return Response.json({ folders: [{ id: "folder-1", name: "Documents" }] });
       if (url.pathname === "/api/files") return Response.json({ files: [record] });
-      if (url.pathname === "/api/files/file-1" && init?.method === "PATCH")
-        return Response.json({ file: { ...record, folderId: "folder-1" } });
+      if (url.pathname === "/api/files/file-1" && init?.method === "PATCH") return Response.json({ file: { ...record, folderId: "folder-1" } });
       return Response.json({ error: "unexpected" }, { status: 404 });
     });
     vi.stubGlobal("fetch", api);
@@ -236,27 +165,13 @@ describe("FilesView", () => {
     await screen.findByText("notes.md", { selector: "span" });
     fireEvent.click(screen.getByRole("button", { name: "Move notes.md" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Documents" }));
-    await waitFor(() =>
-      expect(
-        api.mock.calls.some(
-          ([url, init]) => String(url).includes("/api/files/file-1") && init?.method === "PATCH",
-        ),
-      ).toBe(true),
-    );
+    await waitFor(() => expect(api.mock.calls.some(([url, init]) => String(url).includes("/api/files/file-1") && init?.method === "PATCH")).toBe(true));
     const patch = api.mock.calls.find(([, init]) => init?.method === "PATCH");
     expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ folderId: "folder-1" });
   });
 
   it("selects and deletes files in bulk", async () => {
-    const record = {
-      id: "file-1",
-      name: "notes.md",
-      mime: "text/markdown",
-      size: 17,
-      updatedAt: 1,
-      folderId: null,
-      ingestion: { state: "done" },
-    };
+    const record = { id: "file-1", name: "notes.md", mime: "text/markdown", size: 17, updatedAt: 1, folderId: null, ingestion: { state: "done" } };
     let archived = false;
     const api = vi.fn(async (input: string, init?: RequestInit) => {
       const url = new URL(input, "http://localhost");
@@ -274,47 +189,21 @@ describe("FilesView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Select items" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Select notes.md" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete (1)" }));
-    await waitFor(() =>
-      expect(
-        api.mock.calls.some(
-          ([url, init]) => String(url).includes("/api/files/file-1") && init?.method === "DELETE",
-        ),
-      ).toBe(true),
-    );
+    await waitFor(() => expect(api.mock.calls.some(([url, init]) => String(url).includes("/api/files/file-1") && init?.method === "DELETE")).toBe(true));
     await waitFor(() => expect(screen.queryByText("notes.md", { selector: "span" })).toBeNull());
     expect(screen.getByRole("button", { name: "Select items" })).toBeTruthy();
   });
 
+
   it("keeps failed bulk deletions selected and reports the remaining count", async () => {
-    const readonlyFile = {
-      id: "file-readonly",
-      name: "readonly.md",
-      mime: "text/markdown",
-      size: 9,
-      updatedAt: 1,
-      folderId: null,
-      ingestion: { state: "done" },
-    };
-    const ownedFile = {
-      id: "file-owned",
-      name: "owned.md",
-      mime: "text/markdown",
-      size: 8,
-      updatedAt: 1,
-      folderId: null,
-      ingestion: { state: "done" },
-    };
+    const readonlyFile = { id: "file-readonly", name: "readonly.md", mime: "text/markdown", size: 9, updatedAt: 1, folderId: null, ingestion: { state: "done" } };
+    const ownedFile = { id: "file-owned", name: "owned.md", mime: "text/markdown", size: 8, updatedAt: 1, folderId: null, ingestion: { state: "done" } };
     let ownedArchived = false;
     const api = vi.fn(async (input: string, init?: RequestInit) => {
       const url = new URL(input, "http://localhost");
       if (url.pathname === "/api/files/folders") return Response.json({ folders: [] });
-      if (url.pathname === "/api/files")
-        return Response.json({ files: [readonlyFile, ...(ownedArchived ? [] : [ownedFile])] });
-      if (url.pathname === "/api/files/file-readonly" && init?.method === "DELETE")
-        return Response.json(
-          { error: "You do not have permission to edit this resource." },
-          { status: 403 },
-        );
+      if (url.pathname === "/api/files") return Response.json({ files: [readonlyFile, ...(ownedArchived ? [] : [ownedFile])] });
+      if (url.pathname === "/api/files/file-readonly" && init?.method === "DELETE") return Response.json({ error: "You do not have permission to edit this resource." }, { status: 403 });
       if (url.pathname === "/api/files/file-owned" && init?.method === "DELETE") {
         ownedArchived = true;
         return Response.json({ file: { ...ownedFile, archivedAt: 2 } });
@@ -330,28 +219,18 @@ describe("FilesView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete (2)" }));
     await screen.findByText("1 selected file could not be deleted.");
     expect(screen.getByRole("button", { name: "Delete (1)" })).toBeTruthy();
-    expect(
-      (screen.getByRole("checkbox", { name: "Select readonly.md" }) as HTMLInputElement).checked,
-    ).toBe(true);
+    expect((screen.getByRole("checkbox", { name: "Select readonly.md" }) as HTMLInputElement).checked).toBe(true);
     expect(screen.queryByRole("checkbox", { name: "Select owned.md" })).toBeNull();
   });
 
+
   it("opens a markdown file in the detail viewer and returns to the list", async () => {
-    const record = {
-      id: "file-1",
-      name: "notes.md",
-      mime: "text/markdown",
-      size: 17,
-      updatedAt: 1,
-      folderId: null,
-      ingestion: { state: "done" },
-    };
+    const record = { id: "file-1", name: "notes.md", mime: "text/markdown", size: 17, updatedAt: 1, folderId: null, ingestion: { state: "done" } };
     const api = vi.fn(async (input: string) => {
       const url = new URL(input, "http://localhost");
       if (url.pathname === "/api/files/folders") return Response.json({ folders: [] });
       if (url.pathname === "/api/files") return Response.json({ files: [record] });
-      if (url.pathname === "/api/files/file-1/download")
-        return new Response("# Release checklist\n\nShip it.", { status: 200 });
+      if (url.pathname === "/api/files/file-1/download") return new Response("# Release checklist\n\nShip it.", { status: 200 });
       return Response.json({ error: "unexpected" }, { status: 404 });
     });
     vi.stubGlobal("fetch", api);
@@ -367,23 +246,13 @@ describe("FilesView", () => {
   });
 
   it("uses the sandboxed generated-page preview for generated HTML files", async () => {
-    const record = {
-      id: "file-html",
-      name: "report.html",
-      mime: "text/html",
-      size: 40,
-      updatedAt: 1,
-      folderId: null,
-      ingestion: { state: "done" },
-    };
+    const record = { id: "file-html", name: "report.html", mime: "text/html", size: 40, updatedAt: 1, folderId: null, ingestion: { state: "done" } };
     const api = vi.fn(async (input: string) => {
       const url = new URL(input, "http://localhost");
       if (url.pathname === "/api/files/folders") return Response.json({ folders: [] });
       if (url.pathname === "/api/files") return Response.json({ files: [record] });
-      if (url.pathname === "/api/files/file-html/download")
-        return new Response("<h1>Report</h1>", { status: 200 });
-      if (url.pathname === "/api/files/file-html/preview")
-        return new Response("<h1>Report</h1>", { status: 200 });
+      if (url.pathname === "/api/files/file-html/download") return new Response("<h1>Report</h1>", { status: 200 });
+      if (url.pathname === "/api/files/file-html/preview") return new Response("<h1>Report</h1>", { status: 200 });
       return Response.json({ error: "unexpected" }, { status: 404 });
     });
     vi.stubGlobal("fetch", api);
@@ -391,21 +260,11 @@ describe("FilesView", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Open report.html" }));
     await screen.findByRole("region", { name: "report.html viewer" });
     await waitFor(() => expect(screen.getByTitle("report.html preview")).toBeTruthy());
-    expect(screen.getByTitle("report.html preview").getAttribute("src")).toBe(
-      "/api/files/file-html/preview",
-    );
+    expect(screen.getByTitle("report.html preview").getAttribute("src")).toBe("/api/files/file-html/preview");
   });
 
   it("links media previews directly to the authenticated download route", async () => {
-    const record = {
-      id: "file-image",
-      name: "image.png",
-      mime: "image/png",
-      size: 40,
-      updatedAt: 1,
-      folderId: null,
-      ingestion: { state: "done" },
-    };
+    const record = { id: "file-image", name: "image.png", mime: "image/png", size: 40, updatedAt: 1, folderId: null, ingestion: { state: "done" } };
     const api = vi.fn(async (input: string) => {
       const url = new URL(input, "http://localhost");
       if (url.pathname === "/api/files/folders") return Response.json({ folders: [] });
