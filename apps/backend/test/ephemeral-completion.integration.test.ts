@@ -146,6 +146,10 @@ function fixture(mode: "local-outputs" | "outputs" | "empty" | "storage-failure"
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = input instanceof Request ? input.url : String(input);
     if (!url.startsWith("https://slack.com/api/")) throw new Error(`Unexpected external fixture request: ${url}`);
+    // The reply gate reads the channel's audience before posting; this thread is internal.
+    if (url.startsWith("https://slack.com/api/conversations.info")) {
+      return Response.json({ ok: true, channel: { id: new URL(url).searchParams.get("channel"), is_ext_shared: false } });
+    }
     const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
     slackMessages.push(body);
     return Response.json({ ok: true, channel: "C_PHASE1", ts: "123.789" });
