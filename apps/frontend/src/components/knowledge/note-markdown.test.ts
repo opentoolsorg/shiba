@@ -382,7 +382,24 @@ describe("note Markdown", () => {
       ],
     };
     const saved = serializeNoteMarkdown(doc);
-    expect(saved).toContain("first\n~~second~~");
+    expect(saved).toContain("first&#10;<del>second</del>");
     expect(parseNoteMarkdown(saved)).toEqual(doc);
+  });
+  it("uses del HTML for trailing-space and punctuation strike boundaries", () => {
+    for (const segments of [
+      [
+        { type: "text", text: "trim ", marks: [{ type: "strike" }] },
+        { type: "text", text: "plain" },
+      ],
+      [
+        { type: "text", text: "!", marks: [{ type: "strike" }] },
+        { type: "text", text: "plain" },
+      ],
+    ]) {
+      const doc = { type: "doc", content: [{ type: "paragraph", content: segments }] };
+      const saved = serializeNoteMarkdown(doc);
+      expect(saved).toContain("<del>");
+      expect(parseNoteMarkdown(saved)).toEqual(doc);
+    }
   });
 });

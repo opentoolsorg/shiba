@@ -28,7 +28,6 @@ type InlineSegment = {
   marks: string[];
   code: boolean;
   hardBreak?: boolean;
-  htmlStrike?: boolean;
 };
 type ReferenceTarget = { url: string; title?: string | null };
 type ReferenceMap = ReadonlyMap<string, ReferenceTarget>;
@@ -392,35 +391,11 @@ function decodeLinkKey(key: string): { href: string; title: string | null } {
   }
 }
 
-function wordChar(value: string | undefined): boolean {
-  return value !== undefined && /[\p{L}\p{N}]/u.test(value);
-}
-
-function markStrikeBoundaries(segments: InlineSegment[]): InlineSegment[] {
-  return segments.map((segment, index) => {
-    if (!segment.marks.includes("strike") || segment.hardBreak) return segment;
-    const previous = segments[index - 1];
-    const next = segments[index + 1];
-    const before =
-      previous && !previous.hardBreak && !previous.marks.includes("strike")
-        ? previous.value.at(-1)
-        : undefined;
-    const after =
-      next && !next.hardBreak && !next.marks.includes("strike") ? next.value.charAt(0) : undefined;
-    const htmlStrike =
-      (wordChar(before) && wordChar(segment.value.charAt(0))) ||
-      (wordChar(segment.value.at(-1)) && wordChar(after));
-    return htmlStrike ? { ...segment, htmlStrike: true } : segment;
-  });
-}
-
-function applyMark(nodes: MdastNode[], markType: string, htmlStrike = false): MdastNode[] {
+function applyMark(nodes: MdastNode[], markType: string): MdastNode[] {
   if (markType === "bold") return [{ type: "strong", children: nodes }];
   if (markType === "italic") return [{ type: "emphasis", children: nodes }];
   if (markType === "strike")
-    return htmlStrike
-      ? [{ type: "html", value: "<del>" }, ...nodes, { type: "html", value: "</del>" }]
-      : [{ type: "delete", children: nodes }];
+    return [{ type: "html", value: "<del>" }, ...nodes, { type: "html", value: "</del>" }];
   if (markType === "underline")
     return [{ type: "html", value: "<u>" }, ...nodes, { type: "html", value: "</u>" }];
   if (markType === "highlight")
@@ -497,28 +472,60 @@ function markedMdast(segments: InlineSegment[], depth = 0): MdastNode[] {
     )
       end++;
     const children = markedMdast(segments.slice(index, end), depth + 1);
-    result.push(
-      ...(activeKey
-        ? applyMark(
-            children,
-            activeKey,
-            activeKey === "strike" &&
-              segments.slice(index, end).some((segment) => segment.htmlStrike),
-          )
-        : children),
-    );
+    result.push(...(activeKey ? applyMark(children, activeKey) : children));
     index = end;
   }
   return result;
 }
 
 function inlineMdast(nodes: JSONContent[] = []): MdastNode[] {
-  return markedMdast(markStrikeBoundaries(inlineSegments(nodes)));
+  return preserveNewlinesBeforeHtml(markedMdast(inlineSegments(nodes)));
+}
+
+function newlineFallbackNodes(value: string): MdastNode[] {
+  const nodes: MdastNode[] = [];
+  let spaces = "";
+  for (const char of value) {
+    if (char === "\n") {
+      if (spaces) {
+        nodes.push({ type: "text", value: spaces });
+        spaces = "";
+      }
+      nodes.push({ type: "html", value: "&#10;" });
+    } else spaces += char;
+  }
+  if (spaces) nodes.push({ type: "text", value: spaces });
+  return nodes;
+}
+
+function preserveNewlinesBeforeHtml(nodes: MdastNode[]): MdastNode[] {
+  const result: MdastNode[] = [];
+  for (let index = 0; index < nodes.length; index++) {
+    const input = nodes[index] ?? { type: "text" };
+    const node = { ...input };
+    if (node.children) node.children = preserveNewlinesBeforeHtml(node.children);
+    const next = nodes[index + 1];
+    const trailing = node.type === "text" ? /((?:\n[ \t]*)+)$/.exec(node.value ?? "") : null;
+    if (
+      trailing &&
+      next?.type === "html" &&
+      (next.value === "<u>" || next.value === "<mark>" || next.value === "<del>")
+    ) {
+      const trailingText = trailing[1] ?? "";
+      const before = (node.value ?? "").slice(0, -trailingText.length);
+      if (before) result.push({ ...node, value: before });
+      result.push(...newlineFallbackNodes(trailingText));
+    } else result.push(node);
+  }
+  return result;
 }
 
 function inlineMarkdown(children: JSONContent[] | undefined): string {
   return toMarkdown(
-    { type: "root", children: [{ type: "paragraph", children: inlineMdast(children) }] } as never,
+    {
+      type: "root",
+      children: [{ type: "paragraph", children: inlineMdast(children) }],
+    } as never,
     markdownOptions as never,
   ).replace(/\n$/, "");
 }
