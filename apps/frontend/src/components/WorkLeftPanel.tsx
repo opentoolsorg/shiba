@@ -15,6 +15,7 @@ export interface WorkLeftPanelTask {
 
 export interface WorkLeftPanelProps {
   scope: WorkScope;
+  workspaceName?: string;
   onScopeChange: (scope: WorkScope) => void;
   view: WorkHeaderViewMode;
   onViewChange: (view: WorkHeaderViewMode) => void;
@@ -44,6 +45,8 @@ const SECTIONS = [
 const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]";
 
 export function WorkLeftPanel({
+  scope,
+  workspaceName,
   view,
   onViewChange,
   needsYou,
@@ -65,6 +68,14 @@ export function WorkLeftPanel({
 
   return (
     <aside aria-label="Work" className={`shiba-context-panel text-[var(--fg)] ${className}`.trim()}>
+      <div className="flex shrink-0 items-center gap-2 px-1 pb-1">
+        <span className="grid size-6 shrink-0 place-items-center rounded-md bg-[var(--secondary)] text-[11px] font-semibold text-[var(--muted-foreground-1)]" aria-hidden="true">
+          {(scope === "workspace" ? workspaceName || "Team workspace" : "Personal workspace").slice(0, 1).toUpperCase()}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+          {scope === "workspace" ? workspaceName || "Team workspace" : "Personal workspace"}
+        </span>
+      </div>
       <AppAreaNavigation />
       <div className="flex shrink-0 items-center justify-between px-1">
         <h2 className="text-[14px] font-semibold tracking-tight">Work</h2>

@@ -16,17 +16,17 @@ does not rename a live Durable Object binding.
                                             ▼
 ┌──────────────────── Cloudflare Worker: shiba control plane ───────────────────┐
 │                                                                               │
-│  Employee Orchestrator (current implementation: CodingOrchestrator DO)        │
-│  conversation · employee/profile version · goal/plan/task · approval queue    │
-│  delegation · run lineage · durable event spine · cancellation                │
+│  EmployeeRuntime DO + CodingOrchestrator DO                             │
+│  actor-private runtime chat/memory/routines · room/coding orchestration       │
+│  approval queue · run lineage · durable event spine · cancellation/recovery   │
 │                                                                               │
 │  Authority plane                                                              │
 │  workspace membership/roles · employee access/version · exact tool grants     │
 │  approval freezing · resource/policy checks · publication receipts            │
 │                                                                               │
 │  Coordination state (Durable Objects)                                         │
-│  Run Execution Agent (OpenCodeAgent) · Sandbox · Automations · Mailbox        │
-│  Memory · ModelConfig · LocalDispatch · ChatGptAuth · UserProviderOAuth       │
+│  EmployeeRuntime · Run Execution Agent (OpenCodeAgent) · Sandbox · Automations │
+│  Mailbox · Memory · ModelConfig · LocalDispatch · ChatGptAuth · UserProviderOAuth       │
 │  Spaces · ConversationRoom · WorkspaceEvents · DiscordGateway · BrowserSession│
 │  Waitlist · optional computer/session control                                 │
 │                                                                               │

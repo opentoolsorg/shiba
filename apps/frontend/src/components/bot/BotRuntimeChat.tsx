@@ -110,12 +110,82 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant =
     void load();
   }, [load]);
 
-  const finishTurn = async () => {
+  const finishTurn = useCallback(async () => {
     setPendingUser(null);
     setStreamingText("");
     setActiveExecution(null);
     await load();
-  };
+  }, [load]);
+
+  const consumeExecutionStream = useCallback(async (initialRequest: { path: string; body: Record<string, unknown> }, knownExecutionId: string | null = null): Promise<string | null> => {
+    let executionId: string | null = knownExecutionId;
+    let lastSeq = 0;
+    let terminalType: "done" | "error" | null = null;
+    let terminalError: string | null = null;
+    let request = initialRequest;
+    let lastDisconnect: unknown = null;
+    for (let attempt = 0; attempt < 4 && !terminalType; attempt += 1) {
+      try {
+        const response = await fetch(runtimePath(request.path), {
+          method: "POST", credentials: "same-origin",
+          headers: { "content-type": "application/json", ...teamWorkspaceHeaders(workspaceId) },
+          body: JSON.stringify(request.body),
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({})) as { error?: string };
+          throw new Error(payload.error ?? `Runtime chat failed (${response.status}).`);
+        }
+        await readSse(response, (event, eventId) => {
+          if (typeof eventId === "number" && Number.isFinite(eventId)) lastSeq = Math.max(lastSeq, eventId);
+          if (event.type === "execution") { executionId = event.execution.id; setActiveExecution(event.execution); }
+          if (event.type === "delta") setStreamingText((current) => current + event.text);
+          if (event.type === "tool") {
+            setToolEvents((current) => [...current.filter((item) => !(item.toolCallId === event.tool.toolCallId && item.state === event.tool.state)), event.tool]);
+          }
+          if (event.type === "done" || event.type === "error") {
+            terminalType = event.type;
+            terminalError = event.type === "error" ? event.error : null;
+          }
+        });
+        if (!terminalType) {
+          if (!executionId) throw new Error("Runtime stream disconnected before execution started.");
+          request = { path: "/chat/stream/resume", body: { conversationId, executionId, afterSeq: lastSeq } };
+        }
+      } catch (cause) {
+        lastDisconnect = cause;
+        if (!executionId || attempt === 3) throw cause;
+        request = { path: "/chat/stream/resume", body: { conversationId, executionId, afterSeq: lastSeq } };
+      }
+    }
+    if (!terminalType) throw lastDisconnect instanceof Error ? lastDisconnect : new Error("Runtime stream disconnected before completion.");
+    return terminalType === "error" ? terminalError ?? "Employee inference failed." : null;
+  }, [conversationId, runtimePath, workspaceId]);
+
+  const autoResumeAttempts = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (loading || busy || activeExecution) return;
+    const running = executions.find((execution) => execution.status === "running" && execution.recoverable !== true && execution.resumable === true);
+    if (!running || autoResumeAttempts.current.has(running.id)) return;
+    autoResumeAttempts.current.add(running.id);
+    setBusy(true);
+    setError(null);
+    setStreamingText("");
+    setToolEvents([]);
+    setActiveExecution(running);
+    void (async () => {
+      try {
+        const streamError = await consumeExecutionStream({ path: "/chat/stream/resume", body: { conversationId, executionId: running.id, afterSeq: 0 } }, running.id);
+        if (streamError) setError(streamError);
+        await finishTurn();
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "Runtime stream could not be resumed.");
+        await finishTurn();
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }, [activeExecution, busy, consumeExecutionStream, conversationId, executions, finishTurn, loading]);
 
   const send = async () => {
     const text = draft.trim();
@@ -131,47 +201,8 @@ export function BotRuntimeChat({ agentId, workspaceId, conversationId, variant =
     setStreamingText("");
     setToolEvents([]);
     try {
-      let executionId: string | null = null;
-      let lastSeq = 0;
-      let terminalType: "done" | "error" | null = null;
-      let terminalError: string | null = null;
-      let request: { path: string; body: Record<string, unknown> } = { path: "/chat/stream", body: { conversationId, message: text, mode: "chat" } };
-      let lastDisconnect: unknown = null;
-      for (let attempt = 0; attempt < 4 && !terminalType; attempt += 1) {
-        try {
-          const response = await fetch(runtimePath(request.path), {
-            method: "POST", credentials: "same-origin",
-            headers: { "content-type": "application/json", ...teamWorkspaceHeaders(workspaceId) },
-            body: JSON.stringify(request.body),
-          });
-          if (!response.ok) {
-            const payload = await response.json().catch(() => ({})) as { error?: string };
-            throw new Error(payload.error ?? `Runtime chat failed (${response.status}).`);
-          }
-          await readSse(response, (event, eventId) => {
-            if (typeof eventId === "number" && Number.isFinite(eventId)) lastSeq = Math.max(lastSeq, eventId);
-            if (event.type === "execution") { executionId = event.execution.id; setActiveExecution(event.execution); }
-            if (event.type === "delta") setStreamingText((current) => current + event.text);
-            if (event.type === "tool") {
-              setToolEvents((current) => [...current.filter((item) => !(item.toolCallId === event.tool.toolCallId && item.state === event.tool.state)), event.tool]);
-            }
-            if (event.type === "done" || event.type === "error") {
-              terminalType = event.type;
-              terminalError = event.type === "error" ? event.error : null;
-            }
-          });
-          if (!terminalType) {
-            if (!executionId) throw new Error("Runtime stream disconnected before execution started.");
-            request = { path: "/chat/stream/resume", body: { conversationId, executionId, afterSeq: lastSeq } };
-          }
-        } catch (cause) {
-          lastDisconnect = cause;
-          if (!executionId || attempt === 3) throw cause;
-          request = { path: "/chat/stream/resume", body: { conversationId, executionId, afterSeq: lastSeq } };
-        }
-      }
-      if (!terminalType) throw lastDisconnect instanceof Error ? lastDisconnect : new Error("Runtime stream disconnected before completion.");
-      if (terminalType === "error") setError(terminalError ?? "Employee inference failed.");
+      const streamError = await consumeExecutionStream({ path: "/chat/stream", body: { conversationId, message: text, mode: "chat" } });
+      if (streamError) setError(streamError);
       await finishTurn();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Runtime chat failed. Refresh before retrying.");

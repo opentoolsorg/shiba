@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isTeamWorkspaceId, type TeamWorkspaceSummary } from "@shiba/shared";
+import { TEAM_WORKSPACE_REVOKED_ERROR } from "./team-workspaces-client";
 
 export interface RoomLink { workspaceId: string; roomId: string }
 export type RoomLinkIntent = RoomLink | "invalid" | null;
@@ -45,7 +46,8 @@ export function useRoomLinkRoute(actorId: string | null, directory: Directory) {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
   const target = intent && intent !== "invalid" ? intent : null;
-  const membership = Boolean(target && actorId && directory.verified && !directory.error &&
+  const revocationNotice = directory.error === TEAM_WORKSPACE_REVOKED_ERROR;
+  const membership = Boolean(target && actorId && ((directory.verified && !directory.error) || revocationNotice) &&
     directory.workspaces.some((workspace) => workspace.workspaceId === target.workspaceId &&
       workspace.membership.workspaceId === target.workspaceId && workspace.membership.userId === actorId));
   const ready = !intent || Boolean(membership && directory.selectedWorkspaceId === target?.workspaceId);

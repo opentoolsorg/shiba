@@ -131,7 +131,7 @@ export function WorkTimelineView({
   onSchedule,
   className = "",
   emptyTitle = "No tasks yet",
-  emptyDescription = "Add a task above. It lands in Todo.",
+  emptyDescription = "Add a task below. It lands in Todo.",
 }: WorkTimelineViewProps): JSX.Element {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const empty = tasks.length === 0;

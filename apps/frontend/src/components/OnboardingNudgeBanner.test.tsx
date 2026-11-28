@@ -30,7 +30,7 @@ describe("OnboardingNudgeBanner", () => {
   it("hides on dismissal and notifies its parent", () => {
     const onDismiss = vi.fn();
     render(<OnboardingNudgeBanner status={status} onResume={() => {}} onDismiss={onDismiss} />);
-    fireEvent.click(screen.getByRole("button", { name: "Dismiss for now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(onDismiss).toHaveBeenCalledOnce();
     expect(screen.queryByRole("region", { name: "Setup reminder" })).toBeNull();
   });

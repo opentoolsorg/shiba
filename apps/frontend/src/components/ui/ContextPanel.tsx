@@ -12,7 +12,7 @@ export function PanelIconButton({ label, onClick, children }: { label: string; o
 }
 
 /** ~265px context panel: title row, optional scope switch, then content. */
-export function ContextPanel({ title, actions, children, className = "" }: {
+export function ContextPanel({ title, actions, children, className = "", scope }: {
   title: string;
   actions?: ReactNode;
   scope?: Scope;
@@ -22,6 +22,16 @@ export function ContextPanel({ title, actions, children, className = "" }: {
 }): JSX.Element {
   return (
     <aside aria-label={title} className={`shiba-destination-panel flex h-full shrink-0 flex-col overflow-hidden ${className}`.trim()}>
+      {scope ? (
+        <div className="flex shrink-0 items-center gap-2 px-3 pb-1 pt-3">
+          <span className="grid size-6 shrink-0 place-items-center rounded-md bg-[var(--secondary)] text-[11px] font-semibold text-[var(--muted-foreground-1)]" aria-hidden="true">
+            {scope === "workspace" ? "T" : "P"}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+            {scope === "workspace" ? "Team workspace" : "Personal workspace"}
+          </span>
+        </div>
+      ) : null}
       <AppAreaNavigation />
       <div className="flex shrink-0 items-center justify-between min-h-12 px-4 py-2">
         <h2 className="text-[15px] font-semibold tracking-tight text-[#0a0a0a] dark:text-zinc-100">{title}</h2>

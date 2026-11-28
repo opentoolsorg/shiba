@@ -42,6 +42,7 @@ export function teamWorkspaceInvitationUrl(token: string, origin: string): strin
   return url.toString();
 }
 
+export const TEAM_WORKSPACE_REVOKED_ERROR = "Access to the selected workspace was removed. Choose another workspace or explicitly open your personal workspace.";
 const selectionKey = (actorId: string) => `shiba:team-workspace:${encodeURIComponent(actorId)}`;
 function remembered(actorId: string): string {
   try {
@@ -57,6 +58,23 @@ function remember(actorId: string, id: string): void {
     else localStorage.removeItem(selectionKey(actorId));
   } catch {
     /* Storage is optional. */
+  }
+}
+const revokedKey = (actorId: string) => `shiba:team-workspace-revoked:${encodeURIComponent(actorId)}`;
+function rememberRevoked(actorId: string, id: string): void {
+  try {
+    if (id) localStorage.setItem(revokedKey(actorId), id);
+    else localStorage.removeItem(revokedKey(actorId));
+  } catch {
+    /* Storage is optional. */
+  }
+}
+function revokedWorkspace(actorId: string): string {
+  try {
+    const id = localStorage.getItem(revokedKey(actorId));
+    return isTeamWorkspaceId(id) ? id : "";
+  } catch {
+    return "";
   }
 }
 const lastKey = (actorId: string) => `shiba:last-team-workspace:${encodeURIComponent(actorId)}`;
@@ -141,8 +159,14 @@ export function useTeamWorkspaceDirectory({
         const selected =
           previous.scope === scope ? previous.selectedWorkspaceId : remembered(scope);
         const unavailable = Boolean(selected && !workspaces.some((item) => item.workspaceId === selected));
-        return { verified: !unavailable, scope, workspaces, selectedWorkspaceId: selected, loading: false,
-          error: unavailable ? "Access to the selected workspace was removed. Choose another workspace or explicitly open your personal workspace." : null };
+        if (unavailable) {
+          remember(scope, "");
+          rememberRevoked(scope, selected);
+          try { localStorage.removeItem(lastKey(scope)); } catch { /* Storage is optional. */ }
+        }
+        const revoked = !selected && revokedWorkspace(scope);
+        return { verified: !unavailable && !revoked, scope, workspaces, selectedWorkspaceId: selected, loading: false,
+          error: unavailable || revoked ? TEAM_WORKSPACE_REVOKED_ERROR : null };
       });
     } catch (cause) {
       if (active())
@@ -181,6 +205,8 @@ export function useTeamWorkspaceDirectory({
         )
           return previous;
         remember(scope, id);
+        if (id) rememberLastTeamWorkspace(scope, id);
+        rememberRevoked(scope, "");
         return { ...previous, verified: true, selectedWorkspaceId: id, error: null };
       });
     },

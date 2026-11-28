@@ -60,7 +60,7 @@ describe("WorkListView", () => {
   it("shows the real empty state when there are no tasks", () => {
     renderList({ tasks: [] });
     expect(screen.getByText("No tasks yet")).toBeTruthy();
-    expect(screen.getByText("Add a task above. It lands in Todo.")).toBeTruthy();
+    expect(screen.getByText("Add a task below. It lands in Todo.")).toBeTruthy();
   });
 
   it("treats a list of only archived tasks as empty", () => {
@@ -71,7 +71,7 @@ describe("WorkListView", () => {
   it("groups tasks by status with counts, in planning order, hiding empty groups and archived tasks", () => {
     renderList();
     const headers = screen.getAllByRole("button", { expanded: true }).map((b) => b.textContent);
-    expect(headers).toEqual(["Todo1", "In progress1", "In review1", "Done1"]);
+    expect(headers).toEqual(["In review1", "In progress1", "Todo1", "Done1"]);
     expect(within(screen.getByRole("list", { name: "Todo" })).getByText("Write spec")).toBeTruthy();
     expect(screen.queryByText("Archived")).toBeNull();
   });
@@ -105,6 +105,20 @@ describe("WorkListView", () => {
     expect(row?.closest("li")?.className).toContain("bg-zinc-100");
   });
 
+  it("shows review, room, and due-date metadata in compact rows", () => {
+    renderList({
+      tasks: [
+        task("meta", "Launch plan", "needs-approval", {
+          roomTitle: "Overlay migration",
+          endDate: "2026-11-29",
+        }),
+      ],
+    });
+    expect(screen.getByText("Ready for review")).toBeTruthy();
+    expect(screen.getByText("Overlay migration")).toBeTruthy();
+    expect(screen.getByText(/Nov 29/)).toBeTruthy();
+  });
+
   it("uses the assigned teammate's saved Shiba preset", () => {
     renderList({ agents: [{ id: "coding-coworker", name: "Coder", mascotPreset: "sleeping" }] });
     expect(screen.getByRole("img", { name: "Coder" }).getAttribute("data-eyes")).toBe("sleepy");
@@ -119,7 +133,7 @@ describe("WorkListView", () => {
 
   it("moves focus between rows with arrow keys", () => {
     renderList();
-    const first = screen.getByText("Write spec").closest("button") as HTMLButtonElement;
+    const first = screen.getByText("Review PR").closest("button") as HTMLButtonElement;
     const second = screen.getByText("Ship build").closest("button") as HTMLButtonElement;
     first.focus();
     fireEvent.keyDown(first, { key: "ArrowDown" });

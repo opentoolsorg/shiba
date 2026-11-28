@@ -1,5 +1,5 @@
-import { BookOpen, Brain, FileText, Folder, Images, LayoutGrid } from "lucide-react";
-import { createContext, type ReactNode, useContext } from "react";
+import { BookOpen, Brain, ChevronDown, FileText, Folder, Images, LayoutGrid } from "lucide-react";
+import { createContext, type ReactNode, useContext, useState } from "react";
 import { type AppNavView, areaForView, navigationLabel } from "../app-navigation";
 
 interface ShellNavigation {
@@ -31,14 +31,21 @@ export function AppShell({ children, ...navigation }: ShellNavigation & { childr
 /** Rendered above the current surface's own filters, lists and actions. */
 export function AppAreaNavigation() {
   const shell = useContext(ShellNavigationContext);
+  const [open, setOpen] = useState(true);
   if (!shell) return null;
   const area = areaForView(shell.activeView);
   return (
     <nav aria-label={`${area.label} destinations`} className="shiba-area-navigation">
-      <p className="flex h-12 min-h-12 items-center pl-3 pr-1.5 text-[15px] font-semibold capitalize tracking-tight text-[var(--fg)]">
-        {area.label}
-      </p>
-      {area.views.map((view) => {
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="shiba-area-disclosure"
+      >
+        <span className="min-w-0 flex-1 truncate">More in {area.label}</span>
+        <ChevronDown className={`size-3.5 shrink-0 motion-safe:transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+      </button>
+      {open ? area.views.map((view) => {
         const Icon = AREA_VIEW_ICONS[view];
         return (
           <button
@@ -67,7 +74,7 @@ export function AppAreaNavigation() {
             ) : null}
           </button>
         );
-      })}
+      }) : null}
     </nav>
   );
 }

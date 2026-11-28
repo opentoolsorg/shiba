@@ -21,6 +21,8 @@ describe("tool catalog registration", () => {
     expect(ASK_USER_PUBLISHED).toBe(true);
     expect(tools.get("knowledge_search")).toMatchObject({ scope: "knowledge:read", meta: { annotations: { readOnlyHint: true } } });
     expect(Object.keys(tools.get("knowledge_search")?.meta.inputSchema ?? {})).toEqual(["query", "limit"]);
+    expect(tools.get("knowledge_read")).toMatchObject({ scope: "knowledge:read", meta: { annotations: { readOnlyHint: true } } });
+    expect(Object.keys(tools.get("knowledge_read")?.meta.inputSchema ?? {})).toEqual(["sourceKind", "sourceId", "maxChars"]);
     expect(tools.has("ask_user")).toBe(true);
   });
 });

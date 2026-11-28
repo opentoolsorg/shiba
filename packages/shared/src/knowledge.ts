@@ -93,7 +93,15 @@ export const knowledgeSearchToolArgsSchema = z.object({
 });
 export type KnowledgeSearchToolArgs = z.infer<typeof knowledgeSearchToolArgsSchema>;
 
+export const knowledgeReadToolArgsSchema = z.object({
+  sourceKind: knowledgeSourceKindSchema,
+  sourceId: z.string().trim().min(1).max(200),
+  maxChars: z.number().int().min(200).max(12000).optional(),
+}).strict();
+export type KnowledgeReadToolArgs = z.infer<typeof knowledgeReadToolArgsSchema>;
+
 export const KNOWLEDGE_SEARCH_TOOL_NAME = "knowledge_search" as const;
+export const KNOWLEDGE_READ_TOOL_NAME = "knowledge_read" as const;
 export const knowledgeProjectSchema = z.object({
   id: z.string(),
   workspaceId: z.string(),

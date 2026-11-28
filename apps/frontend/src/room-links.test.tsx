@@ -3,6 +3,7 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TeamWorkspaceSummary } from "@shiba/shared";
 import { readRoomLink, roomLinkUrl, useRoomLinkRoute } from "./room-links";
+import { TEAM_WORKSPACE_REVOKED_ERROR } from "./team-workspaces-client";
 
 const actor = "member@example.test";
 const workspaceId = `ws_${"a".repeat(24)}`;
@@ -77,6 +78,16 @@ describe("canonical workspace room links", () => {
     rerender({ actorId: "other@example.test", value });
     expect(result.current.ready).toBe(false);
     expect(result.current.roomId).toBeUndefined();
+  });
+  it("selects a valid linked workspace despite a persisted revocation notice", async () => {
+    openLink();
+    const value = { ...directory(), verified: false, error: TEAM_WORKSPACE_REVOKED_ERROR as string | null };
+    const { result, rerender } = renderHook(({ value }) => useRoomLinkRoute(actor, value), { initialProps: { value } });
+    await waitFor(() => expect(value.selectWorkspace).toHaveBeenCalledWith(workspaceId));
+    expect(result.current.ready).toBe(false);
+    rerender({ value: { ...value, verified: true, error: null, selectedWorkspaceId: workspaceId } });
+    expect(result.current.ready).toBe(true);
+    expect(result.current.roomId).toBe(roomId);
   });
   it("offers explicit recovery rather than pending when a different remembered workspace was revoked", () => {
     openLink(); const value = { ...directory(), verified: false, selectedWorkspaceId: `ws_${"d".repeat(24)}`,

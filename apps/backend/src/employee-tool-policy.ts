@@ -143,8 +143,10 @@ export async function dispatchEmployeeTool(input: EmployeeToolDispatchInput): Pr
       rule.action === registered.name && rule.capability.kind === "mcp" && rule.capability.id === id,
     );
     if (matchingRules.length !== 1) return { allowed: false, reason: "unsupported_action" };
-    const resourceArgument = matchingRules[0]!.resourceArgument;
-    const resourceValue = resourceArgument ? input.args[resourceArgument] : input.args.resourceId;
+    const rule = matchingRules[0]!;
+    const resourceArgument = rule.resourceArgument;
+    const resourceValue = resourceArgument ? input.args[resourceArgument] : input.args.resourceId ??
+      (rule.resourceRequired !== true && input.connection.allowedResources.length === 1 ? input.connection.allowedResources[0] : undefined);
     const resourceValues = Array.isArray(resourceValue) ? resourceValue : resourceValue === undefined ? [] : [resourceValue];
     if (resourceValues.some((value) => typeof value !== "string" || !value.trim() || value.length > 200) || resourceValues.length > 100) {
       return { allowed: false, reason: "resource_not_allowed" };

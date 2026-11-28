@@ -19,7 +19,7 @@ every subsystem.
 | Sandbox execution | Sandbox containers provide isolated execution. Approval is minted before a sandbox starts, and egress attaches credentials outside the container. | This is the correct high-trust lane for terminal/code work. It is not optional enough: approval, evidence, and run concepts assume this lane in several contracts. |
 | Memory | `Memory` Durable Objects store facts and owner memory. Vectorize stores embeddings. Memory routes and MCP tools exist. | Memory is split across agent-named facts, owner memory, conversation state, knowledge modules, and files. There is no single employee-private/thread/shared model with uniform tenant checks. |
 | Workspace knowledge | D1, R2, files, notes, knowledge ingestion, projects, and semantic search already exist. | These capabilities are workspace features, not yet a repository-independent employee workspace with private files, generated artifacts, and shared knowledge under one permission model. |
-| Tools and integrations | The lazy tool catalog, MCP registry, connected app actions, browser tools, media tools, and employee tool policy exist. `employee-run-tools.ts` resolves authority server-side. `EmployeeRuntime` now supplies this registry to direct multi-step model turns using the server-resolved employee actor, and streams inspectable tool activity. Approval-required actions still execute through the existing exact-payload approval boundary. | Tooling remains distributed across legacy orchestrator, runtime, browser, terminal, external APIs, and employee delegation. Owner-reviewed external MCP actions are available to the runtime through execution-bound authority, but browser/terminal execution and durable Work orchestration are not fully unified yet. |
+| Tools and integrations | The lazy tool catalog, MCP registry, connected app actions, browser tools, media tools, and employee tool policy exist. `employee-run-tools.ts` resolves authority server-side. `EmployeeRuntime` now supplies this registry to direct multi-step model turns using the server-resolved employee actor, and streams inspectable tool activity. Governed workspace knowledge search and exact-source knowledge reads are exposed as read-only native actions. Search uses the exact `workspace` grant sentinel; reads require grants for the exact file/note IDs returned by search. Retrieval still filters each file/note chunk or source through owner/workspace permissions. Approval-required actions still execute through the existing exact-payload approval boundary. | Tooling remains distributed across legacy orchestrator, runtime, browser, terminal, external APIs, and employee delegation. Owner-reviewed external MCP actions are available to the runtime through execution-bound authority, but browser/terminal execution and durable Work orchestration are not fully unified yet. |
 | Scheduling and automation | `Automations`, queues, workflows, alarms, Slack/email ingress, routines, and run recovery exist. `EmployeeRuntime` now has a first guarded routine-scheduling slice using Agents SDK persistent interval schedules. | Runtime routines are actor-conversation scoped, inference-only, deduplicated, capped per employee, minimum-interval bounded, manager-controlled in workspaces, cancelled with their owning conversation or archived employee, and fail closed for team inference until the funded-turn contract exists. D1-backed routine inspection, event triggers, delegation-depth limits, spend budgets, and notification policy remain. The employee details panel now exposes conversation-scoped routine inspection, creation, and cancellation controls. |
 | Frontend | Custom employee profiles, roster/workspace surfaces, approvals, work views, files, memories, skills, and integrations exist in the dashboard. | Creation no longer forces a harness, but operation still exposes coding/repository concepts to non-technical users. There is no single employee-centric runtime surface for chat, work, memory, files, tools, schedules, and history. |
 | Deployment state | Durable Objects coordinate live state. D1 owns shared records. R2 owns bytes. Vectorize owns embeddings. Queues and Workflows carry asynchronous control. | This ownership model is sound. The migration must not mirror all of D1 into the employee object. It needs a stricter split between durable domain state and live execution coordination. |
@@ -65,6 +65,18 @@ the same boundary from the execution side:
 These references do not replace Shiba's Cloudflare trust boundary. They add
 two concrete requirements to the remaining migration: resumable/cursor-based
 execution transport and receipted, idempotent employee-to-employee delegation.
+
+Reason's private-preview API adds a useful access rule for the workspace-files
+and Work execution phases: preview metadata is listed only inside the exact
+owned execution context for the calling identity, the list endpoint never mints
+viewer credentials or restarts execution, and read/use permissions are separate
+(`jobs:read` plus `devices:use`). Shiba should follow that split rather than
+treating a preview URL as a bearer capability: D1 should store execution-scoped
+preview metadata, the viewer route should check the current actor/workspace on
+every access, and any shareable preview should be a separate explicit grant with
+expiry and revocation. This is also consistent with OpenBot/Overlay's machine
+execution model: the execution host is outbound-only, while control-plane
+authorization decides who may inspect its live outputs.
 
 ## Target ownership
 
@@ -177,8 +189,9 @@ Remaining:
   or an equivalent checkpointed transport. Implemented first slice: streamed
   events now carry durable sequence IDs in EmployeeRuntime SQLite, network
   disconnects do not abort inference, and clients can replay/resume through
-  `/runtime/chat/stream/resume`. Full reload-time automatic reattachment and
-  shared-thread writer arbitration remain.
+  `/runtime/chat/stream/resume`, and the runtime chat surface automatically
+  reattaches to a live nonrecoverable execution after reload. Shared-thread
+  writer arbitration remains.
 - Share employee identity, memory, and conversation context across Chat and
   Work modes.
 - Add cancellation of live streams, checkpoint replay after eviction, retry
@@ -222,7 +235,7 @@ Remaining:
 
 ### Phase 5. Build repository-independent workspaces
 
-- Use R2 for bytes and D1 for metadata.
+- Use R2 for bytes and D1 for metadata. Implemented first retrieval slices: employees can use governed hybrid knowledge search across current files/notes after explicit workspace/actor/role grants, then read bounded textual excerpts only from exact file/note grants. Personal sources remain owner-only, inline reads are size-bounded, and binary or oversized content fails closed instead of entering model context.
 - Support folders, notes, documents, generated artifacts, private employee
   files, and shared company knowledge.
 - Treat repositories as linked resources only when a task needs one.
@@ -240,6 +253,10 @@ resources, policies, audit records, and exact-payload approvals before
 execution. Owner-reviewed external MCP actions use the runtime execution ID as
 their durable invocation context. Streaming surfaces bounded, redacted,
 inspectable tool activity in the runtime chat UI.
+
+Implemented second slice: `knowledge_search` is now part of the governed employee tool catalog. The policy UI grants it through the exact `workspace` sentinel without letting callers choose arbitrary resource identifiers, Ask-mode approvals freeze the same query payload and grant resource, and retrieval continues to enforce per-source personal/workspace visibility inside knowledge search.
+
+Implemented third slice: `knowledge_read` follows a search hit for one exact file/note grant. It returns only bounded textual excerpts with source identity, version, digest, and truncation metadata; personal/workspace access is rechecked inside the read, oversized or binary content is rejected, and strict input validation prevents payload smuggling.
 
 Still required before the phase is complete:
 
