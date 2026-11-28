@@ -61,7 +61,7 @@ async function fixture(kind: "note" | "file") {
     await runIngestionJob(env, input);
   }
   async function edit() {
-    const markdown = `# qa note edited\n\n${marker}`;
+    const markdown = `# qa note edited\n${marker}`;
     if (kind === "note") {
       const updated = await updateNoteMarkdown(env, source.id, { markdown, expectedVersion: 1 });
       return { ...message, jobId: "job-v2", version: 2, r2Key: updated.r2Key, sha256: updated.sha256 };
@@ -96,9 +96,9 @@ describe.each(["note", "file"] as const)("current %s knowledge", (kind) => {
       expect(await f.database.prepare(`SELECT ingestion_state FROM ${f.table} WHERE id=?`).bind(f.message.sourceId).first()).toMatchObject({ ingestion_state: "done" });
       // FTS only, then vector only (including stale vector matches).
       f.query.mockResolvedValueOnce({ matches: [] });
-      expect(await f.search()).toMatchObject([{ text: `# qa note edited\n\n${marker}` }]);
+      expect(await f.search()).toMatchObject([{ text: `qa note edited\n${marker}` }]);
       await f.database.prepare(`DELETE FROM knowledge_fts`).run();
-      expect(await f.search()).toMatchObject([{ text: `# qa note edited\n\n${marker}` }]);
+      expect(await f.search()).toMatchObject([{ text: `qa note edited\n${marker}` }]);
       await f.ingest(v2);
       expect(f.deleteByIds).toHaveBeenLastCalledWith(current.map((chunk) => chunk.id));
       expect(await f.search()).toHaveLength(1);
