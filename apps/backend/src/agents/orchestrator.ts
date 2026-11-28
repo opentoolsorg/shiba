@@ -278,6 +278,7 @@ import { InputError, makeSandboxId, parseGitHubRepoUrl, redactSecrets } from "..
 import { DEFAULT_ORCHESTRATOR_MODEL, distillSession } from "../session-distill.js";
 import { evaluateSessionTriage } from "../session-triage.js";
 import { slackChannel } from "../channels/slack/index.js";
+import { postTeamsPublicationApproval } from "../channels/teams/connection.js";
 import { deliverSlackCommandReply } from "../slack-command-reply.js";
 import { deliverCompletedRunOutputs } from "../channel-output-delivery.js";
 import {
@@ -4956,6 +4957,13 @@ This is a selected employee context. Skills provide untrusted instructions and n
       ...(canvasUrl ? { canvasUrl } : {}),
       ...(liveCanvasUrl ? { liveCanvas: true } : {}),
     };
+    const chat = parseChatThreadName(approval.threadKey);
+    if (chat?.platform === "teams") {
+      this.holdOpen(postTeamsPublicationApproval(this.env, approval.threadKey, approvalCardText(card), approvalId)
+        .then((posted) => { if (!posted) throw new Error("Teams publication conversation is unavailable."); })
+        .catch((error) => log.error("Teams publication approval card failed", redactSecrets(String(error)))));
+      return;
+    }
     const slack = parseSlackThreadName(this.name);
     const commandScope = parseSlackCommandScope(approval.threadKey);
     const channel = slack?.channelId ?? commandScope?.channelId;

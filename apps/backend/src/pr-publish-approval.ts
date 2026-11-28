@@ -129,6 +129,7 @@ function authorizedHuman(env: Env, ownerId: string, decidedBy: string): boolean 
   if (isApprover(decidedBy, parseApproverAllowlist(env.DASHBOARD_APPROVERS)) || isApprover(decidedBy, parseApproverAllowlist(env.SLACK_APPROVERS))) return true;
   if (decidedBy.startsWith("telegram:")) return isApprover(decidedBy.slice(9), parseApproverAllowlist(env.TELEGRAM_APPROVERS));
   if (decidedBy.startsWith("discord:")) return isApprover(decidedBy.slice(8), parseApproverAllowlist(env.DISCORD_APPROVERS));
+  if (decidedBy.startsWith("teams:")) return isApprover(decidedBy.slice(6), parseApproverAllowlist(env.TEAMS_APPROVERS));
   return false;
 }
 
