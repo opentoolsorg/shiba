@@ -19,8 +19,8 @@ Hire coding, marketing, research, and operations teammates that plan, ask before
 <br>
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/agents-dark.webp">
-  <img src="docs/readme/agents-light.webp" alt="Shiba Agents workspace with personal and workspace agents, template catalog, and hire actions" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/live-agents-dark.webp">
+  <img src="docs/readme/live-agents-light.webp" alt="Shiba Agents workspace with personal and workspace agents, template catalog, and hire actions" width="100%">
 </picture>
 
 ## What it is
@@ -64,14 +64,16 @@ The software is free to self-host. You pay for hosting and model usage through t
 
 <table>
 <tr>
-<td width="62%"><img src="docs/readme/team-conversation.webp" alt="Shiba shared team conversation with workspace members, employee access, context tabs, and a request employee work action"></td>
-<td width="38%"><img src="docs/readme/exact-approval.webp" alt="Shiba exact frozen approval showing workspace, requester, repository, runtime, provider, execution scope, expiry, and approve or reject actions"></td>
+<td width="62%"><img src="docs/readme/live-conversation.webp" alt="Shiba direct conversation with a drafted task and Review as work action"></td>
+<td width="38%"><img src="docs/readme/live-exact-approval.webp" alt="Shiba exact frozen approval showing workspace, requester, repository, runtime, provider, execution scope, expiry, and approve or reject actions"></td>
 </tr>
 <tr>
-<td><sub><b>Shared workspace.</b> People and employees collaborate in explicit rooms; a chat message does not start employee work.</sub></td>
+<td><sub><b>Work starts as a draft.</b> A conversation can become reviewed work only after the person chooses it.</sub></td>
 <td><sub><b>Exact approval.</b> The reviewer sees the frozen task, target, runtime, provider, scope, expiry, and cost authority before deciding.</sub></td>
 </tr>
 </table>
+
+[Watch the 25-second approval-flow tour](docs/readme/shiba-product-tour.mp4). The capture uses the repository-supported local mock boundary, so it demonstrates the product flow without claiming live model or GitHub execution.
 
 ## How work flows
 
